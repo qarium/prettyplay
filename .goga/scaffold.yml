@@ -1,0 +1,4 @@
+_commit: 1.0.0-1-gfe3dace
+_src_path: git@github.com:qarium/python-project-tpl.git
+package_name: prettyplay
+project_description: 'Tools for UI tests '

@@ -1,0 +1,20 @@
+name: Lint
+
+on:
+  push:
+    branches:
+      - 0.0.x
+  pull_request:
+    branches:
+      - 0.0.x
+
+jobs:
+  ruff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/ruff-action@v3
+
+      - name: Check formatting
+        run: ruff format --check prettyplay/ tests/

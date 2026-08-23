@@ -1,0 +1,12 @@
+prompt: |
+  Answer (feedbacks, proposes, questions and etc) in Russian language.
+
+stages:
+  define:
+    skip: true
+  discover:
+    agent: analyst
+  propose:
+    agent: manager
+  task-review:
+    agent: reviewer

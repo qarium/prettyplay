@@ -1,0 +1,17 @@
+language: python
+
+image: prettyplay:latest
+dockerfile: .goga/Dockerfile
+
+build:
+  task_executor:
+    agent: developer
+
+pipeline:
+  agent: claude
+
+codemanifest:
+  usages:
+    conventions: .goga/usages/conventions.md
+  annotations: |
+    Use `conventions` for code writing rules and testing.

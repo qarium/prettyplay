@@ -1,0 +1,38 @@
+docs_dir: docs
+
+site_name: Prettyplay
+site_description: Tools for ui tests 
+site_url: https://qarium.github.io/prettyplay/
+repo_url: https://github.com/qarium/prettyplay
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  custom_dir: docs/overrides
+  logo: https://avatars.githubusercontent.com/u/262344922?s=200&v=4
+  palette:
+    - scheme: default
+      primary: custom
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+        media: "(prefers-color-scheme: light)"
+    - scheme: slate
+      primary: custom
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+        media: "(prefers-color-scheme: dark)"
+  features:
+    - navigation.tabs
+    - navigation.indexes
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+
+nav: []
+
+plugins:
+  - search

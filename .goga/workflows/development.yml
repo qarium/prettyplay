@@ -1,0 +1,36 @@
+prompt: |
+  Answer (feedbacks, proposes, questions and etc) in Russian language.
+
+stages:
+  brainstorm:
+    agent: architector
+  architecture-review:
+    approve: auto
+    agent: reviewer
+  apply-architecture:
+    approve: auto
+    agent: architector
+  code-design:
+    approve: auto
+    agent: architector
+  design-review:
+    approve: auto
+    agent: reviewer
+  coding-plan:
+    approve: auto
+    agent: architector
+  plan-review:
+    approve: auto
+    agent: reviewer
+  accept-result:
+    agent: tester
+    manual: false
+
+extend:
+  build:
+    title: "Build implementation"
+    after:
+      - commit-changes
+    timeout: "8h"
+    script: python3 -m goga.build docs/plans/$(git branch --show-current).md
+    after_script: rm -rf .ralphex
