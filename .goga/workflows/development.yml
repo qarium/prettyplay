@@ -32,5 +32,5 @@ extend:
     after:
       - commit-changes
     timeout: "8h"
-    script: python3 -m goga.build docs/plans/$(git branch --show-current).md
+    script: python3 -m goga.build "$(goga history path -f plan.md)"
     after_script: rm -rf .ralphex
