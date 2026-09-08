@@ -1,0 +1,109 @@
+"""The unified LLM port of the library and the provider factory."""
+
+from ..config import Config
+from .models import FailureClassification
+
+
+class LlmProvider:
+    """The single LLM port: step code generation and failure classification.
+
+    One contract, two interchangeable SDK implementations selected by
+    configuration — the provider choice is never a capability difference.
+    The port itself is never instantiated at runtime; implementations own
+    one completion request per attempt (attempt budgets live in the calling
+    engine) and map every service failure to
+    :class:`~prettyplay.failures.LlmUnavailableError` naming the provider.
+    """
+
+    def generate_step_code(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
+        self,
+        prompt: str,
+        step_text: str,
+        previous_steps: list[str],
+        snapshot: str,
+        screenshot: bytes | None,
+        page_api: str,
+        existing_code: str | None,
+        error: str | None,
+    ) -> str:
+        """Generate step code of the fixed form working only through the driver facade.
+
+        Args:
+            prompt: the system prompt text supplied by the calling engine;
+                applied verbatim as the system message.
+            step_text: the sentence of the step to generate.
+            previous_steps: the sentences of the previous steps of the test,
+                in execution order — scenario context.
+            snapshot: the accessibility snapshot of the current page.
+            screenshot: an optional PNG image of the page; passed only when
+                the project enables screenshots.
+            page_api: the exact page facade surface listing — the calls the
+                model may use.
+            existing_code: the existing step code that failed; non-empty only
+                on regeneration requests.
+            error: the failure description of the existing code; non-empty
+                only on regeneration requests.
+
+        Returns:
+            The generated step code of the fixed form.
+
+        Raises:
+            NotImplementedError: the port itself carries no implementation.
+        """
+        raise NotImplementedError("LlmProvider is a port; use create_provider() to select an implementation")
+
+    def classify_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
+        self,
+        prompt: str,
+        step_text: str,
+        code: str,
+        error: str,
+        snapshot: str,
+        screenshot: bytes | None,
+    ) -> FailureClassification:
+        """Classify a failed cached step.
+
+        Args:
+            prompt: the system prompt text supplied by the calling engine;
+                applied verbatim as the system message.
+            step_text: the sentence of the failed step.
+            code: the existing step code that failed.
+            error: the human-readable description of the failure.
+            snapshot: the accessibility snapshot of the current page.
+            screenshot: an optional PNG image of the page; passed only when
+                the project enables screenshots.
+
+        Returns:
+            The classification verdict.
+
+        Raises:
+            NotImplementedError: the port itself carries no implementation.
+        """
+        raise NotImplementedError("LlmProvider is a port; use create_provider() to select an implementation")
+
+
+def create_provider(config: Config) -> LlmProvider:
+    """Select and construct the LLM provider from configuration.
+
+    Args:
+        config: project settings; the provider setting selects the SDK
+            implementation.
+
+    Returns:
+        The selected provider implementation.
+
+    Raises:
+        ValueError: the provider setting names no supported provider.
+    """
+    # deferred: the implementations subclass the port defined in this module,
+    # so a top-level import here would be circular
+    from .anthropic_provider import AnthropicProvider  # noqa: PLC0415
+    from .openai_provider import OpenAiProvider  # noqa: PLC0415
+
+    if config.provider == "openai":
+        return OpenAiProvider(config)
+
+    if config.provider == "anthropic":
+        return AnthropicProvider(config)
+
+    raise ValueError(f"unsupported provider {config.provider!r}: expected one of openai, anthropic")

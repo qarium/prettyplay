@@ -1184,12 +1184,12 @@ ELIF config.provider == "anthropic": RETURN AnthropicProvider(config)
 ELSE: raise ValueError("unsupported provider {config.provider!r}: expected one of openai, anthropic")
 ```
 
-- [ ] **STEP 0 (Declaration)**: объявить, что выполняется Задача 13 — LlmProvider + create_provider
-- [ ] **Contract tests** (`tests/llm/test_provider.py`): `from prettyplay.llm import
+- [x] **STEP 0 (Declaration)**: объявить, что выполняется Задача 13 — LlmProvider + create_provider
+- [x] **Contract tests** (`tests/llm/test_provider.py`): `from prettyplay.llm import
       LlmProvider, create_provider`; у порта методы `generate_step_code` и `classify_failure`
       с точными сигнатурами (inspect); `create_provider` — вызываем с Config.
       Ожидаемый провал
-- [ ] **Code**: создать `prettyplay/llm/provider.py`: класс `LlmProvider` (порт) и функцию
+- [x] **Code**: создать `prettyplay/llm/provider.py`: класс `LlmProvider` (порт) и функцию
       `create_provider` с обеими ветками ("openai" → OpenAiProvider, "anthropic" →
       AnthropicProvider, иное — ValueError по алгоритму). Для исполнимости задачи в одном
       сеансе (паттерн Задачи 6): создать минимальные скелеты `OpenAiProvider(LlmProvider)` и
@@ -1198,9 +1198,9 @@ ELSE: raise ValueError("unsupported provider {config.provider!r}: expected one o
       config в приватное поле; методы порта наследуются от `LlmProvider`; полная реализация —
       Задачи 14–15), чтобы `create_provider` возвращал реальные инстансы и все тесты Задачи 13
       проходили
-- [ ] **Code**: `prettyplay/llm/__init__.py` — добавить `LlmProvider`, `create_provider`
-- [ ] **Interface verification**: `.venv/bin/pytest tests/llm/test_provider.py -v`
-- [ ] **Logic tests**:
+- [x] **Code**: `prettyplay/llm/__init__.py` — добавить `LlmProvider`, `create_provider`
+- [x] **Interface verification**: `.venv/bin/pytest tests/llm/test_provider.py -v`
+- [x] **Logic tests**:
       - `test_create_provider_selects_by_config` — Setup: `Config(provider="anthropic",
         model="claude-sonnet-4-5")` (env-ключей нет — не нужен).
         Input: `create_provider(config)`.
@@ -1217,10 +1217,10 @@ ELSE: raise ValueError("unsupported provider {config.provider!r}: expected one o
         create_provider(config)
         ```
         Assertions (verbatim): `pytest.raises(ValueError)`; `"openai"` и `"anthropic"` в тексте
-- [ ] **Debugging**: `.venv/bin/pytest tests/llm/ -x`
-- [ ] **Contract re-verification**: двойная защита (Literal в Config + ValueError в фабрике);
+- [x] **Debugging**: `.venv/bin/pytest tests/llm/ -x`
+- [x] **Contract re-verification**: двойная защита (Literal в Config + ValueError в фабрике);
       один запрос на попытку — у порта нет своих ретраев
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/llm/ tests/llm/`
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/llm/ tests/llm/`
 
 ### Task 14: `OpenAiProvider` (prettyplay/llm/openai_provider.py)
 
