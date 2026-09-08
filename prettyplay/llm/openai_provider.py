@@ -9,8 +9,9 @@ from ..failures import LlmUnavailableError
 from ._request import (
     build_classification_fields,
     build_fields_text,
-    encode_screenshot,
+    openai_user_content,
     parse_classification_line,
+    unparsable_classification,
 )
 from .models import FailureClassification
 from .provider import LlmProvider
@@ -92,18 +93,9 @@ class OpenAiProvider(LlmProvider):
                 service request failed.
         """
         text = build_fields_text(step_text, previous_steps, snapshot, page_api, existing_code, error)
-        user_content: str | list[dict] = text
-        if screenshot is not None:
-            user_content = [
-                {"type": "text", "text": text},
-                {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/png;base64,{encode_screenshot(screenshot)}"},
-                },
-            ]
         messages = [
             {"role": "system", "content": prompt},
-            {"role": "user", "content": user_content},
+            {"role": "user", "content": openai_user_content(text, screenshot)},
         ]
         try:
             response = self._get_client().chat.completions.create(
@@ -144,18 +136,9 @@ class OpenAiProvider(LlmProvider):
                 service request failed.
         """
         text = build_classification_fields(step_text, code, error, snapshot)
-        user_content: str | list[dict] = text
-        if screenshot is not None:
-            user_content = [
-                {"type": "text", "text": text},
-                {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/png;base64,{encode_screenshot(screenshot)}"},
-                },
-            ]
         messages = [
             {"role": "system", "content": prompt},
-            {"role": "user", "content": user_content},
+            {"role": "user", "content": openai_user_content(text, screenshot)},
         ]
         try:
             response = self._get_client().chat.completions.create(
@@ -168,10 +151,6 @@ class OpenAiProvider(LlmProvider):
         answer = str(response.choices[0].message.content)
         parsed = parse_classification_line(answer)
         if parsed is None:
-            return FailureClassification(
-                category="incurable",
-                explanation="classification verdict unparsable",
-                recommendation="re-run the step or check the provider answer",
-            )
+            return FailureClassification(**unparsable_classification())
         category, explanation, recommendation = parsed
         return FailureClassification(category=category, explanation=explanation, recommendation=recommendation)

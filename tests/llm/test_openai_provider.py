@@ -75,14 +75,10 @@ class TestOpenAiProviderContract:
 class TestOpenAiProviderLogic:
     """Logic tests: SDK mapping, lazy key, classification parsing, request shape."""
 
-    def test_openai_provider_error_maps_to_llm_unavailable(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_openai_provider_error_maps_to_llm_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client = SimpleNamespace(
-            chat=SimpleNamespace(
-                completions=SimpleNamespace(create=mock.MagicMock(side_effect=OpenAIError("timeout")))
-            )
+            chat=SimpleNamespace(completions=SimpleNamespace(create=mock.MagicMock(side_effect=OpenAIError("timeout"))))
         )
         provider = OpenAiProvider(Config(model="gpt-5"))
 
@@ -121,9 +117,7 @@ class TestOpenAiProviderLogic:
 
         assert "OPENAI_API_KEY" in str(excinfo.value)
 
-    def test_classification_unparsable_defaults_to_incurable(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_classification_unparsable_defaults_to_incurable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, requests = make_client_create(answer="sorry cannot answer")
         provider = OpenAiProvider(Config(model="gpt-5"))
@@ -172,9 +166,7 @@ class TestOpenAiProviderLogic:
         assert "page.open(...)" in user["content"]
         assert "CODE" not in user["content"]  # регенерационные поля отсутствуют на первой попытке
 
-    def test_generate_regeneration_request_carries_code_and_error(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_generate_regeneration_request_carries_code_and_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, requests = make_client_create(answer=WORKING_CODE)
         provider = OpenAiProvider(Config(model="gpt-5"))
@@ -195,9 +187,7 @@ class TestOpenAiProviderLogic:
         assert "def step(page) -> None:" in user
         assert "AssertionError: boom" in user
 
-    def test_generate_with_screenshot_attaches_image_block(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_generate_with_screenshot_attaches_image_block(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, requests = make_client_create(answer=WORKING_CODE)
         provider = OpenAiProvider(Config(model="gpt-5"))
@@ -219,6 +209,28 @@ class TestOpenAiProviderLogic:
         assert user_content[0]["type"] == "text"
         image_block = user_content[1]
         assert image_block["type"] == "image_url"
+        assert image_block["image_url"]["url"].startswith("data:image/png;base64,")
+
+    def test_classification_with_screenshot_uses_openai_image_block(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "test")
+        client, requests = make_client_create(answer="rot | почему | что делать")
+        provider = OpenAiProvider(Config(model="gpt-5"))
+
+        with mock.patch.object(provider, "_get_client", return_value=client):
+            provider.classify_failure(
+                prompt="p",
+                step_text="s",
+                code="c",
+                error="e",
+                snapshot="- snap",
+                screenshot=b"png-bytes",
+            )
+
+        user_content = requests[0]["messages"][1]["content"]
+        assert isinstance(user_content, list)
+        assert user_content[0]["type"] == "text"
+        image_block = user_content[1]
+        assert image_block["type"] == "image_url"  # parity: classification attaches the same image shape
         assert image_block["image_url"]["url"].startswith("data:image/png;base64,")
 
     def test_client_constructed_with_base_url_when_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -262,9 +274,7 @@ class TestOpenAiProviderLogic:
         assert classification.recommendation == "проверить шаг"
         assert requests[0]["model"] == "gpt-5-mini"  # effective_classification_model
 
-    def test_classification_unknown_category_defaults_to_incurable(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_classification_unknown_category_defaults_to_incurable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, _requests = make_client_create(answer="mystery | why | do something")
         provider = OpenAiProvider(Config(model="gpt-5"))
@@ -281,9 +291,7 @@ class TestOpenAiProviderLogic:
 
         assert classification.category == "incurable"
 
-    def test_classification_empty_answer_defaults_to_incurable(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_classification_empty_answer_defaults_to_incurable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, _requests = make_client_create(answer="   ")
         provider = OpenAiProvider(Config(model="gpt-5"))
@@ -300,14 +308,10 @@ class TestOpenAiProviderLogic:
 
         assert classification.category == "incurable"
 
-    def test_sdk_error_in_classify_maps_to_llm_unavailable(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_sdk_error_in_classify_maps_to_llm_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client = SimpleNamespace(
-            chat=SimpleNamespace(
-                completions=SimpleNamespace(create=mock.MagicMock(side_effect=OpenAIError("boom")))
-            )
+            chat=SimpleNamespace(completions=SimpleNamespace(create=mock.MagicMock(side_effect=OpenAIError("boom"))))
         )
         provider = OpenAiProvider(Config(model="gpt-5"))
 

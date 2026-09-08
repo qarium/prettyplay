@@ -234,8 +234,8 @@ class TestStepGeneratorLogic:
         with pytest.raises(IncurableStepError) as excinfo:
             fixture.generator.generate(make_identity(), "невозможный шаг", [], page)
 
-        assert "budget" in excinfo.value.reason
-        assert excinfo.value.recommendation
+        assert excinfo.value.reason == "generation attempt budget exhausted"
+        assert excinfo.value.recommendation == "reword the step or raise generation_attempts"
         assert len(provider.calls) == 3
         assert not [event for event in fixture.recorder.events if event[0] == "on_cache_saved"]
 
@@ -272,6 +272,39 @@ class TestStepGeneratorLogic:
         # healing-бюджет израсходован, generation-бюджет не тронут
         assert fixture.budgets.try_healing(identity) is False
         assert fixture.budgets.try_generation(identity) is True
+
+    def test_regenerate_budget_exhaustion_names_healing_pool(self, tmp_path: Path) -> None:
+        provider = StubProvider([BROKEN_CODE])
+        fixture = GeneratorFixture(tmp_path, provider, limits=(3, 1))
+        identity = make_identity()
+        page = FailingPage()
+
+        with pytest.raises(IncurableStepError) as excinfo:
+            fixture.generator.regenerate(
+                identity,
+                "невозможный шаг",
+                [],
+                page,
+                existing_code=BROKEN_CODE,
+                error="element not found",
+            )
+
+        assert excinfo.value.reason == "healing attempt budget exhausted"
+        assert excinfo.value.recommendation == "reword the step or raise healing_attempts"
+        assert len(provider.calls) == 1  # healing-бюджет (1) исчерпан после первой попытки
+
+    def test_messageless_candidate_failure_is_retried_not_crashed(self, tmp_path: Path) -> None:
+        bare_assert_code = "def step(page) -> None:\n    assert 1 == 2\n"  # assert без текста: str(exc) == ''
+        provider = StubProvider([bare_assert_code, WORKING_CODE])
+        fixture = GeneratorFixture(tmp_path, provider)
+        page = FakePage()
+
+        step = fixture.generator.generate(make_identity(), "проверить страницу", [], page)
+
+        assert step.code == WORKING_CODE
+        assert len(provider.calls) == 2
+        assert provider.calls[1]["error"] == ""  # пустое описание сбоя, не IndexError
+        assert provider.calls[1]["existing_code"] == bare_assert_code
 
     def test_generated_step_is_saved_into_cache(self, tmp_path: Path) -> None:
         provider = StubProvider([WORKING_CODE])

@@ -3,6 +3,28 @@
 import pytest
 from prettyplay.config import Config, load_config
 
+#: Every PRETTYPLAY_* override the loader reads; tests neutralize ambient values.
+_ALL_ENV_FIELDS = (
+    "PROVIDER",
+    "BROWSER",
+    "MODEL",
+    "GENERATION_MODEL",
+    "CLASSIFICATION_MODEL",
+    "BASE_URL",
+    "CACHE_ROOT",
+    "GENERATION_ATTEMPTS",
+    "HEALING_ATTEMPTS",
+    "SEND_SCREENSHOTS",
+)
+
+
+@pytest.fixture(autouse=True)
+def no_ambient_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Neutralize ambient PRETTYPLAY_* variables: loader tests stay deterministic."""
+    for field in _ALL_ENV_FIELDS:
+        monkeypatch.delenv(f"PRETTYPLAY_{field}", raising=False)
+
+
 PYPROJECT_WITH_SECTION = """\
 [tool.prettyplay]
 provider = "openai"
@@ -22,9 +44,13 @@ class TestLoadConfigContract:
     def test_load_config_is_importable_from_facade(self) -> None:
         assert callable(load_config)
 
-    def test_signature_accepts_none_and_str_path(self) -> None:
+    def test_signature_accepts_none_and_str_path(self, tmp_path, monkeypatch) -> None:
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(PYPROJECT_WITH_SECTION, encoding="utf-8")
+        monkeypatch.chdir(tmp_path)  # авто-поиск детерминирован: cwd содержит pyproject.toml
+
         assert load_config(pyproject_path=None).provider == "openai"
-        assert load_config(pyproject_path=None).browser == "chromium"
+        assert load_config(pyproject_path=str(pyproject)).browser == "chromium"
 
 
 class TestLoadConfigLogic:

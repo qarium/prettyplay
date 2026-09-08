@@ -73,9 +73,7 @@ class TestStepCacheLogic:
 
     def test_save_load_roundtrip_via_file(self, tmp_path: Path, caplog) -> None:
         cache, recorder = make_cache(tmp_path)
-        identity = StepIdentity(
-            cache_key="login-flow", step_type="action", normalized_text="открыть страницу логина"
-        )
+        identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="открыть страницу логина")
 
         with caplog.at_level(logging.INFO, logger="prettyplay"):
             cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
@@ -92,12 +90,12 @@ class TestStepCacheLogic:
         assert "def step(" in text
 
         saved_events = [call for call in recorder.calls if call[0] == "on_cache_saved"]
-        assert saved_events == [("on_cache_saved", {"step_text": "открыть страницу логина",
-                                                    "filename": identity.filename})]
+        assert saved_events == [
+            ("on_cache_saved", {"step_text": "открыть страницу логина", "filename": identity.filename})
+        ]
 
         info_records = [
-            record for record in caplog.records
-            if record.levelno == logging.INFO and record.name == "prettyplay"
+            record for record in caplog.records if record.levelno == logging.INFO and record.name == "prettyplay"
         ]
         assert any(record.msg == "on_cache_saved" for record in info_records)
         saved_record = next(record for record in info_records if record.msg == "on_cache_saved")
@@ -119,8 +117,7 @@ class TestStepCacheLogic:
 
             assert not (root / "checkout").exists()  # файл не создан
             skipped_events = [call for call in recorder.calls if call[0] == "on_cache_skipped"]
-            assert skipped_events == [("on_cache_skipped", {"step_text": "шаг",
-                                                            "reason": "read-only cache"})]
+            assert skipped_events == [("on_cache_skipped", {"step_text": "шаг", "reason": "read-only cache"})]
         finally:
             root.chmod(0o700)  # restore so tmp_path cleanup works
 
@@ -193,6 +190,94 @@ class TestStepCacheLogic:
             cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
 
         skipped_events = [call for call in recorder.calls if call[0] == "on_cache_skipped"]
-        assert skipped_events == [("on_cache_skipped", {"step_text": "занятая цель",
-                                                        "reason": "cache target busy"})]
+        assert skipped_events == [("on_cache_skipped", {"step_text": "занятая цель", "reason": "cache target busy"})]
         assert cache.load(identity) is None  # частичный файл не стал видимым
+
+    def test_replace_oserror_skips_loudly(self, tmp_path: Path) -> None:
+        """Additional edge: any OSError on replace (not only PermissionError) skips, never fails."""
+        cache, recorder = make_cache(tmp_path)
+        identity = StepIdentity(cache_key="k", step_type="action", normalized_text="пропавшая цель")
+
+        with mock.patch("prettyplay.cache.store.os.replace", side_effect=FileNotFoundError("dir gone")):
+            cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
+
+        skipped_events = [call for call in recorder.calls if call[0] == "on_cache_skipped"]
+        assert skipped_events == [("on_cache_skipped", {"step_text": "пропавшая цель", "reason": "cache target busy"})]
+
+    def test_mkstemp_failure_skips_loudly(self, tmp_path: Path) -> None:
+        """Additional edge: the temp file cannot be created → skip, the run continues."""
+        cache, recorder = make_cache(tmp_path)
+        identity = StepIdentity(cache_key="k", step_type="action", normalized_text="нет temp")
+
+        with mock.patch("prettyplay.cache.store.tempfile.mkstemp", side_effect=OSError("no space")):
+            cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
+
+        skipped_events = [call for call in recorder.calls if call[0] == "on_cache_skipped"]
+        assert skipped_events == [("on_cache_skipped", {"step_text": "нет temp", "reason": "cache target busy"})]
+
+    def test_write_failure_cleans_temp_and_skips(self, tmp_path: Path) -> None:
+        """Additional edge: the temp write fails → temp removed, skip emitted, no partial file."""
+        cache, recorder = make_cache(tmp_path)
+        identity = StepIdentity(cache_key="k", step_type="action", normalized_text="сбой записи")
+
+        with mock.patch("prettyplay.cache.store.os.fsync", side_effect=OSError("io error")):
+            cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
+
+        files = sorted(entry.name for entry in (tmp_path / "checkout").iterdir())
+        assert files == []  # temp-файл убран, цели нет
+        skipped_events = [call for call in recorder.calls if call[0] == "on_cache_skipped"]
+        assert skipped_events == [("on_cache_skipped", {"step_text": "сбой записи", "reason": "cache target busy"})]
+
+    def test_load_header_without_step_marker_is_miss(self, tmp_path: Path) -> None:
+        """Additional edge: parseable header but no def step( tail → protective miss."""
+        cache, _ = make_cache(tmp_path)
+        identity = StepIdentity(cache_key="k", step_type="action", normalized_text="шаг без хвоста")
+        target_dir = tmp_path / "checkout"
+        target_dir.mkdir(parents=True)
+        (target_dir / identity.filename).write_text(
+            "STEP_TEXT = 'шаг без хвоста'\nCACHE_KEY = 'k'\nSTEP_TYPE = 'action'\nCREATED_AT = '2026-09-07'\n",
+            encoding="utf-8",
+        )
+
+        assert cache.load(identity) is None
+
+    def test_load_missing_header_field_is_miss(self, tmp_path: Path) -> None:
+        """Additional edge: a header without CREATED_AT → protective miss, never a crash."""
+        cache, _ = make_cache(tmp_path)
+        identity = StepIdentity(cache_key="k", step_type="action", normalized_text="шаг без поля")
+        target_dir = tmp_path / "checkout"
+        target_dir.mkdir(parents=True)
+        (target_dir / identity.filename).write_text(
+            "STEP_TEXT = 'шаг без поля'\nCACHE_KEY = 'k'\nSTEP_TYPE = 'action'\n\ndef step(page) -> None:\n    pass\n",
+            encoding="utf-8",
+        )
+
+        assert cache.load(identity) is None
+
+    def test_load_cache_key_mismatch_is_miss(self, tmp_path: Path) -> None:
+        """Additional edge: the digest matches one field edit, the other diverges → miss."""
+        cache, _ = make_cache(tmp_path)
+        identity = StepIdentity(cache_key="k", step_type="action", normalized_text="шаг чужого ключа")
+
+        cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
+        file_path = tmp_path / "checkout" / identity.filename
+        text = file_path.read_text(encoding="utf-8")
+        file_path.write_text(text.replace("CACHE_KEY = 'k'", "CACHE_KEY = 'другой'"), encoding="utf-8")
+
+        assert cache.load(identity) is None
+
+    def test_default_reporter_construction_saves_and_skips_loudly(self, tmp_path: Path) -> None:
+        """Additional edge: no reporter passed — construction and save still work (no crash)."""
+        cache = StepCache(Config(cache_root=str(tmp_path)), "checkout")
+        identity = StepIdentity(cache_key="k", step_type="action", normalized_text="шаг без репортёра")
+
+        cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
+        loaded = cache.load(identity)
+
+        assert loaded is not None  # запись и чтение без AttributeError
+
+    @pytest.mark.parametrize("bad_path", ["/etc", "../../outside"])
+    def test_path_outside_cache_root_fails_loudly(self, tmp_path: Path, bad_path: str) -> None:
+        """Additional edge: absolute or escaping cache paths are rejected at construction."""
+        with pytest.raises(ValueError, match="cache path"):
+            StepCache(Config(cache_root=str(tmp_path)), bad_path)

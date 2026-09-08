@@ -10,6 +10,7 @@ import pytest
 from prettyplay import PrettyplayRuntime, PrettyTest
 from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step_text
 from prettyplay.config import Config
+from prettyplay.failures import IncurableStepError, ProductDefectError
 from prettyplay.llm import FailureClassification, LlmProvider
 from prettyplay.reporting import StepHooks, StepReporter
 
@@ -371,3 +372,61 @@ def test_cache_path_subdirectories_do_not_collide(tmp_path: Path) -> None:
     assert provider.calls == 0
     assert (tmp_path / "checkout" / identity.filename).exists()
     assert (tmp_path / "marketing" / identity.filename).exists()
+
+
+def test_product_defect_verdict_fails_the_test_loudly(tmp_path: Path) -> None:
+    """A classified product defect surfaces through PrettyTest.action with an intact cache."""
+    step_text = "нажать Войти"
+    broken_code = "def step(page) -> None:\n    page.find_by_role('button', name='Войти').click()\n"
+    identity = seed_step(tmp_path, step_text, broken_code, cache_key="login-flow")
+    provider = StubProvider(
+        verdict=FailureClassification(
+            category="product_defect", explanation="ожидание не оправдалось", recommendation="чинить продукт"
+        ),
+    )
+    page = FakePage(broken_lookups=frozenset({"find_by_role"}))
+    hook = RecorderHook()
+
+    with installed_runtime(tmp_path, provider, page):
+        test = PrettyTest("login-flow")
+        test.add_hooks(hook)
+        with pytest.raises(ProductDefectError) as excinfo:
+            test.action(step_text)
+        test.close()
+
+    assert excinfo.value.step_text == normalize_step_text(step_text)
+    assert excinfo.value.message == "ожидание не оправдалось"
+    assert provider.generation_requests == []  # дефект продукта не регенерируется
+    rewritten = (tmp_path / identity.filename).read_text(encoding="utf-8")
+    assert "find_by_role" in rewritten  # кэш не тронут
+    assert [event for event, _payload in hook.events] == ["on_step_started", "on_healing_started", "on_step_failed"]
+
+
+def test_incurable_verdict_fails_with_verdict_fields(tmp_path: Path) -> None:
+    """An incurable classification surfaces with the verdict explanation and recommendation."""
+    step_text = "нажать Войти"
+    broken_code = "def step(page) -> None:\n    page.find_by_role('button', name='Войти').click()\n"
+    identity = seed_step(tmp_path, step_text, broken_code, cache_key="login-flow")
+    provider = StubProvider(
+        verdict=FailureClassification(
+            category="incurable",
+            explanation="текст шага не соответствует реальности",
+            recommendation="переформулируйте шаг",
+        ),
+    )
+    page = FakePage(broken_lookups=frozenset({"find_by_role"}))
+    hook = RecorderHook()
+
+    with installed_runtime(tmp_path, provider, page):
+        test = PrettyTest("login-flow")
+        test.add_hooks(hook)
+        with pytest.raises(IncurableStepError) as excinfo:
+            test.action(step_text)
+        test.close()
+
+    assert excinfo.value.reason == "текст шага не соответствует реальности"
+    assert excinfo.value.recommendation == "переформулируйте шаг"
+    assert provider.generation_requests == []  # лечение не запрашивает регенерацию
+    rewritten = (tmp_path / identity.filename).read_text(encoding="utf-8")
+    assert "find_by_role" in rewritten  # кэш не тронут
+    assert [event for event, _payload in hook.events] == ["on_step_started", "on_healing_started", "on_step_failed"]

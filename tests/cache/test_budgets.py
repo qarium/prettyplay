@@ -76,3 +76,19 @@ class TestRunBudgetsLogic:
         # «Другой тест» в том же процессе: тот же реестр, попытки не вернулись.
         budgets2 = budgets
         assert budgets2.try_generation(IDENTITY) is False
+
+    def test_budgets_shared_between_two_consumers_of_one_registry(self) -> None:
+        """The registry is handed to several consumers; spending is shared, not per-consumer."""
+        budgets = RunBudgets(generation_limit=1, healing_limit=1)
+
+        class Consumer:
+            def __init__(self, registry: RunBudgets) -> None:
+                self.registry = registry
+
+            def try_(self, identity: StepIdentity) -> bool:
+                return self.registry.try_generation(identity)
+
+        first, second = Consumer(budgets), Consumer(budgets)  # два потребителя одного реестра
+
+        assert first.try_(IDENTITY) is True
+        assert second.try_(IDENTITY) is False  # второму попытка не вернулась

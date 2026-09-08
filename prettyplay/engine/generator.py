@@ -1,6 +1,5 @@
 """Generation of working step code: LLM candidates executed against the live page in a loop."""
 
-from collections.abc import Callable
 from datetime import date
 
 from ..cache import CachedStep, RunBudgets, StepCache, StepIdentity
@@ -10,6 +9,7 @@ from ..failures import IncurableStepError
 from ..llm import LlmProvider
 from ..reporting import StepReporter
 from .execution import run_step_code
+from .text import first_line_short
 
 #: System prompt of every generation request; applied verbatim by the provider.
 GENERATION_PROMPT = """You generate executable Python code for one step of a web UI test.
@@ -76,9 +76,6 @@ element.expect_visible()          — assert visible
 element.expect_text(text)         — assert text
 element.expect_enabled()          — assert enabled"""
 
-#: Upper bound of the short failure description carried by regeneration requests.
-_SHORT_ERROR_LENGTH = 200
-
 
 class StepGenerator:
     """Generates working step code by executing LLM candidates against the live page.
@@ -142,7 +139,7 @@ class StepGenerator:
             IncurableStepError: the generation attempt budget is exhausted.
             LlmUnavailableError: the provider service failed; no retry.
         """
-        return self._loop(identity, step_text, previous_steps, page, self._budgets.try_generation, None, None)
+        return self._loop(identity, step_text, previous_steps, page, "generation", None, None)
 
     def regenerate(  # noqa: PLR0913, PLR0917 — the signature is fixed by the engine contract
         self,
@@ -173,7 +170,7 @@ class StepGenerator:
             IncurableStepError: the healing attempt budget is exhausted.
             LlmUnavailableError: the provider service failed; no retry.
         """
-        return self._loop(identity, step_text, previous_steps, page, self._budgets.try_healing, existing_code, error)
+        return self._loop(identity, step_text, previous_steps, page, "healing", existing_code, error)
 
     def _loop(  # noqa: PLR0913, PLR0917 — the shared attempt loop with its fixed inputs
         self,
@@ -181,7 +178,7 @@ class StepGenerator:
         step_text: str,
         previous_steps: list[str],
         page: PageFacade,
-        try_attempt: Callable[[StepIdentity], bool],
+        pool: str,
         existing_code: str | None,
         error: str | None,
     ) -> CachedStep:
@@ -192,7 +189,7 @@ class StepGenerator:
             step_text: the sentence of the step.
             previous_steps: the sentences of the previous steps of the test.
             page: the live page facade the candidates run against.
-            try_attempt: the budget spend callback (generation or healing pool).
+            pool: the budget pool name — "generation" or "healing".
             existing_code: the failed code of the first request, if any.
             error: the failure description of the first request, if any.
 
@@ -205,13 +202,18 @@ class StepGenerator:
         """
         attempt = 0
         code = None
+        spend = self._budgets.try_generation if pool == "generation" else self._budgets.try_healing
         while True:
-            if not try_attempt(identity):
-                pool = "generation" if try_attempt is self._budgets.try_generation else "healing"
+            if not spend(identity):
+                recommendation = (
+                    "reword the step or raise generation_attempts"
+                    if pool == "generation"
+                    else "reword the step or raise healing_attempts"
+                )
                 raise IncurableStepError(
                     step_text,
                     f"{pool} attempt budget exhausted",
-                    "reword the step or raise the attempt limit",
+                    recommendation,
                 )
             attempt += 1
             self._reporter.emit("on_generation_started", {"step_text": step_text, "attempt": attempt})
@@ -232,7 +234,7 @@ class StepGenerator:
                 run_step_code(code, page)
             except Exception as candidate_error:  # любой сбой кандидата лечится повтором
                 existing_code = code
-                error = _short(candidate_error)
+                error = first_line_short(candidate_error)
             else:
                 break
 
@@ -243,15 +245,3 @@ class StepGenerator:
         )
         self._cache.save(step)
         return step
-
-
-def _short(exc: Exception) -> str:
-    """Return the first line of the exception text, cut to 200 characters.
-
-    Args:
-        exc: the exception raised by the failed candidate.
-
-    Returns:
-        The short failure description carried by the next regeneration request.
-    """
-    return str(exc).splitlines()[0][:_SHORT_ERROR_LENGTH]

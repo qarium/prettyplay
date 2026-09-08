@@ -7,7 +7,7 @@ import pytest
 from prettyplay import StepExecutor
 from prettyplay.cache import CachedStep, RunBudgets, StepCache, StepIdentity, normalize_step_text
 from prettyplay.config import Config
-from prettyplay.failures import IncurableStepError
+from prettyplay.failures import IncurableStepError, LlmUnavailableError, ProductDefectError
 from prettyplay.reporting import StepHooks, StepReporter
 
 CACHED_CODE = "def step(page) -> None:\n    page.open('https://example.com')\n"
@@ -229,6 +229,32 @@ class TestStepExecutorLogic:
         assert len(error) == 200
         assert "second line" not in error
 
+    def test_messageless_cached_failure_flows_to_healing_without_crash(self, tmp_path: Path) -> None:
+        generator = RecordingGenerator()
+        healer = RecordingHealer()
+        fixture = ExecutorFixture(tmp_path, generator, healer)
+        identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="проверить")
+        bare_assert_code = "def step(page) -> None:\n    assert 1 == 2\n"  # assert без текста
+        fixture.cache.save(CachedStep(identity=identity, code=bare_assert_code, created_at="2026-09-08"))
+        page = FakePage()
+
+        fixture.executor.execute("проверить", "action", page)
+
+        assert len(healer.calls) == 1
+        assert healer.calls[0]["error"] == ""  # пустое описание сбоя, не IndexError
+        assert not events_named(fixture.recorder, "on_step_failed")  # вылечен — шаг прошёл
+
+    def test_messageless_generator_failure_reports_empty_error(self, tmp_path: Path) -> None:
+        generator = RaisingGenerator(AssertionError())  # bare assert: str(exc) == ''
+        fixture = ExecutorFixture(tmp_path, generator, RecordingHealer())
+        page = FakePage()
+
+        with pytest.raises(AssertionError):
+            fixture.executor.execute("шаг", "action", page)
+
+        failed = events_named(fixture.recorder, "on_step_failed")
+        assert failed == [{"step_text": "шаг", "step_type": "action", "error": ""}]
+
     def test_cached_failure_heals_with_scenario_context(self, tmp_path: Path) -> None:
         generator = RecordingGenerator()
         healed_step = CachedStep(
@@ -254,3 +280,31 @@ class TestStepExecutorLogic:
         assert len(events_named(fixture.recorder, "on_step_passed")) == 2
         assert not events_named(fixture.recorder, "on_step_failed")
         assert fixture.executor._scenario == ["шаг один", "нажать Войти"]
+
+    @pytest.mark.parametrize(
+        "failure",
+        [
+            ProductDefectError("нажать войти", "ожидание не оправдалось"),
+            IncurableStepError("нажать войти", "текст шага не соответствует реальности", "переформулируйте шаг"),
+            LlmUnavailableError("llm unavailable: openai request failed"),
+        ],
+    )
+    def test_healer_failure_propagates_by_kind_with_event(self, tmp_path: Path, failure: Exception) -> None:
+        generator = RecordingGenerator()
+
+        class RaisingHealer:
+            def heal(self, step: CachedStep, error: str, previous_steps: list, page: FakePage) -> CachedStep:
+                raise failure
+
+        fixture = ExecutorFixture(tmp_path, generator, RaisingHealer())
+        identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="нажать войти")
+        fixture.cache.save(CachedStep(identity=identity, code=BROKEN_CODE, created_at="2026-09-07"))
+        page = FakePage()
+
+        with pytest.raises(type(failure)) as excinfo:
+            fixture.executor.execute("нажать Войти", "action", page)
+
+        assert excinfo.value is failure  # проброс тем же объектом, без оборачивания
+        assert [event for event, _payload in fixture.recorder.events] == ["on_step_started", "on_step_failed"]
+        assert not events_named(fixture.recorder, "on_step_passed")
+        assert fixture.executor._scenario == []  # сбой не пополняет сценарный контекст

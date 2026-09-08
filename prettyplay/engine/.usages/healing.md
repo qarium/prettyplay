@@ -5,7 +5,9 @@ Domain: healing a failed cached step. Audience: library internals and engineers 
 ## Heal
 
 ```python
-healed = healer.heal(step=failed_step, error="element not found: button «Войти»", previous_steps=["открыть страницу логина"], page=page)
+healed = healer.heal(
+    step=failed_step, error="element not found: button «Войти»", previous_steps=["открыть страницу логина"], page=page
+)
 ```
 
 The classification verdict decides the path:

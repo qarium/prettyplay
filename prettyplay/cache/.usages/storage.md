@@ -19,7 +19,7 @@ if step is None:
 
 ## File format
 
-Each file carries the metadata fields (step sentence, cache key, creation date) followed by the generated step code of the fixed form. Files carry no library version and are never invalidated by a library upgrade.
+Each file carries the metadata fields (step sentence, cache key, step type, creation date) followed by the generated step code of the fixed form. Files carry no library version and are never invalidated by a library upgrade.
 
 ## Write behavior
 

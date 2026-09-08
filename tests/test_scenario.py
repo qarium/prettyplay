@@ -73,9 +73,7 @@ def seed_cache(
     step_type: str = "action",
 ) -> None:
     """Pre-write a working cached step, so tests run the cache-hit path without the LLM."""
-    identity = StepIdentity(
-        cache_key=cache_key, step_type=step_type, normalized_text=normalize_step_text(step_text)
-    )
+    identity = StepIdentity(cache_key=cache_key, step_type=step_type, normalized_text=normalize_step_text(step_text))
     StepCache(Config(cache_root=str(tmp_path)), None, StepReporter(hooks=[])).save(
         CachedStep(identity=identity, code=CACHED_CODE, created_at="2026-09-08")
     )
@@ -167,9 +165,7 @@ class TestPrettyTestLogic:
         runtime = make_runtime(tmp_path)
         seed_cache(tmp_path)
         checkout_code = "def step(page) -> None:\n    page.open('https://checkout.example.com')\n"
-        identity = StepIdentity(
-            cache_key=CACHE_KEY, step_type="action", normalized_text=normalize_step_text(STEP_TEXT)
-        )
+        identity = StepIdentity(cache_key=CACHE_KEY, step_type="action", normalized_text=normalize_step_text(STEP_TEXT))
         StepCache(Config(cache_root=str(tmp_path)), "checkout", StepReporter(hooks=[])).save(
             CachedStep(identity=identity, code=checkout_code, created_at="2026-09-08")
         )

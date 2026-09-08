@@ -13,9 +13,6 @@ from pydantic import BaseModel, ConfigDict
 #: Unit Separator: makes the identity concatenation unambiguous.
 _IDENTITY_SEPARATOR = "\x1f"
 
-#: Length of a sha256 hexdigest; the digest part of a cache filename.
-_DIGEST_LENGTH = 64
-
 
 class StepIdentity(BaseModel):
     """The address of a step in the repository cache.

@@ -3,10 +3,8 @@
 from .cache import RunBudgets, StepCache, StepIdentity, normalize_step_text
 from .driver import PageFacade
 from .engine import StepGenerator, StepHealer, run_step_code
+from .engine.text import first_line_short
 from .reporting import StepReporter
-
-#: Upper bound of the short failure description carried by reports and healing.
-_SHORT_ERROR_LENGTH = 200
 
 
 class StepExecutor:
@@ -25,7 +23,6 @@ class StepExecutor:
         _cache: the step cache of the test.
         _generator: the generation engine of the cycle.
         _healer: the healing engine of the cycle.
-        _budgets: the run-scoped attempt registry.
         _reporter: the visibility point of the test.
         _scenario: the sentences of the previous steps of this test.
     """
@@ -36,7 +33,7 @@ class StepExecutor:
         cache: StepCache,
         generator: StepGenerator,
         healer: StepHealer,
-        budgets: RunBudgets,
+        budgets: RunBudgets,  # noqa: ARG002 — spent by the engine; kept for contract symmetry
         reporter: StepReporter,
     ) -> None:
         """Keep the collaborators of the step cycle and reset the scenario context.
@@ -46,14 +43,14 @@ class StepExecutor:
             cache: the step cache of the test.
             generator: the generation engine of the cycle.
             healer: the healing engine of the cycle.
-            budgets: the run-scoped attempt registry.
+            budgets: the run-scoped attempt registry; attempts are spent
+                by the engine, not by the executor.
             reporter: the visibility point of the test.
         """
         self.cache_key = cache_key
         self._cache = cache
         self._generator = generator
         self._healer = healer
-        self._budgets = budgets
         self._reporter = reporter
         self._scenario: list[str] = []  # сценерный контекст теста
 
@@ -84,7 +81,7 @@ class StepExecutor:
                 try:
                     run_step_code(cached.code, page)
                 except Exception as error:  # кэшированный код пал — контекст лечению
-                    self._healer.heal(cached, _short(error), self._scenario, page)  # вылечен = переисполнен
+                    self._healer.heal(cached, first_line_short(error), self._scenario, page)  # вылечен = переисполнен
             else:
                 self._generator.generate(identity, step_text, self._scenario, page)
 
@@ -93,18 +90,6 @@ class StepExecutor:
         except Exception as error:
             self._reporter.emit(
                 "on_step_failed",
-                {"step_text": step_text, "step_type": step_type, "error": _short(error)},
+                {"step_text": step_text, "step_type": step_type, "error": first_line_short(error)},
             )
             raise
-
-
-def _short(exc: Exception) -> str:
-    """Return the first line of the exception text, cut to 200 characters.
-
-    Args:
-        exc: the exception raised by the failed step branch.
-
-    Returns:
-        The short failure description carried by reports and healing requests.
-    """
-    return str(exc).splitlines()[0][:_SHORT_ERROR_LENGTH]

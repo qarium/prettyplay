@@ -59,15 +59,11 @@ class StepReporter:
                 attempt counter is an int.
         """
         level = logging.WARNING if event in _WARNING_EVENTS else logging.INFO
-        extra = {
-            f"ctx_{key}" if key in _LOG_RECORD_RESERVED else key: value for key, value in payload.items()
-        }
+        extra = {f"ctx_{key}" if key in _LOG_RECORD_RESERVED else key: value for key, value in payload.items()}
         self._logger.log(level, event, extra=extra)
 
         for hook in self.hooks:
             try:
                 getattr(hook, event)(**payload)
             except Exception:
-                self._logger.warning(
-                    "hook call failed", extra={"event": event, "hook": type(hook).__name__}
-                )
+                self._logger.warning("hook call failed", extra={"event": event, "hook": type(hook).__name__})

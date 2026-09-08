@@ -24,8 +24,6 @@ class StepHealer:
         _config: project settings; the screenshot flag feeds the requests.
         _provider: the LLM port implementation classifying the failure.
         _generator: the regeneration loop of the rot branch.
-        _cache: the store of the failed step; written by the generator only.
-        _budgets: the per-run attempt registry of the engine.
         _reporter: the visibility point for healing events.
     """
 
@@ -34,8 +32,8 @@ class StepHealer:
         config: Config,
         provider: LlmProvider,
         generator: StepGenerator,
-        cache: StepCache,
-        budgets: RunBudgets,
+        cache: StepCache,  # noqa: ARG002 — written by the generator only; kept for contract symmetry
+        budgets: RunBudgets,  # noqa: ARG002 — spent by the generator only; kept for contract symmetry
         reporter: StepReporter,
     ) -> None:
         """Keep the collaborators of the healing branch.
@@ -44,15 +42,15 @@ class StepHealer:
             config: project settings; ``send_screenshots`` attaches page images.
             provider: the LLM port implementation classifying the failure.
             generator: the regeneration loop handling the rot verdict.
-            cache: the store of the failed step; never written by the healer.
-            budgets: the per-run attempt registry.
+            cache: the store of the failed step; written by the generator
+                only — accepted for contract symmetry, never read here.
+            budgets: the per-run attempt registry; spent by the generator —
+                accepted for contract symmetry, never read here.
             reporter: the visibility point for engine events.
         """
         self._config = config
         self._provider = provider
         self._generator = generator
-        self._cache = cache
-        self._budgets = budgets
         self._reporter = reporter
 
     def heal(

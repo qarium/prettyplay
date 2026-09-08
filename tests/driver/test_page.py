@@ -142,8 +142,14 @@ class TestPageFacadeContract:
 
     def test_page_facade_surface_matches_contract(self) -> None:
         surface = [
-            "open", "find_by_role", "find_by_label", "find_by_text",
-            "aria_snapshot", "screenshot", "url", "close",
+            "open",
+            "find_by_role",
+            "find_by_label",
+            "find_by_text",
+            "aria_snapshot",
+            "screenshot",
+            "url",
+            "close",
         ]
 
         for name in surface:

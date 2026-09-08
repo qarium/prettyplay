@@ -2,6 +2,17 @@
 
 import base64
 
+#: The labels a classification category may take.
+CATEGORY_ROT = "rot"
+CATEGORY_PRODUCT_DEFECT = "product_defect"
+CATEGORY_INCURABLE = "incurable"
+
+#: The frozen set of the three classification labels.
+CATEGORIES = frozenset({CATEGORY_ROT, CATEGORY_PRODUCT_DEFECT, CATEGORY_INCURABLE})
+
+#: Field count of the one-line classification verdict.
+VERDICT_FIELD_COUNT = 3
+
 
 def build_fields_text(  # noqa: PLR0913, PLR0917 — the parameters mirror the fixed port signature
     step_text: str,
@@ -21,8 +32,8 @@ def build_fields_text(  # noqa: PLR0913, PLR0917 — the parameters mirror the f
         page_api: the exact page facade surface listing.
         existing_code: the existing step code that failed; non-empty only on
             regeneration requests.
-        error: the failure description of the existing code; non-empty only
-            on regeneration requests.
+        error: the failure description of the existing code; non-empty only on
+            regeneration requests.
 
     Returns:
         The request fields as one text with STEP / PREVIOUS STEPS /
@@ -77,6 +88,43 @@ def encode_screenshot(screenshot: bytes) -> str:
     return base64.b64encode(screenshot).decode("ascii")
 
 
+def openai_user_content(text: str, screenshot: bytes | None) -> str | list[dict]:
+    """Wrap the request fields as an openai user content payload.
+
+    Args:
+        text: the plain-text request fields shared with the anthropic provider.
+        screenshot: an optional PNG image of the page; passed only when the
+            project enables screenshots.
+
+    Returns:
+        The plain text when no image is attached, otherwise the openai
+        content block list with the data-URI image block.
+    """
+    if screenshot is None:
+        return text
+    return [
+        {"type": "text", "text": text},
+        {
+            "type": "image_url",
+            "image_url": {"url": f"data:image/png;base64,{encode_screenshot(screenshot)}"},
+        },
+    ]
+
+
+def unparsable_classification() -> dict[str, str]:
+    """Return the protective verdict fields for an unparsable provider answer.
+
+    Returns:
+        The incurable fallback verdict fields; both providers construct the
+        same defaults, so the field set is shared.
+    """
+    return {
+        "category": CATEGORY_INCURABLE,
+        "explanation": "classification verdict unparsable",
+        "recommendation": "re-run the step or check the provider answer",
+    }
+
+
 def parse_classification_line(answer: str) -> tuple[str, str, str] | None:
     """Parse the one-line classification answer of the form ``category | explanation | recommendation``.
 
@@ -88,18 +136,10 @@ def parse_classification_line(answer: str) -> tuple[str, str, str] | None:
         when the answer is not a line of the expected shape or names no
         known category — the caller applies the protective default.
     """
-    categories = {"rot", "product_defect", "incurable"}
-    verdict_field_count = 3
-
-    for line in answer.splitlines():
-        stripped = line.strip()
-        if not stripped:
-            continue
-        parts = [part.strip() for part in stripped.split("|")]
-        if len(parts) == verdict_field_count and parts[0] in categories:
-            return parts[0], parts[1], parts[2]
-        return None
-
+    line = next((stripped for stripped in (line.strip() for line in answer.splitlines()) if stripped), "")
+    parts = [part.strip() for part in line.split("|")]
+    if len(parts) == VERDICT_FIELD_COUNT and parts[0] in CATEGORIES:
+        return parts[0], parts[1], parts[2]
     return None
 
 

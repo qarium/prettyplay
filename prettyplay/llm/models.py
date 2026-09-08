@@ -2,14 +2,6 @@
 
 from pydantic import BaseModel, ConfigDict
 
-#: The labels a classification category may take.
-CATEGORY_ROT = "rot"
-CATEGORY_PRODUCT_DEFECT = "product_defect"
-CATEGORY_INCURABLE = "incurable"
-
-#: The frozen set of the three classification labels.
-CATEGORIES = frozenset({CATEGORY_ROT, CATEGORY_PRODUCT_DEFECT, CATEGORY_INCURABLE})
-
 
 class FailureClassification(BaseModel):
     """The verdict of a failure classification.

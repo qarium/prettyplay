@@ -38,19 +38,27 @@ class StepCache:
         _writable: the lazily probed writability flag; ``None`` until first use.
     """
 
-    def __init__(self, config: Config, path: str | None = None, reporter: StepReporter = None) -> None:
-        # ``reporter`` is required by the contract; its default exists only because an
-        # optional ``path`` must not force keyword-only calls for the trailing argument.
+    def __init__(
+        self,
+        config: Config,
+        path: str | None = None,
+        reporter: StepReporter | None = None,
+    ) -> None:
         """Keep the settings, the optional subdirectory and the reporter.
 
         Args:
             config: project settings; the ``cache_root`` setting is the cache root.
             path: the optional subdirectory inside the cache; ``None`` — shared root.
-            reporter: the visibility point — cache events go through it.
+            reporter: the visibility point — cache events go through it; a
+                missing reporter falls back to the hook-less default reporter,
+                so construction and saves never crash on it.
+
+        Raises:
+            ValueError: ``path`` is absolute or escapes the cache root.
         """
         self._root = Path(config.cache_root)
-        self._subdir = Path(path) if path else None
-        self._reporter = reporter
+        self._subdir = self._validated_subdir(path)
+        self._reporter = reporter if reporter is not None else StepReporter(hooks=[])
         self._writable: bool | None = None
 
     @property
@@ -139,6 +147,10 @@ class StepCache:
                 break
             except PermissionError:
                 time.sleep(_REPLACE_BACKOFF_SECONDS)  # Windows: цель занята
+            except OSError:
+                _remove_quietly(tmp_name)
+                self._emit_skipped(step, "cache target busy")
+                return
         else:
             _remove_quietly(tmp_name)
             self._emit_skipped(step, "cache target busy")
@@ -152,6 +164,29 @@ class StepCache:
     def _target_dir(self) -> Path:
         """Return the directory holding the steps of this address."""
         return self._root / self._subdir if self._subdir else self._root
+
+    @staticmethod
+    def _validated_subdir(path: str | None) -> Path | None:
+        """Return the subdirectory path, rejecting addresses outside the cache root.
+
+        Args:
+            path: the integrator-supplied subdirectory; ``None`` — shared root.
+
+        Returns:
+            The validated relative subdirectory, or ``None`` for the shared root.
+
+        Raises:
+            ValueError: the path is absolute or resolves outside the cache root.
+        """
+        if path is None or path == "":
+            return None
+        subdir = Path(path)
+        if subdir.is_absolute():
+            raise ValueError(f"cache path must be a subdirectory, got absolute {path!r}")
+        resolved = (Path("/") / subdir).resolve()
+        if ".." in subdir.parts or resolved != Path("/").joinpath(*subdir.parts):
+            raise ValueError(f"cache path must stay inside the cache root, got {path!r}")
+        return subdir
 
     def _emit_skipped(self, step: CachedStep, reason: str) -> None:
         """Report a skipped write through the visibility point."""

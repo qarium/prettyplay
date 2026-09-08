@@ -11,6 +11,7 @@ from ._request import (
     build_fields_text,
     encode_screenshot,
     parse_classification_line,
+    unparsable_classification,
 )
 from .models import FailureClassification
 from .provider import LlmProvider
@@ -174,10 +175,6 @@ class AnthropicProvider(LlmProvider):
         answer = str(response.content[0].text)
         parsed = parse_classification_line(answer)
         if parsed is None:
-            return FailureClassification(
-                category="incurable",
-                explanation="classification verdict unparsable",
-                recommendation="re-run the step or check the provider answer",
-            )
+            return FailureClassification(**unparsable_classification())
         category, explanation, recommendation = parsed
         return FailureClassification(category=category, explanation=explanation, recommendation=recommendation)

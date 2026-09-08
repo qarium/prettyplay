@@ -205,9 +205,7 @@ class TestStepHealerLogic:
         assert fixture.cache.save_calls == []  # кэш пишет generator после успешного исполнения
 
     def test_heal_sends_prompt_and_step_context_to_classification(self, tmp_path: Path) -> None:
-        provider = ClassificationProvider(
-            FailureClassification(category="rot", explanation="e", recommendation="r")
-        )
+        provider = ClassificationProvider(FailureClassification(category="rot", explanation="e", recommendation="r"))
         fixture = HealerFixture(provider, tmp_path)
 
         fixture.healer.heal(fixture.failed_step, "element not found", ["открыть"], FakePage())
@@ -221,9 +219,7 @@ class TestStepHealerLogic:
         assert request["screenshot"] is None  # send_screenshots по умолчанию False
 
     def test_heal_attaches_screenshot_when_enabled(self, tmp_path: Path) -> None:
-        provider = ClassificationProvider(
-            FailureClassification(category="rot", explanation="e", recommendation="r")
-        )
+        provider = ClassificationProvider(FailureClassification(category="rot", explanation="e", recommendation="r"))
         recorder = RecorderHook()
         reporter = StepReporter(hooks=[recorder])
         config = Config(cache_root=str(tmp_path), send_screenshots=True)
@@ -323,3 +319,5 @@ def test_real_cache_spy_not_needed_for_healer(tmp_path: Path) -> None:
     healed = healer.heal(failed_step, "err", [], FakePage())
 
     assert healed.code == FAILED_CODE  # заглушка генератора вернула тот же объект
+    assert healer._generator.calls[0]["existing_code"] == FAILED_CODE  # regenerate реально запрошен
+    assert cache.load(failed_step.identity) is None  # кэш напрямую healer'ом не писался
