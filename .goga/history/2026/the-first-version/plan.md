@@ -440,20 +440,20 @@ Python (`__init__.py` + `__all__`) и Additional Instructions дизайна —
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] Добавить runtime-зависимости в `pyproject.toml` → `[project].dependencies`:
+- [x] Добавить runtime-зависимости в `pyproject.toml` → `[project].dependencies`:
       `"pydantic>=2.7"`, `"playwright>=1.44"`, `"openai>=1.30"`, `"anthropic>=0.28"`,
       `"tomli>=2.0; python_version < '3.11'"` (кавычки маркера — одинарные внутри double-quoted строки TOML)
-- [ ] Убедиться, что `[project.optional-dependencies].test` уже содержит pytest, pytest-cov,
+- [x] Убедиться, что `[project.optional-dependencies].test` уже содержит pytest, pytest-cov,
       pytest-mock, ruff (ничего не добавлять, если уже есть)
-- [ ] Дополнить `.gitignore` строкой `.prettyplay/` (репозиторный кэш шагов не коммитится)
-- [ ] Создать venv и установить пакет с тестовыми зависимостями:
+- [x] Дополнить `.gitignore` строкой `.prettyplay/` (репозиторный кэш шагов не коммитится)
+- [x] Создать venv и установить пакет с тестовыми зависимостями:
       `python3 -m venv .venv && .venv/bin/pip install -e ".[test]"`
-- [ ] Создать скелет тестов (пустые пакеты): `tests/__init__.py`, `tests/conftest.py` (пустой),
+- [x] Создать скелет тестов (пустые пакеты): `tests/__init__.py`, `tests/conftest.py` (пустой),
       и для каждой клетки `tests/{config,reporting,failures,driver,cache,llm,engine}/__init__.py`
-- [ ] Verify: `.venv/bin/pytest --collect-only tests/` завершается без ошибок коллекциирования
+- [x] Verify: `.venv/bin/pytest --collect-only tests/` завершается без ошибок коллекциирования
       (0 тестов — норма на этом этапе)
-- [ ] Verify: `.venv/bin/ruff check prettyplay/ tests/` — 0 ошибок
-- [ ] Lint: `.venv/bin/ruff check prettyplay/ tests/` — исправить форматирование при необходимости
+- [x] Verify: `.venv/bin/ruff check prettyplay/ tests/` — 0 ошибок
+- [x] Lint: `.venv/bin/ruff check prettyplay/ tests/` — исправить форматирование при необходимости
 
 ### Task 2: `Config` — валидированные настройки (prettyplay/config/models.py)
 
