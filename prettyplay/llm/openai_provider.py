@@ -18,6 +18,21 @@ from .models import FailureClassification
 from .provider import LlmProvider
 
 
+def _first_choice_text(response: object) -> str | None:
+    """Extract the message text of the first choice of an openai response.
+
+    Args:
+        response: the SDK response of a ``chat.completions.create`` call.
+
+    Returns:
+        The text of the first choice message, or ``None`` when the response
+        carries no choice at all (empty or missing ``choices``/``message``).
+    """
+    choices = getattr(response, "choices", None) or []
+    message = getattr(choices[0], "message", None) if choices else None
+    return getattr(message, "content", None)
+
+
 class OpenAiProvider(LlmProvider):
     """The LlmProvider implementation served by the openai SDK.
 
@@ -105,7 +120,7 @@ class OpenAiProvider(LlmProvider):
             )
         except OpenAIError as sdk_error:
             raise LlmUnavailableError("llm unavailable: openai request failed") from sdk_error
-        return require_completion_text(response.choices[0].message.content, "openai")
+        return require_completion_text(_first_choice_text(response), "openai")
 
     def classify_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
@@ -149,7 +164,7 @@ class OpenAiProvider(LlmProvider):
         except OpenAIError as sdk_error:
             raise LlmUnavailableError("llm unavailable: openai request failed") from sdk_error
 
-        answer = require_completion_text(response.choices[0].message.content, "openai")
+        answer = require_completion_text(_first_choice_text(response), "openai")
         parsed = parse_classification_line(answer)
         if parsed is None:
             return FailureClassification(**unparsable_classification())

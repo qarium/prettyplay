@@ -373,3 +373,53 @@ class TestOpenAiProviderLogic:
 
         assert "empty completion" in str(excinfo.value)
         assert isinstance(excinfo.value, PrettyplayError)
+
+    def test_empty_choices_maps_to_llm_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "test")
+        response = SimpleNamespace(choices=[])  # service returned no completion body
+        client = SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=mock.MagicMock(return_value=response)))
+        )
+        provider = OpenAiProvider(Config(model="gpt-5"))
+
+        with (
+            mock.patch.object(provider, "_get_client", return_value=client),
+            pytest.raises(LlmUnavailableError) as excinfo,
+        ):
+            provider.generate_step_code(
+                prompt="p",
+                step_text="s",
+                previous_steps=[],
+                snapshot="- snap",
+                screenshot=None,
+                page_api="page.open(...)",
+                existing_code=None,
+                error=None,
+            )
+
+        assert "empty completion" in str(excinfo.value)
+        assert isinstance(excinfo.value, PrettyplayError)
+
+    def test_empty_choices_in_classify_maps_to_llm_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "test")
+        response = SimpleNamespace(choices=[])  # service returned no completion body
+        client = SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=mock.MagicMock(return_value=response)))
+        )
+        provider = OpenAiProvider(Config(model="gpt-5"))
+
+        with (
+            mock.patch.object(provider, "_get_client", return_value=client),
+            pytest.raises(LlmUnavailableError) as excinfo,
+        ):
+            provider.classify_failure(
+                prompt="p",
+                step_text="s",
+                code="c",
+                error="e",
+                snapshot="- snap",
+                screenshot=None,
+            )
+
+        assert "empty completion" in str(excinfo.value)
+        assert isinstance(excinfo.value, PrettyplayError)
