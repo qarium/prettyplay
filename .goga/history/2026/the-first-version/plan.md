@@ -1847,18 +1847,18 @@ __enter__ → self;  __exit__ → close(); return None (не гасит искл
 Чекпойнт: обращение к `runtime.provider` в конструкторе безопасно — клиент ленивый
 (конструкция без кредов).
 
-- [ ] **STEP 0 (Declaration)**: объявить, что выполняется Задача 21 — PrettyTest
-- [ ] **Contract tests** (`tests/test_scenario.py`): `from prettyplay import PrettyTest`;
+- [x] **STEP 0 (Declaration)**: объявить, что выполняется Задача 21 — PrettyTest
+- [x] **Contract tests** (`tests/test_scenario.py`): `from prettyplay import PrettyTest`;
       свойство `cache_key`; методы `action(text)`/`assertion(text)`/`add_hooks(hooks)`/
       `close()`; контекст-менеджер. Ожидаемый провал
-- [ ] **Code**: создать `prettyplay/scenario.py` по алгоритму выше
-- [ ] **Code**: `prettyplay/__init__.py` — полный фасад корня:
+- [x] **Code**: создать `prettyplay/scenario.py` по алгоритму выше
+- [x] **Code**: `prettyplay/__init__.py` — полный фасад корня:
       `from .scenario import PrettyTest`, `from .executor import StepExecutor`,
       `from .runtime import PrettyplayRuntime, get_runtime`; `__all__ = ["PrettyTest",
       "StepExecutor", "PrettyplayRuntime", "get_runtime"]`
-- [ ] **Interface verification**: `.venv/bin/pytest tests/test_scenario.py -v`; фасад:
+- [x] **Interface verification**: `.venv/bin/pytest tests/test_scenario.py -v`; фасад:
       `.venv/bin/python -c "from prettyplay import PrettyTest"`
-- [ ] **Logic tests** (runtime-глобаль изолирована; mock `runtime.open_page` → fake page):
+- [x] **Logic tests** (runtime-глобаль изолирована; mock `runtime.open_page` → fake page):
       - `test_prettytest_context_manager_closes_page` — Setup: runtime-глобаль изолирована;
         `mock` runtime.open_page → fake page с рекордом close().
         Input:
@@ -1875,11 +1875,11 @@ __enter__ → self;  __exit__ → close(); return None (не гасит искл
         fan-out следующего шага); `cache_key` property возвращает переданный ключ;
         конструкция не открывает браузер (open_page не вызван до первого шага); edge:
         `close()` дважды — no-op; `__exit__` не гасит исключение (пробрасывается)
-- [ ] **Debugging**: `.venv/bin/pytest tests/test_scenario.py -x`
-- [ ] **Contract re-verification**: конструкция дешёвая (браузер и страница ленивы);
+- [x] **Debugging**: `.venv/bin/pytest tests/test_scenario.py -x`
+- [x] **Contract re-verification**: конструкция дешёвая (браузер и страница ленивы);
       кросс-тестового состояния нет
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/ tests/`
-- [ ] Корневая клетка завершена: `goga lint` — 0 ошибок; фасад-проверка полного корня
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/ tests/`
+- [x] Корневая клетка завершена: `goga lint` — 0 ошибок; фасад-проверка полного корня
 
 ### Task 22: Интеграционные тесты полного цикла шага (tests/test_integration.py)
 

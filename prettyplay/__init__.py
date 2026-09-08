@@ -2,5 +2,6 @@
 
 from .executor import StepExecutor
 from .runtime import PrettyplayRuntime, get_runtime
+from .scenario import PrettyTest
 
-__all__ = ["PrettyplayRuntime", "StepExecutor", "get_runtime"]
+__all__ = ["PrettyTest", "PrettyplayRuntime", "StepExecutor", "get_runtime"]
