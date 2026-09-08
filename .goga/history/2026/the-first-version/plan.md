@@ -720,18 +720,18 @@ Algorithm (verbatim из дизайна):
 4. LlmUnavailableError(PrettyplayError): __init__(message) → атрибут message
 ```
 
-- [ ] **STEP 0 (Declaration)**: объявить, что выполняется Задача 5 — таксономия сбоев
-- [ ] **Contract tests** (`tests/failures/test_errors.py`): все четыре имени импортируются из
+- [x] **STEP 0 (Declaration)**: объявить, что выполняется Задача 5 — таксономия сбоев
+- [x] **Contract tests** (`tests/failures/test_errors.py`): все четыре имени импортируются из
       `prettyplay.failures`; каждая мутация — подкласс `PrettyplayError`; у
       `ProductDefectError` свойства `step_text`/`message`; у `IncurableStepError` —
       `step_text`/`reason`/`recommendation`; у `LlmUnavailableError` — `message`.
       Ожидаемый провал
-- [ ] **Code**: создать `prettyplay/failures/errors.py` по алгоритму выше
-- [ ] **Code**: создать `prettyplay/failures/__init__.py` с реэкспортом всех четырёх имён
+- [x] **Code**: создать `prettyplay/failures/errors.py` по алгоритму выше
+- [x] **Code**: создать `prettyplay/failures/__init__.py` с реэкспортом всех четырёх имён
       и `__all__`
-- [ ] **Interface verification**: `.venv/bin/pytest tests/failures/test_errors.py -v`; фасад:
+- [x] **Interface verification**: `.venv/bin/pytest tests/failures/test_errors.py -v`; фасад:
       `.venv/bin/python -c "from prettyplay.failures import PrettyplayError, ProductDefectError, IncurableStepError, LlmUnavailableError"`
-- [ ] **Logic tests**:
+- [x] **Logic tests**:
       - `test_incurable_error_message_renders_all_fields` —
         Input: `str(IncurableStepError("шаг", "причина", "рекомендация"))`.
         Assertions (verbatim):
@@ -742,11 +742,11 @@ Algorithm (verbatim из дизайна):
       - дополнительный positive: `ProductDefectError("шаг", "ожидание не оправдалось")`
         — `str()` содержит шаг и сообщение; `LlmUnavailableError("llm unavailable: openai:
         ...")` — `message` доступен; каждая — `issubclass(..., PrettyplayError)`
-- [ ] **Debugging**: `.venv/bin/pytest tests/failures/ -x`
-- [ ] **Contract re-verification**: три различимых вида, один базовый except; поля-атрибуты
+- [x] **Debugging**: `.venv/bin/pytest tests/failures/ -x`
+- [x] **Contract re-verification**: три различимых вида, один базовый except; поля-атрибуты
       соответствуют properties контракта
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/failures/ tests/failures/`
-- [ ] Клетка failures завершена: `goga lint` — 0 ошибок; фасад-проверка импорта
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/failures/ tests/failures/`
+- [x] Клетка failures завершена: `goga lint` — 0 ошибок; фасад-проверка импорта
 
 ### Task 6: `DriverSession` — жизненный цикл браузера (prettyplay/driver/session.py)
 
