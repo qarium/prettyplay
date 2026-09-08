@@ -950,15 +950,15 @@ CachedStep (BaseModel, kw_only): identity: StepIdentity, code: str, created_at: 
 начинаться с цифры) — load разбирает текст файла, import по имени не выполняется;
 детерминизм и различимость троек (sha256).
 
-- [ ] **STEP 0 (Declaration)**: объявить, что выполняется Задача 9 — StepIdentity + CachedStep
-- [ ] **Contract tests** (`tests/cache/test_models.py`): оба имени из `prettyplay.cache`;
+- [x] **STEP 0 (Declaration)**: объявить, что выполняется Задача 9 — StepIdentity + CachedStep
+- [x] **Contract tests** (`tests/cache/test_models.py`): оба имени из `prettyplay.cache`;
       kw_only-конструкция (позиционная → TypeError); свойства `cache_key`/`step_type`/
       `normalized_text`/`filename` у StepIdentity; `identity`/`code`/`created_at` у CachedStep.
       Ожидаемый провал
-- [ ] **Code**: создать `prettyplay/cache/models.py` по алгоритму выше
-- [ ] **Code**: `prettyplay/cache/__init__.py` — добавить `StepIdentity`, `CachedStep`
-- [ ] **Interface verification**: `.venv/bin/pytest tests/cache/test_models.py -v`
-- [ ] **Logic tests**:
+- [x] **Code**: создать `prettyplay/cache/models.py` по алгоритму выше
+- [x] **Code**: `prettyplay/cache/__init__.py` — добавить `StepIdentity`, `CachedStep`
+- [x] **Interface verification**: `.venv/bin/pytest tests/cache/test_models.py -v`
+- [x] **Logic tests**:
       - `test_identity_filename_deterministic_and_discriminating` — Input: две идентичные и
         две различающиеся тройки.
         Trace (verbatim):
@@ -973,9 +973,9 @@ CachedStep (BaseModel, kw_only): identity: StepIdentity, code: str, created_at: 
         f1 == f2; f1 != f3; f1 != f4
         f1.endswith(".py") and len(digest-часть) == 64
         ```
-- [ ] **Debugging**: `.venv/bin/pytest tests/cache/ -x`
-- [ ] **Contract re-verification**: filename — детерминированная функция тройки
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/cache/ tests/cache/`
+- [x] **Debugging**: `.venv/bin/pytest tests/cache/ -x`
+- [x] **Contract re-verification**: filename — детерминированная функция тройки
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/cache/ tests/cache/`
 
 ### Task 10: `StepCache` — репозиторий шагов (prettyplay/cache/store.py)
 
