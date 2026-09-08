@@ -1898,9 +1898,9 @@ LLM» (детект нарушения); страница — fake-объект 
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] Create test file `tests/test_integration.py` (общие фикстуры: изолированный runtime с
+- [x] Create test file `tests/test_integration.py` (общие фикстуры: изолированный runtime с
       tmp-кэшем, провайдер-заглушка, fake page, рекордер хуков)
-- [ ] `test_action_cached_step_runs_without_llm` — Setup: `tmp_path`-кэш с предзаписанным
+- [x] `test_action_cached_step_runs_without_llm` — Setup: `tmp_path`-кэш с предзаписанным
       файлом шага (валидный модуль для «открыть страницу логина»); runtime-глобаль сброшена;
       env без ключей; провайдер-заглушка, бросающий `AssertionError("provider must not be
       called")` при любом вызове (детект нарушения); page подменена на fake (mock
@@ -1912,7 +1912,7 @@ LLM» (детект нарушения); страница — fake-объект 
       recorded: on_step_started, on_step_passed (step_type="action")
       провайдер-заглушка не вызвана (кэш-путь без LLM)
       ```
-- [ ] `test_scenario_context_feeds_next_generation` — Setup: кэш пуст; провайдер-заглушка
+- [x] `test_scenario_context_feeds_next_generation` — Setup: кэш пуст; провайдер-заглушка
       возвращает рабочий код; рекордер предыдущих шагов в запросах; fake page.
       Input: `t = PrettyTest("k"); t.action("шаг один"); t.action("шаг два"); t.close()`.
       Assertions (verbatim):
@@ -1920,13 +1920,13 @@ LLM» (детект нарушения); страница — fake-объект 
       второй запрос провайдера получил previous_steps == ["шаг один"]
       первый — []
       ```
-- [ ] Дополнительный интеграционный сценарий (Поток C из дизайна): кэшированный шаг,
+- [x] Дополнительный интеграционный сценарий (Поток C из дизайна): кэшированный шаг,
       падающий на fake page; провайдер-classification → rot; регенерация возвращает рабочий
       код → шаг проходит, файл кэша перезаписан, записаны on_healing_started(category="rot")
       и on_healed, затем on_step_passed
-- [ ] Test edge case: `PrettyTest` с `cache_path` — шаги разных подкаталогов не collide
+- [x] Test edge case: `PrettyTest` с `cache_path` — шаги разных подкаталогов не collide
       (адрес включает подкаталог)
-- [ ] Run validation: `.venv/bin/pytest tests/ -x` — весь набор зелёный;
+- [x] Run validation: `.venv/bin/pytest tests/ -x` — весь набор зелёный;
       `.venv/bin/ruff check prettyplay/ tests/` — 0 ошибок;
       `.venv/bin/python -c "from prettyplay import PrettyTest"` — фасад корня
 
@@ -1951,20 +1951,20 @@ LLM» (детект нарушения); страница — fake-объект 
 
 ## Completion Criteria
 
-- [ ] Every contract entity is implemented in the correct `location`
-- [ ] Every contract entity is accessible from the facade (8 `__init__.py` + `__all__`)
-- [ ] Properties and methods match the declared API (сигнатуры дословно из CODEMANIFEST)
-- [ ] Descriptions are reflected in behavior (алгоритмы дизайна реализованы как указано)
-- [ ] Contract dependencies are met (Imports разрешены относительными импортами клеток)
-- [ ] Re-exports are accessible from the facade
-- [ ] Every coding task followed the TDD workflow (contract tests → code → verification →
+- [x] Every contract entity is implemented in the correct `location`
+- [x] Every contract entity is accessible from the facade (8 `__init__.py` + `__all__`)
+- [x] Properties and methods match the declared API (сигнатуры дословно из CODEMANIFEST)
+- [x] Descriptions are reflected in behavior (алгоритмы дизайна реализованы как указано)
+- [x] Contract dependencies are met (Imports разрешены относительными импортами клеток)
+- [x] Re-exports are accessible from the facade
+- [x] Every coding task followed the TDD workflow (contract tests → code → verification →
       logic tests → debugging → re-verification → lint)
-- [ ] Contract tests and logic tests cover facade, API, and behavior within each coding task
-- [ ] Integration tests exist where cross-entity scenarios require them (Task 22)
-- [ ] No package boundary was expanded (новых клеток нет; импорты внутри пакета относительные)
-- [ ] `CODEMANIFEST` files were not modified (contract is read-only)
-- [ ] All validation commands pass
-- [ ] Every Usages entry is mentioned in at least one task (Phase 2 calibration):
+- [x] Contract tests and logic tests cover facade, API, and behavior within each coding task
+- [x] Integration tests exist where cross-entity scenarios require them (Task 22)
+- [x] No package boundary was expanded (новых клеток нет; импорты внутри пакета относительные)
+- [x] `CODEMANIFEST` files were not modified (contract is read-only)
+- [x] All validation commands pass
+- [x] Every Usages entry is mentioned in at least one task (Phase 2 calibration):
       `conventions` — все задачи; `pydantic` — 2/3/9/12; `playwright` — 6/7; `openai` — 14;
       `anthropic` — 15; `generation_prompt` — 17; `classification_prompt` — 17/18;
       imported `hooks` — 4/10/21; `taxonomy` — 5/13/18/20; `generation`/`healing` — 17/18/20;
