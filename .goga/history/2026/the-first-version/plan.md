@@ -1331,17 +1331,17 @@ unavailable: anthropic request failed") from e`. Клетка llm заверша
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **STEP 0 (Declaration)**: объявить, что выполняется Задача 15 — AnthropicProvider
-- [ ] **Contract tests** (`tests/llm/test_anthropic_provider.py`): `from prettyplay.llm
+- [x] **STEP 0 (Declaration)**: объявить, что выполняется Задача 15 — AnthropicProvider
+- [x] **Contract tests** (`tests/llm/test_anthropic_provider.py`): `from prettyplay.llm
       import AnthropicProvider`; наследует `LlmProvider`; сигнатуры операций идентичны
       OpenAiProvider; конструктор не читает env. Ожидаемый провал
-- [ ] **Code**: дополнить скелет `prettyplay/llm/anthropic_provider.py` из Задачи 13 полной
+- [x] **Code**: дополнить скелет `prettyplay/llm/anthropic_provider.py` из Задачи 13 полной
       реализацией (переиспользовать общий хелпер полей Задачи 14); ветка `"anthropic"` в
       `create_provider` уже подключена скелетами Задачи 13
-- [ ] **Code**: `prettyplay/llm/__init__.py` — полный фасад клетки: `LlmProvider`,
+- [x] **Code**: `prettyplay/llm/__init__.py` — полный фасад клетки: `LlmProvider`,
       `create_provider`, `OpenAiProvider`, `AnthropicProvider`, `FailureClassification` + `__all__`
-- [ ] **Interface verification**: `.venv/bin/pytest tests/llm/ -v`
-- [ ] **Logic tests** (зеркалируют ключевые сценарии openai — паритет):
+- [x] **Interface verification**: `.venv/bin/pytest tests/llm/ -v`
+- [x] **Logic tests** (зеркалируют ключевые сценарии openai — паритет):
       - `test_anthropic_provider_error_maps_to_llm_unavailable` — `mock.patch` клиента:
         `messages.create` поднимает `AnthropicError("timeout")`; env `ANTHROPIC_API_KEY=test`;
         Assertions: `pytest.raises(LlmUnavailableError)`; `"anthropic" in str(...)`;
@@ -1352,11 +1352,11 @@ unavailable: anthropic request failed") from e`. Клетка llm заверша
       - edge: непарсимый вердикт классификации → `category == "incurable"`; positive:
         generate при замоканном SDK: system=prompt verbatim, max_tokens=1024, извлечение
         `content[0].text`
-- [ ] **Debugging**: `.venv/bin/pytest tests/llm/ -x`
-- [ ] **Contract re-verification**: паритет абсолютен — одинаковые входы/выходы/ошибки;
+- [x] **Debugging**: `.venv/bin/pytest tests/llm/ -x`
+- [x] **Contract re-verification**: паритет абсолютен — одинаковые входы/выходы/ошибки;
       выбор провайдера — только конфигурация
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/llm/ tests/llm/`
-- [ ] Клетка llm завершена: `goga lint` — 0 ошибок; фасад-проверка:
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/llm/ tests/llm/`
+- [x] Клетка llm завершена: `goga lint` — 0 ошибок; фасад-проверка:
       `.venv/bin/python -c "from prettyplay.llm import create_provider, FailureClassification"`
 
 ### Task 16: `run_step_code` + промпты — исполнение фиксированной формы (prettyplay/engine/execution.py)
