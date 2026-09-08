@@ -1,6 +1,7 @@
 """Shared request-field building for the LLM provider implementations."""
 
 import base64
+import re
 
 from ..failures import LlmUnavailableError
 
@@ -14,6 +15,31 @@ CATEGORIES = frozenset({CATEGORY_ROT, CATEGORY_PRODUCT_DEFECT, CATEGORY_INCURABL
 
 #: Field count of the one-line classification verdict.
 VERDICT_FIELD_COUNT = 3
+
+#: A fenced completion block: three backticks, an optional language tag, the body, the closing fence.
+_FENCED_BLOCK = re.compile(r"```[a-zA-Z0-9_+-]*[ \t]*\r?\n(.*?)```", re.DOTALL)
+
+
+def extract_code_block(answer: str) -> str:
+    """Return the step code of a completion, unwrapping the markdown fence.
+
+    Models answer generation requests with a fenced python block even when told
+    to output only code, so the first fenced block of `answer` is the code; an
+    answer with no closed fence is passed through verbatim — an unfenced code
+    answer stays executable, an unparsable one keeps failing downstream.
+
+    Args:
+        answer: the non-empty completion text of a generation request.
+
+    Returns:
+        The code of the fixed form: the body of the first fenced block, or the
+        answer itself when it carries no closed fence.
+    """
+    match = _FENCED_BLOCK.search(answer)
+    if match is None:
+        return answer
+
+    return match.group(1)
 
 
 def require_completion_text(text: str | None, provider: str) -> str:

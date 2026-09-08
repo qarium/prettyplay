@@ -9,6 +9,7 @@ from ..failures import LlmUnavailableError
 from ._request import (
     build_classification_fields,
     build_fields_text,
+    extract_code_block,
     openai_user_content,
     parse_classification_line,
     require_completion_text,
@@ -120,7 +121,7 @@ class OpenAiProvider(LlmProvider):
             )
         except OpenAIError as sdk_error:
             raise LlmUnavailableError("llm unavailable: openai request failed") from sdk_error
-        return require_completion_text(_first_choice_text(response), "openai")
+        return extract_code_block(require_completion_text(_first_choice_text(response), "openai"))
 
     def classify_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,

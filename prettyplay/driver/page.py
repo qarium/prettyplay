@@ -4,12 +4,23 @@ The facade is the single page API the generated step code may work through —
 a backward-compatibility contract: it may only grow, never rename or remove.
 No raw Playwright object crosses the boundary; every return value is a plain
 ``str``/``bytes`` or another facade. Auto-wait lives inside Playwright, so the
-facade never sleeps and never applies fixed delays.
+facade never sleeps and never applies fixed delays. When the page belongs to a
+live driver session, every Playwright call is marshalled into the session's
+driver thread; a facade built without a worker (hand-built in tests) calls
+Playwright inline in the constructing thread.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import TYPE_CHECKING, TypeVar
+
 from playwright.sync_api import BrowserContext, Locator, Page, expect
+
+if TYPE_CHECKING:
+    from .session import PlaywrightWorker
+
+_T = TypeVar("_T")
 
 
 class PageFacade:
@@ -22,6 +33,8 @@ class PageFacade:
     Attributes:
         _page: the wrapped Playwright page; never exposed through the facade.
         _context: the isolated context owning the page; the facade boundary.
+        _worker: the driver thread of the owning session; ``None`` for
+            hand-built facades, which then call Playwright inline.
     """
 
     def __init__(self, page: Page, context: BrowserContext) -> None:
@@ -33,11 +46,26 @@ class PageFacade:
         """
         self._page = page
         self._context = context
+        self._worker: PlaywrightWorker | None = None
+
+    def _call(self, fn: Callable[[], _T]) -> _T:
+        """Run one Playwright-touching callable in the driver thread.
+
+        Args:
+            fn: the callable touching the wrapped Playwright objects.
+
+        Returns:
+            Whatever ``fn`` returns.
+        """
+        if self._worker is None:
+            return fn()
+
+        return self._worker.run(fn)
 
     @property
     def url(self) -> str:
         """The current URL of the page."""
-        return self._page.url
+        return self._call(lambda: self._page.url)
 
     def open(self, url: str) -> None:
         """Navigate to the URL and wait for the load event.
@@ -45,7 +73,7 @@ class PageFacade:
         Args:
             url: the address to open.
         """
-        self._page.goto(url)
+        self._call(lambda: self._page.goto(url))
 
     def find_by_role(self, role: str, name: str) -> LocatorFacade:
         """Find an element by its aria role and accessible name.
@@ -57,7 +85,8 @@ class PageFacade:
         Returns:
             The facade of the located element.
         """
-        return LocatorFacade(self._page.get_by_role(role, name=name))
+        locator = self._call(lambda: self._page.get_by_role(role, name=name))
+        return self._wrap_locator(locator)
 
     def find_by_label(self, label: str) -> LocatorFacade:
         """Find a form element by its associated label.
@@ -68,7 +97,8 @@ class PageFacade:
         Returns:
             The facade of the located element.
         """
-        return LocatorFacade(self._page.get_by_label(label))
+        locator = self._call(lambda: self._page.get_by_label(label))
+        return self._wrap_locator(locator)
 
     def find_by_text(self, text: str) -> LocatorFacade:
         """Find an element by its visible text.
@@ -79,7 +109,8 @@ class PageFacade:
         Returns:
             The facade of the located element.
         """
-        return LocatorFacade(self._page.get_by_text(text))
+        locator = self._call(lambda: self._page.get_by_text(text))
+        return self._wrap_locator(locator)
 
     def aria_snapshot(self) -> str:
         """Capture the accessibility-tree state of the page.
@@ -87,7 +118,7 @@ class PageFacade:
         Returns:
             The aria snapshot of the page body.
         """
-        return self._page.locator("body").aria_snapshot()
+        return self._call(lambda: self._page.locator("body").aria_snapshot())
 
     def screenshot(self) -> bytes:
         """Capture a full-page screenshot.
@@ -95,11 +126,25 @@ class PageFacade:
         Returns:
             The PNG image of the whole page as bytes.
         """
-        return self._page.screenshot(full_page=True)
+        return self._call(lambda: self._page.screenshot(full_page=True))
 
     def close(self) -> None:
         """Close the isolated context of the page; the browser of the run stays alive."""
-        self._context.close()
+        self._call(self._context.close)
+
+    def _wrap_locator(self, locator: Locator) -> LocatorFacade:
+        """Wrap a located element, inheriting the driver thread boundary.
+
+        Args:
+            locator: the Playwright locator object; never exposed.
+
+        Returns:
+            The facade of the located element.
+        """
+        facade = LocatorFacade(locator)
+        facade._worker = self._worker
+
+        return facade
 
 
 class LocatorFacade:
@@ -111,6 +156,9 @@ class LocatorFacade:
 
     Attributes:
         _locator: the wrapped Playwright locator; never exposed through the facade.
+        _worker: the driver thread inherited from the page facade that created
+            this handle; ``None`` for hand-built handles, which then call
+            Playwright inline.
     """
 
     def __init__(self, locator: Locator) -> None:
@@ -120,18 +168,33 @@ class LocatorFacade:
             locator: the Playwright locator object; never exposed through the facade.
         """
         self._locator = locator
+        self._worker: PlaywrightWorker | None = None
+
+    def _call(self, fn: Callable[[], _T]) -> _T:
+        """Run one Playwright-touching callable in the driver thread.
+
+        Args:
+            fn: the callable touching the wrapped Playwright objects.
+
+        Returns:
+            Whatever ``fn`` returns.
+        """
+        if self._worker is None:
+            return fn()
+
+        return self._worker.run(fn)
 
     def click(self) -> None:
         """Click the element with auto-wait."""
-        self._locator.click()
+        self._call(self._locator.click)
 
     def fill(self, value: str) -> None:
-        """Set the input text of the element.
+        """Set the text input value of the element.
 
         Args:
             value: the text to type into the element.
         """
-        self._locator.fill(value)
+        self._call(lambda: self._locator.fill(value))
 
     def select_option(self, value: str) -> None:
         """Choose one option of the element.
@@ -139,11 +202,11 @@ class LocatorFacade:
         Args:
             value: the value of the option to choose.
         """
-        self._locator.select_option(value)
+        self._call(lambda: self._locator.select_option(value))
 
     def expect_visible(self) -> None:
         """Assert the element is visible."""
-        expect(self._locator).to_be_visible()
+        self._call(lambda: expect(self._locator).to_be_visible())
 
     def expect_text(self, text: str) -> None:
         """Assert the element contains the text.
@@ -151,8 +214,8 @@ class LocatorFacade:
         Args:
             text: the text the element must contain.
         """
-        expect(self._locator).to_contain_text(text)
+        self._call(lambda: expect(self._locator).to_contain_text(text))
 
     def expect_enabled(self) -> None:
         """Assert the element is enabled."""
-        expect(self._locator).to_be_enabled()
+        self._call(lambda: expect(self._locator).to_be_enabled())

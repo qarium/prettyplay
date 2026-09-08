@@ -1,6 +1,7 @@
 """Tests for the PageFacade and LocatorFacade page API of the prettyplay.driver cell."""
 
 import inspect
+import threading
 from typing import Any, get_type_hints
 from unittest import mock
 
@@ -345,3 +346,23 @@ class TestLocatorFacadeLogic:
             assert element.expect_visible() is None
             assert element.expect_text("x") is None
             assert element.expect_enabled() is None
+
+
+class TestFacadeThreadingBoundary:
+    """Threading boundary: a hand-built facade without a worker calls Playwright inline."""
+
+    def test_facade_without_worker_calls_inline_in_current_thread(self) -> None:
+        page = FakePage()
+        seen_threads: list[int] = []
+        original_goto = page.goto
+
+        def recording_goto(url: str) -> None:
+            seen_threads.append(threading.get_ident())
+            original_goto(url)
+
+        page.goto = recording_goto  # type: ignore[method-assign]
+        facade = make_page_facade(page)
+
+        facade.open("https://example.com")
+
+        assert seen_threads == [threading.get_ident()]  # прямой путь: тот же поток

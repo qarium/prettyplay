@@ -10,6 +10,7 @@ from ._request import (
     build_classification_fields,
     build_fields_text,
     encode_screenshot,
+    extract_code_block,
     parse_classification_line,
     require_completion_text,
     unparsable_classification,
@@ -147,7 +148,7 @@ class AnthropicProvider(LlmProvider):
             )
         except AnthropicError as sdk_error:
             raise LlmUnavailableError("llm unavailable: anthropic request failed") from sdk_error
-        return require_completion_text(_first_text_block(response), "anthropic")
+        return extract_code_block(require_completion_text(_first_text_block(response), "anthropic"))
 
     def classify_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,

@@ -210,9 +210,13 @@ class StepGenerator:
                     if pool == "generation"
                     else "reword the step or raise healing_attempts"
                 )
+                # причина кандидата — часть контракта reason: «the specific incurability cause»
+                reason = f"{pool} attempt budget exhausted"
+                if error:
+                    reason = f"{reason}; last failure: {error}"
                 raise IncurableStepError(
                     step_text,
-                    f"{pool} attempt budget exhausted",
+                    reason,
                     recommendation,
                 )
             attempt += 1

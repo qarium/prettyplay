@@ -234,10 +234,25 @@ class TestStepGeneratorLogic:
         with pytest.raises(IncurableStepError) as excinfo:
             fixture.generator.generate(make_identity(), "невозможный шаг", [], page)
 
-        assert excinfo.value.reason == "generation attempt budget exhausted"
+        assert excinfo.value.reason == "generation attempt budget exhausted; last failure: element not found"
         assert excinfo.value.recommendation == "reword the step or raise generation_attempts"
         assert len(provider.calls) == 3
         assert not [event for event in fixture.recorder.events if event[0] == "on_cache_saved"]
+
+    def test_generate_pre_exhausted_budget_keeps_plain_reason(self, tmp_path: Path) -> None:
+        provider = StubProvider([])
+        fixture = GeneratorFixture(tmp_path, provider, limits=(1, 1))
+        identity = make_identity()
+        page = FakePage()
+
+        assert fixture.budgets.try_generation(identity) is True  # тратим единственную попытку напрямую
+        assert fixture.budgets.try_generation(identity) is False  # бюджет уже потрачен до вызова
+
+        with pytest.raises(IncurableStepError) as excinfo:
+            fixture.generator.generate(identity, "невозможный шаг", [], page)
+
+        assert excinfo.value.reason == "generation attempt budget exhausted"
+        assert provider.calls == []  # ни одного запроса к провайдеру
 
     def test_generate_provider_unavailable_propagates_immediately(self, tmp_path: Path) -> None:
         provider = UnavailableProvider()
@@ -286,10 +301,10 @@ class TestStepGeneratorLogic:
                 [],
                 page,
                 existing_code=BROKEN_CODE,
-                error="element not found",
+                error="assertion failed",  # исходная ошибка кэша — reason должен нести последнюю ошибку кандидата
             )
 
-        assert excinfo.value.reason == "healing attempt budget exhausted"
+        assert excinfo.value.reason == "healing attempt budget exhausted; last failure: element not found"
         assert excinfo.value.recommendation == "reword the step or raise healing_attempts"
         assert len(provider.calls) == 1  # healing-бюджет (1) исчерпан после первой попытки
 
@@ -305,6 +320,18 @@ class TestStepGeneratorLogic:
         assert len(provider.calls) == 2
         assert provider.calls[1]["error"] == ""  # пустое описание сбоя, не IndexError
         assert provider.calls[1]["existing_code"] == bare_assert_code
+
+    def test_messageless_candidate_exhaustion_keeps_plain_reason(self, tmp_path: Path) -> None:
+        bare_assert_code = "def step(page) -> None:\n    assert 1 == 2\n"  # assert без текста: str(exc) == ''
+        provider = StubProvider([bare_assert_code, bare_assert_code, bare_assert_code])
+        fixture = GeneratorFixture(tmp_path, provider)
+        page = FakePage()
+
+        with pytest.raises(IncurableStepError) as excinfo:
+            fixture.generator.generate(make_identity(), "невозможный шаг", [], page)
+
+        # пустое описание сбоя не оставляет в reason хвоста «; last failure: »
+        assert excinfo.value.reason == "generation attempt budget exhausted"
 
     def test_generated_step_is_saved_into_cache(self, tmp_path: Path) -> None:
         provider = StubProvider([WORKING_CODE])

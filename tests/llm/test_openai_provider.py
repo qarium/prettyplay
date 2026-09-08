@@ -166,6 +166,26 @@ class TestOpenAiProviderLogic:
         assert "page.open(...)" in user["content"]
         assert "CODE" not in user["content"]  # регенерационные поля отсутствуют на первой попытке
 
+    def test_generate_returns_code_extracted_from_markdown_fence(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "test")
+        fenced = f"```python\n{WORKING_CODE}```"
+        client = make_client_create(answer=fenced)[0]
+        provider = OpenAiProvider(Config(model="gpt-5"))
+
+        with mock.patch.object(provider, "_get_client", return_value=client):
+            code = provider.generate_step_code(
+                prompt="p",
+                step_text="s",
+                previous_steps=[],
+                snapshot="- snap",
+                screenshot=None,
+                page_api="page.open(...)",
+                existing_code=None,
+                error=None,
+            )
+
+        assert code == WORKING_CODE  # фенс снят — паритет провайдеров
+
     def test_generate_regeneration_request_carries_code_and_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, requests = make_client_create(answer=WORKING_CODE)

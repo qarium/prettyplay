@@ -37,5 +37,6 @@ snapshot = page.aria_snapshot()
 ## Rules
 
 - Contexts are isolated per test; the browser process is shared per run
+- Every call executes in the library's driver thread and returns when done: driving is strictly sequential, and the calling thread never adopts the Playwright event loop — hand-written step code stays safe in interactive hosts (IPython, Jupyter)
 - Auto-wait everywhere: no time.sleep, no fixed delays in step code
 - Never put secrets into step actions — step texts and code land in the repository cache

@@ -1,9 +1,123 @@
 """Lifecycle owner of the Playwright sync driver and the browser process of the run."""
 
-from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
+from __future__ import annotations
+
+import queue
+import threading
+from collections.abc import Callable
+from typing import TypeVar, cast
+
+from playwright.sync_api import Browser, BrowserContext, Error, Page, Playwright, sync_playwright
 
 from ..config import Config
 from .page import PageFacade
+
+_T = TypeVar("_T")
+
+
+class _Task:
+    """One unit of work crossing from the caller thread into the driver thread.
+
+    Attributes:
+        fn: the callable executed by the worker pump.
+        done: set once fn returned or raised in the worker thread.
+        result: the return value of fn; ``None`` until done.
+        error: the exception fn raised, if any.
+    """
+
+    __slots__ = ("done", "error", "fn", "result")
+
+    def __init__(self, fn: Callable[[], object]) -> None:
+        """Bind the callable; the outcome slots fill when the pump finishes.
+
+        Args:
+            fn: the callable executed by the worker pump.
+        """
+        self.fn = fn
+        self.done = threading.Event()
+        self.error: BaseException | None = None
+        self.result: object = None
+
+
+class PlaywrightWorker:
+    """The dedicated thread where the Playwright sync session lives.
+
+    The Playwright sync API runs its private asyncio loop on a greenlet fiber
+    of the thread that started it, and that thread keeps the loop's running
+    marker until the session stops — which breaks any asyncio-driven host
+    (IPython, Jupyter) that executed a step in its own thread. The worker
+    keeps the fiber and the marker inside its own background thread instead;
+    calls still happen strictly sequentially through :meth:`run`.
+
+    Attributes:
+        _tasks: the queue feeding the pump thread; ``None`` is the stop sentinel.
+        _thread: the pump thread; ``None`` before start and after close.
+    """
+
+    def __init__(self) -> None:
+        """Prepare the task queue; no thread exists yet."""
+        self._tasks: queue.SimpleQueue[Callable[[], object] | None] = queue.SimpleQueue()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        """Spawn the pump thread; it serves queued tasks until close."""
+        thread = threading.Thread(target=self._pump, name="prettyplay-playwright", daemon=True)
+        thread.start()
+        self._thread = thread
+
+    def run(self, fn: Callable[[], _T]) -> _T:
+        """Execute one callable in the driver thread and block for its outcome.
+
+        Args:
+            fn: the callable to execute; it must touch the Playwright objects
+                owned by the worker thread only.
+
+        Returns:
+            Whatever ``fn`` returns.
+
+        Raises:
+            Error: the worker is not running (stopped or never started) — the
+                same message Playwright itself raises on a stopped driver.
+        """
+        if self._thread is None:
+            raise Error("Event loop is closed! Is Playwright already stopped?")
+
+        task = _Task(fn)
+        self._tasks.put(task)
+
+        task.done.wait()
+
+        if task.error is not None:
+            raise task.error
+
+        return cast(_T, task.result)
+
+    def close(self) -> None:
+        """Stop the pump thread and wait for its exit.
+
+        Idempotent: a call before start and repeated calls are no-ops.
+        """
+        thread = self._thread
+        if thread is None:
+            return
+
+        self._tasks.put(None)
+        thread.join()
+        self._thread = None
+
+    def _pump(self) -> None:
+        """Serve queued tasks one by one until the stop sentinel arrives."""
+        while True:
+            task = self._tasks.get()
+            if task is None:
+                return
+
+            try:
+                task.result = task.fn()
+            except BaseException as error:  # исключение пробрасывается в поток вызывавшего
+                task.error = error
+            finally:
+                task.done.set()
 
 
 class DriverSession:
@@ -13,11 +127,15 @@ class DriverSession:
     the first :meth:`open_context` call and then serve every test of the run.
     Every call opens a fresh isolated browser context wrapped into a
     :class:`PageFacade` — no state is shared between tests through the library.
+    The whole Playwright session lives inside the thread of a
+    :class:`PlaywrightWorker`, so the thread executing the steps never keeps a
+    running asyncio loop.
 
     Attributes:
         _config: project settings; ``browser`` selects the engine of the matrix.
         _playwright: the started Playwright driver; ``None`` until first launch.
         _browser: the launched browser process; ``None`` until first launch.
+        _worker: the thread owning the Playwright session; ``None`` until first launch.
     """
 
     def __init__(self, config: Config) -> None:
@@ -29,6 +147,7 @@ class DriverSession:
         self._config = config
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
+        self._worker: PlaywrightWorker | None = None
 
     def open_context(self) -> PageFacade:
         """Open a fresh isolated context with one page wrapped into the facade.
@@ -40,36 +159,87 @@ class DriverSession:
             The facade of the new page of a fresh isolated context.
         """
         if self._browser is None:
-            self._playwright = sync_playwright().start()
+            self._launch()
 
-            try:
-                engines: dict[str, object] = {
-                    "chromium": self._playwright.chromium,
-                    "firefox": self._playwright.firefox,
-                    "webkit": self._playwright.webkit,
-                }
-                engine = engines[self._config.browser]
-                self._browser = engine.launch()
-            except Exception:
-                # незапустившийся браузер не оставляет процесс драйвера жить
-                self._playwright.stop()
-                self._playwright = None
-                raise
+        worker = self._worker
+        browser = self._browser
 
-        context: BrowserContext = self._browser.new_context()
-        page: Page = context.new_page()
+        def open_isolated() -> tuple[Page, BrowserContext]:
+            context: BrowserContext = browser.new_context()
+            return context.new_page(), context
 
-        return PageFacade(page, context)
+        page, context = worker.run(open_isolated)
+
+        facade = PageFacade(page, context)
+        facade._worker = worker  # вызовы фасада уходят в поток драйвера
+        return facade
 
     def close(self) -> None:
         """Stop the browser and the Playwright driver; safe when nothing was started.
 
         Idempotent: repeated calls and a call before any launch are no-ops.
         """
+        worker = self._worker
+        if worker is None:
+            return
+
         if self._browser is not None:
-            self._browser.close()
+            worker.run(self._browser.close)
             self._browser = None
 
         if self._playwright is not None:
-            self._playwright.stop()
+            worker.run(self._playwright.stop)
             self._playwright = None
+
+        worker.close()
+        self._worker = None
+
+    def _launch(self) -> None:
+        """Start the driver thread, the Playwright session and the browser.
+
+        Everything Playwright-touching runs inside the worker thread, so the
+        caller's thread never adopts the Playwright event loop. On a launch
+        failure the driver is stopped and the worker closed before the error
+        propagates, so a retry starts from a clean state.
+
+        Raises:
+            Exception: whatever the engine launch raises.
+        """
+        worker = PlaywrightWorker()
+        worker.start()
+
+        try:
+            playwright = worker.run(lambda: sync_playwright().start())
+        except BaseException:
+            worker.close()
+            raise
+
+        try:
+            browser = worker.run(lambda: self._launch_engine(playwright))
+        except BaseException:
+            # незапустившийся браузер не оставляет процесс драйвера жить
+            worker.run(playwright.stop)
+            worker.close()
+            raise
+
+        self._worker = worker
+        self._playwright = playwright
+        self._browser = browser
+
+    def _launch_engine(self, playwright: Playwright) -> Browser:
+        """Launch the browser engine selected by the configuration.
+
+        Args:
+            playwright: the started Playwright session of the worker thread.
+
+        Returns:
+            The launched browser process of the run.
+        """
+        engines: dict[str, object] = {
+            "chromium": playwright.chromium,
+            "firefox": playwright.firefox,
+            "webkit": playwright.webkit,
+        }
+        engine = engines[self._config.browser]
+
+        return cast(Browser, engine.launch())

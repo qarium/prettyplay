@@ -27,3 +27,17 @@ Three kinds reach the runner:
 ## Team workflow
 
 Generate locally where the LLM is reachable, commit the cache directory, run CI fully from the cache with no LLM keys.
+
+## Interactive sessions (IPython, Jupyter)
+
+The Playwright session lives in a background driver thread owned by the library: the thread that executes the steps never holds a running asyncio loop, so interactive hosts that drive their own prompt through asyncio (IPython, Jupyter) keep working after every step — passed or failed.
+
+The browser process stays alive for the whole session once the first step has run. Release it explicitly when interactive exploration is over:
+
+```python
+from prettyplay import get_runtime
+
+get_runtime().close()  # stops the browser and the driver thread
+```
+
+Generation of the step cache remains a batch workflow: prefer a plain script or a pytest run over a REPL when generating many steps.

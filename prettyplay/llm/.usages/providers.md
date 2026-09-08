@@ -27,3 +27,7 @@ base_url overrides the provider endpoint when set.
 ## Parity
 
 Both providers expose the same two operations — generate_step_code and classify_failure — with identical inputs, identical output shapes and the identical failure taxonomy: a provider service failure raises LlmUnavailableError; cached step code never depends on the provider. One request per attempt; attempt budgets belong to the calling engine.
+
+## Answer shape
+
+generate_step_code returns step code of the fixed form. Models often answer with a fenced python block (```python … ```); the provider unwraps the first fenced block before returning, so the engine receives clean code either way — an answer with no closed fence is returned verbatim and, if unparsable, keeps failing downstream in execution.

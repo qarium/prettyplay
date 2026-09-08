@@ -136,7 +136,7 @@ Annotations: |
       Requirements:
       - Every generation request carries the exact page API surface taken from `facade` from Imports: the model always sees the precise list of calls it may use
       - Provider unavailability surfaces as `LlmUnavailableError` immediately — no retry on it
-      - Budget exhaustion raises `IncurableStepError` carrying the step, the reason and a recommendation
+      - Budget exhaustion raises `IncurableStepError` carrying the step, the reason and a recommendation; the reason names the exhausted pool and carries the last candidate failure — the specific incurability cause
     "regenerate(identity: StepIdentity, step_text: str, previous_steps: list[str], page: PageFacade, existing_code: str, error: str) -> step: CachedStep": |
       Regenerate a failed step for healing.
 

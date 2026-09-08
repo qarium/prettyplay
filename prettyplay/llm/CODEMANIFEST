@@ -38,7 +38,7 @@ Annotations: |
       `page_api`: the exact page facade surface listing — the list of calls the model may use.
       `existing_code`: the existing step code that failed; non-empty only on regeneration requests.
       `error`: the failure description of the existing code; non-empty only on regeneration requests.
-      `code`: the generated step code of the fixed form, working only through the driver facade.
+      `code`: the generated step code of the fixed form, working only through the driver facade; the first markdown-fenced block of the answer is unwrapped — an answer with no closed fence returns verbatim.
 
       Requirements:
       - A provider service failure (connectivity, timeout, rate limit, authentication) raises `LlmUnavailableError` naming the provider
@@ -64,7 +64,7 @@ Annotations: |
     Algorithm (both operations):
     1. Build the request: the prompt text as the system message, the user content carrying the inputs
     2. Send one completion request via the SDK
-    3. Extract the text answer
+    3. Extract the text answer; a generation answer unwraps its first markdown-fenced block — an unfenced answer passes through verbatim
     4. An SDK error maps to `LlmUnavailableError` (see `openai`)
 
 "LlmProvider::AnthropicProvider(config: Config)":
@@ -77,7 +77,7 @@ Annotations: |
     Algorithm (both operations):
     1. Build the request: the prompt text as the system message, the user content carrying the inputs
     2. Send one message request via the SDK
-    3. Extract the text answer
+    3. Extract the text answer; a generation answer unwraps its first markdown-fenced block — an unfenced answer passes through verbatim
     4. An SDK error maps to `LlmUnavailableError` (see `anthropic`)
 
 "create_provider(config: Config) -> provider: LlmProvider":
