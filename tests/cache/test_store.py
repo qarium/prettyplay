@@ -228,6 +228,22 @@ class TestStepCacheLogic:
         skipped_events = [call for call in recorder.calls if call[0] == "on_cache_skipped"]
         assert skipped_events == [("on_cache_skipped", {"step_text": "сбой записи", "reason": "cache target busy"})]
 
+    def test_unencodable_text_skips_loudly(self, tmp_path: Path) -> None:
+        """Additional edge: a lone surrogate in the step text raises UnicodeEncodeError (a
+        ValueError, not an OSError) on write — the skip path must still catch it, remove
+        the temp file and keep the run alive."""
+        cache, recorder = make_cache(tmp_path)
+        identity = StepIdentity(cache_key="k", step_type="action", normalized_text="шаг с \udcff суррогатом")
+
+        cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
+
+        files = sorted(entry.name for entry in (tmp_path / "checkout").iterdir())
+        assert files == []  # temp-файл убран, цели нет
+        skipped_events = [call for call in recorder.calls if call[0] == "on_cache_skipped"]
+        assert skipped_events == [
+            ("on_cache_skipped", {"step_text": "шаг с \udcff суррогатом", "reason": "cache target busy"})
+        ]
+
     def test_load_header_without_step_marker_is_miss(self, tmp_path: Path) -> None:
         """Additional edge: parseable header but no def step( tail → protective miss."""
         cache, _ = make_cache(tmp_path)

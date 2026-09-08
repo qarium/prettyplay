@@ -136,7 +136,7 @@ class StepCache:
                 tmp_file.write(body)
                 tmp_file.flush()
                 os.fsync(tmp_file.fileno())
-        except OSError:
+        except (OSError, ValueError):  # ValueError: непрокодируемый текст (напр. суррогаты)
             _remove_quietly(tmp_name)
             self._emit_skipped(step, "cache target busy")
             return
@@ -147,7 +147,7 @@ class StepCache:
                 break
             except PermissionError:
                 time.sleep(_REPLACE_BACKOFF_SECONDS)  # Windows: цель занята
-            except OSError:
+            except (OSError, ValueError):  # ValueError: непрокодируемый адрес (напр. суррогаты)
                 _remove_quietly(tmp_name)
                 self._emit_skipped(step, "cache target busy")
                 return
