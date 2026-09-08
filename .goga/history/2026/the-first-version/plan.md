@@ -1037,15 +1037,15 @@ Algorithm (verbatim из дизайна):
 Примечание: `time.sleep(0.1)` в цикле replace — единственный разрешённый библиотечный
 бэкофф (Windows), не страничное ожидание.
 
-- [ ] **STEP 0 (Declaration)**: объявить, что выполняется Задача 10 — StepCache
-- [ ] **Contract tests** (`tests/cache/test_store.py`): `from prettyplay.cache import
+- [x] **STEP 0 (Declaration)**: объявить, что выполняется Задача 10 — StepCache
+- [x] **Contract tests** (`tests/cache/test_store.py`): `from prettyplay.cache import
       StepCache`; сигнатура `StepCache(config, path, reporter)` (path опционален); свойства
       `root -> str`, `writable -> bool`; методы `load(identity)` / `save(step)`.
       Ожидаемый провал
-- [ ] **Code**: создать `prettyplay/cache/store.py` по алгоритму выше
-- [ ] **Code**: `prettyplay/cache/__init__.py` — добавить `StepCache`
-- [ ] **Interface verification**: `.venv/bin/pytest tests/cache/test_store.py -v`
-- [ ] **Logic tests**:
+- [x] **Code**: создать `prettyplay/cache/store.py` по алгоритму выше
+- [x] **Code**: `prettyplay/cache/__init__.py` — добавить `StepCache`
+- [x] **Interface verification**: `.venv/bin/pytest tests/cache/test_store.py -v`
+- [x] **Logic tests**:
       - `test_save_load_roundtrip_via_file` — Setup: `tmp_path`; `Config(cache_root=str(tmp_path))`;
         reporter с рекордером; `cache = StepCache(config, "checkout", reporter)`;
         `identity = StepIdentity(cache_key="login-flow", step_type="action",
@@ -1080,10 +1080,10 @@ Algorithm (verbatim из дизайна):
       - `test_load_corrupt_file_treated_as_miss` — Setup: в `tmp_path`-кэше файл с именем
         `identity.filename`, содержимое — обрывок без заголовка и без `def step(`:
         `"garbage not a module"`. Assertions: `result is None` (без исключений)
-- [ ] **Debugging**: `.venv/bin/pytest tests/cache/ -x`
-- [ ] **Contract re-verification**: чтение всегда работает; ни одна ошибка записи не роняет
+- [x] **Debugging**: `.venv/bin/pytest tests/cache/ -x`
+- [x] **Contract re-verification**: чтение всегда работает; ни одна ошибка записи не роняет
       прогон; конкурентные писатели — последний побеждает (атомарный replace)
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/cache/ tests/cache/`
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/cache/ tests/cache/`
 
 ### Task 11: `RunBudgets` — реестр попыток (prettyplay/cache/budgets.py)
 
