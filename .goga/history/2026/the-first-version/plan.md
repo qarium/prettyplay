@@ -788,15 +788,15 @@ Algorithm (verbatim из дизайна):
 context)` (без методов — полная реализация в Задаче 7), либо реализуйте Задачи 6 и 7 в одном
 сеансе, сохраняя порядок чекбоксов. Контрактные тесты Задачи 6 мокают `sync_playwright`.
 
-- [ ] **STEP 0 (Declaration)**: объявить, что выполняется Задача 6 — DriverSession
-- [ ] **Contract tests** (`tests/driver/test_session.py`): `from prettyplay.driver import
+- [x] **STEP 0 (Declaration)**: объявить, что выполняется Задача 6 — DriverSession
+- [x] **Contract tests** (`tests/driver/test_session.py`): `from prettyplay.driver import
       DriverSession`; `DriverSession(config)` конструируется без запуска чего-либо;
       `open_context() -> PageFacade`; `close()` без запуска не падает. Ожидаемый провал
-- [ ] **Code**: создать `prettyplay/driver/session.py` по алгоритму выше (скелет `page.py`
+- [x] **Code**: создать `prettyplay/driver/session.py` по алгоритму выше (скелет `page.py`
       при необходимости — см. примечание)
-- [ ] **Code**: создать/дополнить `prettyplay/driver/__init__.py` — реэкспорт `DriverSession`
-- [ ] **Interface verification**: `.venv/bin/pytest tests/driver/test_session.py -v`
-- [ ] **Logic tests**:
+- [x] **Code**: создать/дополнить `prettyplay/driver/__init__.py` — реэкспорт `DriverSession`
+- [x] **Interface verification**: `.venv/bin/pytest tests/driver/test_session.py -v`
+- [x] **Logic tests**:
       - `test_open_context_lazy_launch_single_browser` — Setup: `mock.patch(
         "prettyplay.driver.session.sync_playwright")` → fake pw: `pw().start()` возвращает
         объект с `chromium/firefox/webkit`, каждый `.launch()` пишет в `launches`;
@@ -809,10 +809,10 @@ context)` (без методов — полная реализация в Зад
         два результата — разные PageFacade; контекстов создано 2
         ```
       - дополнительный edge: повторный `close()` — no-op; `close()` до запуска — no-op
-- [ ] **Debugging**: `.venv/bin/pytest tests/driver/test_session.py -x`
-- [ ] **Contract re-verification**: один браузер на прогон; изолированный контекст на вызов;
+- [x] **Debugging**: `.venv/bin/pytest tests/driver/test_session.py -x`
+- [x] **Contract re-verification**: один браузер на прогон; изолированный контекст на вызов;
       ленивость конструктора
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/driver/ tests/driver/`
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/driver/ tests/driver/`
 
 ### Task 7: `PageFacade` + `LocatorFacade` — фасад страницы (prettyplay/driver/page.py)
 
