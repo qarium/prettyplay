@@ -1273,16 +1273,16 @@ recommendation`; парсинг: strip → первая непустая стр�
 только в обёртке контент-блоков каждого SDK. Разумно вынести общий хелпер построения полей
 во внутренний модуль клетки (например, `_request.py`) — допустимая внутренняя декомпозиция.
 
-- [ ] **STEP 0 (Declaration)**: объявить, что выполняется Задача 14 — OpenAiProvider
-- [ ] **Contract tests** (`tests/llm/test_openai_provider.py`): `from prettyplay.llm import
+- [x] **STEP 0 (Declaration)**: объявить, что выполняется Задача 14 — OpenAiProvider
+- [x] **Contract tests** (`tests/llm/test_openai_provider.py`): `from prettyplay.llm import
       OpenAiProvider`; `isinstance(OpenAiProvider(Config()), LlmProvider)`; оба метода порта
       переопределены с теми же сигнатурами; конструктор не читает env. Ожидаемый провал
-- [ ] **Code**: дополнить скелет `prettyplay/llm/openai_provider.py` из Задачи 13 полной
+- [x] **Code**: дополнить скелет `prettyplay/llm/openai_provider.py` из Задачи 13 полной
       реализацией по каркасу выше (+ общий хелпер полей при выбранной декомпозиции); ветка
       `"openai"` в `create_provider` уже подключена скелетами Задачи 13
-- [ ] **Code**: `prettyplay/llm/__init__.py` — добавить `OpenAiProvider`
-- [ ] **Interface verification**: `.venv/bin/pytest tests/llm/test_openai_provider.py -v`
-- [ ] **Logic tests**:
+- [x] **Code**: `prettyplay/llm/__init__.py` — добавить `OpenAiProvider`
+- [x] **Interface verification**: `.venv/bin/pytest tests/llm/test_openai_provider.py -v`
+- [x] **Logic tests**:
       - `test_openai_provider_error_maps_to_llm_unavailable` — Setup: `mock.patch` клиента
         SDK: `chat.completions.create` поднимает `OpenAIError("timeout")`; env
         `OPENAI_API_KEY=test`.
@@ -1309,10 +1309,10 @@ recommendation`; парсинг: strip → первая непустая стр�
       - дополнительный positive: `generate_step_code` при замоканном SDK возвращает str;
         system-сообщение == prompt verbatim; модель == effective_generation_model;
         существующий base_url передан в конструктор клиента
-- [ ] **Debugging**: `.venv/bin/pytest tests/llm/ -x`
-- [ ] **Contract re-verification**: один запрос на попытку; паритет операций; ключи только из
+- [x] **Debugging**: `.venv/bin/pytest tests/llm/ -x`
+- [x] **Contract re-verification**: один запрос на попытку; паритет операций; ключи только из
       env; никаких секретов в логах
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/llm/ tests/llm/`
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/llm/ tests/llm/`
 
 ### Task 15: `AnthropicProvider` — полный паритет (prettyplay/llm/anthropic_provider.py)
 
