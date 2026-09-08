@@ -223,3 +223,6 @@ docs/superpowers/
 
 # Prettyplay step cache
 .prettyplay/
+
+# Agents
+CLAUDE.md
