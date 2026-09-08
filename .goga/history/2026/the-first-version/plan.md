@@ -647,20 +647,20 @@ Algorithm `StepReporter` (verbatim из дизайна):
 `on_healed(step_text, explanation)`, `on_cache_saved(step_text, filename)`,
 `on_cache_skipped(step_text, reason)`.
 
-- [ ] **STEP 0 (Declaration)**: объявить, что выполняется Задача 4 — StepHooks + StepReporter
-- [ ] **Contract tests** (`tests/reporting/test_hooks.py`, `tests/reporting/test_reporter.py`):
+- [x] **STEP 0 (Declaration)**: объявить, что выполняется Задача 4 — StepHooks + StepReporter
+- [x] **Contract tests** (`tests/reporting/test_hooks.py`, `tests/reporting/test_reporter.py`):
       `from prettyplay.reporting import StepHooks, StepReporter`; у `StepHooks` существуют
       все 8 методов с точными сигнатурами (проверка через `inspect.signature`); вызов каждого
       no-op метода базового класса не падает; `StepReporter(hooks=[])` конструируется;
       `reporter.hooks` — публичный список. Ожидаемый провал
-- [ ] **Code**: создать `prettyplay/reporting/hooks.py` (класс `StepHooks`, 8 no-op методов)
-- [ ] **Code**: создать `prettyplay/reporting/reporter.py` (класс `StepReporter`,
+- [x] **Code**: создать `prettyplay/reporting/hooks.py` (класс `StepHooks`, 8 no-op методов)
+- [x] **Code**: создать `prettyplay/reporting/reporter.py` (класс `StepReporter`,
       `_LOG_RECORD_RESERVED: frozenset[str]`, метод `emit`) по алгоритму выше
-- [ ] **Code**: создать `prettyplay/reporting/__init__.py` — `from .hooks import StepHooks`,
+- [x] **Code**: создать `prettyplay/reporting/__init__.py` — `from .hooks import StepHooks`,
       `from .reporter import StepReporter`, `__all__ = ["StepHooks", "StepReporter"]`
-- [ ] **Interface verification**: `.venv/bin/pytest tests/reporting/ -v`; фасад:
+- [x] **Interface verification**: `.venv/bin/pytest tests/reporting/ -v`; фасад:
       `.venv/bin/python -c "from prettyplay.reporting import StepHooks, StepReporter"`
-- [ ] **Logic tests**:
+- [x] **Logic tests**:
       - `test_emit_dispatches_event_to_hooks_in_order` (`tests/reporting/test_reporter.py`) —
         Setup: два хука-рекордера `RecordingHook(StepHooks)` с общим списком `calls`;
         reporter = `StepReporter(hooks=[h1, h2])`.
@@ -686,11 +686,11 @@ Algorithm `StepReporter` (verbatim из дизайна):
         атрибут `ctx_filename == "abc.py"`; хук получил оригинальный kwarg `filename`
       - дополнительный edge: пустой список хуков — только логирование; `on_cache_skipped`
         логируется уровнем WARNING
-- [ ] **Debugging**: `.venv/bin/pytest tests/reporting/ -x`
-- [ ] **Contract re-verification**: 8 методов = 8 событий один-в-один; уровни INFO/WARNING;
+- [x] **Debugging**: `.venv/bin/pytest tests/reporting/ -x`
+- [x] **Contract re-verification**: 8 методов = 8 событий один-в-один; уровни INFO/WARNING;
       хуки получают оригинальные kwargs; синхронный fan-out
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/reporting/ tests/reporting/`
-- [ ] Клетка reporting завершена: `goga lint` — 0 ошибок; фасад-проверка импорта
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/reporting/ tests/reporting/`
+- [x] Клетка reporting завершена: `goga lint` — 0 ошибок; фасад-проверка импорта
 
 ### Task 5: Таксономия сбоев (prettyplay/failures/errors.py)
 
