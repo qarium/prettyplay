@@ -220,3 +220,12 @@ docs/arch/
 docs/tasks/
 docs/proposals/
 docs/superpowers/
+
+# Prettyplay step cache
+.prettyplay/
+
+# examole
+example.py
+
+# Agents
+CLAUDE.md

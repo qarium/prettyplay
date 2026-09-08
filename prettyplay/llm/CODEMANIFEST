@@ -1,0 +1,123 @@
+Imports:
+  - Types:
+      - Config
+    From: prettyplay/config
+  - Types:
+      - LlmUnavailableError
+    From: prettyplay/failures
+
+Usages:
+  conventions: .goga/usages/conventions.md
+  openai: .goga/usages/cooks/openai.md
+  anthropic: .goga/usages/cooks/anthropic.md
+
+Annotations: |
+  Use `conventions` for code writing rules and testing.
+  Use `openai` and `anthropic` for the SDK call patterns and the error mapping of the two providers.
+
+  Provider parity is absolute: both providers expose the same operations, accept the same inputs, return the same output shapes and map failures to the same taxonomy; the provider choice is a configuration decision, never a capability difference.
+  API keys come only from environment variables; never log keys or payloads containing secrets.
+  One completion request per attempt: attempt budgets are owned by the calling engine, never by a provider.
+  Cached step code never depends on the provider: the provider serves generation and classification only.
+
+---
+
+"LlmProvider()":
+  location: provider.py
+  annotations: |
+    The unified LLM port of the library: code generation for a step and failure classification for healing. One contract, two interchangeable implementations selected by configuration.
+  methods:
+    "generate_step_code(prompt: str, step_text: str, previous_steps: list[str], snapshot: str, screenshot: bytes | None, page_api: str, existing_code: str | None, error: str | None) -> code: str": |
+      Generate step code of the fixed form.
+
+      `prompt`: the system prompt text supplied by the calling engine — applied verbatim as the system message.
+      `step_text`: the sentence of the step to generate.
+      `previous_steps`: the sentences of the previous steps of the test, in execution order — scenario context.
+      `snapshot`: the accessibility snapshot of the current page.
+      `screenshot`: an optional PNG image of the page; passed only when the project enables screenshots.
+      `page_api`: the exact page facade surface listing — the list of calls the model may use.
+      `existing_code`: the existing step code that failed; non-empty only on regeneration requests.
+      `error`: the failure description of the existing code; non-empty only on regeneration requests.
+      `code`: the generated step code of the fixed form, working only through the driver facade; the first markdown-fenced block of the answer is unwrapped — an answer with no closed fence returns verbatim.
+
+      Requirements:
+      - A provider service failure (connectivity, timeout, rate limit, authentication) raises `LlmUnavailableError` naming the provider
+      - The generated code contains no provider-specific constructs
+    "classify_failure(prompt: str, step_text: str, code: str, error: str, snapshot: str, screenshot: bytes | None) -> classification: FailureClassification": |
+      Classify a failed cached step.
+
+      `prompt`: the system prompt text supplied by the calling engine — applied verbatim as the system message.
+      `step_text`: the sentence of the failed step.
+      `code`: the existing step code that failed.
+      `error`: the human-readable description of the failure.
+      `snapshot`: the accessibility snapshot of the current page.
+      `screenshot`: an optional PNG image of the page; passed only when the project enables screenshots.
+      `classification`: the `FailureClassification` verdict.
+
+"LlmProvider::OpenAiProvider(config: Config)":
+  location: openai_provider.py
+  annotations: |
+    The openai SDK implementation of `LlmProvider` (see `openai`).
+
+    `config`: project settings; the generation model is the effective_generation_model of `config`, the classification model is the effective_classification_model of `config`; the base_url setting of `config` overrides the endpoint when set.
+
+    Algorithm (both operations):
+    1. Build the request: the prompt text as the system message, the user content carrying the inputs
+    2. Send one completion request via the SDK
+    3. Extract the text answer; a generation answer unwraps its first markdown-fenced block — an unfenced answer passes through verbatim
+    4. An SDK error maps to `LlmUnavailableError` (see `openai`)
+
+"LlmProvider::AnthropicProvider(config: Config)":
+  location: anthropic_provider.py
+  annotations: |
+    The anthropic SDK implementation of `LlmProvider` (see `anthropic`); full parity with the openai implementation.
+
+    `config`: the same settings semantics as the openai implementation.
+
+    Algorithm (both operations):
+    1. Build the request: the prompt text as the system message, the user content carrying the inputs
+    2. Send one message request via the SDK
+    3. Extract the text answer; a generation answer unwraps its first markdown-fenced block — an unfenced answer passes through verbatim
+    4. An SDK error maps to `LlmUnavailableError` (see `anthropic`)
+
+"create_provider(config: Config) -> provider: LlmProvider":
+  location: provider.py
+  annotations: |
+    Select and construct the LLM provider from configuration.
+
+    `config`: project settings.
+    `provider`: the selected provider implementation.
+
+    Algorithm:
+    1. Read the provider choice from `config`
+    2. Construct the matching provider implementation with `config`
+    3. Return it
+
+    Requirements:
+    - An unknown provider value fails loudly with an actionable message listing the supported providers
+
+"FailureClassification(category: str, explanation: str, recommendation: str)":
+  location: models.py
+  annotations: |
+    The verdict of a failure classification: what kind of failure it is and what to do about it.
+
+    `category`: one of rot (the UI changed — regeneration is meaningful), product_defect (the expectation legitimately failed), incurable (regeneration cannot help).
+    `explanation`: why the failure got this category.
+    `recommendation`: the recommended engineer action.
+
+    Requirements:
+    - `category` is always one of the three labels
+  properties:
+    "category -> str": |
+      The classification label: rot, product_defect or incurable.
+    "explanation -> str": |
+      Why the failure got this category.
+    "recommendation -> str": |
+      The recommended engineer action.
+
+---
+
+Author: Goga
+CreatedAt: 07/09/26
+Description: |
+  The LLM port of prettyplay: one contract, the openai and anthropic SDK implementations in full parity, and the failure classification verdict.

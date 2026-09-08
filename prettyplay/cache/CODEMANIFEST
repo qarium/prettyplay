@@ -1,0 +1,152 @@
+Imports:
+  - Types:
+      - Config
+    From: prettyplay/config
+  - Types:
+      - StepReporter
+    Usages:
+      - hooks
+    From: prettyplay/reporting
+
+Usages:
+  conventions: .goga/usages/conventions.md
+
+Annotations: |
+  Use `conventions` for code writing rules and testing.
+  Use `hooks` from Imports for the payload contract of the cache events.
+
+  The cache is a repository artifact: one .py file per step, addressed deterministically; the cache is always read, writes are best-effort.
+  Step identity is intentional: the same normalized sentence in the same context is one step; a different language, a different step type or a different cache key is a different step.
+  RunBudgets lives in this cell because its accounting key is `StepIdentity`: run-scoped attempt accounting stays next to the addressing it is keyed by.
+
+---
+
+"normalize_step_text(text: str) -> normalized: str":
+  location: text.py
+  annotations: |
+    Normalize a step sentence for identity and addressing.
+
+    `text`: the raw step sentence as written by the engineer.
+    `normalized`: the normalized sentence.
+
+    Algorithm:
+    1. Apply Unicode NFC normalization
+    2. Trim leading and trailing whitespace
+    3. Collapse internal whitespace runs to single spaces
+    4. Apply casefold
+
+    Requirements:
+    - Pure function: no I/O, no locale dependence
+    - «Нажать Войти» and «нажать  войти » normalize to the same string; a Russian sentence and its English translation stay different
+
+"StepIdentity(cache_key: str, step_type: str, normalized_text: str)":
+  location: models.py
+  annotations: |
+    The address of a cache step: the triple (cache_key, step_type, normalized_text) plus the deterministic file name derived from it.
+
+    `cache_key`: the explicit context key set by the integrator on the main object.
+    `step_type`: action or assertion.
+    `normalized_text`: the step sentence after `normalize_step_text`.
+  properties:
+    "cache_key -> str": |
+      The explicit context key of the step address.
+    "step_type -> str": |
+      The step kind: action or assertion.
+    "normalized_text -> str": |
+      The normalized step sentence.
+    "filename -> str": |
+      The deterministic cache file name.
+
+      Algorithm:
+      1. Build the identity string: cache_key, step_type and normalized_text joined with an unambiguous separator
+      2. Hash the string with sha256
+      3. Compose the file name from the hex digest
+
+      Requirements:
+      - The same triple always yields the same file name; any difference in the triple yields a different one
+      - The digest identifies the file unambiguously inside the cache directory
+
+"CachedStep(identity: StepIdentity, code: str, created_at: str)":
+  location: models.py
+  annotations: |
+    One cached step in memory: the metadata and the generated code of the step, as stored in its cache file.
+
+    `identity`: the step address.
+    `code`: the generated step code of the fixed form.
+    `created_at`: the creation date.
+
+    Requirements:
+    - The cache file is a valid Python module: metadata fields first, then the step code; importing the module and reading the fields reconstructs the step
+    - The file carries no library version field and is never invalidated by a library upgrade
+  properties:
+    "identity -> StepIdentity": |
+      The step address.
+    "code -> str": |
+      The generated step code of the fixed form.
+    "created_at -> str": |
+      The creation date.
+
+"StepCache(config: Config, path: str | None, reporter: StepReporter | None)":
+  location: store.py
+  annotations: |
+    The repository store of cache steps: addressing, atomic writes and the read-only mode.
+
+    `config`: project settings; the cache_root setting is the cache root.
+    `path`: the optional subdirectory inside the cache; part of the address — steps of different subdirectories never collide; empty — the shared root, so equal cache keys are reused across tests.
+    `reporter`: the visibility point — cache events (saved, skipped) go through it; omitted — the hook-less default reporter, so a missing visibility point never fails a save.
+  properties:
+    "root -> str": |
+      The effective cache root; the default is <repo root>/.prettyplay/cache/.
+    "writable -> bool": |
+      Whether the cache directory accepts writes.
+  methods:
+    "load(identity: StepIdentity) -> step: CachedStep | None": |
+      Load the cached step by address.
+
+      Algorithm:
+      1. Resolve the target file by the effective root, the subdirectory and the identity file name
+      2. A missing file returns None
+      3. Read the module, validate the metadata fields, reconstruct `CachedStep`
+    "save(step: CachedStep)": |
+      Store the step atomically, best-effort.
+
+      Algorithm:
+      1. Check writability: a read-only cache skips the write and reports on_cache_skipped with the reason read-only cache
+      2. Serialize the step into the module text: metadata fields, then the code
+      3. Write a temporary file with a unique name in the target directory
+      4. Replace the target file atomically via os.replace
+      5. On Windows, when the target is busy: retry the replace shortly, then skip the write for this step and report on_cache_skipped — the run does not fail
+      6. Report on_cache_saved with the file name on success
+
+      Requirements:
+      - Concurrent writers on one step never corrupt the file: last writer wins
+      - A partially written file never becomes visible: the replace is atomic
+      - The cache is always read, in every environment
+
+"RunBudgets(generation_limit: int, healing_limit: int)":
+  location: budgets.py
+  annotations: |
+    The per-run attempt registry: how many generation and healing attempts each step has left within the run.
+
+    `generation_limit`: the generation attempt budget per step per run.
+    `healing_limit`: the healing attempt budget per step per run.
+
+    Requirements:
+    - The registry lives for the whole run (process): budgets are not reset between tests, so a step reused across tests shares one budget
+    - The identity key is `StepIdentity`
+    - An exhausted budget returns False — the caller turns it into the incurable failure
+
+    Constraints:
+    - No persistence: budgets exist only in the memory of the running process
+  methods:
+    "try_generation(identity: StepIdentity) -> allowed: bool": |
+      Consume one generation attempt for the step; False — the budget is exhausted, the caller reports incurability.
+    "try_healing(identity: StepIdentity) -> allowed: bool": |
+      Consume one healing attempt for the step; False — the budget is exhausted, the caller reports incurability.
+
+---
+
+Author: Goga
+CreatedAt: 07/09/26
+Description: |
+  The step cache of prettyplay: normalization, deterministic addressing, atomic repository storage and the per-run attempt budgets.

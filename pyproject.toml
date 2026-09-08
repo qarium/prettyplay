@@ -19,7 +19,13 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
 ]
-dependencies = []
+dependencies = [
+    "pydantic>=2.7",
+    "playwright>=1.49",
+    "openai>=1.30",
+    "anthropic>=0.28",
+    "tomli>=2.0; python_version < '3.11'",
+]
 
 [project.optional-dependencies]
 test = [
@@ -80,6 +86,9 @@ max-complexity = 10
     "ARG002",  # unused method arguments allowed in tests
     "PLR2004", # magic value comparisons in assertions are acceptable
     "RUF001",  # Cyrillic strings in test fixtures are intentional
+]
+"prettyplay/engine/generator.py" = [
+    "E501",    # the prompt constants are verbatim contract texts and must not be rewrapped
 ]
 
 [tool.ruff.format]

@@ -1,0 +1,73 @@
+Usages:
+  conventions: .goga/usages/conventions.md
+
+Annotations: |
+  Use `conventions` for code writing rules and testing.
+
+  The failure taxonomy of the library: three distinct, user-distinguishable failure kinds; every failure carries an actionable message.
+  All failure types derive from the single library base `PrettyplayError`.
+
+---
+
+"PrettyplayError(message: str)":
+  location: errors.py
+  annotations: |
+    The common base of every library failure. Exists for one consumer need: catch any prettyplay failure with a single except clause at the test-suite boundary.
+
+    `message`: the failure description.
+
+"PrettyplayError::ProductDefectError(step_text: str, message: str)":
+  location: errors.py
+  annotations: |
+    A real functional product defect: the expectation of an assertion step legitimately did not hold against the current application state. This is the signal the test suite exists for.
+
+    `step_text`: the sentence of the failed step.
+    `message`: what exactly was expected and what was observed.
+
+    Requirements:
+    - Propagates to the test runner as a failing test: no retry, no healing
+    - The message names the expectation and the observed state
+  properties:
+    "step_text -> str": |
+      The sentence of the failed step.
+    "message -> str": |
+      What exactly was expected and what was observed.
+
+"PrettyplayError::IncurableStepError(step_text: str, reason: str, recommendation: str)":
+  location: errors.py
+  annotations: |
+    An incurable step: regeneration cannot produce working code — the attempt budget is exhausted, the step text no longer matches the application reality, or the intent is ambiguous.
+
+    `step_text`: the sentence of the failed step.
+    `reason`: the specific incurability cause.
+    `recommendation`: the recommended engineer action, e.g. reword the step or refresh the cache.
+
+    Requirements:
+    - Carries all three fields; the rendered message includes each of them
+  properties:
+    "step_text -> str": |
+      The sentence of the failed step.
+    "reason -> str": |
+      The specific incurability cause.
+    "recommendation -> str": |
+      The recommended engineer action.
+
+"PrettyplayError::LlmUnavailableError(message: str)":
+  location: errors.py
+  annotations: |
+    LLM infrastructure failure: the provider service is unreachable, times out, rate-limits or rejects authentication. Blocks only code generation and healing; cached steps keep running.
+
+    `message`: the failure description naming the provider.
+
+    Requirements:
+    - Raised only on generation or healing paths; never on a cached step execution path
+  properties:
+    "message -> str": |
+      The failure description naming the provider.
+
+---
+
+Author: Goga
+CreatedAt: 07/09/26
+Description: |
+  The failure taxonomy of prettyplay: product defect, incurable step, LLM infrastructure — mutations of one library base.

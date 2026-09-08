@@ -1,0 +1,167 @@
+Imports:
+  - Types:
+      - Config
+      - load_config
+    From: prettyplay/config
+  - Types:
+      - StepHooks
+      - StepReporter
+    Usages:
+      - hooks
+    From: prettyplay/reporting
+  - Types:
+      - ProductDefectError
+      - IncurableStepError
+      - LlmUnavailableError
+    Usages:
+      - taxonomy
+    From: prettyplay/failures
+  - Types:
+      - DriverSession
+      - PageFacade
+    From: prettyplay/driver
+  - Types:
+      - StepCache
+      - StepIdentity
+      - normalize_step_text
+      - RunBudgets
+    From: prettyplay/cache
+  - Types:
+      - LlmProvider
+      - create_provider
+    From: prettyplay/llm
+  - Types:
+      - StepGenerator
+      - StepHealer
+      - run_step_code
+    Usages:
+      - generation
+      - healing
+    From: prettyplay/engine
+
+Usages:
+  conventions: .goga/usages/conventions.md
+
+Annotations: |
+  Use `conventions` for code writing rules and testing.
+  Use `taxonomy` from Imports for the failure kinds the step methods propagate.
+  Use `hooks` from Imports for the callback contract accepted by add_hooks.
+  Use `generation` and `healing` from Imports for the engine cycles the executor delegates to.
+
+  The facade of the library: one main object per test; the engineer writes steps as plain sentences and reads the suite as a scenario.
+  Framework-agnostic: no plugin machinery, no runner integration — the integrator wires the library in a few lines.
+  Step sentences are visible in the test output through the standard logger prettyplay; step texts land in the cache and in LLM requests — never put secrets or personal data into a step sentence.
+
+---
+
+"PrettyTest(cache_key: str, cache_path: str | None)":
+  location: scenario.py
+  annotations: |
+    The main integrator object — one instance per test. Owns the cache addressing and the isolated browser context of the test; the step cycle is delegated to `StepExecutor`.
+
+    `cache_key`: the mandatory explicit context key — part of the step address; equal keys in the shared root reuse steps across tests.
+    `cache_path`: the optional cache subdirectory — part of the address; steps never leak across subdirectories.
+
+    Supports the context manager protocol: exit closes the test context.
+
+    Algorithm:
+    1. Resolve the shared runtime via `get_runtime`
+    2. Construct the per-test reporter: `StepReporter` with an empty hooks list; add_hooks appends to it
+    3. Construct the per-test `StepCache` from the runtime config, `cache_path` and the reporter
+    4. Construct `StepGenerator` and `StepHealer` from the runtime config, provider and budgets, the step cache and the reporter
+    5. Construct `StepExecutor` with `cache_key`, the cache, the engines, the runtime budgets and the reporter
+    6. The test page opens lazily on the first step via the runtime open_page
+    7. close (and the context manager exit) closes the test page context; the run-scoped runtime stays alive
+
+    Requirements:
+    - Construction is cheap: the browser context opens lazily on the first step
+    - The instance holds no cross-test state: identical outcomes regardless of execution order
+  properties:
+    "cache_key -> str": |
+      The explicit context key, exposed for diagnostics.
+  methods:
+    "action(text: str)": |
+      Execute the action step `text`.
+
+      Delegates to the executor execute with the step type action, the sentence and the test page; failures propagate by kind — `ProductDefectError`, `IncurableStepError`, `LlmUnavailableError` (see `taxonomy`).
+    "assertion(text: str)": |
+      Execute the assertion step `text` — a legitimately failed expectation surfaces as the product defect failure.
+
+      Delegates to the executor execute with the step type assertion; failures propagate by kind — `ProductDefectError`, `IncurableStepError`, `LlmUnavailableError` (see `taxonomy`).
+    "add_hooks(hooks: StepHooks)": |
+      Register a callback implementation (see `hooks`); applies to the steps of this test.
+    "close()": |
+      Close the isolated context of the test; the run-scoped runtime stays alive.
+
+"StepExecutor(cache_key: str, cache: StepCache, generator: StepGenerator, healer: StepHealer, budgets: RunBudgets, reporter: StepReporter)":
+  location: executor.py
+  annotations: |
+    The owner of the step cycle: cache hit — execute; cache miss — generate and store; cached failure — heal.
+
+    `cache_key`: the context key of the owning test object.
+    `cache`: the step cache of the test.
+    `generator` and `healer`: the engines (see `generation` and `healing` from Imports).
+    `budgets`: the run-scoped attempt registry.
+    `reporter`: the visibility point.
+  methods:
+    "execute(step_text: str, step_type: str, page: PageFacade)": |
+      Run one step through the full cycle.
+
+      Algorithm:
+      1. Report on_step_started with the sentence and the step type
+      2. Build the step identity: `normalize_step_text`, then `StepIdentity` with the test cache key and the step type
+      3. Load the cached step: a hit executes its code with `run_step_code` against `page`
+      4. On a hit execution failure: delegate to the healer heal with the failure description and the scenario context — a healed step is already re-executed and stored by the engine
+      5. On a miss: the generator generate — the engine stores the step on success
+      6. Append the sentence to the scenario context of the test — the previous step texts feed the next generation
+      7. Report on_step_passed; on a failed step report on_step_failed with the sentence, the step type and the short error description, then raise by kind — `ProductDefectError`, `IncurableStepError`, `LlmUnavailableError` (see `taxonomy`)
+
+      Requirements:
+      - The scenario context lives per test: steps of different tests never mix
+      - A cached step executes with no LLM involvement whatsoever
+      - An assertion step surfaces a legitimately failed expectation as the product defect failure
+
+"PrettyplayRuntime(config: Config)":
+  location: runtime.py
+  annotations: |
+    The run-scoped composition root: one instance per process run, owning everything shared across tests.
+
+    `config`: the project settings, loaded once.
+
+    Requirements:
+    - Everything expensive is created once per run and shared; nothing test-specific lives here
+  properties:
+    "config -> Config": |
+      The project settings loaded once per run.
+    "driver -> DriverSession": |
+      The browser session — one browser process for the run, created lazily.
+    "budgets -> RunBudgets": |
+      The attempt registry — one budget per step for the whole run.
+    "provider -> LlmProvider": |
+      The LLM provider instance, created lazily on first access via `create_provider`.
+
+      Requirements:
+      - Constructing the runtime never requires LLM credentials: a missing key surfaces as the infrastructure failure on the first generation or classification request
+  methods:
+    "open_page() -> page: PageFacade": |
+      Open a fresh isolated browser context and return its page facade — one per test.
+    "close()": |
+      Stop the browser and the driver; safe when nothing was started.
+
+"get_runtime() -> runtime: PrettyplayRuntime":
+  location: runtime.py
+  annotations: |
+    Return the process-wide runtime: the first call loads the configuration via `load_config` and constructs `PrettyplayRuntime`; every later call returns the same instance.
+
+    `runtime`: the shared runtime.
+
+    Requirements:
+    - One instance per process for the whole run
+    - Repeated calls are cheap
+
+---
+
+Author: Goga
+CreatedAt: 07/09/26
+Description: |
+  The facade of prettyplay: the per-test scenario object, the step cycle executor and the run-scoped composition root.

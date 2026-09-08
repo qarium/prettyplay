@@ -1,0 +1,181 @@
+Imports:
+  - Types:
+      - Config
+    From: prettyplay/config
+  - Types:
+      - StepReporter
+    From: prettyplay/reporting
+  - Types:
+      - ProductDefectError
+      - IncurableStepError
+      - LlmUnavailableError
+    From: prettyplay/failures
+  - Types:
+      - PageFacade
+    Usages:
+      - facade
+    From: prettyplay/driver
+  - Types:
+      - StepCache
+      - StepIdentity
+      - CachedStep
+      - RunBudgets
+    From: prettyplay/cache
+  - Types:
+      - LlmProvider
+      - FailureClassification
+    Usages:
+      - classification
+    From: prettyplay/llm
+
+Usages:
+  conventions: .goga/usages/conventions.md
+  generation_prompt: |
+    You generate executable Python code for one step of a web UI test.
+
+    Input you receive:
+    - STEP: the step sentence in a natural language
+    - PREVIOUS STEPS: the sentences of the previous steps of the test, in order
+    - PAGE SNAPSHOT: the accessibility snapshot of the current page
+    - SCREENSHOT: an image of the page, when attached
+    - PAGE API: the exact surface listing of the page facade — call nothing outside it
+    - CODE: the existing step code that failed (regeneration requests only)
+    - ERROR: the failure description of the existing code (regeneration requests only)
+
+    Output exactly one Python code block with one function of the fixed form:
+
+    def step(page) -> None:
+        ...
+
+    Rules:
+    - The function receives exactly one argument: the page facade. Never import anything, never use other libraries
+    - Work only through the page API: the request carries the exact surface listing of the page facade — call nothing outside it
+    - For an assertion sentence end with an expectation call; for an action sentence perform the actions
+    - Locating by role and accessible name is preferred; by visible text next; by label for form fields
+    - No fixed delays, no sleeps, no explicit waits — the facade waits itself
+    - The step must complete exactly what STEP says — nothing more, nothing less
+    - Output only the code block, no explanations
+  classification_prompt: |
+    You classify a failure of a cached web UI test step.
+
+    Input you receive:
+    - STEP: the step sentence
+    - CODE: the step code that failed
+    - ERROR: the failure description
+    - PAGE SNAPSHOT: the accessibility snapshot of the current page
+    - SCREENSHOT: an image of the page, when attached
+
+    Answer with exactly one line of the form:
+    category | explanation | recommendation
+
+    where category is one of:
+    - rot — the UI changed (selectors, texts, structure) and the step can be regenerated for the same intent
+    - product_defect — the step works as written but the expected behavior of the application is genuinely broken
+    - incurable — the step sentence no longer matches reality, the intent is ambiguous, or regeneration cannot help
+
+    explanation: one short sentence why. recommendation: one short sentence what the engineer should do.
+    Output only that single line — no code, no extra text.
+
+Annotations: |
+  Use `conventions` for code writing rules and testing.
+  Use `facade` from Imports for the page API the generated code works through.
+  Use `classification` from Imports for the healing decision categories.
+  Use `generation_prompt` as the system prompt of every code generation request.
+  Use `classification_prompt` as the system prompt of every failure classification request.
+  Use `facade` from Imports as the single source of the page API surface for generation requests.
+
+  The fixed form of step code: one function receiving exactly one argument — the `PageFacade` of the test; the function body works only through `PageFacade` and the LocatorFacade element API.
+  Every attempt — generation or healing — consumes the shared per-step budget of the run; exhaustion is the incurable failure, never an infinite loop.
+  Healing never masks a product defect: a classified product_defect fails the test loudly; a healed step is reported loudly and written back to the cache.
+
+---
+
+"run_step_code(code: str, page: PageFacade)":
+  location: execution.py
+  annotations: |
+    Execute step code of the fixed form against the page facade of the test.
+
+    `code`: the step code text.
+    `page`: the page facade of the current test.
+
+    Algorithm:
+    1. Compile and load `code` as a module in an isolated namespace
+    2. Resolve the step function of the fixed form — the single callable receiving the page facade
+    3. Call it with `page`
+
+    Requirements:
+    - A failure inside the step code propagates to the caller as-is: the engine classifies it, this routine never swallows or retries
+    - Executing step code loads no LLM provider and touches no network beyond the page itself
+
+    Constraints:
+    - Execute only step code produced by generation or loaded from the cache — never arbitrary file content
+
+"StepGenerator(config: Config, provider: LlmProvider, cache: StepCache, budgets: RunBudgets, reporter: StepReporter)":
+  location: generator.py
+  annotations: |
+    The generation engine: produce working step code for an unknown step, executing candidates against the live page.
+
+    `config`: project settings — the screenshot flag.
+    `provider`: the LLM port.
+    `cache`: the step cache — a generated step is stored on success.
+    `budgets`: the per-run attempt registry.
+    `reporter`: the visibility point.
+  methods:
+    "generate(identity: StepIdentity, step_text: str, previous_steps: list[str], page: PageFacade) -> step: CachedStep": |
+      Generate and store a new step.
+
+      Algorithm:
+      1. Ask the budgets registry try_generation for the step identity; a refused attempt is the incurable failure
+      2. Collect the request inputs: the page accessibility snapshot, the step sentence, `previous_steps`, and the page API surface from `facade`; add the page screenshot when the project settings enable screenshots
+      3. Request step code from the provider port passing `generation_prompt` as the system prompt and the page API surface listing taken from `facade`
+      4. Execute the candidate with `run_step_code` against `page`
+      5. On success: build `CachedStep`, save it to the cache, return it
+      6. On failure: repeat from step 1 with the fresh failure description and the fresh snapshot, while attempts remain
+      7. Report on_generation_started for every attempt
+
+      Requirements:
+      - Every generation request carries the exact page API surface taken from `facade` from Imports: the model always sees the precise list of calls it may use
+      - Provider unavailability surfaces as `LlmUnavailableError` immediately — no retry on it
+      - Budget exhaustion raises `IncurableStepError` carrying the step, the reason and a recommendation; the reason names the exhausted pool and carries the last candidate failure — the specific incurability cause
+    "regenerate(identity: StepIdentity, step_text: str, previous_steps: list[str], page: PageFacade, existing_code: str, error: str) -> step: CachedStep": |
+      Regenerate a failed step for healing.
+
+      Algorithm:
+      1. The same loop as the generate method with two additions: every provider request carries `existing_code` and `error`; attempts consume the healing budget via try_healing
+
+"StepHealer(config: Config, provider: LlmProvider, generator: StepGenerator, cache: StepCache, budgets: RunBudgets, reporter: StepReporter)":
+  location: healer.py
+  annotations: |
+    The healing engine: classify a failed cached step, regenerate rot, never mask a defect.
+
+    `config`: project settings — the screenshot flag.
+    `provider`: the LLM port for classification.
+    `generator`: the regeneration engine.
+    `cache`: the step cache for the healed write-back.
+    `budgets`: the per-run attempt registry.
+    `reporter`: the visibility point.
+  methods:
+    "heal(step: CachedStep, error: str, previous_steps: list[str], page: PageFacade) -> step: CachedStep": |
+      Classify and heal a failed cached step.
+
+      `previous_steps`: the sentences of the previous steps of the test, in execution order — scenario context for regeneration.
+
+      Algorithm:
+      1. Collect the classification inputs: the step sentence, the failed step code, the `error` text, the fresh page snapshot — plus the screenshot when enabled
+      2. Ask the provider port classify_failure passing `classification_prompt` as the system prompt — the verdict is a `FailureClassification`
+      3. Report on_healing_started with the category
+      4. product_defect: raise `ProductDefectError` — the test fails, nothing is regenerated, the cache stays untouched
+      5. incurable: raise `IncurableStepError` carrying the verdict explanation and recommendation
+      6. rot: regenerate via the generator regenerate — its loop executes the candidate and stores the healed step on success; report on_healed with the explanation of what was rot and what changed, return the healed step
+      7. A regeneration budget exhaustion inside step 6 surfaces as `IncurableStepError`
+
+      Requirements:
+      - Anti-masking: healing may only turn a rot-failed step green; a classified product defect always fails the test
+      - The healed code replaces the cached code only after a successful execution
+
+---
+
+Author: Goga
+CreatedAt: 07/09/26
+Description: |
+  The agent engine of prettyplay: step code generation with execution in the loop, the fixed-form execution routine, and healing with anti-masking.

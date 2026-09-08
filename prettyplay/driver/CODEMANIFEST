@@ -1,0 +1,114 @@
+Imports:
+  - Types:
+      - Config
+    From: prettyplay/config
+
+Usages:
+  conventions: .goga/usages/conventions.md
+  playwright: .goga/usages/cooks/playwright.md
+
+Annotations: |
+  Use `conventions` for code writing rules and testing.
+  Use `playwright` for the sync API lifecycle, locators, auto-wait and the accessibility snapshot.
+
+  The driver is Playwright sync-only: the async API is out of scope.
+  The whole Playwright session — start, browser, contexts, pages — lives in one dedicated driver thread owned by the library: the sync API parks its private event loop on its starting thread, so the thread executing the steps never holds a running asyncio loop (interactive hosts such as IPython and Jupyter keep working between steps).
+  Driver-thread calls are strictly sequential: one facade call runs at a time; concurrent driving is out of scope.
+  One browser process serves the whole run; every test gets its own isolated browser context — no state is shared between tests through the library.
+  All waits go through locators and expectations; fixed delays (time.sleep and similar) are forbidden.
+  The facade surface is a backward-compatibility contract: generated step code works only through `PageFacade` and LocatorFacade, so the existing method set must not break across library releases — extend, never rename or remove.
+
+---
+
+"DriverSession(config: Config)":
+  location: session.py
+  annotations: |
+    Lifecycle owner of the Playwright sync driver and the browser process for the whole run.
+
+    `config`: project settings; the browser setting selects the browser of the {chromium, firefox, webkit} matrix (see `playwright`).
+
+    Requirements:
+    - The Playwright session lives in a dedicated driver thread owned by the session: every Playwright-touching operation of this type runs there, and the calling thread never holds a running asyncio loop after any call
+  methods:
+    "open_context() -> page: PageFacade": |
+      Open a fresh isolated context with one page.
+
+      Algorithm:
+      1. Launch lazily on the first call: constructing the session starts nothing — start the dedicated driver thread, then start Playwright and launch the browser engine inside it; a failed launch stops the started driver and closes the thread, so a retry begins from a clean state
+      2. Create a fresh isolated browser context and its page inside the driver thread (see `playwright`)
+      3. Wrap the page into `PageFacade` bound to the driver thread and return it
+
+      Requirements:
+      - Each result is isolated from every other context of the run
+    "close()": |
+      Stop the browser, the Playwright driver and the driver thread; safe to call when nothing was started.
+
+"PageFacade(page: Page, context: BrowserContext)":
+  location: page.py
+  annotations: |
+    The narrow, stable facade of a single test page — the only page API the generated step code may use.
+    Wraps one isolated browser context created by `DriverSession`.
+
+    `page`: the wrapped Playwright page object; never exposed through the facade.
+    `context`: the isolated browser context owning the page; the boundary the close method closes.
+
+    Requirements:
+    - Every Playwright call runs in the driver thread of the owning session: the call blocks until it finishes, strictly one at a time, and the calling thread never adopts the Playwright event loop
+    - Locating methods never sleep: waiting is the locator's own auto-wait behavior
+    - aria_snapshot and screenshot reflect the state at call time
+
+    Constraints:
+    - No method exposes raw Playwright objects: the facade is the boundary generated code works against
+  properties:
+    "url -> str": |
+      The current page URL.
+  methods:
+    "open(url: str)": |
+      Navigate to `url` and wait for the load state (see `playwright`).
+    "find_by_role(role: str, name: str) -> element: LocatorFacade": |
+      Locate one element by its aria role and accessible name; returns a `LocatorFacade`.
+    "find_by_label(label: str) -> element: LocatorFacade": |
+      Locate one element by its associated label; returns a `LocatorFacade`.
+    "find_by_text(text: str) -> element: LocatorFacade": |
+      Locate one element by its visible text; returns a `LocatorFacade`.
+    "aria_snapshot() -> snapshot: str": |
+      The structured accessibility-tree representation of the page — the primary machine-readable page state (see `playwright`).
+    "screenshot() -> image: bytes": |
+      A full-page PNG image of the current state.
+    "close()": |
+      Close the isolated context of this page; the browser process keeps running.
+
+"LocatorFacade(locator: Locator)":
+  location: page.py
+  annotations: |
+    An auto-waiting handle of one located element — the only element API the generated step code may use.
+
+    `locator`: the wrapped Playwright locator object; never exposed through the facade.
+
+    Requirements:
+    - Every action and expectation runs in the driver thread inherited from the page facade that created the handle
+    - Every action and expectation auto-waits for actionability (see `playwright`)
+    - Failed expectations raise assertion-style errors destined for failure classification
+
+    Constraints:
+    - No fixed delays; no raw Playwright objects exposed
+  methods:
+    "click()": |
+      Click the element, waiting for actionability.
+    "fill(value: str)": |
+      Set the text input value of the element to `value`.
+    "select_option(value: str)": |
+      Select the option with `value` in a list or combo box.
+    "expect_visible()": |
+      Assert the element is visible.
+    "expect_text(text: str)": |
+      Assert the element text equals or contains `text`.
+    "expect_enabled()": |
+      Assert the element is enabled.
+
+---
+
+Author: Goga
+CreatedAt: 07/09/26
+Description: |
+  The Playwright sync driver of prettyplay: the run-scoped session and the narrow backward-compatible page facade for generated step code.
