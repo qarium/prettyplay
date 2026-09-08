@@ -1,4 +1,4 @@
-FROM qarium/goga-python-3.14:1.2
+FROM qarium/goga-python-3.14:1.3
 
 USER root
 

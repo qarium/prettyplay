@@ -1,0 +1,92 @@
+Usages:
+  conventions: .goga/usages/conventions.md
+  pydantic: .goga/usages/cooks/pydantic.md
+
+Annotations: |
+  Use `conventions` for code writing rules and testing.
+  Use `pydantic` for data models and TOML loading.
+
+  All data models — pydantic v2, kw_only=True, empty defaults (None only for explicit absence).
+  Naming: PascalCase for classes; snake_case for functions, methods, properties.
+  Type hints mandatory; no *args/**kwargs; generics parameterized.
+
+---
+
+"Config(provider: str, browser: str, model: str, generation_model: str, classification_model: str, base_url: str, cache_root: str, generation_attempts: int, healing_attempts: int, send_screenshots: bool)":
+  location: models.py
+  annotations: |
+    Validated project settings — the single source of the immutable configuration part.
+
+    `provider`: the LLM provider of the {openai, anthropic} set; default openai.
+    `browser`: browser of the {chromium, firefox, webkit} matrix; default chromium.
+    `model`: main LLM model name.
+    `generation_model`: optional generation override; empty — fallback to `model`.
+    `classification_model`: optional classification override; empty — fallback to `model`.
+    `base_url`: optional custom LLM API endpoint.
+    `cache_root`: cache root; empty — default <repo root>/.prettyplay/cache/ resolved by `load_config`.
+    `generation_attempts`: generation attempt budget per step per run; default 3.
+    `healing_attempts`: healing attempt budget per step per run; default 2.
+    `send_screenshots`: optional screenshot input to the LLM; default False.
+
+    Requirements:
+    - kw_only construction; every field has an empty default
+    - provider validated against {openai, anthropic}; browser against the matrix; invalid value — loud actionable error
+    - attempts are positive integers
+
+    Constraints:
+    - No secret values in fields: LLM API keys are never stored in the config; keys come only from environment variables
+  properties:
+    "provider -> str": |
+      The LLM provider setting: openai or anthropic.
+    "browser -> str": |
+      The browser setting of the {chromium, firefox, webkit} matrix.
+    "model -> str": |
+      The main LLM model name.
+    "generation_model -> str": |
+      The optional generation model override.
+    "classification_model -> str": |
+      The optional classification model override.
+    "base_url -> str": |
+      The optional custom LLM API endpoint.
+    "cache_root -> str": |
+      The cache root; empty means the default resolved at load.
+    "generation_attempts -> int": |
+      The generation attempt budget per step per run.
+    "healing_attempts -> int": |
+      The healing attempt budget per step per run.
+    "send_screenshots -> bool": |
+      Whether screenshots are attached to LLM requests.
+    "effective_generation_model -> str": |
+      generation_model when non-empty, otherwise model.
+    "effective_classification_model -> str": |
+      classification_model when non-empty, otherwise model.
+
+"load_config(pyproject_path: str | None) -> config: Config":
+  location: loader.py
+  annotations: |
+    Load project configuration from pyproject.toml with environment overrides.
+
+    `pyproject_path`: optional explicit path to pyproject.toml; empty — the first pyproject.toml found upwards from the current directory.
+    `config`: fully resolved and validated `Config`.
+
+    Algorithm:
+    1. Resolve the pyproject.toml path: given `pyproject_path` or the first match found upwards from the current directory
+    2. Parse TOML: stdlib tomllib on Python 3.11+, tomli on 3.10 (see `pydantic`)
+    3. Extract the tool.prettyplay section; a missing section is an empty section
+    4. Apply environment overrides: each setting is overridden by PRETTYPLAY_<SETTING_UPPERCASE> when the variable is set
+    5. Construct `Config`; a validation failure raises a loud actionable error naming the invalid setting
+
+    Requirements:
+    - An env override exists for every setting of `Config`
+    - The empty cache_root setting is resolved to the absolute default <repo root>/.prettyplay/cache/ at load
+
+    Constraints:
+    - Never read or store LLM API keys from any file; keys come only from environment variables
+    - Python 3.10 compatibility via the tomli fallback (see `pydantic`)
+
+---
+
+Author: Goga
+CreatedAt: 07/09/26
+Description: |
+  Project settings of prettyplay: the validated [tool.prettyplay] schema and the loader with environment overrides.

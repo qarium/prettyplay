@@ -1,0 +1,67 @@
+Usages:
+  conventions: .goga/usages/conventions.md
+
+Annotations: |
+  Use `conventions` for code writing rules and testing.
+
+  Visibility goes through the standard logging library: the logger is named prettyplay.
+  Log messages: lowercase, concise operational wording, stable event names, contextual metadata attached.
+  Never log secrets, credentials, tokens or personal sensitive data.
+
+---
+
+"StepHooks()":
+  location: hooks.py
+  annotations: |
+    Thin callback contract for integrators: consumer-side reactions to step, generation, healing and cache events. The library calls the hooks synchronously; the integrator overrides the events of interest. No event bus, no queuing, no delivery retries.
+
+    The base implementation of every method is a no-op: override only the events you need.
+  methods:
+    "on_step_started(step_text: str, step_type: str)": |
+      A step started executing; `step_type` is action or assertion.
+    "on_step_passed(step_text: str, step_type: str)": |
+      The step finished successfully.
+    "on_step_failed(step_text: str, step_type: str, error: str)": |
+      The step failed; `error` is a short human-readable failure description.
+    "on_generation_started(step_text: str, attempt: int)": |
+      A code generation attempt started; `attempt` is the 1-based attempt number.
+    "on_healing_started(step_text: str, category: str)": |
+      Healing of a failed cached step started; `category` is the classification label: rot, product_defect, incurable.
+    "on_healed(step_text: str, explanation: str)": |
+      The step was healed and the cache updated; `explanation` says why it was rot and what changed.
+    "on_cache_saved(step_text: str, filename: str)": |
+      Step code was written to the cache file `filename`.
+    "on_cache_skipped(step_text: str, reason: str)": |
+      The cache write was skipped; `reason` names the cause, e.g. a read-only cache.
+
+"StepReporter(hooks: list[StepHooks])":
+  location: reporter.py
+  annotations: |
+    The single visibility point of the library: every step, generation, healing and cache event goes through the emit method — written to the logger prettyplay and forwarded to the registered `StepHooks` implementations.
+
+    `hooks`: callback implementations registered by the integrator; the list may be empty.
+  methods:
+    "emit(event: str, payload: dict[str, str | int])": |
+      Dispatch one event.
+
+      `event`: the event name — equals a `StepHooks` method name exactly.
+      `payload`: the payload fields of the event; values are strings, the attempt counter is an int.
+
+      Algorithm:
+      1. Write a structured log record to the logger prettyplay: the event name as the message, the payload fields as contextual metadata
+      2. For each registered hook, in registration order, call the method named `event` with the payload values as arguments
+      3. A hook that raises is logged as a warning and skipped; the run continues
+
+      Requirements:
+      - Log levels: step, generation and healing lifecycle — INFO; a skipped cache write and a failed hook call — WARNING
+
+      Constraints:
+      - No secrets in log records (see `conventions`)
+      - No own event bus: the emit call is a synchronous fan-out, nothing more
+
+---
+
+Author: Goga
+CreatedAt: 07/09/26
+Description: |
+  Visibility of prettyplay: the logger prettyplay plus the thin StepHooks callback contract.

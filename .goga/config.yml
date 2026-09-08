@@ -3,12 +3,19 @@ language: python
 image: prettyplay:latest
 dockerfile: .goga/Dockerfile
 
+.claude-env: &claude-env
+  ANTHROPIC_MODEL: opus
+  ANTHROPIC_BASE_URL: "https://api.z.ai/api/anthropic"
+
 build:
   task_executor:
     agent: developer
 
 pipeline:
   agent: claude
+  env:
+    <<: *claude-env
+    ANTHROPIC_DEFAULT_OPUS_MODEL: "glm-5.3[1m]"
 
 codemanifest:
   usages:

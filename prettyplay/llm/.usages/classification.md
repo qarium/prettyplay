@@ -1,0 +1,25 @@
+# Failure classification
+
+Domain: classifying a failed cached step before healing. Audience: engineers reasoning about healing decisions.
+
+## Categories
+
+| Category | Meaning | Consequence |
+|---|---|---|
+| rot | the UI changed: selectors, texts, structure | the step is regenerated from the current page and retried |
+| product_defect | the expectation legitimately failed | the test fails loudly — never healed green |
+| incurable | regeneration cannot help: budget exhausted, text no longer matches reality, ambiguity | the incurable failure carries step, reason, recommendation |
+
+## Call
+
+```python
+classification = provider.classify_failure(
+    prompt=system_prompt,  # the system prompt text comes from the calling engine
+    step_text="нажать «Войти»",
+    code=step_code,
+    error="element not found: button «Войти»",
+    snapshot=snapshot_text,
+    screenshot=None,
+)
+print(classification.category, classification.explanation, classification.recommendation)
+```

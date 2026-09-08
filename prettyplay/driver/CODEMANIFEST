@@ -1,0 +1,102 @@
+Imports:
+  - Types:
+      - Config
+    From: prettyplay/config
+
+Usages:
+  conventions: .goga/usages/conventions.md
+  playwright: .goga/usages/cooks/playwright.md
+
+Annotations: |
+  Use `conventions` for code writing rules and testing.
+  Use `playwright` for the sync API lifecycle, locators, auto-wait and the accessibility snapshot.
+
+  The driver is Playwright sync-only: the async API is out of scope.
+  One browser process serves the whole run; every test gets its own isolated browser context — no state is shared between tests through the library.
+  All waits go through locators and expectations; fixed delays (time.sleep and similar) are forbidden.
+  The facade surface is a backward-compatibility contract: generated step code works only through `PageFacade` and LocatorFacade, so the existing method set must not break across library releases — extend, never rename or remove.
+
+---
+
+"DriverSession(config: Config)":
+  location: session.py
+  annotations: |
+    Lifecycle owner of the Playwright sync driver and the browser process for the whole run.
+
+    `config`: project settings; the browser setting selects the browser of the {chromium, firefox, webkit} matrix (see `playwright`).
+  methods:
+    "open_context() -> page: PageFacade": |
+      Open a fresh isolated context with one page.
+
+      Algorithm:
+      1. Launch the browser lazily on the first call: constructing the session starts nothing
+      2. Create a fresh isolated browser context (see `playwright`)
+      3. Create a page inside the context
+      4. Wrap the page into `PageFacade` and return it
+
+      Requirements:
+      - Each result is isolated from every other context of the run
+    "close()": |
+      Stop the browser and the Playwright driver; safe to call when nothing was started.
+
+"PageFacade()":
+  location: page.py
+  annotations: |
+    The narrow, stable facade of a single test page — the only page API the generated step code may use. Wraps one isolated browser context created by `DriverSession`.
+
+    Requirements:
+    - Locating methods never sleep: waiting is the locator's own auto-wait behavior
+    - aria_snapshot and screenshot reflect the state at call time
+
+    Constraints:
+    - No method exposes raw Playwright objects: the facade is the boundary generated code works against
+  properties:
+    "url -> str": |
+      The current page URL.
+  methods:
+    "open(url: str)": |
+      Navigate to `url` and wait for the load state (see `playwright`).
+    "find_by_role(role: str, name: str) -> element: LocatorFacade": |
+      Locate one element by its aria role and accessible name; returns a `LocatorFacade`.
+    "find_by_label(label: str) -> element: LocatorFacade": |
+      Locate one element by its associated label; returns a `LocatorFacade`.
+    "find_by_text(text: str) -> element: LocatorFacade": |
+      Locate one element by its visible text; returns a `LocatorFacade`.
+    "aria_snapshot() -> snapshot: str": |
+      The structured accessibility-tree representation of the page — the primary machine-readable page state (see `playwright`).
+    "screenshot() -> image: bytes": |
+      A full-page PNG image of the current state.
+    "close()": |
+      Close the isolated context of this page; the browser process keeps running.
+
+"LocatorFacade()":
+  location: page.py
+  annotations: |
+    An auto-waiting handle of one located element — the only element API the generated step code may use.
+
+    Requirements:
+    - Every action and expectation auto-waits for actionability (see `playwright`)
+    - Failed expectations raise assertion-style errors destined for failure classification
+
+    Constraints:
+    - No fixed delays; no raw Playwright objects exposed
+  methods:
+    "click()": |
+      Click the element, waiting for actionability.
+    "fill(value: str)": |
+      Set the text input value of the element to `value`.
+    "select_option(value: str)": |
+      Select the option with `value` in a list or combo box.
+    "expect_visible()": |
+      Assert the element is visible.
+    "expect_text(text: str)": |
+      Assert the element text equals or contains `text`.
+    "expect_enabled()": |
+      Assert the element is enabled.
+
+---
+
+Author: Goga
+CreatedAt: 07/09/26
+Description: |
+  The Playwright sync driver of prettyplay: the run-scoped session and the narrow backward-compatible page facade for generated step code.
