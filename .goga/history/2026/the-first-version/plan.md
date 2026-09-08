@@ -1455,11 +1455,11 @@ regeneration requests») — повтор попытки с упавшим ка�
 кандидата); исчерпание = IncurableStepError, не бесконечный цикл; максимум
 `generation_attempts` (регенерация — `healing_attempts`) запросов на шаг на прогон.
 
-- [ ] **STEP 0 (Declaration)**: объявить, что выполняется Задача 17 — StepGenerator
-- [ ] **Contract tests** (`tests/engine/test_generator.py`): `from prettyplay.engine import
+- [x] **STEP 0 (Declaration)**: объявить, что выполняется Задача 17 — StepGenerator
+- [x] **Contract tests** (`tests/engine/test_generator.py`): `from prettyplay.engine import
       StepGenerator`; сигнатура конструктора (config, provider, cache, budgets, reporter);
       методы `generate`/`regenerate` с точными сигнатурами. Ожидаемый провал
-- [ ] **Code**: создать `prettyplay/engine/generator.py`: константы `GENERATION_PROMPT`,
+- [x] **Code**: создать `prettyplay/engine/generator.py`: константы `GENERATION_PROMPT`,
       `CLASSIFICATION_PROMPT` (тексты ниже, verbatim), `PAGE_API_SURFACE` (поверхность
       PageFacade: open/find_by_role/find_by_label/find_by_text/aria_snapshot/screenshot/url;
       LocatorFacade: click/fill/select_option/expect_visible/expect_text/expect_enabled —
@@ -1519,9 +1519,9 @@ where category is one of:
 explanation: one short sentence why. recommendation: one short sentence what the engineer should do.
 Output only that single line — no code, no extra text."""
 ```
-- [ ] **Code**: `prettyplay/engine/__init__.py` — добавить `StepGenerator`
-- [ ] **Interface verification**: `.venv/bin/pytest tests/engine/test_generator.py -v`
-- [ ] **Logic tests** (stub-провайдер с сигнатурами LlmProvider; fake page с методами фасада;
+- [x] **Code**: `prettyplay/engine/__init__.py` — добавить `StepGenerator`
+- [x] **Interface verification**: `.venv/bin/pytest tests/engine/test_generator.py -v`
+- [x] **Logic tests** (stub-провайдер с сигнатурами LlmProvider; fake page с методами фасада;
       кэш на tmp_path; рекордер событий):
       - `test_generate_success_stores_and_reports_attempt` — Setup: stub-провайдер:
         `generate_step_code` возвращает рабочий код для fake page; `budgets = RunBudgets(3, 2)`.
@@ -1564,10 +1564,10 @@ Output only that single line — no code, no extra text."""
         ```
       - дополнительный edge: `regenerate` стартует с переданных existing_code/error и
         расходует healing-бюджет (`try_healing`), не generation
-- [ ] **Debugging**: `.venv/bin/pytest tests/engine/ -x`
-- [ ] **Contract re-verification**: каждый запрос несёт точную PAGE_API_SURFACE; prompt
+- [x] **Debugging**: `.venv/bin/pytest tests/engine/ -x`
+- [x] **Contract re-verification**: каждый запрос несёт точную PAGE_API_SURFACE; prompt
       verbatim; кэшируются только успехи
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/engine/ tests/engine/`
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/engine/ tests/engine/`
 
 ### Task 18: `StepHealer` — классификация и лечение (prettyplay/engine/healer.py)
 

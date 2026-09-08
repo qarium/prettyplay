@@ -87,6 +87,9 @@ max-complexity = 10
     "PLR2004", # magic value comparisons in assertions are acceptable
     "RUF001",  # Cyrillic strings in test fixtures are intentional
 ]
+"prettyplay/engine/generator.py" = [
+    "E501",    # the prompt constants are verbatim contract texts and must not be rewrapped
+]
 
 [tool.ruff.format]
 quote-style = "double"
