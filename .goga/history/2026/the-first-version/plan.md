@@ -1702,16 +1702,16 @@ open_page() → self.driver.open_context()
 close() → IF self._driver: self._driver.close()
 ```
 
-- [ ] **STEP 0 (Declaration)**: объявить, что выполняется Задача 19 — PrettyplayRuntime + get_runtime
-- [ ] **Contract tests** (`tests/test_runtime.py`): `from prettyplay import
+- [x] **STEP 0 (Declaration)**: объявить, что выполняется Задача 19 — PrettyplayRuntime + get_runtime
+- [x] **Contract tests** (`tests/test_runtime.py`): `from prettyplay import
       PrettyplayRuntime, get_runtime`; свойства `config`/`budgets`/`driver`/`provider`;
       методы `open_page`/`close`; `get_runtime()` вызываем без аргументов. Ожидаемый провал
-- [ ] **Code**: создать `prettyplay/runtime.py` по алгоритму выше; заполнить
+- [x] **Code**: создать `prettyplay/runtime.py` по алгоритму выше; заполнить
       `prettyplay/__init__.py`: `from .runtime import PrettyplayRuntime, get_runtime` +
       начало `__all__`
-- [ ] **Interface verification**: `.venv/bin/pytest tests/test_runtime.py -v`; фасад:
+- [x] **Interface verification**: `.venv/bin/pytest tests/test_runtime.py -v`; фасад:
       `.venv/bin/python -c "from prettyplay import PrettyplayRuntime, get_runtime"`
-- [ ] **Logic tests**:
+- [x] **Logic tests**:
       - `test_get_runtime_is_process_singleton` — Setup: изоляция глобали (сброс приватной
         глобали до/после); `mock.patch` load_config → фиксированный Config.
         Input: `get_runtime()` ×2.
@@ -1731,10 +1731,10 @@ close() → IF self._driver: self._driver.close()
         ```
       - дополнительный edge: `close()` до любого `open_page()` — no-op; `budgets` — RunBudgets
         с лимитами из config
-- [ ] **Debugging**: `.venv/bin/pytest tests/test_runtime.py -x`
-- [ ] **Contract re-verification**: конструкция рантайма без кредов; один рантайм на процесс;
+- [x] **Debugging**: `.venv/bin/pytest tests/test_runtime.py -x`
+- [x] **Contract re-verification**: конструкция рантайма без кредов; один рантайм на процесс;
       повторные вызовы дёшевы
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/runtime.py prettyplay/__init__.py tests/test_runtime.py`
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/runtime.py prettyplay/__init__.py tests/test_runtime.py`
 
 ### Task 20: `StepExecutor` — цикл шага (prettyplay/executor.py)
 
