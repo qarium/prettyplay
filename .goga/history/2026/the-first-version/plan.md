@@ -1108,15 +1108,15 @@ Algorithm (verbatim из дизайна):
 3. try_healing — симметрично с self._heal / self._healing_limit
 ```
 
-- [ ] **STEP 0 (Declaration)**: объявить, что выполняется Задача 11 — RunBudgets
-- [ ] **Contract tests** (`tests/cache/test_budgets.py`): `from prettyplay.cache import
+- [x] **STEP 0 (Declaration)**: объявить, что выполняется Задача 11 — RunBudgets
+- [x] **Contract tests** (`tests/cache/test_budgets.py`): `from prettyplay.cache import
       RunBudgets`; сигнатура `RunBudgets(generation_limit, healing_limit)`; методы
       `try_generation(identity) -> bool`, `try_healing(identity) -> bool`. Ожидаемый провал
-- [ ] **Code**: создать `prettyplay/cache/budgets.py` по алгоритму выше
-- [ ] **Code**: `prettyplay/cache/__init__.py` — полный фасад клетки:
+- [x] **Code**: создать `prettyplay/cache/budgets.py` по алгоритму выше
+- [x] **Code**: `prettyplay/cache/__init__.py` — полный фасад клетки:
       `normalize_step_text`, `StepIdentity`, `CachedStep`, `StepCache`, `RunBudgets` + `__all__`
-- [ ] **Interface verification**: `.venv/bin/pytest tests/cache/ -v`
-- [ ] **Logic tests**:
+- [x] **Interface verification**: `.venv/bin/pytest tests/cache/ -v`
+- [x] **Logic tests**:
       - `test_budgets_separate_pools_shared_per_identity` — Setup:
         `budgets = RunBudgets(generation_limit=1, healing_limit=1)`; `identity` и `identity2`.
         Input: `try_generation(identity)` ×2; `try_healing(identity)`; `try_generation(identity2)`.
@@ -1128,10 +1128,10 @@ Algorithm (verbatim из дизайна):
         [try_generation(id) for _ in range(4)] == [True, True, True, False]
         [try_healing(id) for _ in range(3)] == [True, True, False]
         ```
-- [ ] **Debugging**: `.venv/bin/pytest tests/cache/ -x`
-- [ ] **Contract re-verification**: один реестр на процесс; раздельные лимиты; False на исчерпание
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/cache/ tests/cache/`
-- [ ] Клетка cache завершена: `goga lint` — 0 ошибок; фасад-проверка:
+- [x] **Debugging**: `.venv/bin/pytest tests/cache/ -x`
+- [x] **Contract re-verification**: один реестр на процесс; раздельные лимиты; False на исчерпание
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/cache/ tests/cache/`
+- [x] Клетка cache завершена: `goga lint` — 0 ошибок; фасад-проверка:
       `.venv/bin/python -c "from prettyplay.cache import StepCache"`
 
 ### Task 12: `FailureClassification` — вердикт классификации (prettyplay/llm/models.py)
