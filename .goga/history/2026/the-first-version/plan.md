@@ -1146,19 +1146,19 @@ Algorithm (verbatim из дизайна):
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **STEP 0 (Declaration)**: объявить, что выполняется Задача 12 — FailureClassification
-- [ ] **Contract tests** (`tests/llm/test_models.py`): `from prettyplay.llm import
+- [x] **STEP 0 (Declaration)**: объявить, что выполняется Задача 12 — FailureClassification
+- [x] **Contract tests** (`tests/llm/test_models.py`): `from prettyplay.llm import
       FailureClassification`; kw_only; свойства `category`/`explanation`/`recommendation` (str).
       Ожидаемый провал
-- [ ] **Code**: создать `prettyplay/llm/models.py` (модель) и `prettyplay/llm/__init__.py`
+- [x] **Code**: создать `prettyplay/llm/models.py` (модель) и `prettyplay/llm/__init__.py`
       с реэкспортом `FailureClassification`
-- [ ] **Interface verification**: `.venv/bin/pytest tests/llm/test_models.py -v`
-- [ ] **Logic tests**: positive — `FailureClassification(category="rot", explanation="e",
+- [x] **Interface verification**: `.venv/bin/pytest tests/llm/test_models.py -v`
+- [x] **Logic tests**: positive — `FailureClassification(category="rot", explanation="e",
       recommendation="r")` хранит все три; edge — категории всех трёх допустимых значений
       конструируются
-- [ ] **Debugging**: `.venv/bin/pytest tests/llm/test_models.py -x`
-- [ ] **Contract re-verification**: три свойства; категория — строка-ярлык
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/llm/ tests/llm/`
+- [x] **Debugging**: `.venv/bin/pytest tests/llm/test_models.py -x`
+- [x] **Contract re-verification**: три свойства; категория — строка-ярлык
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/llm/ tests/llm/`
 
 ### Task 13: `LlmProvider` (порт) + `create_provider` (prettyplay/llm/provider.py)
 
