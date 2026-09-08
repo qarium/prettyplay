@@ -1608,15 +1608,15 @@ heal(step, error, previous_steps, page):
   RETURN healed
 ```
 
-- [ ] **STEP 0 (Declaration)**: объявить, что выполняется Задача 18 — StepHealer
-- [ ] **Contract tests** (`tests/engine/test_healer.py`): `from prettyplay.engine import
+- [x] **STEP 0 (Declaration)**: объявить, что выполняется Задача 18 — StepHealer
+- [x] **Contract tests** (`tests/engine/test_healer.py`): `from prettyplay.engine import
       StepHealer`; сигнатура конструктора; метод `heal(step, error, previous_steps, page)`.
       Ожидаемый провал
-- [ ] **Code**: создать `prettyplay/engine/healer.py` по алгоритму выше
-- [ ] **Code**: `prettyplay/engine/__init__.py` — полный фасад клетки: `run_step_code`,
+- [x] **Code**: создать `prettyplay/engine/healer.py` по алгоритму выше
+- [x] **Code**: `prettyplay/engine/__init__.py` — полный фасад клетки: `run_step_code`,
       `StepGenerator`, `StepHealer` + `__all__`
-- [ ] **Interface verification**: `.venv/bin/pytest tests/engine/test_healer.py -v`
-- [ ] **Logic tests**:
+- [x] **Interface verification**: `.venv/bin/pytest tests/engine/test_healer.py -v`
+- [x] **Logic tests**:
       - `test_heal_rot_regenerates_and_reports_healed` — Setup: провайдер-classification →
         `FailureClassification("rot", "кнопка переименована", "проверить шаг")`; регенерация
         через stub generator-объект (рекордер: regenerate(...) → возвращает вылеченный
@@ -1658,11 +1658,11 @@ heal(step, error, previous_steps, page):
         excinfo.value.recommendation == "переформулируйте шаг"
         str(excinfo.value) содержит все три поля
         ```
-- [ ] **Debugging**: `.venv/bin/pytest tests/engine/ -x`
-- [ ] **Contract re-verification**: анти-маскировка (product_defect всегда падает громко);
+- [x] **Debugging**: `.venv/bin/pytest tests/engine/ -x`
+- [x] **Contract re-verification**: анти-маскировка (product_defect всегда падает громко);
       вылеченный код заменяет кэш только после успешного исполнения
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/engine/ tests/engine/`
-- [ ] Клетка engine завершена: `goga lint` — 0 ошибок; фасад-проверка:
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/engine/ tests/engine/`
+- [x] Клетка engine завершена: `goga lint` — 0 ошибок; фасад-проверка:
       `.venv/bin/python -c "from prettyplay.engine import StepGenerator, StepHealer, run_step_code"`
 
 ### Task 19: `PrettyplayRuntime` + `get_runtime` — composition root (prettyplay/runtime.py)
