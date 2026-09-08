@@ -1382,13 +1382,13 @@ Algorithm (verbatim из дизайна):
 4. fn(page)                      # исключения — наружу как есть
 ```
 
-- [ ] **STEP 0 (Declaration)**: объявить, что выполняется Задача 16 — run_step_code
-- [ ] **Contract tests** (`tests/engine/test_execution.py`): `from prettyplay.engine import
+- [x] **STEP 0 (Declaration)**: объявить, что выполняется Задача 16 — run_step_code
+- [x] **Contract tests** (`tests/engine/test_execution.py`): `from prettyplay.engine import
       run_step_code`; сигнатура `(code: str, page: PageFacade)`. Ожидаемый провал
-- [ ] **Code**: создать `prettyplay/engine/execution.py` по алгоритму выше; создать
+- [x] **Code**: создать `prettyplay/engine/execution.py` по алгоритму выше; создать
       `prettyplay/engine/__init__.py` с реэкспортом `run_step_code`
-- [ ] **Interface verification**: `.venv/bin/pytest tests/engine/test_execution.py -v`
-- [ ] **Logic tests**:
+- [x] **Interface verification**: `.venv/bin/pytest tests/engine/test_execution.py -v`
+- [x] **Logic tests**:
       - `test_run_step_code_executes_fixed_form` — Setup: fake page с записью вызовов.
         Input: `run_step_code("def step(page) -> None:\n    page.open('https://example.com')\n", page)`.
         Assertions (verbatim): `page.calls == [("open", "https://example.com")]`
@@ -1396,9 +1396,9 @@ Algorithm (verbatim из дизайна):
         raise AssertionError("x")`) — исключение пробрасывается как есть (no swallow);
         edge: код без `def step(` → KeyError/исключение наружу (грубое нарушение формы —
         не штатная ситуация, защиты не требуется)
-- [ ] **Debugging**: `.venv/bin/pytest tests/engine/ -x`
-- [ ] **Contract re-verification**: изолированный namespace; без sys.modules; без LLM/сети
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/engine/ tests/engine/`
+- [x] **Debugging**: `.venv/bin/pytest tests/engine/ -x`
+- [x] **Contract re-verification**: изолированный namespace; без sys.modules; без LLM/сети
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/engine/ tests/engine/`
 
 ### Task 17: `StepGenerator` — генерация с исполнением в цикле (prettyplay/engine/generator.py)
 
