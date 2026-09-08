@@ -34,10 +34,21 @@ def make_client_create(answer: str = WORKING_CODE) -> tuple[object, list[dict]]:
         The fake client and the list the request payloads get appended to.
     """
     requests: list[dict] = []
-    response = SimpleNamespace(content=[SimpleNamespace(text=answer)])
+    response = SimpleNamespace(content=[text_block(answer)])
     create = mock.MagicMock(return_value=response, side_effect=lambda **kwargs: requests.append(kwargs) or response)
     client = SimpleNamespace(messages=SimpleNamespace(create=create))
     return client, requests
+
+
+def make_client_returning(response: object) -> object:
+    """Build a fake SDK client whose messages.create returns the raw response."""
+    create = mock.MagicMock(return_value=response)
+    return SimpleNamespace(messages=SimpleNamespace(create=create))
+
+
+def text_block(answer: str) -> SimpleNamespace:
+    """Build a fake anthropic text content block carrying the answer."""
+    return SimpleNamespace(type="text", text=answer)
 
 
 class TestAnthropicProviderContract:
@@ -92,6 +103,70 @@ class TestAnthropicProviderLogic:
 
         assert "anthropic" in str(excinfo.value)
         assert isinstance(excinfo.value, PrettyplayError)
+
+    def test_empty_content_maps_to_llm_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+        client = make_client_returning(SimpleNamespace(content=[]))  # пустой ответ сервиса
+        provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+
+        with (
+            mock.patch.object(provider, "_get_client", return_value=client),
+            pytest.raises(LlmUnavailableError) as excinfo,
+        ):
+            provider.generate_step_code(
+                prompt="p",
+                step_text="s",
+                previous_steps=[],
+                snapshot="- snap",
+                screenshot=None,
+                page_api="page.open(...)",
+                existing_code=None,
+                error=None,
+            )
+
+        assert "empty completion" in str(excinfo.value)
+        assert isinstance(excinfo.value, PrettyplayError)
+
+    def test_non_text_blocks_are_skipped_until_the_text_block(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+        tool_block = SimpleNamespace(type="tool_use", id="t", name="n", input={})
+        client = make_client_returning(SimpleNamespace(content=[tool_block, text_block(WORKING_CODE)]))
+        provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+
+        with mock.patch.object(provider, "_get_client", return_value=client):
+            code = provider.generate_step_code(
+                prompt="p",
+                step_text="s",
+                previous_steps=[],
+                snapshot="- snap",
+                screenshot=None,
+                page_api="page.open(...)",
+                existing_code=None,
+                error=None,
+            )
+
+        assert code == WORKING_CODE  # не-текстовый первый блок не ломает извлечение
+
+    def test_content_without_any_text_block_maps_to_llm_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+        tool_block = SimpleNamespace(type="tool_use", id="t", name="n", input={})
+        client = make_client_returning(SimpleNamespace(content=[tool_block]))
+        provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+
+        with (
+            mock.patch.object(provider, "_get_client", return_value=client),
+            pytest.raises(LlmUnavailableError) as excinfo,
+        ):
+            provider.classify_failure(
+                prompt="p",
+                step_text="s",
+                code="c",
+                error="e",
+                snapshot="- snap",
+                screenshot=None,
+            )
+
+        assert "empty completion" in str(excinfo.value)
 
     def test_anthropic_missing_api_key_surfaces_on_first_request(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)

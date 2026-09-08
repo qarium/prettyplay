@@ -11,6 +11,7 @@ from ._request import (
     build_fields_text,
     openai_user_content,
     parse_classification_line,
+    require_completion_text,
     unparsable_classification,
 )
 from .models import FailureClassification
@@ -104,7 +105,7 @@ class OpenAiProvider(LlmProvider):
             )
         except OpenAIError as sdk_error:
             raise LlmUnavailableError("llm unavailable: openai request failed") from sdk_error
-        return str(response.choices[0].message.content)
+        return require_completion_text(response.choices[0].message.content, "openai")
 
     def classify_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
@@ -148,7 +149,7 @@ class OpenAiProvider(LlmProvider):
         except OpenAIError as sdk_error:
             raise LlmUnavailableError("llm unavailable: openai request failed") from sdk_error
 
-        answer = str(response.choices[0].message.content)
+        answer = require_completion_text(response.choices[0].message.content, "openai")
         parsed = parse_classification_line(answer)
         if parsed is None:
             return FailureClassification(**unparsable_classification())

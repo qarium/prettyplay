@@ -291,6 +291,26 @@ class TestOpenAiProviderLogic:
 
         assert classification.category == "incurable"
 
+    def test_classification_null_content_maps_to_llm_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "test")
+        client, _requests = make_client_create(answer=None)  # type: ignore[arg-type]
+        provider = OpenAiProvider(Config(model="gpt-5"))
+
+        with (
+            mock.patch.object(provider, "_get_client", return_value=client),
+            pytest.raises(LlmUnavailableError) as excinfo,
+        ):
+            provider.classify_failure(
+                prompt="p",
+                step_text="s",
+                code="c",
+                error="e",
+                snapshot="- snap",
+                screenshot=None,
+            )
+
+        assert "empty completion" in str(excinfo.value)
+
     def test_classification_empty_answer_defaults_to_incurable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, _requests = make_client_create(answer="   ")
@@ -330,3 +350,26 @@ class TestOpenAiProviderLogic:
 
         assert "openai" in str(excinfo.value)
         assert isinstance(excinfo.value.__cause__, OpenAIError)
+
+    def test_null_completion_content_maps_to_llm_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "test")
+        client, _requests = make_client_create(answer=None)  # type: ignore[arg-type]
+        provider = OpenAiProvider(Config(model="gpt-5"))
+
+        with (
+            mock.patch.object(provider, "_get_client", return_value=client),
+            pytest.raises(LlmUnavailableError) as excinfo,
+        ):
+            provider.generate_step_code(
+                prompt="p",
+                step_text="s",
+                previous_steps=[],
+                snapshot="- snap",
+                screenshot=None,
+                page_api="page.open(...)",
+                existing_code=None,
+                error=None,
+            )
+
+        assert "empty completion" in str(excinfo.value)
+        assert isinstance(excinfo.value, PrettyplayError)

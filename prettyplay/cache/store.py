@@ -183,8 +183,7 @@ class StepCache:
         subdir = Path(path)
         if subdir.is_absolute():
             raise ValueError(f"cache path must be a subdirectory, got absolute {path!r}")
-        resolved = (Path("/") / subdir).resolve()
-        if ".." in subdir.parts or resolved != Path("/").joinpath(*subdir.parts):
+        if ".." in subdir.parts:
             raise ValueError(f"cache path must stay inside the cache root, got {path!r}")
         return subdir
 

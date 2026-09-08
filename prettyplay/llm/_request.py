@@ -2,6 +2,8 @@
 
 import base64
 
+from ..failures import LlmUnavailableError
+
 #: The labels a classification category may take.
 CATEGORY_ROT = "rot"
 CATEGORY_PRODUCT_DEFECT = "product_defect"
@@ -12,6 +14,27 @@ CATEGORIES = frozenset({CATEGORY_ROT, CATEGORY_PRODUCT_DEFECT, CATEGORY_INCURABL
 
 #: Field count of the one-line classification verdict.
 VERDICT_FIELD_COUNT = 3
+
+
+def require_completion_text(text: str | None, provider: str) -> str:
+    """Return the completion text, refusing an empty answer as a service failure.
+
+    Args:
+        text: the raw text extracted from the provider response; ``None`` or an
+            empty string means the service returned no completion body.
+        provider: the provider name for the failure message.
+
+    Returns:
+        The non-empty completion text.
+
+    Raises:
+        LlmUnavailableError: the completion body is missing — a null/empty
+            content is an infrastructure shape, not a step verdict, so it maps
+            to the same taxonomy as any other service failure.
+    """
+    if not text:
+        raise LlmUnavailableError(f"llm unavailable: {provider} returned empty completion")
+    return text
 
 
 def build_fields_text(  # noqa: PLR0913, PLR0917 — the parameters mirror the fixed port signature

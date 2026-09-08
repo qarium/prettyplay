@@ -2,6 +2,7 @@
 
 from unittest import mock
 
+import pytest
 from prettyplay.config import Config
 from prettyplay.driver import DriverSession, PageFacade
 
@@ -205,3 +206,37 @@ class TestDriverSessionLogic:
         assert factory.start_calls == 2
         assert len(factory.launches) == 2
         assert isinstance(page, PageFacade)
+
+    def test_failed_launch_stops_driver_and_retries_cleanly(self) -> None:
+        factory = FakePlaywrightFactory()
+        factory.chromium = FailingEngine("chromium", factory, RuntimeError("browser binary missing"))
+        session = DriverSession(Config(browser="chromium"))
+
+        with (
+            mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory),
+            pytest.raises(RuntimeError, match="browser binary missing"),
+        ):
+            session.open_context()
+
+        assert factory.stop_calls == 1  # драйвер остановлен — процесс не течёт
+
+        factory.chromium = FakeEngine("chromium", factory)  # повторная попытка запускается чисто
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            page = session.open_context()
+
+        assert factory.start_calls == 2
+        assert factory.stop_calls == 1  # лишних стопов нет
+        assert isinstance(page, PageFacade)
+
+
+class FailingEngine:
+    """Fake engine whose launch always fails, mimicking a missing browser binary."""
+
+    def __init__(self, name: str, factory: FakePlaywrightFactory, error: Exception) -> None:
+        self.name = name
+        self._factory = factory
+        self._error = error
+
+    def launch(self) -> "FakeBrowser":
+        self._factory.launches.append(self.name)
+        raise self._error

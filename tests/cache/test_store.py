@@ -281,3 +281,10 @@ class TestStepCacheLogic:
         """Additional edge: absolute or escaping cache paths are rejected at construction."""
         with pytest.raises(ValueError, match="cache path"):
             StepCache(Config(cache_root=str(tmp_path)), bad_path)
+
+    @pytest.mark.parametrize("good_path", ["bin", "lib", "nested/dir", "./relative"])
+    def test_relative_paths_are_host_independent(self, tmp_path: Path, good_path: str) -> None:
+        """Regression: a relative subdir is accepted regardless of host symlinks (merged-/usr)."""
+        cache = StepCache(Config(cache_root=str(tmp_path)), good_path)
+
+        assert cache.root == str(tmp_path)

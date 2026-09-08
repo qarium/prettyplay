@@ -42,13 +42,19 @@ class DriverSession:
         if self._browser is None:
             self._playwright = sync_playwright().start()
 
-            engines: dict[str, object] = {
-                "chromium": self._playwright.chromium,
-                "firefox": self._playwright.firefox,
-                "webkit": self._playwright.webkit,
-            }
-            engine = engines[self._config.browser]
-            self._browser = engine.launch()
+            try:
+                engines: dict[str, object] = {
+                    "chromium": self._playwright.chromium,
+                    "firefox": self._playwright.firefox,
+                    "webkit": self._playwright.webkit,
+                }
+                engine = engines[self._config.browser]
+                self._browser = engine.launch()
+            except Exception:
+                # незапустившийся браузер не оставляет процесс драйвера жить
+                self._playwright.stop()
+                self._playwright = None
+                raise
 
         context: BrowserContext = self._browser.new_context()
         page: Page = context.new_page()

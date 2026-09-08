@@ -11,12 +11,29 @@ from ._request import (
     build_fields_text,
     encode_screenshot,
     parse_classification_line,
+    require_completion_text,
     unparsable_classification,
 )
 from .models import FailureClassification
 from .provider import LlmProvider
 
 REQUEST_MAX_TOKENS = 1024
+
+
+def _first_text_block(response: object) -> str | None:
+    """Extract the text of the first text block of an anthropic response.
+
+    Args:
+        response: the SDK response of a ``messages.create`` call.
+
+    Returns:
+        The text of the first text content block, or ``None`` when the
+        response carries no text block at all (empty or non-text content).
+    """
+    for block in getattr(response, "content", None) or []:
+        if getattr(block, "type", None) == "text":
+            return getattr(block, "text", None)
+    return None
 
 
 class AnthropicProvider(LlmProvider):
@@ -130,7 +147,7 @@ class AnthropicProvider(LlmProvider):
             )
         except AnthropicError as sdk_error:
             raise LlmUnavailableError("llm unavailable: anthropic request failed") from sdk_error
-        return str(response.content[0].text)
+        return require_completion_text(_first_text_block(response), "anthropic")
 
     def classify_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
@@ -172,7 +189,7 @@ class AnthropicProvider(LlmProvider):
         except AnthropicError as sdk_error:
             raise LlmUnavailableError("llm unavailable: anthropic request failed") from sdk_error
 
-        answer = str(response.content[0].text)
+        answer = require_completion_text(_first_text_block(response), "anthropic")
         parsed = parse_classification_line(answer)
         if parsed is None:
             return FailureClassification(**unparsable_classification())
