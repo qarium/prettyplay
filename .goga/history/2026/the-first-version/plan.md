@@ -1780,15 +1780,15 @@ short(exc) → первая строка str(exc), обрезанная до 200
 успешной генерации и сохранения в кэш; шаг, который ни разу не сгенерировался, даёт
 `IncurableStepError` и никогда `ProductDefectError`.
 
-- [ ] **STEP 0 (Declaration)**: объявить, что выполняется Задача 20 — StepExecutor
-- [ ] **Contract tests** (`tests/test_executor.py`): `from prettyplay import StepExecutor`;
+- [x] **STEP 0 (Declaration)**: объявить, что выполняется Задача 20 — StepExecutor
+- [x] **Contract tests** (`tests/test_executor.py`): `from prettyplay import StepExecutor`;
       сигнатура конструктора; метод `execute(step_text, step_type, page)`. Ожидаемый провал
-- [ ] **Code**: создать `prettyplay/executor.py` по алгоритму выше (делегирование движку,
+- [x] **Code**: создать `prettyplay/executor.py` по алгоритму выше (делегирование движку,
       on_step_failed + проброс в except-обёртке всего тела)
-- [ ] **Code**: `prettyplay/__init__.py` — добавить `from .executor import StepExecutor` в
+- [x] **Code**: `prettyplay/__init__.py` — добавить `from .executor import StepExecutor` в
       реэкспорты и `__all__`
-- [ ] **Interface verification**: `.venv/bin/pytest tests/test_executor.py -v`
-- [ ] **Logic tests** (fake page; кэш на tmp_path; stub generator/healer-рекордеры):
+- [x] **Interface verification**: `.venv/bin/pytest tests/test_executor.py -v`
+- [x] **Logic tests** (fake page; кэш на tmp_path; stub generator/healer-рекордеры):
       - hit-путь: предзаписанный в кэш шаг → `run_step_code` исполняется, generator/healer
         не вызваны, `on_step_started`/`on_step_passed` записаны (step_type передан верно)
       - miss-путь: пустой кэш → `generator.generate` вызван с identity и `previous_steps`;
@@ -1798,10 +1798,10 @@ short(exc) → первая строка str(exc), обрезанная до 200
         короткой ошибкой; исключение проброшено тем же видом
       - edge: `short()` — многострочная ошибка → первая строка до 200 символов в
         `on_step_failed`
-- [ ] **Debugging**: `.venv/bin/pytest tests/test_executor.py -x`
-- [ ] **Contract re-verification**: кэш-путь без LLM; сценарный контекст пер-тестовый;
+- [x] **Debugging**: `.venv/bin/pytest tests/test_executor.py -x`
+- [x] **Contract re-verification**: кэш-путь без LLM; сценарный контекст пер-тестовый;
       проброс по виду с on_step_failed
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/executor.py tests/test_executor.py`
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/executor.py tests/test_executor.py`
 
 ### Task 21: `PrettyTest` — главный объект интегратора (prettyplay/scenario.py)
 
