@@ -39,10 +39,13 @@ Annotations: |
     "close()": |
       Stop the browser and the Playwright driver; safe to call when nothing was started.
 
-"PageFacade()":
+"PageFacade(page: Page, context: BrowserContext)":
   location: page.py
   annotations: |
     The narrow, stable facade of a single test page — the only page API the generated step code may use. Wraps one isolated browser context created by `DriverSession`.
+
+    `page`: the wrapped Playwright page object; never exposed through the facade.
+    `context`: the isolated browser context owning the page; the boundary the close method closes.
 
     Requirements:
     - Locating methods never sleep: waiting is the locator's own auto-wait behavior
@@ -69,10 +72,12 @@ Annotations: |
     "close()": |
       Close the isolated context of this page; the browser process keeps running.
 
-"LocatorFacade()":
+"LocatorFacade(locator: Locator)":
   location: page.py
   annotations: |
     An auto-waiting handle of one located element — the only element API the generated step code may use.
+
+    `locator`: the wrapped Playwright locator object; never exposed through the facade.
 
     Requirements:
     - Every action and expectation auto-waits for actionability (see `playwright`)

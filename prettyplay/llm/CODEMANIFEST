@@ -47,8 +47,11 @@ Annotations: |
       Classify a failed cached step.
 
       `prompt`: the system prompt text supplied by the calling engine — applied verbatim as the system message.
+      `step_text`: the sentence of the failed step.
       `code`: the existing step code that failed.
       `error`: the human-readable description of the failure.
+      `snapshot`: the accessibility snapshot of the current page.
+      `screenshot`: an optional PNG image of the page; passed only when the project enables screenshots.
       `classification`: the `FailureClassification` verdict.
 
 "LlmProvider::OpenAiProvider(config: Config)":

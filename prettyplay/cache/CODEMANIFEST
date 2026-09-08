@@ -86,14 +86,14 @@ Annotations: |
     "created_at -> str": |
       The creation date.
 
-"StepCache(config: Config, path: str | None, reporter: StepReporter)":
+"StepCache(config: Config, path: str | None, reporter: StepReporter | None)":
   location: store.py
   annotations: |
     The repository store of cache steps: addressing, atomic writes and the read-only mode.
 
     `config`: project settings; the cache_root setting is the cache root.
     `path`: the optional subdirectory inside the cache; part of the address — steps of different subdirectories never collide; empty — the shared root, so equal cache keys are reused across tests.
-    `reporter`: the visibility point — cache events (saved, skipped) go through it.
+    `reporter`: the visibility point — cache events (saved, skipped) go through it; omitted — the hook-less default reporter, so a missing visibility point never fails a save.
   properties:
     "root -> str": |
       The effective cache root; the default is <repo root>/.prettyplay/cache/.
