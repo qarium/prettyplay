@@ -556,20 +556,20 @@ Trace-чекпойнты дизайна (пройти по реализации)
 не ошибка; отсутствие pyproject.toml при авто-поиске — громкая ошибка «pyproject.toml not
 found»; ValidationError пробрасывается.
 
-- [ ] **STEP 0 (Declaration)**: объявить, что выполняется Задача 3 — `load_config`
-- [ ] **Contract tests** (`tests/config/test_loader.py`): `from prettyplay.config import load_config`
+- [x] **STEP 0 (Declaration)**: объявить, что выполняется Задача 3 — `load_config`
+- [x] **Contract tests** (`tests/config/test_loader.py`): `from prettyplay.config import load_config`
       доступен; сигнатура допускает `load_config(None)` и `load_config(str(path))`; возвращает
       `Config`. Ожидаемый провал на этом этапе
-- [ ] **Code**: создать `prettyplay/config/loader.py` по алгоритму выше; env-оверрайды для
+- [x] **Code**: создать `prettyplay/config/loader.py` по алгоритму выше; env-оверрайды для
       всех 10 полей (`PRETTYPLAY_PROVIDER`, `PRETTYPLAY_BROWSER`, `PRETTYPLAY_MODEL`,
       `PRETTYPLAY_GENERATION_MODEL`, `PRETTYPLAY_CLASSIFICATION_MODEL`, `PRETTYPLAY_BASE_URL`,
       `PRETTYPLAY_CACHE_ROOT`, `PRETTYPLAY_GENERATION_ATTEMPTS`, `PRETTYPLAY_HEALING_ATTEMPTS`,
       `PRETTYPLAY_SEND_SCREENSHOTS`)
-- [ ] **Code**: `prettyplay/config/__init__.py` — добавить `from .loader import load_config`,
+- [x] **Code**: `prettyplay/config/__init__.py` — добавить `from .loader import load_config`,
       `__all__ = ["Config", "load_config"]`
-- [ ] **Interface verification**: `.venv/bin/pytest tests/config/test_loader.py -v`;
+- [x] **Interface verification**: `.venv/bin/pytest tests/config/test_loader.py -v`;
       фасад: `.venv/bin/python -c "from prettyplay.config import load_config"`
-- [ ] **Logic tests** (`tests/config/test_loader.py`):
+- [x] **Logic tests** (`tests/config/test_loader.py`):
       - `test_load_config_reads_section_and_env_overrides` — Setup: `tmp_path/pyproject.toml`
         ```toml
         [tool.prettyplay]
@@ -595,11 +595,11 @@ found»; ValidationError пробрасывается.
       - `test_load_config_missing_section_yields_defaults` — Setup: `tmp_path/pyproject.toml`
         без `[tool.prettyplay]` (например, только `[project]`).
         Assertions: `config.provider == "openai"; config.generation_attempts == 3`
-- [ ] **Debugging**: `.venv/bin/pytest tests/config/ -x` — исправлять реализацию, пока не зелено
-- [ ] **Contract re-verification**: фасад клетки config полон (`Config`, `load_config`);
+- [x] **Debugging**: `.venv/bin/pytest tests/config/ -x` — исправлять реализацию, пока не зелено
+- [x] **Contract re-verification**: фасад клетки config полон (`Config`, `load_config`);
       «never read LLM API keys from any file» — в функции нет чтения чего-либо, кроме TOML
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/config/ tests/config/`
-- [ ] Клетка config завершена: `goga lint` — 0 ошибок; фасад-проверка:
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/config/ tests/config/`
+- [x] Клетка config завершена: `goga lint` — 0 ошибок; фасад-проверка:
       `.venv/bin/python -c "from prettyplay.config import Config, load_config"`
 
 ### Task 4: `StepHooks` + `StepReporter` — видимость (prettyplay/reporting/{hooks,reporter}.py)
