@@ -899,14 +899,14 @@ Algorithm (verbatim из дизайна):
 4. RETURN s.casefold()
 ```
 
-- [ ] **STEP 0 (Declaration)**: объявить, что выполняется Задача 8 — normalize_step_text
-- [ ] **Contract tests** (`tests/cache/test_text.py`): `from prettyplay.cache import
+- [x] **STEP 0 (Declaration)**: объявить, что выполняется Задача 8 — normalize_step_text
+- [x] **Contract tests** (`tests/cache/test_text.py`): `from prettyplay.cache import
       normalize_step_text`; сигнатура `(text: str) -> str`. Ожидаемый провал
-- [ ] **Code**: создать `prettyplay/cache/text.py`; создать `prettyplay/cache/__init__.py`
+- [x] **Code**: создать `prettyplay/cache/text.py`; создать `prettyplay/cache/__init__.py`
       с реэкспортом `normalize_step_text`
-- [ ] **Interface verification**: `.venv/bin/pytest tests/cache/test_text.py -v`; фасад:
+- [x] **Interface verification**: `.venv/bin/pytest tests/cache/test_text.py -v`; фасад:
       `.venv/bin/python -c "from prettyplay.cache import normalize_step_text"`
-- [ ] **Logic tests**:
+- [x] **Logic tests**:
       - `test_normalize_step_text_equivalence` — Input: `normalize_step_text("  Нажать   Войти ")`,
         `normalize_step_text("нажать войти")`.
         Assertions (verbatim):
@@ -917,9 +917,9 @@ Algorithm (verbatim из дизайна):
       - `test_normalize_empty_and_whitespace_only` — Input: `normalize_step_text("")`,
         `normalize_step_text("   ")`, `normalize_step_text("\n\t")`.
         Assertions: все три → `""`
-- [ ] **Debugging**: `.venv/bin/pytest tests/cache/test_text.py -x`
-- [ ] **Contract re-verification**: чистая функция; пайплайн NFC→strip→collapse→casefold
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/cache/ tests/cache/`
+- [x] **Debugging**: `.venv/bin/pytest tests/cache/test_text.py -x`
+- [x] **Contract re-verification**: чистая функция; пайплайн NFC→strip→collapse→casefold
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/cache/ tests/cache/`
 
 ### Task 9: `StepIdentity` + `CachedStep` — модели кэша (prettyplay/cache/models.py)
 
