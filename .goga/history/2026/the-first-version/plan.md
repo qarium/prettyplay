@@ -488,20 +488,20 @@ Algorithm (verbatim из дизайна):
    effective_classification_model = classification_model if classification_model else model
 ```
 
-- [ ] **STEP 0 (Declaration)**: объявить, что выполняется Задача 2 — `Config`
-- [ ] **Contract tests** (`tests/config/test_models.py`): `from prettyplay.config import Config`
+- [x] **STEP 0 (Declaration)**: объявить, что выполняется Задача 2 — `Config`
+- [x] **Contract tests** (`tests/config/test_models.py`): `from prettyplay.config import Config`
       работает; `Config` — pydantic BaseModel; конструкция ТОЛЬКО keyword-аргументами
       (позиционная `Config("openai")` → TypeError); у экземпляра доступны все 12 свойств
       (`provider`, `browser`, `model`, `generation_model`, `classification_model`, `base_url`,
       `cache_root`, `generation_attempts`, `healing_attempts`, `send_screenshots`,
       `effective_generation_model`, `effective_classification_model`). Ожидаемый провал на этом этапе
-- [ ] **Code**: создать `prettyplay/config/models.py` с `Config` по алгоритму выше
+- [x] **Code**: создать `prettyplay/config/models.py` с `Config` по алгоритму выше
       (Google-docstring на классе; type hints обязательны)
-- [ ] **Code**: создать `prettyplay/config/__init__.py` — `from .models import Config`,
+- [x] **Code**: создать `prettyplay/config/__init__.py` — `from .models import Config`,
       `__all__ = ["Config"]`
-- [ ] **Interface verification**: `.venv/bin/pytest tests/config/test_models.py -v` — все
+- [x] **Interface verification**: `.venv/bin/pytest tests/config/test_models.py -v` — все
       контрактные тесты проходят; фасад: `.venv/bin/python -c "from prettyplay.config import Config"`
-- [ ] **Logic tests** (`tests/config/test_models.py`):
+- [x] **Logic tests** (`tests/config/test_models.py`):
       - `test_config_defaults_valid` — Setup: ничего (чистая модель). Input: `Config()`.
         Assertions (verbatim из дизайна):
         ```
@@ -516,11 +516,11 @@ Algorithm (verbatim из дизайна):
         перечислены допустимые значения ("openai", "anthropic")
       - дополнительный edge (по конвенциям): `Config(generation_attempts=0)` → ValidationError
         с именем поля; `Config(browser="ie")` → ValidationError
-- [ ] **Debugging**: `.venv/bin/pytest tests/config/ -x` — исправлять реализацию (не тесты),
+- [x] **Debugging**: `.venv/bin/pytest tests/config/ -x` — исправлять реализацию (не тесты),
       пока всё не пройдёт
-- [ ] **Contract re-verification**: фасад `prettyplay.config` импортирует `Config` через
+- [x] **Contract re-verification**: фасад `prettyplay.config` импортирует `Config` через
       `__all__`; kw_only; 12 свойств на месте; поведение совпадает с контрактом
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/config/ tests/config/` — исправить форматирование
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/config/ tests/config/` — исправить форматирование
 
 ### Task 3: `load_config` — загрузка pyproject.toml с env-оверрайдами (prettyplay/config/loader.py)
 
