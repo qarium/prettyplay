@@ -854,16 +854,16 @@ LocatorFacade.__init__(locator)
   expect_enabled()     → expect(self._locator).to_be_enabled()
 ```
 
-- [ ] **STEP 0 (Declaration)**: объявить, что выполняется Задача 7 — PageFacade + LocatorFacade
-- [ ] **Contract tests** (`tests/driver/test_page.py`): `from prettyplay.driver import
+- [x] **STEP 0 (Declaration)**: объявить, что выполняется Задача 7 — PageFacade + LocatorFacade
+- [x] **Contract tests** (`tests/driver/test_page.py`): `from prettyplay.driver import
       PageFacade, LocatorFacade`; полный набор методов/свойств по контракту (7 методов + url
       у PageFacade; 6 методов у LocatorFacade); сигнатуры (`find_by_role(role: str, name: str)`,
       `fill(value: str)` и т.д.). Ожидаемый провал
-- [ ] **Code**: дополнить `prettyplay/driver/page.py` полной реализацией обоих фасадов
-- [ ] **Code**: `prettyplay/driver/__init__.py` — полный реэкспорт клетки:
+- [x] **Code**: дополнить `prettyplay/driver/page.py` полной реализацией обоих фасадов
+- [x] **Code**: `prettyplay/driver/__init__.py` — полный реэкспорт клетки:
       `DriverSession`, `PageFacade`, `LocatorFacade` + `__all__`
-- [ ] **Interface verification**: `.venv/bin/pytest tests/driver/ -v`
-- [ ] **Logic tests** (`tests/driver/test_page.py`, fake-playwright-объекты с записью вызовов —
+- [x] **Interface verification**: `.venv/bin/pytest tests/driver/ -v`
+- [x] **Logic tests** (`tests/driver/test_page.py`, fake-playwright-объекты с записью вызовов —
       моки только на границе):
       - делегирование каждого метода PageFacade (`open` → `page.goto(url)`; локаторы →
         соответствующие вызовы с возвратом `LocatorFacade`; `aria_snapshot` →
@@ -874,11 +874,11 @@ LocatorFacade.__init__(locator)
         `playwright.sync_api.expect` или инъекция)
       - edge: неуспешное ожидание бросает AssertionError (идёт в классификацию); никакой
         метод не возвращает сырой объект Playwright
-- [ ] **Debugging**: `.venv/bin/pytest tests/driver/ -x`
-- [ ] **Contract re-verification**: поверхность = контрактной (расширение запрещено переименованием);
+- [x] **Debugging**: `.venv/bin/pytest tests/driver/ -x`
+- [x] **Contract re-verification**: поверхность = контрактной (расширение запрещено переименованием);
       никаких фиксированных задержек в коде
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/driver/ tests/driver/`
-- [ ] Клетка driver завершена: `goga lint` — 0 ошибок; фасад-проверка:
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/driver/ tests/driver/`
+- [x] Клетка driver завершена: `goga lint` — 0 ошибок; фасад-проверка:
       `.venv/bin/python -c "from prettyplay.driver import DriverSession, PageFacade, LocatorFacade"`
 
 ### Task 8: `normalize_step_text` — нормализация предложения (prettyplay/cache/text.py)
