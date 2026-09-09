@@ -12,6 +12,7 @@ from prettyplay import PrettyTest
 from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step_text
 from prettyplay.config import Config
 from prettyplay.failures import FailureVerdict, IncurableStepError, PrettyplayError
+from prettyplay.llm import FailureClassification, LlmProvider
 from prettyplay.reporting import StepHooks, StepReporter
 
 CACHE_KEY = "k"
@@ -41,6 +42,39 @@ class FakePage:
     def closed(self) -> bool:
         """Whether the page context was closed at least once."""
         return self.close_count > 0
+
+
+class RecordingProvider(LlmProvider):
+    """Stub LLM boundary recording generation requests; any call fails the acceptance run."""
+
+    def __init__(self) -> None:
+        self.generate_calls = 0
+
+    def generate_step_code(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
+        self,
+        prompt: str,
+        user_instructions: str,
+        step_text: str,
+        previous_steps: list[str],
+        snapshot: str,
+        screenshot: bytes | None,
+        page_api: str,
+        existing_code: str | None,
+        error: str | None,
+    ) -> str:
+        self.generate_calls += 1
+        raise AssertionError("provider must not be called: the cached step runs without a generation request")
+
+    def classify_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
+        self,
+        prompt: str,
+        step_text: str,
+        code: str,
+        error: str,
+        snapshot: str,
+        screenshot: bytes | None,
+    ) -> FailureClassification:
+        raise AssertionError("provider must not be called: the cached step runs without classification")
 
 
 class RecorderHook(StepHooks):
@@ -77,6 +111,29 @@ def seed_cache(
     StepCache(Config(cache_root=str(tmp_path)), None, StepReporter(hooks=[])).save(
         CachedStep(identity=identity, code=CACHED_CODE, created_at="2026-09-08")
     )
+
+
+@contextlib.contextmanager
+def scenario_with_differing_instructions(
+    tmp_path: Path,
+    page: FakePage,
+    provider: LlmProvider,
+) -> Iterator[PrettyTest]:
+    """Build one PrettyTest whose instructions differ from whatever generated the cached code.
+
+    The effective config carries a tmp cache root and a non-empty
+    ``generation_prompt`` passed through the ``config`` parameter; the provider
+    factory and the page are patched on the runtime of this one test, per the
+    established integration style of the suite.
+    """
+    config = Config(cache_root=str(tmp_path), generation_prompt="new instructions")
+    with (
+        mock.patch("prettyplay.scenario.load_config", return_value=config),
+        mock.patch("prettyplay.runtime.create_provider", return_value=provider),
+    ):
+        test = PrettyTest(CACHE_KEY, config=config)
+        with mock.patch.object(test._runtime, "open_page", return_value=page):
+            yield test
 
 
 class TestPrettyTestContract:
@@ -458,3 +515,53 @@ class TestPrettyTestLogic:
 
                 with pytest.raises(PrettyplayError):
                     test.get_screenshot()
+
+
+class TestInstructionsIndependentCacheAddress:
+    """ADR-3 acceptance: the cache address ignores the instructions setting.
+
+    The instructions never enter ``StepIdentity``, so a cached step executes
+    through ``run_step_code`` with zero provider involvement even when
+    ``generation_prompt`` differs from whatever generated the cached code —
+    the cache is never invalidated by an instructions change.
+    """
+
+    def test_cached_step_runs_without_provider_when_instructions_differ(self, tmp_path: Path) -> None:
+        seed_cache(tmp_path)
+        page = FakePage()
+        provider = RecordingProvider()
+
+        with scenario_with_differing_instructions(tmp_path, page, provider) as test:
+            test.action(STEP_TEXT)
+            test.close()
+
+        assert page.calls == [("open", "https://example.com")]  # кэшированный код исполнен как есть
+        assert provider.generate_calls == 0  # ни одного запроса генерации — кэш не перегенерирован
+
+    def test_shared_root_reuses_cached_step_across_independent_budgets(self, tmp_path: Path) -> None:
+        """Two tests with one cache_key share the cached step while their budgets stay per-test."""
+        seed_cache(tmp_path)
+        first_page = FakePage()
+        second_page = FakePage()
+        provider = RecordingProvider()
+
+        with scenario_with_differing_instructions(tmp_path, first_page, provider) as first:
+            first.action(STEP_TEXT)
+            first.close()
+
+        with scenario_with_differing_instructions(tmp_path, second_page, provider) as second:
+            second.action(STEP_TEXT)
+            second.close()
+
+        # both tests execute the same cached step from the shared root
+        assert first_page.calls == [("open", "https://example.com")]
+        assert second_page.calls == [("open", "https://example.com")]
+        assert provider.generate_calls == 0
+
+        # per-test budget registries: one test's attempts never spend the other's budget
+        assert first._runtime.budgets is not second._runtime.budgets
+        assert first._runtime.budgets._generation_used == {}  # кэш-хит не тратит попытки
+        assert second._runtime.budgets._generation_used == {}
+        assert first._runtime.budgets.try_generation(
+            StepIdentity(cache_key=CACHE_KEY, step_type="action", normalized_text=normalize_step_text(STEP_TEXT))
+        ) is True

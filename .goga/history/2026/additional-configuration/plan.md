@@ -997,18 +997,18 @@ identity in a tmp cache root.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] Create/extend the integration scenario in `tests/test_scenario.py`: `PrettyTest` built over a tmp cache
+- [x] Create/extend the integration scenario in `tests/test_scenario.py`: `PrettyTest` built over a tmp cache
   root via `Config(cache_root=..., generation_prompt="new instructions")` passed as the `config` parameter (mock
   `load_config` or a written pyproject per the existing test style), the cache preloaded for the step identity
   (`seed_cache`), and a fake provider recording `generate_step_code` calls injected through the runtime
-- [ ] Test the cross-entity interaction `test_cached_step_runs_without_provider_when_instructions_differ`:
+- [x] Test the cross-entity interaction `test_cached_step_runs_without_provider_when_instructions_differ`:
   `test.action("the cached sentence")` → the executor loads the cache hit and runs `run_step_code(cached.code)`
   with **no** generation request — `provider.generate_step_code.call_count == 0` and the step passed (the
   cache-non-invalidation acceptance)
-- [ ] Test edge case: two tests with equal `cache_key` in the shared root reuse the cached step across tests while
+- [x] Test edge case: two tests with equal `cache_key` in the shared root reuse the cached step across tests while
   their budget registries stay independent (composes Task 8's per-test runtime with the shared-root addressing of
   `StepCache`)
-- [ ] Run validation: `pytest tests/test_scenario.py -x`, then the full gate `pytest tests/ -x`
+- [x] Run validation: `pytest tests/test_scenario.py -x`, then the full gate `pytest tests/ -x`
 
 ---
 
@@ -1023,16 +1023,16 @@ identity in a tmp cache root.
 
 ## Completion Criteria
 
-- [ ] Every contract entity is implemented in the correct `location`
-- [ ] Every contract entity is accessible from the facade
-- [ ] Properties and methods match the declared API
-- [ ] Descriptions are reflected in behavior
-- [ ] Contract dependencies are met
-- [ ] Re-exports are accessible from the facade (`PrettyConfig` from `prettyplay`)
-- [ ] Every coding task followed the TDD workflow (contract tests → code → verification → logic tests → debugging → re-verification → lint)
-- [ ] Contract tests and logic tests cover facade, API, and behavior within each coding task
-- [ ] Integration tests exist where cross-entity scenarios require them (Task 10)
-- [ ] No package boundary was expanded
-- [ ] `CODEMANIFEST` files were not modified (contract is read-only)
-- [ ] All validation commands pass
-- [ ] Every Usages entry is mentioned in at least one task
+- [x] Every contract entity is implemented in the correct `location`
+- [x] Every contract entity is accessible from the facade
+- [x] Properties and methods match the declared API
+- [x] Descriptions are reflected in behavior
+- [x] Contract dependencies are met
+- [x] Re-exports are accessible from the facade (`PrettyConfig` from `prettyplay`)
+- [x] Every coding task followed the TDD workflow (contract tests → code → verification → logic tests → debugging → re-verification → lint)
+- [x] Contract tests and logic tests cover facade, API, and behavior within each coding task
+- [x] Integration tests exist where cross-entity scenarios require them (Task 10)
+- [x] No package boundary was expanded
+- [x] `CODEMANIFEST` files were not modified (contract is read-only)
+- [x] All validation commands pass
+- [x] Every Usages entry is mentioned in at least one task
