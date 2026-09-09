@@ -1040,11 +1040,11 @@ and `regenerate` keep their signatures.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (in `tests/engine/test_generator.py`; expected to fail): `generate`
+- [x] **Contract tests** (in `tests/engine/test_generator.py`; expected to fail): `generate`
   and `regenerate` signatures unchanged (identity, step_text, previous_steps, page[, 
   existing_code, error]); the module exposes `GENERATION_PROMPT` and `PAGE_API_SURFACE` and no
   longer exposes `CLASSIFICATION_PROMPT`
-- [ ] **Code**: rework `_loop` to the design algorithm — spend refused branch: `reason =
+- [x] **Code**: rework `_loop` to the design algorithm — spend refused branch: `reason =
   f"{pool} attempt budget exhausted"` (+ `f"; last failure: {error}"` when a candidate failure
   is recorded); `pool == "healing"` → `raise IncurableStepError(step_text, reason, None)` (the
   healer attaches its verdict); `error is None` → `raise IncurableStepError(step_text, reason,
@@ -1053,7 +1053,7 @@ and `regenerate` keep their signatures.
   `logging.getLogger("prettyplay").warning("verdict skipped: llm unavailable")` and raise
   `IncurableStepError(step_text, reason, None)`, else raise `IncurableStepError(step_text,
   reason, verdict)` — the exhaustion classification runs on the generation pool only
-- [ ] **Code**: add the failed-check branch before the retryable branch — `except
+- [x] **Code**: add the failed-check branch before the retryable branch — `except
   AssertionError as check_failure:` (do not spend another attempt): `reason = f"candidate
   check failed: {first_line_short(check_failure)}"`; try the classification; on
   `LlmUnavailableError` the same quiet-skip WARNING and `IncurableStepError(step_text, reason,
@@ -1061,12 +1061,12 @@ and `regenerate` keep their signatures.
   first_line_short(check_failure), verdict)`; any other verdict → `raise
   IncurableStepError(step_text, reason, verdict)`. The retryable branch (`except Exception`)
   and the success exit stay as they are
-- [ ] **Code**: add `_verdict(classification) -> FailureVerdict` returning
+- [x] **Code**: add `_verdict(classification) -> FailureVerdict` returning
   `FailureVerdict(classification.category, classification.explanation,
   classification.recommendation)` — the helper lives here in the engine, not in the failures
   cell ("built by the engines; the failure types never request it themselves"); import
   `FailureVerdict` and `classify_step_failure`
-- [ ] **Code**: update the constants — `GENERATION_PROMPT` gains the line after the locating
+- [x] **Code**: update the constants — `GENERATION_PROMPT` gains the line after the locating
   rule: `- Scroll abilities exist for scenario scrolling: bring an element into view, scroll by
   an amount, to the page end or start, inside a scrollable container`;
   `PAGE_API_SURFACE` gains the 8 scroll rows after the `page.url` line (mirroring `facade.md`
@@ -1078,8 +1078,8 @@ and `regenerate` keep their signatures.
   scrollable container; `page.scroll_container_down(container, pixels)` — scroll a scrollable
   container down by an amount; `page.scroll_container_up(container, pixels)` — scroll a
   scrollable container up by an amount)
-- [ ] **Interface verification**: `.venv/bin/python -m pytest tests/engine/test_generator.py -q`
-- [ ] **Logic tests** (design scenarios; fakes at the provider/page boundaries, English sample
+- [x] **Interface verification**: `.venv/bin/python -m pytest tests/engine/test_generator.py -q`
+- [x] **Logic tests** (design scenarios; fakes at the provider/page boundaries, English sample
   data):
   - `test_generate_failed_check_product_defect_stops_and_carries_verdict`: first candidate is
     `def step(page):\n    page.find_by_text('Welcome back').expect_visible()` (raises
@@ -1125,11 +1125,11 @@ and `regenerate` keep their signatures.
   - fix the registered breakages in this file: the error-constructor tests at
     `tests/engine/test_generator.py:238,308` (recommendation fallbacks → verdict form) and the
     prompt text check at `:368` (the moved/updated prompts)
-- [ ] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — fix implementation until green
-- [ ] **Contract re-verification**: `generate`/`regenerate` signatures, the three-additions
+- [x] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — fix implementation until green
+- [x] **Contract re-verification**: `generate`/`regenerate` signatures, the three-additions
   semantics of `regenerate` (existing_code+error on every request; `try_healing` pool;
   no-classification exhaustion), verdicts fully reaching the raised errors
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/engine/`
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/engine/`
 
 ### Task 8: verdicts and the exhaustion reuse in `StepHealer` (engine)
 

@@ -1,6 +1,8 @@
 """Tests for the StepGenerator of the prettyplay.engine cell."""
 
 import inspect
+import logging
+import re
 from datetime import date
 from pathlib import Path
 
@@ -10,21 +12,40 @@ from prettyplay.config import Config
 from prettyplay.engine import StepGenerator
 from prettyplay.engine import generator as generator_module  # для проверки переноса CLASSIFICATION_PROMPT
 from prettyplay.engine.generator import GENERATION_PROMPT, PAGE_API_SURFACE
-from prettyplay.failures import IncurableStepError, LlmUnavailableError
+from prettyplay.failures import IncurableStepError, LlmUnavailableError, ProductDefectError
+from prettyplay.llm import FailureClassification
 from prettyplay.reporting import StepHooks, StepReporter
 
 WORKING_CODE = "def step(page) -> None:\n    page.open('https://example.com')\n"
 BROKEN_CODE = "def step(page) -> None:\n    page.find_by_role('button', name='Войти').click()\n"
 
+FACADE_PRACTICE = Path("prettyplay") / "driver" / ".usages" / "facade.md"
+
+
+class FakeLocator:
+    """Fake element boundary: expectations fail with the scripted message."""
+
+    def __init__(self, assertion_message: str | None) -> None:
+        self._assertion_message = assertion_message
+
+    def expect_visible(self) -> None:
+        if self._assertion_message is not None:
+            raise AssertionError(self._assertion_message)
+
 
 class FakePage:
     """Fake page facade boundary: snapshot plus recorded facade calls."""
 
-    def __init__(self) -> None:
+    def __init__(self, assertion_message: str | None = None) -> None:
         self.calls: list[tuple[str, ...]] = []
+        self._assertion_message = assertion_message
 
     def open(self, url: str) -> None:
         self.calls.append(("open", url))
+
+    def find_by_text(self, text: str) -> FakeLocator:
+        self.calls.append(("find_by_text", text))
+        return FakeLocator(self._assertion_message)
 
     def aria_snapshot(self) -> str:
         self.calls.append(("aria_snapshot",))
@@ -43,11 +64,13 @@ class FailingPage(FakePage):
 
 
 class StubProvider:
-    """Stub LLM provider boundary: scripted answers with recorded requests."""
+    """Stub LLM provider boundary: scripted answers and verdicts with recorded requests."""
 
-    def __init__(self, answers: list[str]) -> None:
+    def __init__(self, answers: list[str], verdict: FailureClassification | None = None) -> None:
         self.answers = list(answers)
+        self.verdict = verdict
         self.calls: list[dict[str, object]] = []
+        self.classify_failure_calls: list[dict[str, object]] = []
 
     def generate_step_code(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
@@ -76,6 +99,12 @@ class StubProvider:
             raise AssertionError("stub provider has no answers left")
         return self.answers.pop(0)
 
+    def classify_failure(self, **kwargs: object) -> FailureClassification | None:
+        self.classify_failure_calls.append(dict(kwargs))
+        if isinstance(self.verdict, Exception):
+            raise self.verdict
+        return self.verdict
+
 
 class UnavailableProvider:
     """Stub provider whose service is down: every request raises LlmUnavailableError."""
@@ -86,6 +115,17 @@ class UnavailableProvider:
     def generate_step_code(self, **_kwargs: object) -> str:
         self.calls += 1
         raise LlmUnavailableError("llm unavailable: openai request failed")
+
+    def classify_failure(self, **_kwargs: object) -> FailureClassification:
+        raise LlmUnavailableError("llm unavailable: openai request failed")
+
+
+class TimeoutPage(FakePage):
+    """Fake page where every candidate fails with a non-assertion TimeoutError."""
+
+    def find_by_role(self, role: str, name: str) -> None:
+        self.calls.append(("find_by_role", role, name))
+        raise TimeoutError("navigation timed out")
 
 
 class RecorderHook(StepHooks):
@@ -144,13 +184,30 @@ class TestStepGeneratorContract:
 class GeneratorFixture:
     """Generator assembled on a tmp cache with recording visibility, for logic tests."""
 
-    def __init__(self, tmp_path: Path, provider: object, limits: tuple[int, int] = (3, 2)) -> None:
+    def __init__(
+        self,
+        tmp_path: Path,
+        provider: object,
+        limits: tuple[int, int] = (3, 2),
+    ) -> None:
         self.recorder = RecorderHook()
         self.reporter = StepReporter(hooks=[self.recorder])
         self.config = Config(cache_root=str(tmp_path))
         self.cache = StepCache(self.config, None, self.reporter)
         self.budgets = RunBudgets(*limits)
         self.generator = StepGenerator(self.config, provider, self.cache, self.budgets, self.reporter)
+
+
+ROT_VERDICT = FailureClassification(
+    category="rot",
+    explanation="the button was renamed",
+    recommendation="refresh the cache",
+)
+
+
+def facade_page_calls(practice: str) -> list[str]:
+    """Extract the ordered ``page.*`` call column of the facade practice table."""
+    return re.findall(r"^\| (page\.[a-z_]+(?:\([^)]*\))?)", practice, flags=re.MULTILINE)
 
 
 def make_identity() -> StepIdentity:
@@ -208,32 +265,34 @@ class TestStepGeneratorLogic:
         assert provider.calls[0]["screenshot"] == b"png"
 
     def test_generate_retries_with_existing_code_then_succeeds(self, tmp_path: Path) -> None:
-        provider = StubProvider([BROKEN_CODE, WORKING_CODE])
+        provider = StubProvider([BROKEN_CODE, WORKING_CODE], verdict=ROT_VERDICT)
         fixture = GeneratorFixture(tmp_path, provider)
-        page = FailingPage()
+        page = TimeoutPage()
 
         step = fixture.generator.generate(make_identity(), "нажать Войти", [], page)
 
         assert step.code == WORKING_CODE
         assert len(provider.calls) == 2
         assert provider.calls[1]["existing_code"] == BROKEN_CODE
-        assert "element not found" in provider.calls[1]["error"]
+        assert "navigation timed out" in provider.calls[1]["error"]
         attempts = [
             payload["attempt"] for event, payload in fixture.recorder.events if event == "on_generation_started"
         ]
         assert attempts == [1, 2]
 
     def test_generate_budget_exhaustion_raises_incurable(self, tmp_path: Path) -> None:
-        provider = StubProvider([BROKEN_CODE, BROKEN_CODE, BROKEN_CODE])
+        provider = StubProvider([BROKEN_CODE, BROKEN_CODE, BROKEN_CODE], verdict=ROT_VERDICT)
         fixture = GeneratorFixture(tmp_path, provider)
-        page = FailingPage()
+        page = TimeoutPage()
 
         with pytest.raises(IncurableStepError) as excinfo:
             fixture.generator.generate(make_identity(), "невозможный шаг", [], page)
 
-        assert excinfo.value.reason == "generation attempt budget exhausted; last failure: element not found"
-        assert excinfo.value.recommendation == "reword the step or refresh the cache"  # fallback без вердикта
+        assert excinfo.value.reason == "generation attempt budget exhausted; last failure: navigation timed out"
+        assert excinfo.value.verdict is not None
+        assert excinfo.value.verdict.category == "rot"  # вердикт последнего кандидата
         assert len(provider.calls) == 3
+        assert len(provider.classify_failure_calls) == 1  # одна классификация на исчерпание
         assert not [event for event in fixture.recorder.events if event[0] == "on_cache_saved"]
 
     def test_generate_pre_exhausted_budget_keeps_plain_reason(self, tmp_path: Path) -> None:
@@ -286,10 +345,10 @@ class TestStepGeneratorLogic:
         assert fixture.budgets.try_generation(identity) is True
 
     def test_regenerate_budget_exhaustion_names_healing_pool(self, tmp_path: Path) -> None:
-        provider = StubProvider([BROKEN_CODE])
+        provider = StubProvider([BROKEN_CODE], verdict=ROT_VERDICT)
         fixture = GeneratorFixture(tmp_path, provider, limits=(3, 1))
         identity = make_identity()
-        page = FailingPage()
+        page = TimeoutPage()
 
         with pytest.raises(IncurableStepError) as excinfo:
             fixture.generator.regenerate(
@@ -301,34 +360,36 @@ class TestStepGeneratorLogic:
                 error="assertion failed",  # исходная ошибка кэша — reason должен нести последнюю ошибку кандидата
             )
 
-        assert excinfo.value.reason == "healing attempt budget exhausted; last failure: element not found"
+        assert excinfo.value.reason == "healing attempt budget exhausted; last failure: navigation timed out"
+        assert excinfo.value.verdict is None  # вердикт присоединяет healer — без второго LLM-запроса
         assert excinfo.value.recommendation == "reword the step or refresh the cache"  # fallback без вердикта
         assert len(provider.calls) == 1  # healing-бюджет (1) исчерпан после первой попытки
+        assert provider.classify_failure_calls == []  # healing-пул не классифицирует исчерпание
 
     def test_messageless_candidate_failure_is_retried_not_crashed(self, tmp_path: Path) -> None:
-        bare_assert_code = "def step(page) -> None:\n    assert 1 == 2\n"  # assert без текста: str(exc) == ''
-        provider = StubProvider([bare_assert_code, WORKING_CODE])
+        provider = StubProvider([WORKING_CODE, WORKING_CODE], verdict=ROT_VERDICT)
         fixture = GeneratorFixture(tmp_path, provider)
-        page = FakePage()
+        page = FakePage(assertion_message="")  # message-less assert: str(exc) == ''
 
-        step = fixture.generator.generate(make_identity(), "проверить страницу", [], page)
+        first = fixture.generator.generate(make_identity(), "проверить страницу", [], page)
 
-        assert step.code == WORKING_CODE
-        assert len(provider.calls) == 2
-        assert provider.calls[1]["error"] == ""  # пустое описание сбоя, не IndexError
-        assert provider.calls[1]["existing_code"] == bare_assert_code
+        assert first.code == WORKING_CODE
+        assert len(provider.calls) == 1  # даже пустой AssertionError — остановка без повторов
+        assert provider.calls[0]["error"] is None
 
-    def test_messageless_candidate_exhaustion_keeps_plain_reason(self, tmp_path: Path) -> None:
-        bare_assert_code = "def step(page) -> None:\n    assert 1 == 2\n"  # assert без текста: str(exc) == ''
-        provider = StubProvider([bare_assert_code, bare_assert_code, bare_assert_code])
-        fixture = GeneratorFixture(tmp_path, provider)
-        page = FakePage()
+    def test_messageless_candidate_check_keeps_plain_reason(self, tmp_path: Path) -> None:
+        provider = StubProvider(
+            ["def step(page) -> None:\n    page.find_by_text('Welcome back').expect_visible()\n"],
+            verdict=FailureClassification(category="incurable", explanation="e", recommendation="r"),
+        )
+        fixture = GeneratorFixture(tmp_path, provider, limits=(1, 2))
+        page = FakePage(assertion_message="")  # message-less assert: str(exc) == ''
 
         with pytest.raises(IncurableStepError) as excinfo:
             fixture.generator.generate(make_identity(), "невозможный шаг", [], page)
 
         # пустое описание сбоя не оставляет в reason хвоста «; last failure: »
-        assert excinfo.value.reason == "generation attempt budget exhausted"
+        assert excinfo.value.reason == "candidate check failed: "
 
     def test_generated_step_is_saved_into_cache(self, tmp_path: Path) -> None:
         provider = StubProvider([WORKING_CODE])
@@ -352,6 +413,105 @@ class TestStepGeneratorLogic:
 
         assert step.created_at == date.today().isoformat()  # noqa: DTZ011 — сверка календарной даты
 
+    def test_generate_failed_check_product_defect_stops_and_carries_verdict(self, tmp_path: Path) -> None:
+        provider = StubProvider(
+            ["def step(page) -> None:\n    page.find_by_text('Welcome back').expect_visible()\n"],
+            verdict=FailureClassification(
+                category="product_defect",
+                explanation="the banner is missing",
+                recommendation="file a bug",
+            ),
+        )
+        fixture = GeneratorFixture(tmp_path, provider)  # RunBudgets(3, 2)
+        page = FakePage(assertion_message="banner missing")
+
+        with pytest.raises(ProductDefectError) as excinfo:
+            fixture.generator.generate(make_identity(), "see the welcome banner", [], page)
+
+        assert excinfo.value.verdict is not None
+        assert excinfo.value.verdict.category == "product_defect"
+        assert "banner missing" in str(excinfo.value)
+        assert len(provider.calls) == 1  # retries stopped at once
+        assert len(provider.classify_failure_calls) == 1
+        assert provider.classify_failure_calls[0]["error"] == "candidate check failed: banner missing"
+
+    def test_generate_failed_check_non_defect_verdict_raises_incurable(self, tmp_path: Path) -> None:
+        provider = StubProvider(
+            ["def step(page) -> None:\n    page.find_by_text('Welcome back').expect_visible()\n"],
+            verdict=FailureClassification(
+                category="incurable",
+                explanation="the step is ambiguous",
+                recommendation="reword the step",
+            ),
+        )
+        fixture = GeneratorFixture(tmp_path, provider)
+        page = FakePage(assertion_message="banner missing")
+
+        with pytest.raises(IncurableStepError) as excinfo:
+            fixture.generator.generate(make_identity(), "see the welcome banner", [], page)
+
+        assert excinfo.value.reason.startswith("candidate check failed")
+        assert excinfo.value.verdict is not None
+        assert excinfo.value.verdict.category == "incurable"
+        assert len(provider.calls) == 1
+        assert len(provider.classify_failure_calls) == 1
+
+    def test_generate_exhaustion_classifies_last_candidate(self, tmp_path: Path) -> None:
+        provider = StubProvider(
+            [BROKEN_CODE],
+            verdict=FailureClassification(
+                category="incurable",
+                explanation="the selector no longer matches",
+                recommendation="reword the step",
+            ),
+        )
+        fixture = GeneratorFixture(tmp_path, provider, limits=(1, 2))
+        page = TimeoutPage()
+
+        with pytest.raises(IncurableStepError) as excinfo:
+            fixture.generator.generate(make_identity(), "невозможный шаг", [], page)
+
+        assert excinfo.value.reason.startswith("generation attempt budget exhausted")
+        assert "last failure:" in excinfo.value.reason
+        assert excinfo.value.verdict is not None
+        assert excinfo.value.verdict.category == "incurable"
+        assert provider.classify_failure_calls[0]["error"] == "navigation timed out"
+
+    def test_generate_quiet_verdict_skip_on_unavailable_classification(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        provider = StubProvider(
+            ["def step(page) -> None:\n    page.find_by_text('Welcome back').expect_visible()\n"],
+            verdict=LlmUnavailableError("openai down"),
+        )
+        fixture = GeneratorFixture(tmp_path, provider)
+        page = FakePage(assertion_message="banner missing")
+
+        with caplog.at_level(logging.WARNING, logger="prettyplay"), pytest.raises(IncurableStepError) as excinfo:
+            fixture.generator.generate(make_identity(), "see the welcome banner", [], page)
+
+        assert excinfo.value.verdict is None
+        assert excinfo.value.reason.startswith("candidate check failed")
+        warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
+        assert any("verdict skipped" in record.message for record in warnings)
+
+    def test_generate_first_refusal_without_candidate(self, tmp_path: Path) -> None:
+        provider = StubProvider([], verdict=ROT_VERDICT)
+        fixture = GeneratorFixture(tmp_path, provider, limits=(1, 2))
+        identity = make_identity()
+        page = FakePage()
+
+        assert fixture.budgets.try_generation(identity) is True  # тратим попытку до генерации
+        assert fixture.budgets.try_generation(identity) is False
+
+        with pytest.raises(IncurableStepError) as excinfo:
+            fixture.generator.generate(identity, "невозможный шаг", [], page)
+
+        assert excinfo.value.reason == "generation attempt budget exhausted"
+        assert excinfo.value.verdict is None  # классифицировать нечего
+        assert provider.classify_failure_calls == []
+        assert provider.calls == []
+
 
 class TestPromptConstants:
     """Constant tests: prompts and the frozen page API surface."""
@@ -359,6 +519,17 @@ class TestPromptConstants:
     def test_generation_prompt_is_frozen_text(self) -> None:
         assert GENERATION_PROMPT.startswith("You generate executable Python code")
         assert "def step(page) -> None:" in GENERATION_PROMPT
+
+    def test_generation_prompt_carries_the_scroll_rule(self) -> None:
+        assert (
+            "- Scroll abilities exist for scenario scrolling: bring an element into view, scroll by an "
+            "amount, to the page end or start, inside a scrollable container" in GENERATION_PROMPT
+        )
+        # правило скролла стоит сразу после правила поиска элементов
+        locating = GENERATION_PROMPT.index("Locating by role and accessible name")
+        scroll = GENERATION_PROMPT.index("Scroll abilities exist")
+        no_delays = GENERATION_PROMPT.index("No fixed delays")
+        assert locating < scroll < no_delays
 
     def test_classification_prompt_moved_out_of_generator(self) -> None:
         assert not hasattr(generator_module, "CLASSIFICATION_PROMPT")  # переехала в classification.py
@@ -372,6 +543,14 @@ class TestPromptConstants:
             "page.aria_snapshot()",
             "page.screenshot()",
             "page.url",
+            "page.scroll_to_element(element)",
+            "page.scroll_down(pixels)",
+            "page.scroll_up(pixels)",
+            "page.scroll_to_bottom()",
+            "page.scroll_to_top()",
+            "page.scroll_into_view(element, container)",
+            "page.scroll_container_down(container, pixels)",
+            "page.scroll_container_up(container, pixels)",
             "element.click()",
             "element.fill(value)",
             "element.select_option(value)",
@@ -381,3 +560,34 @@ class TestPromptConstants:
         ):
             assert call in PAGE_API_SURFACE
         assert "close" not in PAGE_API_SURFACE
+
+    def test_page_api_surface_mirrors_facade_practice(self) -> None:
+        practice = FACADE_PRACTICE.read_text(encoding="utf-8")
+        surface_calls = [line.split("—")[0].strip() for line in PAGE_API_SURFACE.splitlines()]
+
+        assert surface_calls == [
+            *facade_page_calls(practice),
+            "element.click()",
+            "element.fill(value)",
+            "element.select_option(value)",
+            "element.expect_visible()",
+            "element.expect_text(text)",
+            "element.expect_enabled()",
+        ]
+        assert facade_page_calls(practice) == [
+            "page.open(url)",
+            "page.find_by_role(role, name)",
+            "page.find_by_label(label)",
+            "page.find_by_text(text)",
+            "page.aria_snapshot()",
+            "page.screenshot()",
+            "page.url",
+            "page.scroll_to_element(element)",
+            "page.scroll_down(pixels)",
+            "page.scroll_up(pixels)",
+            "page.scroll_to_bottom()",
+            "page.scroll_to_top()",
+            "page.scroll_into_view(element, container)",
+            "page.scroll_container_down(container, pixels)",
+            "page.scroll_container_up(container, pixels)",
+        ]
