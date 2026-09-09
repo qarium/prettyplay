@@ -367,34 +367,34 @@ the same docstring pass.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (tests/config/test_models.py — expected to fail at this stage): the `Config` signature
+- [x] **Contract tests** (tests/config/test_models.py — expected to fail at this stage): the `Config` signature
   exposes `generation_prompt` and `browser_endpoint` after `cache_root` in the contract field order, both `str`
   with default `""` (`inspect.signature(Config)` / `Config.model_fields`); `PrettyConfig` importable from
   `prettyplay.config`, `PrettyConfig is Config`, `"PrettyConfig" in prettyplay.config.__all__`
-- [ ] **Code**: declare the fields in the contract order — provider, browser, model, generation_model,
+- [x] **Code**: declare the fields in the contract order — provider, browser, model, generation_model,
   classification_model, base_url, cache_root, `generation_prompt: str = ""`, `browser_endpoint: str = ""`,
   generation_attempts, healing_attempts, send_screenshots, headless
-- [ ] **Code**: add `field_validator("browser_endpoint")` — empty value returns as is (unset means local launch);
+- [x] **Code**: add `field_validator("browser_endpoint")` — empty value returns as is (unset means local launch);
   otherwise `urlparse(value)` must give `scheme in {"ws", "wss"}` and non-empty `netloc`, else raise
   `ValueError("must be a valid ws/wss URL")` (surfacing as pydantic `ValidationError` with loc
   `("browser_endpoint",)`)
-- [ ] **Code**: define the module-level alias `PrettyConfig = Config` in `models.py`; export it from
+- [x] **Code**: define the module-level alias `PrettyConfig = Config` in `models.py`; export it from
   `prettyplay/config/__init__.py` (`__all__` gains `"PrettyConfig"`)
-- [ ] **Code**: docstrings — attribute lines for the two new fields (generation_prompt: user instructions for
+- [x] **Code**: docstrings — attribute lines for the two new fields (generation_prompt: user instructions for
   generation requests, empty — no block; browser_endpoint: ws endpoint of a remote browser, empty — local
   launch, headless ignored on connect), per-test wording for the two attempt fields
-- [ ] **Interface verification**: `pytest tests/config -x` — all pass
-- [ ] **Logic tests** (tests/config/test_models.py):
+- [x] **Interface verification**: `pytest tests/config -x` — all pass
+- [x] **Logic tests** (tests/config/test_models.py):
   - positive `test_models_browser_endpoint_accepts_ws_and_wss` — parametrize
     `["ws://host:3000/x", "wss://grid.example/playwright/chromium", "ws://127.0.0.1:9000", "WS://host:3000"]` →
     `Config(browser_endpoint=endpoint)` keeps the value
   - negative `test_models_rejects_non_ws_browser_endpoint` — parametrize
     `["http://ci-grid:3000", "ftp://x", "ci-grid:3000", "wss://"]` → `pytest.raises(ValidationError)`;
     assert the error loc names `browser_endpoint`
-- [ ] **Debugging**: `pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code)
-- [ ] **Contract re-verification**: facade `prettyplay.config` exposes `Config`, `PrettyConfig`,
+- [x] **Debugging**: `pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code)
+- [x] **Contract re-verification**: facade `prettyplay.config` exposes `Config`, `PrettyConfig`,
   `ConfigurationError`, `load_config`; the model keeps kw_only + empty defaults; no secret fields added
-- [ ] **Lint**: `ruff check prettyplay tests` — fix formatting if necessary
+- [x] **Lint**: `ruff check prettyplay tests` — fix formatting if necessary
 
 ### Task 2: `load_config` — `overrides` parameter and the layered overlay (TDD coding)
 
