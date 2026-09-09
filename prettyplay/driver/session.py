@@ -1,4 +1,4 @@
-"""Lifecycle owner of the Playwright sync driver and the browser process of the run."""
+"""Lifecycle owner of the Playwright sync driver and the browser process of one test."""
 
 from __future__ import annotations
 
@@ -121,10 +121,10 @@ class PlaywrightWorker:
 
 
 class DriverSession:
-    """Owns the Playwright sync driver and one browser process for the whole run.
+    """Owns the Playwright sync driver and one browser process for one test.
 
-    The constructor starts nothing: the driver and the browser launch lazily on
-    the first :meth:`open_context` call and then serve every test of the run.
+    The constructor starts nothing: the driver and the browser start lazily on
+    the first :meth:`open_context` call and then serve every step of the test.
     Every call opens a fresh isolated browser context wrapped into a
     :class:`PageFacade` — no state is shared between tests through the library.
     The whole Playwright session lives inside the thread of a
@@ -132,10 +132,11 @@ class DriverSession:
     running asyncio loop.
 
     Attributes:
-        _config: project settings; ``browser`` selects the engine of the matrix.
-        _playwright: the started Playwright driver; ``None`` until first launch.
-        _browser: the launched browser process; ``None`` until first launch.
-        _worker: the thread owning the Playwright session; ``None`` until first launch.
+        _config: project settings; ``browser`` selects the engine of the matrix,
+            ``browser_endpoint`` switches the start to a remote ws connect.
+        _playwright: the started Playwright driver; ``None`` until first start.
+        _browser: the connected or launched browser process; ``None`` until first start.
+        _worker: the thread owning the Playwright session; ``None`` until first start.
     """
 
     def __init__(self, config: Config) -> None:
@@ -152,8 +153,8 @@ class DriverSession:
     def open_context(self) -> PageFacade:
         """Open a fresh isolated context with one page wrapped into the facade.
 
-        The driver and the browser launch lazily on the first call exactly once
-        per run; each subsequent call only creates a new isolated context.
+        The driver and the browser start lazily on the first call exactly once
+        per test; each subsequent call only creates a new isolated context.
 
         Returns:
             The facade of the new page of a fresh isolated context.
@@ -198,12 +199,12 @@ class DriverSession:
         """Start the driver thread, the Playwright session and the browser.
 
         Everything Playwright-touching runs inside the worker thread, so the
-        caller's thread never adopts the Playwright event loop. On a launch
-        failure the driver is stopped and the worker closed before the error
-        propagates, so a retry starts from a clean state.
+        caller's thread never adopts the Playwright event loop. On a launch or
+        connect failure the driver is stopped and the worker closed before the
+        error propagates, so a retry starts from a clean state.
 
         Raises:
-            Exception: whatever the engine launch raises.
+            Exception: whatever the engine start raises.
         """
         worker = PlaywrightWorker()
         worker.start()
@@ -227,18 +228,30 @@ class DriverSession:
         self._browser = browser
 
     def _launch_engine(self, playwright: Playwright) -> Browser:
-        """Launch the browser engine selected by the configuration.
+        """Start the browser engine selected by the configuration.
 
-        Every engine launches with the ``headless`` setting; ``chrome``/``msedge``
-        name a locally installed browser launched through the chromium engine with
-        the matching channel. A channel launch without the installed browser fails
-        with Playwright's own actionable error, propagated as-is.
+        A set ``browser_endpoint`` connects over the Playwright ws endpoint of
+        the selected engine instead of launching locally: the browser setting
+        selects the engine type (``chrome``/``msedge`` map to chromium —
+        channels do not apply to a connect) and ``headless`` is ignored, because
+        window visibility belongs to the endpoint server. Playwright's raw
+        connect error carries only the OS-level cause and never the endpoint
+        URL, so a failed connect is re-raised wrapped, chained to the original.
+
+        Otherwise every engine launches with the ``headless`` setting;
+        ``chrome``/``msedge`` name a locally installed browser launched through
+        the chromium engine with the matching channel. A channel launch without
+        the installed browser fails with Playwright's own actionable error,
+        propagated as-is.
 
         Args:
             playwright: the started Playwright session of the worker thread.
 
         Returns:
-            The launched browser process of the run.
+            The connected or launched browser process of the test.
+
+        Raises:
+            Error: a connect failure, wrapped with the endpoint in the message.
         """
         name = self._config.browser
 
@@ -247,6 +260,15 @@ class DriverSession:
             "firefox": playwright.firefox,
             "webkit": playwright.webkit,
         }
+
+        if self._config.browser_endpoint:
+            endpoint = self._config.browser_endpoint
+            engine = playwright.chromium if name in ("chrome", "msedge") else engines[name]
+            try:
+                return cast(Browser, engine.connect(endpoint))
+            except Error as failure:
+                raise Error(f"cannot connect to the browser endpoint {endpoint}: {failure}") from failure
+
         channel: str | None
         if name in ("chrome", "msedge"):
             engine = playwright.chromium

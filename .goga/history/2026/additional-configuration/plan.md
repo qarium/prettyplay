@@ -686,17 +686,17 @@ per-test wording: module docstring ("browser process of the run" → of one test
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (tests/driver/test_session.py): the existing DriverSession surface tests stay green after
+- [x] **Contract tests** (tests/driver/test_session.py): the existing DriverSession surface tests stay green after
   the branch change (constructor `DriverSession(config)`, `open_context`, `close` shapes unchanged — the new
   behavior is a branch, not a signature change)
-- [ ] **Code**: implement the connect branch in `_launch_engine` per the algorithm above (reuse the `_launch`
+- [x] **Code**: implement the connect branch in `_launch_engine` per the algorithm above (reuse the `_launch`
   cleanup wrapper as is)
-- [ ] **Code**: extend the test fakes — `FakeEngine` gains a `connect(endpoint, **kwargs)` recorder
+- [x] **Code**: extend the test fakes — `FakeEngine` gains a `connect(endpoint, **kwargs)` recorder
   (`connect_calls`, `connect_kwargs`) alongside `launch`; `FakePlaywrightFactory` records engine starts for the
   retry assertion
-- [ ] **Code**: update the module/class/method docstrings to the per-test wording
-- [ ] **Interface verification**: `pytest tests/driver -x` — all pass
-- [ ] **Logic tests** (tests/driver/test_session.py, monkeypatched `prettyplay.driver.session.sync_playwright`):
+- [x] **Code**: update the module/class/method docstrings to the per-test wording
+- [x] **Interface verification**: `pytest tests/driver -x` — all pass
+- [x] **Logic tests** (tests/driver/test_session.py, monkeypatched `prettyplay.driver.session.sync_playwright`):
   - positive `test_session_connects_over_ws_endpoint_when_set` —
     `Config(browser="firefox", browser_endpoint="ws://ci-grid:3000/playwright/firefox")` →
     `fake.firefox.connect_calls == ["ws://ci-grid:3000/playwright/firefox"]`, `fake.launches == []`,
@@ -709,11 +709,14 @@ per-test wording: module docstring ("browser process of the run" → of one test
     `Config(browser="firefox", browser_endpoint="ws://dead:1")` → `pytest.raises(Error)` with `"ws://dead:1"` in
     the message; `excinfo.value.__cause__` is the original `Error`; the worker thread is joined; a second
     `open_context()` attempts a fresh start (the fake counts a second engine start)
-- [ ] **Debugging**: `pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code)
-- [ ] **Contract re-verification**: the branch condition reads the `browser_endpoint` setting of `Config` exactly;
+- [x] **Debugging**: `pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code)
+  (413 passed, the single failure `test_page_api_surface_mirrors_facade_practice` is the documented Task 7
+  red-phase test — it failed identically at the Task 4 and Task 5 commits; Task 6 adds 3 driver tests, driver
+  cell 63 green)
+- [x] **Contract re-verification**: the branch condition reads the `browser_endpoint` setting of `Config` exactly;
   cleanup symmetry between launch and connect failures (one `_launch` wrapper); a channel launch without the
   installed browser still fails with Playwright's own actionable message
-- [ ] **Lint**: `ruff check prettyplay tests` — fix formatting if necessary
+- [x] **Lint**: `ruff check prettyplay tests` — fix formatting if necessary
 
 ### Task 7: `StepGenerator` — instructions routing, `SYSTEM_PROMPT` rename, surface rows (TDD coding)
 
