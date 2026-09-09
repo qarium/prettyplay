@@ -1248,17 +1248,17 @@ original exception object is re-raised untouched.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (in `tests/test_executor.py`; expected to fail): the failure branch
+- [x] **Contract tests** (in `tests/test_executor.py`; expected to fail): the failure branch
   emits `on_step_verdict` for a verdict-carrying `IncurableStepError`/`ProductDefectError` and
   emits nothing of the kind for `LlmUnavailableError`
-- [ ] **Code**: in the `except` branch of `execute`, after the `on_step_failed` emit and before
+- [x] **Code**: in the `except` branch of `execute`, after the `on_step_failed` emit and before
   `raise`: `if isinstance(error, (ProductDefectError, IncurableStepError)) and error.verdict is
   not None: self._reporter.emit("on_step_verdict", {"step_text": step_text, "category":
   error.verdict.category, "explanation": error.verdict.explanation, "recommendation":
   error.verdict.recommendation})`; import the two error types (already imported transitively —
   make the names available)
-- [ ] **Interface verification**: `.venv/bin/python -m pytest tests/test_executor.py -q`
-- [ ] **Logic tests** (design scenarios; executor wired with a healer/generator stub,
+- [x] **Interface verification**: `.venv/bin/python -m pytest tests/test_executor.py -q`
+- [x] **Logic tests** (design scenarios; executor wired with a healer/generator stub,
   `RecordingHooks`, `FakePage`):
   - `test_executor_reports_verdict_after_failed`: a healer stub raising
     `IncurableStepError("s", "r", FailureVerdict("incurable", "e", "rec"))` on a cached step →
@@ -1273,10 +1273,10 @@ original exception object is re-raised untouched.
     contract)
   - fix the registered breakages in this file: the error-constructor tests at
     `tests/test_executor.py:198–288` (recommendation fallbacks → verdict form)
-- [ ] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — fix implementation until green
-- [ ] **Contract re-verification**: the success path and the scenario-context behavior are
+- [x] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — fix implementation until green
+- [x] **Contract re-verification**: the success path and the scenario-context behavior are
   unchanged; the exception object identity is preserved through the raise
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/executor.py`
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/executor.py`
 
 ### Task 11: traceback folding and author screenshots in `PrettyTest` (root)
 

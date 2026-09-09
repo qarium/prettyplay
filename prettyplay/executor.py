@@ -4,6 +4,7 @@ from .cache import RunBudgets, StepCache, StepIdentity, normalize_step_text
 from .driver import PageFacade
 from .engine import StepGenerator, StepHealer, run_step_code
 from .engine.text import first_line_short
+from .failures import IncurableStepError, ProductDefectError
 from .reporting import StepReporter
 
 
@@ -92,4 +93,14 @@ class StepExecutor:
                 "on_step_failed",
                 {"step_text": step_text, "step_type": step_type, "error": first_line_short(error)},
             )
+            if isinstance(error, (ProductDefectError, IncurableStepError)) and error.verdict is not None:
+                self._reporter.emit(
+                    "on_step_verdict",
+                    {
+                        "step_text": step_text,
+                        "category": error.verdict.category,
+                        "explanation": error.verdict.explanation,
+                        "recommendation": error.verdict.recommendation,
+                    },
+                )
             raise

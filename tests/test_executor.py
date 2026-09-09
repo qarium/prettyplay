@@ -1,6 +1,7 @@
 """Tests for the StepExecutor of the prettyplay root cell."""
 
 import inspect
+import logging
 from pathlib import Path
 
 import pytest
@@ -8,7 +9,7 @@ from prettyplay import StepExecutor
 from prettyplay.cache import CachedStep, RunBudgets, StepCache, StepIdentity, normalize_step_text
 from prettyplay.config import Config
 from prettyplay.engine.text import first_line_short
-from prettyplay.failures import IncurableStepError, LlmUnavailableError, ProductDefectError
+from prettyplay.failures import FailureVerdict, IncurableStepError, LlmUnavailableError, ProductDefectError
 from prettyplay.reporting import StepHooks, StepReporter
 
 CACHED_CODE = "def step(page) -> None:\n    page.open('https://example.com')\n"
@@ -91,6 +92,18 @@ class RecordingHealer:
         return self.step
 
 
+class RaisingHealer:
+    """Stub healing engine whose heal raises the scripted failure."""
+
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+        self.calls = 0
+
+    def heal(self, step: CachedStep, error: str, previous_steps: list[str], page: FakePage) -> CachedStep:
+        self.calls += 1
+        raise self.error
+
+
 class RecorderHook(StepHooks):
     """Hook recording step cycle events into a shared ``events`` list for assertions."""
 
@@ -105,6 +118,19 @@ class RecorderHook(StepHooks):
 
     def on_step_failed(self, step_text: str, step_type: str, error: str) -> None:
         self.events.append(("on_step_failed", {"step_text": step_text, "step_type": step_type, "error": error}))
+
+    def on_step_verdict(self, step_text: str, category: str, explanation: str, recommendation: str) -> None:
+        self.events.append(
+            (
+                "on_step_verdict",
+                {
+                    "step_text": step_text,
+                    "category": category,
+                    "explanation": explanation,
+                    "recommendation": recommendation,
+                },
+            )
+        )
 
 
 class ExecutorFixture:
@@ -148,6 +174,51 @@ class TestStepExecutorContract:
         parameters = list(inspect.signature(StepExecutor.execute).parameters.values())[1:]
 
         assert [parameter.name for parameter in parameters] == ["step_text", "step_type", "page"]
+
+    @pytest.mark.parametrize(
+        "failure",
+        [
+            ProductDefectError(
+                "open the dashboard",
+                "expected the total 100, observed 90",
+                FailureVerdict("product_defect", "the banner is gone", "file a bug"),
+            ),
+            IncurableStepError(
+                "open the dashboard",
+                "the step text no longer matches reality",
+                FailureVerdict("incurable", "the step is ambiguous", "reword the step"),
+            ),
+        ],
+        ids=["product-defect", "incurable"],
+    )
+    def test_execute_emits_verdict_event_for_verdict_carrying_errors(self, tmp_path: Path, failure: Exception) -> None:
+        healer = RaisingHealer(failure)
+        fixture = ExecutorFixture(tmp_path, RecordingGenerator(), healer)
+        identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="open the dashboard")
+        fixture.cache.save(CachedStep(identity=identity, code=BROKEN_CODE, created_at="2026-09-08"))
+
+        with pytest.raises(type(failure)):
+            fixture.executor.execute("open the dashboard", "action", FakePage())
+
+        verdict_events = events_named(fixture.recorder, "on_step_verdict")
+        assert len(verdict_events) == 1
+        assert verdict_events[0] == {
+            "step_text": "open the dashboard",
+            "category": failure.verdict.category,
+            "explanation": failure.verdict.explanation,
+            "recommendation": failure.verdict.recommendation,
+        }
+
+    def test_execute_emits_no_verdict_event_for_llm_unavailable(self, tmp_path: Path) -> None:
+        healer = RaisingHealer(LlmUnavailableError("llm unavailable: openai request failed"))
+        fixture = ExecutorFixture(tmp_path, RecordingGenerator(), healer)
+        identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="open the dashboard")
+        fixture.cache.save(CachedStep(identity=identity, code=BROKEN_CODE, created_at="2026-09-08"))
+
+        with pytest.raises(LlmUnavailableError):
+            fixture.executor.execute("open the dashboard", "action", FakePage())
+
+        assert not events_named(fixture.recorder, "on_step_verdict")
 
 
 class TestStepExecutorLogic:
@@ -193,6 +264,49 @@ class TestStepExecutorLogic:
         passed = events_named(fixture.recorder, "on_step_passed")
         assert len(passed) == 2
         assert not events_named(fixture.recorder, "on_step_failed")
+
+    def test_executor_reports_verdict_after_failed(self, tmp_path: Path) -> None:
+        failure = IncurableStepError("s", "r", FailureVerdict("incurable", "e", "rec"))
+        healer = RaisingHealer(failure)
+        fixture = ExecutorFixture(tmp_path, RecordingGenerator(), healer)
+        identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="s")
+        fixture.cache.save(CachedStep(identity=identity, code=BROKEN_CODE, created_at="2026-09-08"))
+
+        with pytest.raises(IncurableStepError):
+            fixture.executor.execute("s", "action", FakePage())
+
+        names = [event for event, _payload in fixture.recorder.events]
+        assert names.index("on_step_failed") < names.index("on_step_verdict")
+        assert events_named(fixture.recorder, "on_step_verdict") == [
+            {"step_text": "s", "category": "incurable", "explanation": "e", "recommendation": "rec"}
+        ]
+
+    def test_verdict_event_absent_without_verdict(self, tmp_path: Path) -> None:
+        healer = RaisingHealer(LlmUnavailableError("down"))
+        fixture = ExecutorFixture(tmp_path, RecordingGenerator(), healer)
+        identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="s")
+        fixture.cache.save(CachedStep(identity=identity, code=BROKEN_CODE, created_at="2026-09-08"))
+
+        with pytest.raises(LlmUnavailableError):
+            fixture.executor.execute("s", "action", FakePage())
+
+        assert "on_step_verdict" not in [event for event, _ in fixture.recorder.events]
+        assert "on_step_failed" in [event for event, _ in fixture.recorder.events]
+
+    def test_verdict_event_logged_at_info(self, tmp_path: Path, caplog) -> None:
+        failure = IncurableStepError("s", "r", FailureVerdict("incurable", "e", "rec"))
+        healer = RaisingHealer(failure)
+        fixture = ExecutorFixture(tmp_path, RecordingGenerator(), healer)
+        identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="s")
+        fixture.cache.save(CachedStep(identity=identity, code=BROKEN_CODE, created_at="2026-09-08"))
+        page = FakePage()
+
+        with caplog.at_level(logging.INFO, logger="prettyplay"), pytest.raises(IncurableStepError):
+            fixture.executor.execute("s", "action", page)
+
+        verdict_records = [record for record in caplog.records if record.msg == "on_step_verdict"]
+        assert len(verdict_records) == 1
+        assert verdict_records[0].levelno == logging.INFO
 
     def test_generator_failure_reports_and_propagates_by_kind(self, tmp_path: Path) -> None:
         failure = IncurableStepError("шаг", "generation attempt budget exhausted")
@@ -291,13 +405,9 @@ class TestStepExecutorLogic:
         ],
     )
     def test_healer_failure_propagates_by_kind_with_event(self, tmp_path: Path, failure: Exception) -> None:
-        generator = RecordingGenerator()
-
-        class RaisingHealer:
-            def heal(self, step: CachedStep, error: str, previous_steps: list, page: FakePage) -> CachedStep:
-                raise failure
-
-        fixture = ExecutorFixture(tmp_path, generator, RaisingHealer())
+        # без вердикта — только on_step_failed, событие вердикта не возникает
+        healer = RaisingHealer(failure)
+        fixture = ExecutorFixture(tmp_path, RecordingGenerator(), healer)
         identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="нажать войти")
         fixture.cache.save(CachedStep(identity=identity, code=BROKEN_CODE, created_at="2026-09-07"))
         page = FakePage()
