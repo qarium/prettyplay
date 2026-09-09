@@ -42,6 +42,8 @@ class PrettyplayConfig(BaseModel):
     generation_attempts: int = 3         # ADR-8
     healing_attempts: int = 2            # ADR-8
     send_screenshots: bool = False       # ADR-7
+    generation_prompt: str = ""          # user instructions for the generation requests (env PRETTYPLAY_GENERATION_PROMPT)
+    browser_endpoint: str = ""           # remote ws endpoint; empty -> local launch (env PRETTYPLAY_BROWSER_ENDPOINT)
 ```
 
 Configuration rules:
@@ -49,6 +51,25 @@ Configuration rules:
 - Secrets (LLM API keys) are never stored in the config file; the config may reference an environment variable **name** (ADR-13)
 - Every setting has an environment override for CI; the browser override is `PRETTYPLAY_BROWSER_NAME` — the legacy `PRETTYPLAY_BROWSER` no longer applies and, when met, is answered with a hint naming the new variable
 - Invalid configuration fails loudly with an actionable message (see below)
+
+## Layered merge — explicit values over pyproject+env
+
+A PrettyConfig passed to the test object is the same full model, not a subset: explicitly set values win, empty/unset fields fall back to the pyproject+env layer:
+
+```python
+file_config = load_config()                     # pyproject.toml + env overrides, validated
+explicit = user_overrides.model_fields_set      # fields passed at construction
+effective = file_config.model_copy(update={
+    key: value
+    for key, value in user_overrides            # a field participates when passed at
+    if key in explicit                          # construction and non-empty for strings:
+    and (value or not isinstance(value, str))   # an explicit False/0 overrides too
+})
+```
+
+Rules:
+- One model — one validation: file and programmatic values validate identically
+- A new setting becomes available across the whole chain pyproject → env → PrettyConfig automatically
 
 ## Validation failures — actionable library error
 

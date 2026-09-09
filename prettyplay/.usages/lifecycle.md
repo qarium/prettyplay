@@ -1,10 +1,10 @@
 # Run lifecycle
 
-Domain: how a run is composed — runtime, contexts, hooks, failures. Audience: integrators wiring the library into a runner and CI.
+Domain: how a run is composed — runtimes, contexts, hooks, failures. Audience: integrators wiring the library into a runner and CI.
 
 ## Composition
 
-One process-wide runtime per run: the configuration, the browser process, the LLM provider and the attempt budgets are created once and shared by every test. Each PrettyTest opens its own isolated browser context and closes it on close(). Tests normally never touch the runtime directly — constructing PrettyTest is enough. When the process exits, the runtime stops the browser and the driver synchronously before returning control to the terminal — scripts never leave browser processes behind.
+One runtime per test: each PrettyTest builds its own runtime — its own configuration, browser process, LLM provider and attempt budgets. Tests never share browser state or budgets through the library; outcomes do not depend on the execution order. Constructing a test is cheap and requires no LLM credentials: the browser starts lazily on the first step. A config passed to the test overrides only the explicitly set values — everything else resolves from pyproject+env. When the process exits, every runtime stops its browser and driver synchronously before returning control to the terminal — scripts never leave browser processes behind.
 
 ## Wiring into a framework
 
@@ -35,12 +35,16 @@ Generate locally where the LLM is reachable, commit the cache directory, run CI 
 
 The Playwright session lives in a background driver thread owned by the library: the thread that executes the steps never holds a running asyncio loop, so interactive hosts that drive their own prompt through asyncio (IPython, Jupyter) keep working after every step — passed or failed.
 
-The browser process stays alive for the whole session once the first step has run. In scripts it stops automatically at process exit via the runtime atexit hook. In an interactive session the process keeps living between cells, so release the browser explicitly when interactive exploration is over:
+Each test owns its browser process: it starts on the first step of the test and stops when the test closes. In scripts every runtime stops automatically at process exit through its atexit hook. In an interactive session the process keeps living between cells, so close the test object explicitly when the interactive exploration is over:
 
 ```python
-from prettyplay import get_runtime
+from prettyplay import PrettyTest
 
-get_runtime().close()  # stops the browser and the driver thread
+test = PrettyTest("login-flow")
+test.action("open the login page")
+test.action("enter the login and password")
+test.assertion("the «Welcome back» message appears")
+test.close()  # stops this test's browser and driver thread
 ```
 
 Generation of the step cache remains a batch workflow: prefer a plain script or a pytest run over a REPL when generating many steps.

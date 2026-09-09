@@ -16,6 +16,7 @@ Annotations: |
   Use `openai` and `anthropic` for the SDK call patterns and the error mapping of the two providers.
 
   Provider parity is absolute: both providers expose the same operations, accept the same inputs, return the same output shapes and map failures to the same taxonomy; the provider choice is a configuration decision, never a capability difference.
+  The user instructions input participates in both provider implementations with identical semantics — a parity requirement, not a capability difference.
   API keys come only from environment variables; never log keys or payloads containing secrets.
   One completion request per attempt: attempt budgets are owned by the calling engine, never by a provider.
   Cached step code never depends on the provider: the provider serves generation and classification only.
@@ -27,10 +28,11 @@ Annotations: |
   annotations: |
     The unified LLM port of the library: code generation for a step and failure classification for healing. One contract, two interchangeable implementations selected by configuration.
   methods:
-    "generate_step_code(prompt: str, step_text: str, previous_steps: list[str], snapshot: str, screenshot: bytes | None, page_api: str, existing_code: str | None, error: str | None) -> code: str": |
+    "generate_step_code(prompt: str, user_instructions: str, step_text: str, previous_steps: list[str], snapshot: str, screenshot: bytes | None, page_api: str, existing_code: str | None, error: str | None) -> code: str": |
       Generate step code of the fixed form.
 
       `prompt`: the system prompt text supplied by the calling engine — applied verbatim as the system message.
+      `user_instructions`: the project's code style instructions supplied by the calling engine from the generation_prompt setting; empty — the request carries no instructions block; non-empty — rendered by the provider implementations verbatim as a separate USER INSTRUCTIONS block of the user content, identically in both.
       `step_text`: the sentence of the step to generate.
       `previous_steps`: the sentences of the previous steps of the test, in execution order — scenario context.
       `snapshot`: the accessibility snapshot of the current page.
@@ -62,7 +64,7 @@ Annotations: |
     `config`: project settings; the generation model is the effective_generation_model of `config`, the classification model is the effective_classification_model of `config`; the base_url setting of `config` overrides the endpoint when set.
 
     Algorithm (both operations):
-    1. Build the request: the prompt text as the system message, the user content carrying the inputs
+    1. Build the request: the prompt text as the system message, the user content carrying the inputs — a non-empty user_instructions renders as a separate USER INSTRUCTIONS block placed after the page API block, before the regeneration-only blocks (CODE, ERROR)
     2. Send one completion request via the SDK
     3. Extract the text answer; a generation answer unwraps its first markdown-fenced block — an unfenced answer passes through verbatim
     4. An SDK error maps to `LlmUnavailableError` (see `openai`)
@@ -75,7 +77,7 @@ Annotations: |
     `config`: the same settings semantics as the openai implementation.
 
     Algorithm (both operations):
-    1. Build the request: the prompt text as the system message, the user content carrying the inputs
+    1. Build the request: the prompt text as the system message, the user content carrying the inputs — a non-empty user_instructions renders as a separate USER INSTRUCTIONS block placed after the page API block, before the regeneration-only blocks (CODE, ERROR)
     2. Send one message request via the SDK
     3. Extract the text answer; a generation answer unwraps its first markdown-fenced block — an unfenced answer passes through verbatim
     4. An SDK error maps to `LlmUnavailableError` (see `anthropic`)

@@ -17,7 +17,7 @@ Annotations: |
 
   The cache is a repository artifact: one .py file per step, addressed deterministically; the cache is always read, writes are best-effort.
   Step identity is intentional: the same normalized sentence in the same context is one step; a different language, a different step type or a different cache key is a different step.
-  RunBudgets lives in this cell because its accounting key is `StepIdentity`: run-scoped attempt accounting stays next to the addressing it is keyed by.
+  RunBudgets lives in this cell because its accounting key is `StepIdentity`: per-test attempt accounting stays next to the addressing it is keyed by.
 
 ---
 
@@ -126,13 +126,13 @@ Annotations: |
 "RunBudgets(generation_limit: int, healing_limit: int)":
   location: budgets.py
   annotations: |
-    The per-run attempt registry: how many generation and healing attempts each step has left within the run.
+    The per-test attempt registry: how many generation and healing attempts each step has left within the test.
 
-    `generation_limit`: the generation attempt budget per step per run.
-    `healing_limit`: the healing attempt budget per step per run.
+    `generation_limit`: the generation attempt budget per step per test.
+    `healing_limit`: the healing attempt budget per step per test.
 
     Requirements:
-    - The registry lives for the whole run (process): budgets are not reset between tests, so a step reused across tests shares one budget
+    - The registry lives for the lifetime of one test, owned by the test's runtime: every test starts with full limits — a step reused across tests gets a fresh budget in each test
     - The identity key is `StepIdentity`
     - An exhausted budget returns False — the caller turns it into the incurable failure
 
@@ -149,4 +149,4 @@ Annotations: |
 Author: Goga
 CreatedAt: 07/09/26
 Description: |
-  The step cache of prettyplay: normalization, deterministic addressing, atomic repository storage and the per-run attempt budgets.
+  The step cache of prettyplay: normalization, deterministic addressing, atomic repository storage and the per-test attempt budgets.

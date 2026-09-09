@@ -22,7 +22,7 @@ The classification verdict decides the path:
 
 - Anti-masking: healing never turns a product defect into a green test
 - The healed code replaces the cached code only after a successful execution
-- Generation and healing attempts live in one run-scoped registry with separate per-step limits (default 3 and 2)
+- Generation and healing attempts live in one per-test registry — owned by the runtime of the test — with separate per-step limits (default 3 and 2)
 - A regeneration budget exhaustion after rot raises IncurableStepError carrying the verdict of the original rot classification — no extra LLM request
 - Provider unavailability during the classification raises LlmUnavailableError — an explicit infrastructure failure
 

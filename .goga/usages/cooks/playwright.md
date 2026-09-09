@@ -4,9 +4,9 @@ Practices for the `playwright` library within prettyplay. Target audience: imple
 
 prettyplay drives the browser exclusively through Playwright's **sync API** (ADR-1, ADR-2). Playwright is a hard dependency of the package.
 
-## Lifecycle — one isolated context per test
+## Lifecycle — one browser process per test
 
-`sync_playwright()` starts the driver. One browser process serves the run; every test gets its own **isolated browser context** (R6: each test runs in its own context, independent of other tests).
+`sync_playwright()` starts the driver. Every test owns its runtime: its own **browser process** and its own **isolated browser context** — no browser state is shared between tests through the library. Browser processes start lazily on the first step; every session registers its close with atexit, so all browsers stop before the process exits.
 
 ```python
 from playwright.sync_api import sync_playwright
@@ -38,6 +38,22 @@ browser = engine.launch(
 Rules:
 - `headless` comes from configuration; the default is `True` — the current behavior
 - A channel requires the real browser installed on user infrastructure: a missing browser fails loudly with an actionable message; engine binaries come from `playwright install` on user infrastructure — the package never bundles browsers
+
+## Remote execution — ws endpoint connect
+
+A set `browser_endpoint` (env `PRETTYPLAY_BROWSER_ENDPOINT`) switches the driver from a local launch to a connect over the Playwright ws endpoint — e.g. a Playwright Server or a hosted browser grid:
+
+```python
+engines = {"chromium": p.chromium, "firefox": p.firefox, "webkit": p.webkit}
+engine = engines["chromium" if name in ("chrome", "msedge") else name]  # каналы — это chromium
+browser = engine.connect(ws_endpoint)
+```
+
+Rules:
+- An empty endpoint keeps the local launch — the current behavior
+- `browser` still selects the engine type to connect to; channels (chrome, msedge) do not apply to a connect
+- `headless` is ignored on a connect: window visibility is controlled by the endpoint server
+- The endpoint is an address, not a secret: it is valid in the config file; CI rotation goes through the env override
 
 ## Locators and auto-wait — never sleep
 
@@ -93,7 +109,7 @@ png_bytes = page.screenshot()
 ## Rules
 
 - Sync API only; the async API is out of MVP scope (ADR-2)
-- One browser context per test; no state shared between tests through the library
+- One browser process per test; no state shared between tests through the library
 - All waits go through locators/expectations; `time.sleep` and fixed delays are forbidden
 - `aria_snapshot()` is the default page representation sent to the LLM
 - Browser binaries come from `playwright install` on user infrastructure; the package never bundles browsers
