@@ -44,7 +44,7 @@ class StepExecutor:
             cache: the step cache of the test.
             generator: the generation engine of the cycle.
             healer: the healing engine of the cycle.
-            budgets: the run-scoped attempt registry; attempts are spent
+            budgets: the per-test attempt registry; attempts are spent
                 by the engine, not by the executor.
             reporter: the visibility point of the test.
         """

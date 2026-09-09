@@ -6,9 +6,8 @@ from collections.abc import Iterator
 from pathlib import Path
 from unittest import mock
 
-import prettyplay.runtime as runtime_module
 import pytest
-from prettyplay import PrettyplayRuntime, PrettyTest
+from prettyplay import PrettyTest
 from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step_text
 from prettyplay.config import Config
 from prettyplay.failures import IncurableStepError, ProductDefectError
@@ -232,14 +231,6 @@ class RecorderHook(StepHooks):
 
 
 @pytest.fixture(autouse=True)
-def isolated_runtime_global():
-    """Reset the process runtime singleton before and after every test."""
-    runtime_module._runtime = None
-    yield
-    runtime_module._runtime = None
-
-
-@pytest.fixture(autouse=True)
 def no_llm_credentials(monkeypatch):
     """Run without provider keys: the cached path needs none of them."""
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -247,19 +238,27 @@ def no_llm_credentials(monkeypatch):
 
 
 @contextlib.contextmanager
-def installed_runtime(
+def installed_test(
     cache_root: Path,
     provider: LlmProvider,
     page: FakePage,
-) -> Iterator[PrettyplayRuntime]:
-    """Install an isolated runtime on a tmp cache with stubbed provider and page boundaries."""
-    runtime = PrettyplayRuntime(Config(cache_root=str(cache_root)))
-    runtime_module._runtime = runtime
+    cache_key: str,
+    cache_path: str | None = None,
+) -> Iterator[PrettyTest]:
+    """Build one PrettyTest on a tmp cache with stubbed provider and page boundaries.
+
+    Per-test construction: the test resolves its config from the patched loader
+    (never the real repo pyproject), owns its runtime, and both external
+    boundaries — the provider factory and the page — are patched on that one
+    runtime instance.
+    """
     with (
+        mock.patch("prettyplay.scenario.load_config", return_value=Config(cache_root=str(cache_root))),
         mock.patch("prettyplay.runtime.create_provider", return_value=provider),
-        mock.patch.object(runtime, "open_page", return_value=page),
     ):
-        yield runtime
+        test = PrettyTest(cache_key, cache_path=cache_path)
+        with mock.patch.object(test._runtime, "open_page", return_value=page):
+            yield test
 
 
 def seed_step(  # noqa: PLR0913 — the address fields mirror the identity triple plus the store root
@@ -290,8 +289,7 @@ def test_action_cached_step_runs_without_llm(tmp_path: Path) -> None:
     hook = RecorderHook()
     seed_step(tmp_path, "открыть страницу логина", OPEN_LOGIN_CODE, cache_key="login-flow")
 
-    with installed_runtime(tmp_path, provider, page):
-        test = PrettyTest("login-flow")
+    with installed_test(tmp_path, provider, page, "login-flow") as test:
         test.add_hooks(hook)
         test.action("открыть страницу логина")
         test.close()
@@ -310,8 +308,7 @@ def test_scenario_context_feeds_next_generation(tmp_path: Path) -> None:
     page = FakePage()
     hook = RecorderHook()
 
-    with installed_runtime(tmp_path, provider, page):
-        test = PrettyTest("k")
+    with installed_test(tmp_path, provider, page, "k") as test:
         test.add_hooks(hook)
         test.action("шаг один")
         test.action("шаг два")
@@ -340,8 +337,7 @@ def test_rot_healing_regenerates_rewrites_cache_and_passes(tmp_path: Path) -> No
     page = FakePage(broken_lookups=frozenset({"find_by_role"}))
     hook = RecorderHook()
 
-    with installed_runtime(tmp_path, provider, page):
-        test = PrettyTest("login-flow")
+    with installed_test(tmp_path, provider, page, "login-flow") as test:
         test.add_hooks(hook)
         test.action(step_text)
         test.close()
@@ -374,13 +370,11 @@ def test_cache_path_subdirectories_do_not_collide(tmp_path: Path) -> None:
     identity = seed_step(tmp_path, "открыть страницу", checkout_code, cache_key="k", cache_path="checkout")
     seed_step(tmp_path, "открыть страницу", marketing_code, cache_key="k", cache_path="marketing")
 
-    with installed_runtime(tmp_path, provider, checkout_page):
-        test = PrettyTest("k", cache_path="checkout")
+    with installed_test(tmp_path, provider, checkout_page, "k", cache_path="checkout") as test:
         test.action("открыть страницу")
         test.close()
 
-    with installed_runtime(tmp_path, provider, marketing_page):
-        test = PrettyTest("k", cache_path="marketing")
+    with installed_test(tmp_path, provider, marketing_page, "k", cache_path="marketing") as test:
         test.action("открыть страницу")
         test.close()
 
@@ -404,8 +398,7 @@ def test_generated_failed_check_verdict_fails_the_test_loudly(tmp_path: Path) ->
     page = FakePage(broken_lookups=frozenset({"find_by_text"}))  # lookup fails: the check did not hold
     hook = RecorderHook()
 
-    with installed_runtime(tmp_path, provider, page):
-        test = PrettyTest("login-flow")
+    with installed_test(tmp_path, provider, page, "login-flow") as test:
         test.add_hooks(hook)
         with pytest.raises(ProductDefectError) as excinfo:
             test.assertion(step_text)
@@ -444,8 +437,7 @@ def test_product_defect_verdict_fails_the_test_loudly(tmp_path: Path) -> None:
     page = FakePage(broken_lookups=frozenset({"find_by_role"}))
     hook = RecorderHook()
 
-    with installed_runtime(tmp_path, provider, page):
-        test = PrettyTest("login-flow")
+    with installed_test(tmp_path, provider, page, "login-flow") as test:
         test.add_hooks(hook)
         with pytest.raises(ProductDefectError) as excinfo:
             test.action(step_text)
@@ -497,8 +489,7 @@ def test_incurable_verdict_fails_with_verdict_fields(tmp_path: Path) -> None:
     page = FakePage(broken_lookups=frozenset({"find_by_role"}))
     hook = RecorderHook()
 
-    with installed_runtime(tmp_path, provider, page):
-        test = PrettyTest("login-flow")
+    with installed_test(tmp_path, provider, page, "login-flow") as test:
         test.add_hooks(hook)
         with pytest.raises(IncurableStepError) as excinfo:
             test.action(step_text)

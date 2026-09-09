@@ -874,24 +874,24 @@ Flow A/B/C integration tests would resolve the real repo pyproject instead of th
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (tests/test_scenario.py — expected to fail at this stage):
+- [x] **Contract tests** (tests/test_scenario.py — expected to fail at this stage):
   `inspect.signature(PrettyTest.__init__)` parameters are `["cache_key", "cache_path", "config"]` with
   `cache_path`/`config` defaulting to `None`; `close` remains on the surface; the context manager protocol
   unchanged
-- [ ] **Code**: implement the composition algorithm above — `config: PrettyConfig | None = None` parameter,
+- [x] **Code**: implement the composition algorithm above — `config: PrettyConfig | None = None` parameter,
   `load_config(None, config)`, private `PrettyplayRuntime`, collaborators sourced from `self._runtime`, remove the
   `get_runtime` import
-- [ ] **Code**: implement the new `close` (page + unconditional `runtime.close()`) and align `__exit__`
-- [ ] **Code**: docstrings — per-test composition, the `config` argument (explicitly set values win, unset/empty
+- [x] **Code**: implement the new `close` (page + unconditional `runtime.close()`) and align `__exit__`
+- [x] **Code**: docstrings — per-test composition, the `config` argument (explicitly set values win, unset/empty
   fields resolve from pyproject+env), the close semantics; update `executor.py` wording ("the run-scoped attempt
   registry" → per-test) while in the cell, keeping its unused `budgets` constructor parameter with the existing
   `# noqa: ARG002` comment — the signature is fixed by the root cell contract (contract symmetry), do not remove it
-- [ ] **Code**: update tests/test_scenario.py — remove the `isolated_runtime_global` fixture and the singleton
+- [x] **Code**: update tests/test_scenario.py — remove the `isolated_runtime_global` fixture and the singleton
   `make_runtime`; rebase every test that built `PrettyTest` through them on the new pattern:
   `mock.patch("prettyplay.scenario.load_config", return_value=Config(cache_root=str(tmp_path)))` (or pass
   `config=Config(cache_root=str(tmp_path))` with the same patch), then patch `open_page`/`close` on the
   constructed test's own `self._runtime` (e.g. `mock.patch.object(test._runtime, "open_page", ...)`)
-- [ ] **Code**: update tests/test_integration.py — delete the `isolated_runtime_global` autouse fixture;
+- [x] **Code**: update tests/test_integration.py — delete the `isolated_runtime_global` autouse fixture;
   replace the `installed_runtime` singleton installer with per-test construction: build the test as
   `PrettyTest(cache_key, config=Config(cache_root=str(cache_root)))` under
   `mock.patch("prettyplay.scenario.load_config", return_value=Config(cache_root=str(cache_root)))`, inject the
@@ -900,8 +900,8 @@ Flow A/B/C integration tests would resolve the real repo pyproject instead of th
   (cache-hit, context-feeding, rot-healing) on this pattern — without the rebase they resolve the real repo
   pyproject (no `[tool.prettyplay]` → cache root `/workspace/.prettyplay/cache`, not `tmp_path`) and never see
   the patched boundaries
-- [ ] **Interface verification**: `pytest tests/test_scenario.py -x` — all pass
-- [ ] **Logic tests** (tests/test_scenario.py):
+- [x] **Interface verification**: `pytest tests/test_scenario.py -x` — all pass
+- [x] **Logic tests** (tests/test_scenario.py):
   - positive `test_scenario_builds_own_runtime_per_test` —
     `mock.patch("prettyplay.scenario.load_config", return_value=Config(model="gpt-5"))`; `t1 = PrettyTest("k1")`,
     `t2 = PrettyTest("k2")` → `t1._runtime is not t2._runtime`, `t1._runtime.budgets is not t2._runtime.budgets`,
@@ -911,10 +911,11 @@ Flow A/B/C integration tests would resolve the real repo pyproject instead of th
     `close_count == 1`, the driver close recorded once, no exception on the second call
   - edge `test_scenario_close_before_first_step_is_safe` — `PrettyTest("k")` with mocked `load_config`, nothing
     started; `test.close()` → no exception; a subsequent step still opens a page lazily
-- [ ] **Debugging**: `pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code)
-- [ ] **Contract re-verification**: construction is cheap (no browser launch, no LLM credentials); no cross-test
+- [x] **Debugging**: `pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code)
+  (423 passed, zero failures — Task 8 adds 3 scenario logic tests, 23 scenario tests total)
+- [x] **Contract re-verification**: construction is cheap (no browser launch, no LLM credentials); no cross-test
   state on the instance; `ConfigurationError` surfaces at construction; `cache_key` property delegates as today
-- [ ] **Lint**: `ruff check prettyplay tests` — fix formatting if necessary
+- [x] **Lint**: `ruff check prettyplay tests` — fix formatting if necessary
 
 ### Task 9: `PrettyplayRuntime` per-test root and the `->PrettyConfig` facade embedding (TDD coding)
 
