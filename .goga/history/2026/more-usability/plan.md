@@ -879,17 +879,17 @@ invent no new failure kind in the driver cell.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (in `tests/driver/test_session.py`; expected to fail): with
+- [x] **Contract tests** (in `tests/driver/test_session.py`; expected to fail): with
   `Config(browser="msedge", headless=False)`, `_launch_engine` selects the chromium engine and
   calls `launch(headless=False, channel="msedge")`; with `Config()`,
   `launch` receives exactly `{"headless": True}` (no channel)
-- [ ] **Code**: in `_launch_engine` — `name = self._config.browser`; if
+- [x] **Code**: in `_launch_engine` — `name = self._config.browser`; if
   `name in ("chrome", "msedge")`: `engine = playwright.chromium`, `channel = name`; else
   `engine = ENGINES[name]`, `channel = None`; return
   `engine.launch(headless=self._config.headless, channel=channel)` when a channel exists,
   otherwise `engine.launch(headless=self._config.headless)`
-- [ ] **Interface verification**: `.venv/bin/python -m pytest tests/driver/test_session.py -q`
-- [ ] **Logic tests** (design scenario):
+- [x] **Interface verification**: `.venv/bin/python -m pytest tests/driver/test_session.py -q`
+- [x] **Logic tests** (design scenario):
   - `test_launch_passes_headless_and_channel`: `Config(browser="msedge", headless=False)` with
     a stub engine recording `launch(**kwargs)` patched into the engine map →
     `fake_chromium.launch.call_args.kwargs == {"headless": False, "channel": "msedge"}`; and
@@ -897,11 +897,11 @@ invent no new failure kind in the driver cell.
   - update the existing `FakeEngine.launch()` fake to accept and record `**kwargs`; extend the
     existing launch tests where the recorded name for `chrome`/`msedge` is now `chromium` with
     a channel
-- [ ] **Debugging**: `.venv/bin/python -m pytest tests/driver/ -x` — fix implementation until
+- [x] **Debugging**: `.venv/bin/python -m pytest tests/driver/ -x` — fix implementation until
   green
-- [ ] **Contract re-verification**: `from prettyplay.driver import DriverSession, PageFacade`;
+- [x] **Contract re-verification**: `from prettyplay.driver import DriverSession, PageFacade`;
   the lazy `_launch`/`open_context` flow and the failed-launch cleanup are unchanged
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/driver/`
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/driver/`
 
 ### Task 5: the 8 scroll methods of `PageFacade` (driver)
 

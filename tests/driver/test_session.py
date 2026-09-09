@@ -23,6 +23,7 @@ class FakePlaywrightFactory:
         self.start_calls = 0
         self.stop_calls = 0
         self.launches: list[str] = []
+        self.launch_kwargs: list[dict] = []
         self.contexts: list[FakeContext] = []
         self.threads: list[int] = []  # идентификаторы потока каждого граничного вызова
         self.chromium = FakeEngine("chromium", self)
@@ -48,11 +49,14 @@ class FakeEngine:
     def __init__(self, name: str, factory: FakePlaywrightFactory) -> None:
         self.name = name
         self._factory = factory
+        self.launch_calls: list[mock.Mock] = []
         self._browser: FakeBrowser | None = None
 
-    def launch(self) -> "FakeBrowser":
+    def launch(self, **kwargs: object) -> "FakeBrowser":
         self._factory.threads.append(threading.get_ident())
         self._factory.launches.append(self.name)
+        self._factory.launch_kwargs.append(kwargs)
+        self.launch_calls.append(mock.Mock(kwargs=kwargs))
 
         if self._browser is None:
             self._browser = FakeBrowser(self._factory)
@@ -207,6 +211,26 @@ class TestDriverSessionContract:
         assert hasattr(session, "open_context")
         assert hasattr(session, "close")
 
+    def test_launch_engine_passes_headless_and_channel(self) -> None:
+        factory = FakePlaywrightFactory()
+
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(Config(browser="msedge", headless=False))
+            session.open_context()
+
+        assert factory.launches == ["chromium"]  # канал запускается движком chromium
+        assert factory.launch_kwargs == [{"headless": False, "channel": "msedge"}]
+
+    def test_launch_engine_default_config_headless_only(self) -> None:
+        factory = FakePlaywrightFactory()
+
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(Config())
+            session.open_context()
+
+        assert factory.launches == ["chromium"]
+        assert factory.launch_kwargs == [{"headless": True}]
+
 
 class TestDriverSessionLogic:
     """Logic tests: single lazy launch, per-call isolated contexts, idempotent close."""
@@ -235,6 +259,39 @@ class TestDriverSessionLogic:
             session.open_context()
 
         assert factory.launches == ["firefox"]
+
+    def test_launch_passes_headless_and_channel(self) -> None:
+        factory = FakePlaywrightFactory()
+
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(Config(browser="msedge", headless=False))
+            session.open_context()
+            session.close()
+
+        assert factory.launches == ["chromium"]  # chrome/msedge идут через chromium
+        assert factory.chromium.launch_calls[0].kwargs == {"headless": False, "channel": "msedge"}
+
+        factory = FakePlaywrightFactory()
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(Config())
+            session.open_context()
+            session.close()
+
+        assert factory.chromium.launch_calls[0].kwargs == {"headless": True}
+
+    def test_channel_launch_without_installed_browser_propagates_loudly(self) -> None:
+        factory = FakePlaywrightFactory()
+        # Playwright's native Error names the distribution and the install remedy
+        factory.chromium = FailingEngine(
+            "chromium", factory, Error("Chromium distribution 'chrome' is not found")
+        )
+
+        with (
+            mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory),
+            pytest.raises(Error, match="is not found"),
+        ):
+            session = DriverSession(Config(browser="chrome"))
+            session.open_context()
 
     def test_close_stops_browser_and_driver(self) -> None:
         factory = FakePlaywrightFactory()
@@ -314,7 +371,7 @@ class FailingEngine:
         self._factory = factory
         self._error = error
 
-    def launch(self) -> "FakeBrowser":
+    def launch(self, **kwargs: object) -> "FakeBrowser":
         self._factory.threads.append(threading.get_ident())
         self._factory.launches.append(self.name)
         raise self._error

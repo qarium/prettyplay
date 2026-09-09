@@ -229,17 +229,32 @@ class DriverSession:
     def _launch_engine(self, playwright: Playwright) -> Browser:
         """Launch the browser engine selected by the configuration.
 
+        The bundled engines launch headless-only; ``chrome``/``msedge`` name a
+        locally installed browser launched through the chromium engine with the
+        matching channel. A channel launch without the installed browser fails
+        with Playwright's own actionable error, propagated as-is.
+
         Args:
             playwright: the started Playwright session of the worker thread.
 
         Returns:
             The launched browser process of the run.
         """
+        name = self._config.browser
+
         engines: dict[str, object] = {
             "chromium": playwright.chromium,
             "firefox": playwright.firefox,
             "webkit": playwright.webkit,
         }
-        engine = engines[self._config.browser]
+        channel: str | None
+        if name in ("chrome", "msedge"):
+            engine = playwright.chromium
+            channel = name
+        else:
+            engine = engines[name]
+            channel = None
 
-        return cast(Browser, engine.launch())
+        if channel:
+            return cast(Browser, engine.launch(headless=self._config.headless, channel=channel))
+        return cast(Browser, engine.launch(headless=self._config.headless))
