@@ -205,11 +205,6 @@ class StepGenerator:
         spend = self._budgets.try_generation if pool == "generation" else self._budgets.try_healing
         while True:
             if not spend(identity):
-                recommendation = (
-                    "reword the step or raise generation_attempts"
-                    if pool == "generation"
-                    else "reword the step or raise healing_attempts"
-                )
                 # причина кандидата — часть контракта reason: «the specific incurability cause»
                 reason = f"{pool} attempt budget exhausted"
                 if error:
@@ -217,7 +212,7 @@ class StepGenerator:
                 raise IncurableStepError(
                     step_text,
                     reason,
-                    recommendation,
+                    None,  # вердикт присоединит классификатор вызывающей ветки (задача 7)
                 )
             attempt += 1
             self._reporter.emit("on_generation_started", {"step_text": step_text, "attempt": attempt})

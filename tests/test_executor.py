@@ -7,6 +7,7 @@ import pytest
 from prettyplay import StepExecutor
 from prettyplay.cache import CachedStep, RunBudgets, StepCache, StepIdentity, normalize_step_text
 from prettyplay.config import Config
+from prettyplay.engine.text import first_line_short
 from prettyplay.failures import IncurableStepError, LlmUnavailableError, ProductDefectError
 from prettyplay.reporting import StepHooks, StepReporter
 
@@ -194,9 +195,8 @@ class TestStepExecutorLogic:
         assert not events_named(fixture.recorder, "on_step_failed")
 
     def test_generator_failure_reports_and_propagates_by_kind(self, tmp_path: Path) -> None:
-        generator = RaisingGenerator(
-            IncurableStepError("шаг", "generation attempt budget exhausted", "reword the step")
-        )
+        failure = IncurableStepError("шаг", "generation attempt budget exhausted")
+        generator = RaisingGenerator(failure)
         fixture = ExecutorFixture(tmp_path, generator, RecordingHealer())
         page = FakePage()
 
@@ -208,7 +208,8 @@ class TestStepExecutorLogic:
             {
                 "step_text": "шаг",
                 "step_type": "action",
-                "error": str(IncurableStepError("шаг", "generation attempt budget exhausted", "reword the step")),
+                # только первая строка рендера, хвост вердикта не попадает в событие
+                "error": first_line_short(failure),
             }
         ]
         assert not events_named(fixture.recorder, "on_step_passed")
@@ -285,7 +286,7 @@ class TestStepExecutorLogic:
         "failure",
         [
             ProductDefectError("нажать войти", "ожидание не оправдалось"),
-            IncurableStepError("нажать войти", "текст шага не соответствует реальности", "переформулируйте шаг"),
+            IncurableStepError("нажать войти", "текст шага не соответствует реальности"),
             LlmUnavailableError("llm unavailable: openai request failed"),
         ],
     )

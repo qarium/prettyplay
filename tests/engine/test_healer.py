@@ -285,10 +285,10 @@ class TestStepHealerLogic:
 
         rendered = str(excinfo.value)
         assert excinfo.value.reason == "текст шага не соответствует реальности"
-        assert excinfo.value.recommendation == "переформулируйте шаг"
-        assert "нажать войти" in rendered
+        # fallback: вердикт прикрепит задача 8
+        assert excinfo.value.recommendation == "reword the step or refresh the cache"
         assert "текст шага не соответствует реальности" in rendered
-        assert "переформулируйте шаг" in rendered
+        assert "recommendation: reword the step or refresh the cache" in rendered
         assert fixture.generator.calls == []
         assert fixture.cache.save_calls == []
 

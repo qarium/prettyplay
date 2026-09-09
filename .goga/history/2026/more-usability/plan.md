@@ -702,7 +702,7 @@ built-in fallback). `PrettyplayError` and `LlmUnavailableError` stay unchanged.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (in `tests/failures/test_errors.py`; expected to fail at this stage):
+- [x] **Contract tests** (in `tests/failures/test_errors.py`; expected to fail at this stage):
   facade exposes `FailureVerdict` (`from prettyplay.failures import FailureVerdict` works;
   `__all__` lists the five names); `inspect.signature(FailureVerdict.__init__)` parameters are
   `category`, `explanation`, `recommendation`; `render` is a callable method;
@@ -710,27 +710,27 @@ built-in fallback). `PrettyplayError` and `LlmUnavailableError` stay unchanged.
   `None`); `IncurableStepError.__init__` parameters are `step_text`, `reason`, `verdict`
   (default `None`); `issubclass(ProductDefectError, AssertionError)` and
   `issubclass(ProductDefectError, PrettyplayError)`
-- [ ] **Code**: add `FailureVerdict` — `@dataclass(frozen=True)` with
+- [x] **Code**: add `FailureVerdict` — `@dataclass(frozen=True)` with
   `category: str`, `explanation: str`, `recommendation: str` and
   `render() -> str`: build one line per non-empty field (`f"category: {self.category}"`,
   `f"explanation: {self.explanation}"`, `f"recommendation: {self.recommendation}"`; an empty
   field yields no line), join with `"\n"`
-- [ ] **Code**: rework `ProductDefectError` — bases `(PrettyplayError, AssertionError)`;
+- [x] **Code**: rework `ProductDefectError` — bases `(PrettyplayError, AssertionError)`;
   `__init__(self, step_text: str, message: str, verdict: FailureVerdict | None = None)` stores
   the three fields and calls `PrettyplayError.__init__(message)` (`args` carry the primary
   reason only); `__str__` returns `message`, then appends `"\n" + verdict.render()` when the
   verdict is present (never interleaved, no step-text prefix)
-- [ ] **Code**: rework `IncurableStepError` — bases `(PrettyplayError,)` only, never
+- [x] **Code**: rework `IncurableStepError` — bases `(PrettyplayError,)` only, never
   `AssertionError`; `__init__(self, step_text: str, reason: str, verdict: FailureVerdict | None
   = None)`; `recommendation` becomes a derived `@property`
   (`self.verdict.recommendation` when the verdict is present, otherwise the built-in path
   guidance `"reword the step or refresh the cache"`); `__str__` returns `reason`, then appends
   `"\n" + verdict.render()` when present, otherwise `"\nrecommendation: " + <built-in path
   guidance>`
-- [ ] **Code**: add `FailureVerdict` to `prettyplay/failures/__init__.py` imports and `__all__`
-- [ ] **Interface verification**: `.venv/bin/python -m pytest tests/failures/ -q` — contract
+- [x] **Code**: add `FailureVerdict` to `prettyplay/failures/__init__.py` imports and `__all__`
+- [x] **Interface verification**: `.venv/bin/python -m pytest tests/failures/ -q` — contract
   tests pass
-- [ ] **Logic tests** (design scenarios, English sample data; update the legacy tests that
+- [x] **Logic tests** (design scenarios, English sample data; update the legacy tests that
   construct the old signatures in the same file):
   - `test_render_lists_all_fields`: `FailureVerdict("rot", "the button was renamed", "refresh
     the cache").render().splitlines() == ["category: rot", "explanation: the button was
@@ -753,12 +753,12 @@ built-in fallback). `PrettyplayError` and `LlmUnavailableError` stay unchanged.
     `not isinstance(error, AssertionError)`
   - fix the registered breakages in this file: 2/3-arg constructors and the `recommendation`
     param now construct `FailureVerdict` objects (English sample data in rewritten examples)
-- [ ] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — fix implementation code until all
+- [x] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — fix implementation code until all
   tests pass (do NOT fix test code)
-- [ ] **Contract re-verification**: `.venv/bin/python -c "from prettyplay.failures import
+- [x] **Contract re-verification**: `.venv/bin/python -c "from prettyplay.failures import
   FailureVerdict, ProductDefectError, IncurableStepError, LlmUnavailableError, PrettyplayError"` —
   facade, API shape and behavior intact
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/failures/` — fix formatting if necessary
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/failures/` — fix formatting if necessary
 
 ### Task 2: `Config` browser channels and `headless` (config)
 

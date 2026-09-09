@@ -235,7 +235,7 @@ class TestStepGeneratorLogic:
             fixture.generator.generate(make_identity(), "невозможный шаг", [], page)
 
         assert excinfo.value.reason == "generation attempt budget exhausted; last failure: element not found"
-        assert excinfo.value.recommendation == "reword the step or raise generation_attempts"
+        assert excinfo.value.recommendation == "reword the step or refresh the cache"  # fallback без вердикта
         assert len(provider.calls) == 3
         assert not [event for event in fixture.recorder.events if event[0] == "on_cache_saved"]
 
@@ -305,7 +305,7 @@ class TestStepGeneratorLogic:
             )
 
         assert excinfo.value.reason == "healing attempt budget exhausted; last failure: element not found"
-        assert excinfo.value.recommendation == "reword the step or raise healing_attempts"
+        assert excinfo.value.recommendation == "reword the step or refresh the cache"  # fallback без вердикта
         assert len(provider.calls) == 1  # healing-бюджет (1) исчерпан после первой попытки
 
     def test_messageless_candidate_failure_is_retried_not_crashed(self, tmp_path: Path) -> None:

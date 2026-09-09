@@ -90,9 +90,9 @@ class StepHealer:
         )
         self._reporter.emit("on_healing_started", {"step_text": step_text, "category": verdict.category})
         if verdict.category == "product_defect":
-            raise ProductDefectError(step_text, verdict.explanation)  # кэш не тронут
+            raise ProductDefectError(step_text, verdict.explanation, None)  # кэш не тронут; вердикт — задача 8
         if verdict.category == "incurable":
-            raise IncurableStepError(step_text, verdict.explanation, verdict.recommendation)
+            raise IncurableStepError(step_text, verdict.explanation, None)  # вердикт — задача 8
 
         healed = self._generator.regenerate(
             identity=step.identity,
