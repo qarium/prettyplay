@@ -924,11 +924,11 @@ remove).
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (in `tests/driver/test_page.py`; expected to fail): all 8 methods
+- [x] **Contract tests** (in `tests/driver/test_page.py`; expected to fail): all 8 methods
   exist on `PageFacade` and are callable with the declared arities
   (`scroll_down(pixels)`, `scroll_into_view(element, container)`,
   `scroll_container_down(container, pixels)`, …)
-- [ ] **Code**: implement the primitive mapping (each body wrapped in `self._call`):
+- [x] **Code**: implement the primitive mapping (each body wrapped in `self._call`):
   - `scroll_to_element(element)` → `element._locator.scroll_into_view_if_needed()`
   - `scroll_down(pixels)` / `scroll_up(pixels)` → `self._page.mouse.wheel(0, pixels)` /
     `wheel(0, -pixels)`
@@ -942,8 +942,8 @@ remove).
   - `scroll_container_down(container, pixels)` / `scroll_container_up(container, pixels)` →
     `container.evaluate("(el, px) => { el.scrollTop += px; }", pixels)` /
     `el.scrollTop -= px`
-- [ ] **Interface verification**: `.venv/bin/python -m pytest tests/driver/test_page.py -q`
-- [ ] **Logic tests** (design scenario — `PageFacade(fake_page, fake_context)` with a recording
+- [x] **Interface verification**: `.venv/bin/python -m pytest tests/driver/test_page.py -q`
+- [x] **Logic tests** (design scenario — `PageFacade(fake_page, fake_context)` with a recording
   fake page, inline calls, a real `LocatorFacade` over a recording fake locator):
   - `test_scroll_primitives_delegate_to_playwright`: `page.scroll_down(600)` /
     `scroll_up(300)` → `fake.mouse.wheel_calls == [(0, 600), (0, -300)]`;
@@ -957,11 +957,11 @@ remove).
     `container.evaluate_args[-2] == 400` with `"scrollTop +="`;
     `"scrollTop +=" in container.evaluate_calls[-3][0]` and
     `"getBoundingClientRect" in container.evaluate_calls[-3][0]` (the centering math)
-- [ ] **Debugging**: `.venv/bin/python -m pytest tests/driver/ -x` — fix implementation until
+- [x] **Debugging**: `.venv/bin/python -m pytest tests/driver/ -x` — fix implementation until
   green
-- [ ] **Contract re-verification**: `from prettyplay.driver import PageFacade, LocatorFacade`;
+- [x] **Contract re-verification**: `from prettyplay.driver import PageFacade, LocatorFacade`;
   the existing locating/snapshot/screenshot/close surface untouched
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/driver/`
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/driver/`
 
 ### Task 6: the shared `classify_step_failure` routine (engine)
 
