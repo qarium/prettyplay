@@ -774,26 +774,26 @@ contract entity, one location; the loader task follows.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (in `tests/config/test_models.py`; expected to fail): `Config()` has
+- [x] **Contract tests** (in `tests/config/test_models.py`; expected to fail): `Config()` has
   `headless is True` and `browser == "chromium"`; constructing with each of the five browser
   names and `headless=False` type-checks via the field set (a `headless` kwarg exists)
-- [ ] **Code**: in `models.py` change `browser: Literal["chromium", "firefox", "webkit",
+- [x] **Code**: in `models.py` change `browser: Literal["chromium", "firefox", "webkit",
   "chrome", "msedge"] = "chromium"` and add `headless: bool = True` (after `send_screenshots`);
   update the class docstring Attributes for both fields (browser — the five-value set with the
   channel note; headless — runs the browser without a visible window, default True)
-- [ ] **Interface verification**: `.venv/bin/python -m pytest tests/config/test_models.py -q`
-- [ ] **Logic tests** (design scenarios):
+- [x] **Interface verification**: `.venv/bin/python -m pytest tests/config/test_models.py -q`
+- [x] **Logic tests** (design scenarios):
   - `test_config_headless_default_and_browser_channels`: `Config().headless is True`;
     `Config().browser == "chromium"`; every name of
     `("chromium", "firefox", "webkit", "chrome", "msedge")` accepted;
     `Config(headless=False).headless is False`
   - `test_unknown_browser_rejected_at_model`:
     `pytest.raises(ValidationError, Config, browser="netscape")`
-- [ ] **Debugging**: `.venv/bin/python -m pytest tests/config/ -x` — fix implementation until
+- [x] **Debugging**: `.venv/bin/python -m pytest tests/config/ -x` — fix implementation until
   green
-- [ ] **Contract re-verification**: facade import `from prettyplay.config import Config` and the
+- [x] **Contract re-verification**: facade import `from prettyplay.config import Config` and the
   declared field surface (including the unchanged `effective_*` properties)
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/config/`
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/config/`
 
 ### Task 3: `ConfigurationError` and the loud `load_config` (config)
 
