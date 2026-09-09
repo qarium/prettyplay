@@ -489,21 +489,21 @@ the runtime tests (`test_reused_step_gets_fresh_budget_per_test`, `test_scenario
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: run the existing `pytest tests/cache/test_budgets.py` — signatures and behavior stay
+- [x] **Contract tests**: run the existing `pytest tests/cache/test_budgets.py` — signatures and behavior stay
   green (this task changes documentation wording only; no new failing tests are expected, so the TDD red phase
   does not apply)
-- [ ] **Code**: update `budgets.py` docstrings — module ("Per-run attempt registry ... for the whole run" →
+- [x] **Code**: update `budgets.py` docstrings — module ("Per-run attempt registry ... for the whole run" →
   per-test: one registry per test, owned by the test's runtime), class (per-run → per-test registry), attribute
   and method docstrings ("per-run generation/healing budget" → per-test)
-- [ ] **Code**: update the test docstrings in `tests/cache/test_budgets.py` from per-run to per-test expectations
+- [x] **Code**: update the test docstrings in `tests/cache/test_budgets.py` from per-run to per-test expectations
   (docstring-level only)
-- [ ] **Logic tests**: none apply — behavior is unchanged by design; the per-test semantics are asserted
+- [x] **Logic tests**: none apply — behavior is unchanged by design; the per-test semantics are asserted
   behaviorally in Task 9 (`test_reused_step_gets_fresh_budget_per_test`) and Task 8
   (`test_scenario_builds_own_runtime_per_test`)
-- [ ] **Interface verification**: `pytest tests/cache -x` — all pass
-- [ ] **Contract re-verification**: `RunBudgets(generation_limit, healing_limit)` signature, `try_generation` /
+- [x] **Interface verification**: `pytest tests/cache -x` — all pass
+- [x] **Contract re-verification**: `RunBudgets(generation_limit, healing_limit)` signature, `try_generation` /
   `try_healing` behavior and the `StepIdentity` keying are untouched; importable from `prettyplay.cache`
-- [ ] **Lint**: `ruff check prettyplay tests` — fix formatting if necessary
+- [x] **Lint**: `ruff check prettyplay tests` — fix formatting if necessary
 
 ### Task 4: LLM port and providers — the `user_instructions` input (TDD coding)
 
