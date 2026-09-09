@@ -1,6 +1,7 @@
 """Integration tests of the full step cycle through the public ``PrettyTest`` facade."""
 
 import contextlib
+import traceback
 from collections.abc import Iterator
 from pathlib import Path
 from unittest import mock
@@ -197,6 +198,19 @@ class RecorderHook(StepHooks):
 
     def on_step_failed(self, step_text: str, step_type: str, error: str) -> None:
         self.events.append(("on_step_failed", {"step_text": step_text, "step_type": step_type, "error": error}))
+
+    def on_step_verdict(self, step_text: str, category: str, explanation: str, recommendation: str) -> None:
+        self.events.append(
+            (
+                "on_step_verdict",
+                {
+                    "step_text": step_text,
+                    "category": category,
+                    "explanation": explanation,
+                    "recommendation": recommendation,
+                },
+            )
+        )
 
     def on_generation_started(self, step_text: str, attempt: int) -> None:
         self.events.append(("on_generation_started", {"step_text": step_text, "attempt": attempt}))
@@ -399,7 +413,30 @@ def test_product_defect_verdict_fails_the_test_loudly(tmp_path: Path) -> None:
     assert provider.generation_requests == []  # дефект продукта не регенерируется
     rewritten = (tmp_path / identity.filename).read_text(encoding="utf-8")
     assert "find_by_role" in rewritten  # кэш не тронут
-    assert [event for event, _payload in hook.events] == ["on_step_started", "on_healing_started", "on_step_failed"]
+    assert hook.events == [
+        ("on_step_started", {"step_text": "нажать Войти", "step_type": "action"}),
+        ("on_healing_started", {"step_text": "нажать войти", "category": "product_defect"}),
+        (
+            "on_step_failed",
+            {"step_text": "нажать Войти", "step_type": "action", "error": "ожидание не оправдалось"},
+        ),
+        (
+            "on_step_verdict",
+            {
+                "step_text": "нажать Войти",
+                "category": "product_defect",
+                "explanation": "ожидание не оправдалось",
+                "recommendation": "чинить продукт",
+            },
+        ),
+    ]
+    # полный цикл срыва: трейсбак сложен до границы фасада, сообщение кончается рендером вердикта
+    frames = [entry.filename for entry in traceback.extract_tb(excinfo.value.__traceback__)]
+    assert frames[-1].endswith("scenario.py")
+    assert not any(entry.endswith(("healer.py", "executor.py", "classification.py")) for entry in frames)
+    rendered = str(excinfo.value)
+    assert rendered.index("ожидание не оправдалось") < rendered.index("category:")
+    assert rendered.endswith("recommendation: чинить продукт")
 
 
 def test_incurable_verdict_fails_with_verdict_fields(tmp_path: Path) -> None:
@@ -425,8 +462,32 @@ def test_incurable_verdict_fails_with_verdict_fields(tmp_path: Path) -> None:
         test.close()
 
     assert excinfo.value.reason == "текст шага не соответствует реальности"
-    assert excinfo.value.recommendation == "переформулируйте шаг"  # вердикт healer'а, не fallback
+    # вердикт healer'а, не fallback  # noqa: RUF003 — кириллица намерена
+    assert excinfo.value.recommendation == "переформулируйте шаг"
     assert provider.generation_requests == []  # лечение не запрашивает регенерацию
     rewritten = (tmp_path / identity.filename).read_text(encoding="utf-8")
     assert "find_by_role" in rewritten  # кэш не тронут
-    assert [event for event, _payload in hook.events] == ["on_step_started", "on_healing_started", "on_step_failed"]
+    assert hook.events == [
+        ("on_step_started", {"step_text": "нажать Войти", "step_type": "action"}),
+        ("on_healing_started", {"step_text": "нажать войти", "category": "incurable"}),
+        (
+            "on_step_failed",
+            {"step_text": "нажать Войти", "step_type": "action", "error": "текст шага не соответствует реальности"},
+        ),
+        (
+            "on_step_verdict",
+            {
+                "step_text": "нажать Войти",
+                "category": "incurable",
+                "explanation": "текст шага не соответствует реальности",
+                "recommendation": "переформулируйте шаг",
+            },
+        ),
+    ]
+    # полный цикл срыва: трейсбак сложен до границы фасада, сообщение кончается рендером вердикта
+    frames = [entry.filename for entry in traceback.extract_tb(excinfo.value.__traceback__)]
+    assert frames[-1].endswith("scenario.py")
+    assert not any(entry.endswith(("healer.py", "executor.py", "classification.py")) for entry in frames)
+    rendered = str(excinfo.value)
+    assert rendered.index("текст шага не соответствует реальности") < rendered.index("category:")
+    assert rendered.endswith("recommendation: переформулируйте шаг")

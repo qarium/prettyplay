@@ -1362,16 +1362,16 @@ and logic tests of Tasks 1–11 — they verify the cross-entity interaction.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] Fix the registered breakages at `tests/test_integration.py:402,431`: both
+- [x] Fix the registered breakages at `tests/test_integration.py:402,431`: both
   verdict-carrying failure tests (`test_product_defect_verdict_fails_the_test_loudly`,
   `test_incurable_verdict_fails_with_verdict_fields`) must expect `on_step_verdict` after
   `on_step_failed` in their hook-event list assertions (payload: step_text + the three verdict
   fields)
-- [ ] Verify the full failure flow once more through the wired objects: terminal error →
+- [x] Verify the full failure flow once more through the wired objects: terminal error →
   `on_step_failed` → `on_step_verdict` (when the verdict is present) → raise → the folded
   traceback at the facade → the rendered message ends with the verdict render
-- [ ] Run validation: `.venv/bin/python -m pytest tests/test_integration.py -q` — all pass
-- [ ] Run the full suite: `.venv/bin/python -m pytest tests/ -x` — all pass
+- [x] Run validation: `.venv/bin/python -m pytest tests/test_integration.py -q` — all pass
+- [x] Run the full suite: `.venv/bin/python -m pytest tests/ -x` — all pass
 
 ---
 
@@ -1389,35 +1389,35 @@ and logic tests of Tasks 1–11 — they verify the cross-entity interaction.
 
 ## Completion Criteria
 
-- [ ] Every contract entity is implemented in the correct `location` (`FailureVerdict` and the
+- [x] Every contract entity is implemented in the correct `location` (`FailureVerdict` and the
       two reworked errors in `errors.py`; `ConfigurationError` in `loader.py`; `headless` and
       the five-value browser set in `models.py`; the launch changes in `session.py`; the 8
       scroll methods in `page.py`; `classify_step_failure` in the new `classification.py`; the
       loop changes in `generator.py`; the heal changes in `healer.py`; `on_step_verdict` in
       `hooks.py`; the verdict event in `executor.py`; folding + screenshots in `scenario.py`)
-- [ ] Every contract entity is accessible from the facade (`FailureVerdict` from
+- [x] Every contract entity is accessible from the facade (`FailureVerdict` from
       `prettyplay.failures`, `ConfigurationError` from `prettyplay.config`,
       `classify_step_failure` from `prettyplay.engine`)
-- [ ] Properties and methods match the declared API (constructor signatures incl. the `verdict`
+- [x] Properties and methods match the declared API (constructor signatures incl. the `verdict`
       parameters, the derived `recommendation` property, the 8 scroll arities,
       `get_screenshot`/`save_screenshot`)
-- [ ] Descriptions are reflected in behavior (verdict render contract, failed-check stop,
+- [x] Descriptions are reflected in behavior (verdict render contract, failed-check stop,
       exhaustion classification, quiet skip, anti-masking, verdict reuse without a second LLM
       request, INFO-level verdict event, folded tracebacks, headless/channel launch, env-name
       map, `ConfigurationError` rendering)
-- [ ] Contract dependencies are met (config → failures for `PrettyplayError`; engine →
+- [x] Contract dependencies are met (config → failures for `PrettyplayError`; engine →
       failures for `FailureVerdict`; root → failures for `PrettyplayError` — all already in the
       manifests)
-- [ ] No re-export blocks exist, and the three new facade exports are in place
-- [ ] Every coding task followed the TDD workflow (contract tests → code → verification →
+- [x] No re-export blocks exist, and the three new facade exports are in place
+- [x] Every coding task followed the TDD workflow (contract tests → code → verification →
       logic tests → debugging → re-verification → lint)
-- [ ] Contract tests and logic tests cover facade, API, and behavior within each coding task
-- [ ] Integration tests exist for the cross-entity verdict-reporting scenarios
-- [ ] No package boundary was expanded (no new cells; `classification.py` is an internal module
+- [x] Contract tests and logic tests cover facade, API, and behavior within each coding task
+- [x] Integration tests exist for the cross-entity verdict-reporting scenarios
+- [x] No package boundary was expanded (no new cells; `classification.py` is an internal module
       of the engine cell at its declared location)
-- [ ] `CODEMANIFEST` files were not modified (contract is read-only)
-- [ ] All validation commands pass
-- [ ] Every Usages entry is mentioned in at least one task (`conventions` — all tasks;
+- [x] `CODEMANIFEST` files were not modified (contract is read-only)
+- [x] All validation commands pass
+- [x] Every Usages entry is mentioned in at least one task (`conventions` — all tasks;
       `pydantic` — Tasks 2–3; `playwright` — Tasks 4–5; `generation_prompt` /
       `classification_prompt` — Tasks 6–7; imported `taxonomy` — Tasks 3, 10, 11; `facade` —
       Task 7; `classification` — Tasks 6–8; `hooks` — Task 10; `generation`/`healing` — Task 12
