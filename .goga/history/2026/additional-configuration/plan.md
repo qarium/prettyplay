@@ -437,19 +437,19 @@ validators are per-field.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (tests/config/test_loader.py — expected to fail at this stage):
+- [x] **Contract tests** (tests/config/test_loader.py — expected to fail at this stage):
   `inspect.signature(load_config)` parameters are `["pyproject_path", "overrides"]`, both defaulting to `None`;
   existing single-argument contract/behavior tests keep passing unchanged
-- [ ] **Code**: add the shared fixture `write_pyproject(tmp_path, **settings)` to `tests/conftest.py` — writes a
+- [x] **Code**: add the shared fixture `write_pyproject(tmp_path, **settings)` to `tests/conftest.py` — writes a
   `[tool.prettyplay]` TOML from the given settings and returns the file path (used by the merge tests)
-- [ ] **Code**: extend `_ENV_NAMES` with the two new settings and `_ALLOWED_TEXT` with the two new entries
-- [ ] **Code**: change the signature to `(pyproject_path: str | None = None, overrides: Config | None = None)`
+- [x] **Code**: extend `_ENV_NAMES` with the two new settings and `_ALLOWED_TEXT` with the two new entries
+- [x] **Code**: change the signature to `(pyproject_path: str | None = None, overrides: Config | None = None)`
   and implement steps 6–8 of the algorithm above (the `overrides is None` early return keeps the previous
   behavior byte-identical; then the `model_fields_set`-based overlay via `model_copy`)
-- [ ] **Code**: docstring — describe the layered resolution: pyproject → env → explicit programmatic values
+- [x] **Code**: docstring — describe the layered resolution: pyproject → env → explicit programmatic values
   (explicitly set values win; empty string means unset for string fields)
-- [ ] **Interface verification**: `pytest tests/config -x` — all pass
-- [ ] **Logic tests** (tests/config/test_loader.py):
+- [x] **Interface verification**: `pytest tests/config -x` — all pass
+- [x] **Logic tests** (tests/config/test_loader.py):
   - positive `test_load_config_overrides_explicit_values_win` — file layer `browser="chromium"`, `model="gpt-5"`,
     `base_url="https://file.example/v1"`; `load_config(path, Config(browser="firefox",
     browser_endpoint="ws://ci-grid:3000/playwright/firefox"))` → `browser == "firefox"`,
@@ -469,10 +469,10 @@ validators are per-field.
     `"firefox"` (pyproject → env → PrettyConfig observable end-to-end)
   - extend the existing env-override tests to `PRETTYPLAY_GENERATION_PROMPT` and
     `PRETTYPLAY_BROWSER_ENDPOINT` (an env override exists for every setting)
-- [ ] **Debugging**: `pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code)
-- [ ] **Contract re-verification**: a raw pydantic `ValidationError` never leaves the loader; the empty
+- [x] **Debugging**: `pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code)
+- [x] **Contract re-verification**: a raw pydantic `ValidationError` never leaves the loader; the empty
   `cache_root` still resolves to the absolute default; the None path is byte-identical to the previous behavior
-- [ ] **Lint**: `ruff check prettyplay tests` — fix formatting if necessary
+- [x] **Lint**: `ruff check prettyplay tests` — fix formatting if necessary
 
 ### Task 3: `RunBudgets` — per-test ownership wording (TDD coding, documentation alignment)
 
