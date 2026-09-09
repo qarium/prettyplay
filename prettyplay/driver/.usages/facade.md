@@ -15,6 +15,14 @@ The facade wraps the Playwright sync API. Step code receives a `PageFacade` and 
 | page.aria_snapshot() | accessibility-tree page state |
 | page.screenshot() | full-page PNG bytes |
 | page.url | current URL |
+| page.scroll_to_element(element) | bring an element into the viewport (works inside scrollable ancestors) |
+| page.scroll_down(pixels) | scroll the page down by an amount |
+| page.scroll_up(pixels) | scroll the page up by an amount |
+| page.scroll_to_bottom() | scroll to the end of the page |
+| page.scroll_to_top() | scroll to the start of the page |
+| page.scroll_into_view(element, container) | bring an element into view inside a specific scrollable container |
+| page.scroll_container_down(container, pixels) | scroll a scrollable container down by an amount |
+| page.scroll_container_up(container, pixels) | scroll a scrollable container up by an amount |
 | element.click() | click with auto-wait |
 | element.fill(value) | set input text |
 | element.select_option(value) | choose an option |
@@ -26,10 +34,18 @@ The facade wraps the Playwright sync API. Step code receives a `PageFacade` and 
 
 ```python
 page.open("https://example.com/login")
-page.find_by_label("Логин").fill("user")
-page.find_by_label("Пароль").fill("secret")
-page.find_by_role("button", name="Войти").click()
-page.find_by_text("Добро пожаловать").expect_visible()
+page.find_by_label("Username").fill("user")
+page.find_by_label("Password").fill("secret")
+page.find_by_role("button", name="Sign in").click()
+page.find_by_text("Welcome back").expect_visible()
+
+# scroll scenarios
+page.scroll_down(600)
+page.find_by_text("Footer").expect_visible()
+
+cards = page.find_by_role("list", name="Recommendations")
+page.scroll_container_down(cards, 400)
+page.find_by_text("Fifth card").expect_visible()
 
 snapshot = page.aria_snapshot()
 ```
@@ -38,5 +54,5 @@ snapshot = page.aria_snapshot()
 
 - Contexts are isolated per test; the browser process is shared per run
 - Every call executes in the library's driver thread and returns when done: driving is strictly sequential, and the calling thread never adopts the Playwright event loop — hand-written step code stays safe in interactive hosts (IPython, Jupyter)
-- Auto-wait everywhere: no time.sleep, no fixed delays in step code
+- Auto-wait everywhere: no time.sleep, no fixed delays in step code — including around scrolls: the scrolled state is awaited through locators and expectations
 - Never put secrets into step actions — step texts and code land in the repository cache

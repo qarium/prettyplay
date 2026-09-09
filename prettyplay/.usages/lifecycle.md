@@ -12,17 +12,20 @@ The library is framework-agnostic: no plugins, no base classes. Construct the ob
 
 ## Hooks
 
-Implement the StepHooks callback contract and register the implementation with add_hooks before the first step — step, generation, healing and cache events reach the handler synchronously.
+Implement the StepHooks callback contract and register the implementation with add_hooks before the first step — step, generation, healing, cache and verdict events reach the handler synchronously. on_step_verdict fires after on_step_failed whenever the terminal failure carries an LLM verdict.
 
 ## Failures
 
-Three kinds reach the runner:
+Four kinds reach the runner:
 
 | Kind | Meaning | Reaction |
 |---|---|---|
-| ProductDefectError | a real regression | treat as a bug — this failure is the value of the suite |
+| ProductDefectError | a real regression — also an AssertionError: runners show a failure, not an error; the traceback is folded to the library boundary | treat as a bug — this failure is the value of the suite |
 | IncurableStepError | the step cannot be generated or healed | follow the carried recommendation |
 | LlmUnavailableError | the LLM is down | only generation and healing are blocked; cached steps keep running |
+| ConfigurationError | the settings are invalid | fix the named setting — the message lists the allowed values |
+
+ProductDefectError and IncurableStepError carry the LLM verdict — category, explanation, recommendation — in the exception message, the on_step_verdict hook event and the log. When the LLM is unavailable the verdict is skipped quietly; the failure itself never waits for it.
 
 ## Team workflow
 

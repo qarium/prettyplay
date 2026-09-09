@@ -7,6 +7,7 @@ Annotations: |
   Visibility goes through the standard logging library: the logger is named prettyplay.
   Log messages: lowercase, concise operational wording, stable event names, contextual metadata attached.
   Never log secrets, credentials, tokens or personal sensitive data.
+  Step lifecycle events — including the verdict event — are logged at INFO; a skipped cache write and a failed hook call — WARNING.
 
 ---
 
@@ -23,6 +24,17 @@ Annotations: |
       The step finished successfully.
     "on_step_failed(step_text: str, step_type: str, error: str)": |
       The step failed; `error` is a short human-readable failure description.
+    "on_step_verdict(step_text: str, category: str, explanation: str, recommendation: str)": |
+      The terminal failure of the step carried a verdict; fires after on_step_failed.
+
+      `step_text`: the sentence of the failed step.
+      `category`: the verdict label — rot, product_defect or incurable.
+      `explanation`: what the LLM saw on the page at the moment of the failure.
+      `recommendation`: the recommended engineer action.
+
+      Requirements:
+      - Not fired when the verdict was skipped: LLM unavailability logs a WARNING and raises no event
+      - Payload values are plain strings, uniform with the other events
     "on_generation_started(step_text: str, attempt: int)": |
       A code generation attempt started; `attempt` is the 1-based attempt number.
     "on_healing_started(step_text: str, category: str)": |

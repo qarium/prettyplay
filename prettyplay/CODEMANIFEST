@@ -13,6 +13,7 @@ Imports:
       - ProductDefectError
       - IncurableStepError
       - LlmUnavailableError
+      - PrettyplayError
     Usages:
       - taxonomy
     From: prettyplay/failures
@@ -84,10 +85,28 @@ Annotations: |
       Execute the action step `text`.
 
       Delegates to the executor execute with the step type action, the sentence and the test page; failures propagate by kind — `ProductDefectError`, `IncurableStepError`, `LlmUnavailableError` (see `taxonomy`).
+      A `PrettyplayError` leaving this method carries its traceback folded to the library boundary: internal library frames — engine, healing, provider — do not appear in what the runner shows.
     "assertion(text: str)": |
       Execute the assertion step `text` — a legitimately failed expectation surfaces as the product defect failure.
 
       Delegates to the executor execute with the step type assertion; failures propagate by kind — `ProductDefectError`, `IncurableStepError`, `LlmUnavailableError` (see `taxonomy`).
+      A `PrettyplayError` leaving this method carries its traceback folded to the library boundary: internal library frames — engine, healing, provider — do not appear in what the runner shows.
+    "get_screenshot() -> image: bytes": |
+      Return a full-page PNG image of the current state of the test page — uniform with the facade screenshot.
+
+      `image`: the full-page PNG bytes.
+
+      Requirements:
+      - Requires an opened test page: calling before the first step raises a loud actionable `PrettyplayError` telling to run a step first
+      - No screenshot is taken automatically on step failures: the decision to capture belongs to the test author
+    "save_screenshot(filepath: str)": |
+      Write a full-page PNG image of the current state of the test page to `filepath`.
+
+      `filepath`: the explicit destination path chosen by the user — any directory, any filename; no default directory is imposed.
+
+      Requirements:
+      - Requires an opened test page: calling before the first step raises a loud actionable `PrettyplayError` telling to run a step first
+      - A write failure — e.g. a missing parent directory — surfaces as a loud actionable `PrettyplayError`; nothing is created silently
     "add_hooks(hooks: StepHooks)": |
       Register a callback implementation (see `hooks`); applies to the steps of this test.
     "close()": |
@@ -114,7 +133,7 @@ Annotations: |
       4. On a hit execution failure: delegate to the healer heal with the failure description and the scenario context — a healed step is already re-executed and stored by the engine
       5. On a miss: the generator generate — the engine stores the step on success
       6. Append the sentence to the scenario context of the test — the previous step texts feed the next generation
-      7. Report on_step_passed; on a failed step report on_step_failed with the sentence, the step type and the short error description, then raise by kind — `ProductDefectError`, `IncurableStepError`, `LlmUnavailableError` (see `taxonomy`)
+      7. Report on_step_passed; on a failed step report on_step_failed with the sentence, the step type and the short error description — then, when the terminal failure carries a verdict, report on_step_verdict with the sentence and the three verdict fields; finally raise by kind — `ProductDefectError`, `IncurableStepError`, `LlmUnavailableError` (see `taxonomy`)
 
       Requirements:
       - The scenario context lives per test: steps of different tests never mix
@@ -164,4 +183,4 @@ Annotations: |
 Author: Goga
 CreatedAt: 07/09/26
 Description: |
-  The facade of prettyplay: the per-test scenario object, the step cycle executor and the run-scoped composition root.
+  The facade of prettyplay: the per-test scenario object with screenshot abilities, the step cycle executor with verdict reporting, and the run-scoped composition root.

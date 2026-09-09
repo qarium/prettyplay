@@ -9,6 +9,7 @@ Imports:
       - ProductDefectError
       - IncurableStepError
       - LlmUnavailableError
+      - FailureVerdict
     From: prettyplay/failures
   - Types:
       - PageFacade
@@ -52,11 +53,12 @@ Usages:
     - Work only through the page API: the request carries the exact surface listing of the page facade — call nothing outside it
     - For an assertion sentence end with an expectation call; for an action sentence perform the actions
     - Locating by role and accessible name is preferred; by visible text next; by label for form fields
+    - Scroll abilities exist for scenario scrolling: bring an element into view, scroll by an amount, to the page end or start, inside a scrollable container
     - No fixed delays, no sleeps, no explicit waits — the facade waits itself
     - The step must complete exactly what STEP says — nothing more, nothing less
     - Output only the code block, no explanations
   classification_prompt: |
-    You classify a failure of a cached web UI test step.
+    You classify a failure of a web UI test step.
 
     Input you receive:
     - STEP: the step sentence
@@ -87,6 +89,9 @@ Annotations: |
   The fixed form of step code: one function receiving exactly one argument — the `PageFacade` of the test; the function body works only through `PageFacade` and the LocatorFacade element API.
   Every attempt — generation or healing — consumes the shared per-step budget of the run; exhaustion is the incurable failure, never an infinite loop.
   Healing never masks a product defect: a classified product_defect fails the test loudly; a healed step is reported loudly and written back to the cache.
+  Every terminal failure carries a verdict — a `FailureVerdict` of category, explanation, recommendation — fully present in the exception message, the verdict hook event and the log; an unavailable LLM skips the verdict quietly with a WARNING, the failure itself is never delayed or distorted — the quiet skip applies to verdicts enriching an already-decided failure; the classification driving the healing decision surfaces as the infrastructure failure.
+  A failed check of a candidate stops the generation retries: a check that executed and did not hold is classified, not regenerated.
+  The page API surface listing sent to the provider mirrors `facade` from Imports exactly — the listing and the practice change together.
 
 ---
 
@@ -110,6 +115,27 @@ Annotations: |
     Constraints:
     - Execute only step code produced by generation or loaded from the cache — never arbitrary file content
 
+"classify_step_failure(config: Config, provider: LlmProvider, step_text: str, code: str, error: str, page: PageFacade) -> classification: FailureClassification":
+  location: classification.py
+  annotations: |
+    Classify a step failure: collect the page state and ask the provider — the single classification call for both engines.
+
+    `config`: project settings — the screenshot flag.
+    `provider`: the LLM port.
+    `step_text`: the sentence of the failed step.
+    `code`: the step code that failed.
+    `error`: the human-readable failure description.
+    `page`: the page facade of the current test.
+    `classification`: the `FailureClassification` verdict.
+
+    Algorithm:
+    1. Collect the classification inputs: the step sentence, the failed code, the `error` text, the fresh page snapshot — plus the screenshot when enabled
+    2. Ask the provider port classify_failure passing `classification_prompt` as the system prompt
+    3. Return the verdict
+
+    Constraints:
+    - Provider unavailability propagates to the caller: this routine never swallows it — the calling path decides whether it is a terminal infrastructure failure or a quiet verdict skip
+
 "StepGenerator(config: Config, provider: LlmProvider, cache: StepCache, budgets: RunBudgets, reporter: StepReporter)":
   location: generator.py
   annotations: |
@@ -130,18 +156,22 @@ Annotations: |
       3. Request step code from the provider port passing `generation_prompt` as the system prompt and the page API surface listing taken from `facade`
       4. Execute the candidate with `run_step_code` against `page`
       5. On success: build `CachedStep`, save it to the cache, return it
-      6. On failure: repeat from step 1 with the fresh failure description and the fresh snapshot, while attempts remain
-      7. Report on_generation_started for every attempt
+      6. On a candidate failure that is an AssertionError — a check that executed and did not hold: stop the retries immediately and classify via `classify_step_failure`; a product_defect verdict raises `ProductDefectError` carrying the verdict, any other verdict raises `IncurableStepError` carrying it — the reason names the failed candidate check; provider unavailability at this classification is skipped quietly with a WARNING — `IncurableStepError` is raised without a verdict, the reason naming the failed candidate check (the failed check is the primary signal, the verdict is enrichment)
+      7. On any other candidate failure: repeat from step 1 with the fresh failure description and the fresh snapshot, while attempts remain
+      8. On budget exhaustion: classify the last candidate via `classify_step_failure` and raise `IncurableStepError` carrying the verdict — the reason names the exhausted pool and the last candidate failure; provider unavailability at this classification is skipped quietly with a WARNING, the failure raises without a verdict
+      9. Report on_generation_started for every attempt
 
       Requirements:
       - Every generation request carries the exact page API surface taken from `facade` from Imports: the model always sees the precise list of calls it may use
-      - Provider unavailability surfaces as `LlmUnavailableError` immediately — no retry on it
-      - Budget exhaustion raises `IncurableStepError` carrying the step, the reason and a recommendation; the reason names the exhausted pool and carries the last candidate failure — the specific incurability cause
+      - Provider unavailability of a generation request surfaces as `LlmUnavailableError` immediately — no retry on it
+      - Provider unavailability of a failed-check classification is skipped quietly with a WARNING: the failure raises without a verdict — the failed check itself is the primary signal
+      - Exactly one failed check stops the retries: the attempt budget is never spent on a legitimately failing assertion
+      - A verdict requested on this path fully reaches the raised error
     "regenerate(identity: StepIdentity, step_text: str, previous_steps: list[str], page: PageFacade, existing_code: str, error: str) -> step: CachedStep": |
       Regenerate a failed step for healing.
 
       Algorithm:
-      1. The same loop as the generate method with two additions: every provider request carries `existing_code` and `error`; attempts consume the healing budget via try_healing
+      1. The same loop as the generate method with three additions: every provider request carries `existing_code` and `error`; attempts consume the healing budget via try_healing; a budget exhaustion raises `IncurableStepError` without classification — the healer attaches the verdict of its own classification, no extra LLM request is made (the failed-check classification of the generate loop applies on both pools)
 
 "StepHealer(config: Config, provider: LlmProvider, generator: StepGenerator, cache: StepCache, budgets: RunBudgets, reporter: StepReporter)":
   location: healer.py
@@ -161,21 +191,22 @@ Annotations: |
       `previous_steps`: the sentences of the previous steps of the test, in execution order — scenario context for regeneration.
 
       Algorithm:
-      1. Collect the classification inputs: the step sentence, the failed step code, the `error` text, the fresh page snapshot — plus the screenshot when enabled
-      2. Ask the provider port classify_failure passing `classification_prompt` as the system prompt — the verdict is a `FailureClassification`
-      3. Report on_healing_started with the category
-      4. product_defect: raise `ProductDefectError` — the test fails, nothing is regenerated, the cache stays untouched
-      5. incurable: raise `IncurableStepError` carrying the verdict explanation and recommendation
-      6. rot: regenerate via the generator regenerate — its loop executes the candidate and stores the healed step on success; report on_healed with the explanation of what was rot and what changed, return the healed step
-      7. A regeneration budget exhaustion inside step 6 surfaces as `IncurableStepError`
+      1. Classify the failure via `classify_step_failure` — the verdict is a `FailureClassification`
+      2. Report on_healing_started with the category
+      3. product_defect: raise `ProductDefectError` carrying the verdict built from the classification — the message states what was expected against what was observed; the recommendation reaches the error through the verdict
+      4. incurable: raise `IncurableStepError` carrying the verdict; the reason names the classification explanation of incurability
+      5. rot: regenerate via the generator regenerate — its loop executes the candidate and stores the healed step on success; report on_healed with the explanation of what was rot and what changed, return the healed step
+      6. A regeneration budget exhaustion inside step 5 surfaces as `IncurableStepError` carrying the verdict of the step 1 classification — the reason names the exhausted pool; no extra LLM request is made
+      7. Provider unavailability of the classification surfaces as `LlmUnavailableError` — an explicit infrastructure failure
 
       Requirements:
       - Anti-masking: healing may only turn a rot-failed step green; a classified product defect always fails the test
       - The healed code replaces the cached code only after a successful execution
+      - Every verdict produced on the paths of this method fully reaches the raised error
 
 ---
 
 Author: Goga
 CreatedAt: 07/09/26
 Description: |
-  The agent engine of prettyplay: step code generation with execution in the loop, the fixed-form execution routine, and healing with anti-masking.
+  The agent engine of prettyplay: step code generation with execution in the loop and failed-check classification, the fixed-form execution routine, the shared classification call, and healing with anti-masking and verdicts on terminal failures.

@@ -21,26 +21,35 @@ with sync_playwright() as p:
     browser.close()
 ```
 
-## Browser matrix — selection from configuration
+## Browser matrix — engines and channels
 
-MVP supports {Chromium, Firefox, WebKit} (ADR-1). The browser is selected from project configuration (`[tool.prettyplay]`), never hard-coded:
+The browser is selected from project configuration (`[tool.prettyplay]`), never hard-coded. The matrix is {chromium, firefox, webkit, chrome, msedge}: the first three are Playwright-bundled engines; chrome and msedge are channels launching the locally installed browser through the chromium engine:
 
 ```python
-browsers = {"chromium": p.chromium, "firefox": p.firefox, "webkit": p.webkit}
-browser = browsers[config.browser].launch()
+engines = {"chromium": p.chromium, "firefox": p.firefox, "webkit": p.webkit}
+name = config.browser
+engine = engines["chromium" if name in ("chrome", "msedge") else name]
+browser = engine.launch(
+    headless=config.headless,
+    channel=name if name in ("chrome", "msedge") else None,
+)
 ```
+
+Rules:
+- `headless` comes from configuration; the default is `True` — the current behavior
+- A channel requires the real browser installed on user infrastructure: a missing browser fails loudly with an actionable message; engine binaries come from `playwright install` on user infrastructure — the package never bundles browsers
 
 ## Locators and auto-wait — never sleep
 
 Playwright locators auto-wait for actionability. Step code expresses waits through locators and expectations only; fixed delays are forbidden:
 
 ```python
-page.get_by_role("button", name="Войти").click()
-page.get_by_label("Логин").fill("user")
+page.get_by_role("button", name="Sign in").click()
+page.get_by_label("Login").fill("user")
 
 from playwright.sync_api import expect
 
-expect(page.get_by_text("Добро пожаловать")).to_be_visible()
+expect(page.get_by_text("Welcome back")).to_be_visible()
 ```
 
 ## Accessibility snapshot — primary LLM input
@@ -50,6 +59,28 @@ The a11y snapshot (structured accessibility-tree representation of the page) is 
 ```python
 snapshot = page.locator("body").aria_snapshot()
 ```
+
+## Scrolling — explicit programmatic scroll
+
+Playwright auto-scrolls only as part of actions. Explicit scenario scrolling (scroll to an element, scroll by an amount, to the page end/start, inside a scrollable container) goes through the primitives:
+
+```python
+# bring an element into the viewport
+locator.scroll_into_view_if_needed()
+
+# scroll the page by an amount (down / up)
+page.mouse.wheel(0, 600)
+page.mouse.wheel(0, -600)
+
+# scroll to the end / the start of the page
+page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+page.evaluate("window.scrollTo(0, 0)")
+
+# scroll inside a scrollable container (carousel)
+container.evaluate("el => el.scrollTop += 400")
+```
+
+Rules: no fixed delays around scrolls — the scrolled state is awaited through locators and expectations.
 
 ## Optional screenshot
 

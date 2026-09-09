@@ -10,10 +10,10 @@ from prettyplay import PrettyTest
 
 def test_login():
     t = PrettyTest("login-flow")
-    t.action("открыть страницу логина")
-    t.action("ввести логин и пароль")
-    t.action("нажать «Войти»")
-    t.assertion("появилась надпись «Добро пожаловать»")
+    t.action("open the login page")
+    t.action("enter the login and password")
+    t.action("click the «Sign in» button")
+    t.assertion("the «Welcome back» message appears")
     t.close()
 ```
 
@@ -21,13 +21,27 @@ Or with the context manager:
 
 ```python
 with PrettyTest("login-flow") as t:
-    t.action("открыть страницу логина")
+    t.action("open the login page")
 ```
 
 ## Step kinds
 
 - action(text) — performs what the sentence says
 - assertion(text) — verifies what the sentence says; a legitimately failed expectation fails the test as a product defect
+
+## Screenshots
+
+Two author-facing abilities on the test object:
+
+```python
+with PrettyTest("login-flow") as t:
+    t.action("open the login page")
+    png = t.get_screenshot()                 # full-page PNG bytes of the current state
+    t.save_screenshot("artifacts/home.png")  # write full-page PNG to an explicit path
+```
+
+- Both require an opened page: call them after the first step of the test
+- Nothing is captured automatically on failures — attaching screenshots to reports is the author's decision
 
 ## Addressing
 

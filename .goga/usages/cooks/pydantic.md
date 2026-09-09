@@ -32,7 +32,8 @@ from pydantic import BaseModel, ConfigDict
 class PrettyplayConfig(BaseModel):
     model_config = ConfigDict(kw_only=True)
 
-    browser: str = "chromium"           # chromium | firefox | webkit (ADR-1)
+    browser: str = "chromium"           # chromium | firefox | webkit | chrome | msedge
+    headless: bool = True               # headless mode (env PRETTYPLAY_BROWSER_HEADLESS)
     model: str = ""
     generation_model: str = ""           # optional override, falls back to model
     classification_model: str = ""       # optional override, falls back to model
@@ -46,8 +47,21 @@ class PrettyplayConfig(BaseModel):
 Configuration rules:
 
 - Secrets (LLM API keys) are never stored in the config file; the config may reference an environment variable **name** (ADR-13)
-- Every setting has an environment override for CI
-- Invalid configuration fails loudly with an actionable message
+- Every setting has an environment override for CI; the browser override is `PRETTYPLAY_BROWSER_NAME` — the legacy `PRETTYPLAY_BROWSER` no longer applies and, when met, is answered with a hint naming the new variable
+- Invalid configuration fails loudly with an actionable message (see below)
+
+## Validation failures — actionable library error
+
+A raw `pydantic.ValidationError` never reaches the user: the loader catches it and re-raises a loud library error built from the pydantic details — the setting name, the received value and the allowed values. The original error stays chained for debugging:
+
+```python
+try:
+    config = PrettyplayConfig(**section)
+except ValidationError as error:
+    raise wrap_validation_error(error) from error
+```
+
+Wrapper message rules: one line per invalid setting — the setting name, the received value, the allowed list or range; no pydantic internals in the user-visible text.
 
 ## TOML loading — tomllib with tomli fallback
 
