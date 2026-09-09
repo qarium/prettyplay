@@ -56,6 +56,30 @@ class TestGetRuntime:
         assert load_config_mock.call_count == 1
         assert runtime1.config is config
 
+    def test_get_runtime_registers_atexit_close(self) -> None:
+        config = Config(model="gpt-5")
+
+        with (
+            mock.patch("prettyplay.runtime.load_config", return_value=config),
+            mock.patch("prettyplay.runtime.atexit.register") as register_mock,
+        ):
+            runtime = get_runtime()
+
+        register_mock.assert_called_once_with(runtime.close)
+
+    def test_get_runtime_registers_atexit_once(self) -> None:
+        config = Config(model="gpt-5")
+
+        with (
+            mock.patch("prettyplay.runtime.load_config", return_value=config),
+            mock.patch("prettyplay.runtime.atexit.register") as register_mock,
+        ):
+            get_runtime()
+            get_runtime()
+            get_runtime()
+
+        register_mock.assert_called_once()
+
 
 class TestPrettyplayRuntime:
     """Logic tests: eager composition, laziness and the driver lifecycle."""

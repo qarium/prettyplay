@@ -48,7 +48,9 @@ class RunBudgets:
         used = self._generation_used.get(identity.filename, 0)
         if used >= self._generation_limit:
             return False
+
         self._generation_used[identity.filename] = used + 1
+
         return True
 
     def try_healing(self, identity: StepIdentity) -> bool:
@@ -64,5 +66,7 @@ class RunBudgets:
         used = self._healing_used.get(identity.filename, 0)
         if used >= self._healing_limit:
             return False
+
         self._healing_used[identity.filename] = used + 1
+
         return True

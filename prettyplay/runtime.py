@@ -9,6 +9,8 @@ never requires LLM credentials and never launches a browser.
 
 from __future__ import annotations
 
+import atexit
+
 from .cache import RunBudgets
 from .config import Config, load_config
 from .driver import DriverSession, PageFacade
@@ -21,14 +23,20 @@ def get_runtime() -> PrettyplayRuntime:
     """Return the process-wide runtime, constructing it on the first call.
 
     The runtime is a process singleton: every subsequent call is cheap and
-    returns the same object.
+    returns the same object. The first call registers the runtime close with
+    ``atexit``, so the browser and the Playwright driver stop synchronously
+    before the process exits — they never outlive the script into the
+    caller's terminal.
 
     Returns:
         The single runtime of the process.
     """
     global _runtime  # noqa: PLW0603 — the process singleton is a module global by contract
+
     if _runtime is None:
         _runtime = PrettyplayRuntime(load_config(None))
+        atexit.register(_runtime.close)
+
     return _runtime
 
 
@@ -73,6 +81,7 @@ class PrettyplayRuntime:
         """The browser driver of the run, constructed lazily exactly once."""
         if self._driver is None:
             self._driver = DriverSession(self._config)
+
         return self._driver
 
     @property
@@ -80,6 +89,7 @@ class PrettyplayRuntime:
         """The LLM provider of the run, constructed lazily exactly once."""
         if self._provider is None:
             self._provider = create_provider(self._config)
+
         return self._provider
 
     def open_page(self) -> PageFacade:
@@ -94,7 +104,10 @@ class PrettyplayRuntime:
         """Stop the browser driver of the run; safe when nothing was started.
 
         Idempotent: a call before any driver access and repeated calls are
-        no-ops. The runtime itself stays usable after the call.
+        no-ops. The runtime itself stays usable after the call. The singleton
+        built by :func:`get_runtime` registers this method with ``atexit``,
+        so the driver stops before the process exits even when no test calls
+        close explicitly.
         """
         if self._driver is not None:
             self._driver.close()

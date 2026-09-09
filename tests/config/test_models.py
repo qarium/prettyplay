@@ -20,7 +20,7 @@ class TestConfigContract:
         with pytest.raises(TypeError):
             Config("openai")  # type: ignore[misc]
 
-    def test_all_twelve_properties_accessible(self) -> None:
+    def test_all_thirteen_properties_accessible(self) -> None:
         config = Config()
         expected = [
             "provider",
@@ -33,13 +33,14 @@ class TestConfigContract:
             "generation_attempts",
             "healing_attempts",
             "send_screenshots",
+            "headless",
             "effective_generation_model",
             "effective_classification_model",
         ]
         for name in expected:
             assert hasattr(config, name), f"missing property: {name}"
 
-    def test_signature_declares_ten_fields(self) -> None:
+    def test_signature_declares_eleven_fields(self) -> None:
         fields = Config.model_fields
         expected = {
             "provider",
@@ -52,8 +53,21 @@ class TestConfigContract:
             "generation_attempts",
             "healing_attempts",
             "send_screenshots",
+            "headless",
         }
         assert expected == set(fields.keys())
+
+    def test_headless_default_and_browser_default(self) -> None:
+        config = Config()
+
+        assert config.headless is True
+        assert config.browser == "chromium"
+
+    def test_browser_channel_values_type_check(self) -> None:
+        for name in ("chromium", "firefox", "webkit", "chrome", "msedge"):
+            assert Config(browser=name).browser == name
+
+        assert Config(headless=False).headless is False
 
     def test_effective_models_are_properties_not_fields(self) -> None:
         assert isinstance(inspect.getattr_static(Config, "effective_generation_model"), property)

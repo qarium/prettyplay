@@ -1,15 +1,19 @@
 """Generation of working step code: LLM candidates executed against the live page in a loop."""
 
+import logging
 from datetime import date
 
 from ..cache import CachedStep, RunBudgets, StepCache, StepIdentity
 from ..config import Config
 from ..driver import PageFacade
-from ..failures import IncurableStepError
-from ..llm import LlmProvider
+from ..failures import FailureVerdict, IncurableStepError, LlmUnavailableError, ProductDefectError
+from ..llm import FailureClassification, LlmProvider
 from ..reporting import StepReporter
+from .classification import classify_step_failure
 from .execution import run_step_code
 from .text import first_line_short
+
+logger = logging.getLogger("prettyplay")
 
 #: System prompt of every generation request; applied verbatim by the provider.
 GENERATION_PROMPT = """You generate executable Python code for one step of a web UI test.
@@ -33,30 +37,10 @@ Rules:
 - Work only through the page API: the request carries the exact surface listing of the page facade — call nothing outside it
 - For an assertion sentence end with an expectation call; for an action sentence perform the actions
 - Locating by role and accessible name is preferred; by visible text next; by label for form fields
+- Scroll abilities exist for scenario scrolling: bring an element into view, scroll by an amount, to the page end or start, inside a scrollable container
 - No fixed delays, no sleeps, no explicit waits — the facade waits itself
 - The step must complete exactly what STEP says — nothing more, nothing less
 - Output only the code block, no explanations"""
-
-#: System prompt of every classification request; used by the healer, applied verbatim.
-CLASSIFICATION_PROMPT = """You classify a failure of a cached web UI test step.
-
-Input you receive:
-- STEP: the step sentence
-- CODE: the step code that failed
-- ERROR: the failure description
-- PAGE SNAPSHOT: the accessibility snapshot of the current page
-- SCREENSHOT: an image of the page, when attached
-
-Answer with exactly one line of the form:
-category | explanation | recommendation
-
-where category is one of:
-- rot — the UI changed (selectors, texts, structure) and the step can be regenerated for the same intent
-- product_defect — the step works as written but the expected behavior of the application is genuinely broken
-- incurable — the step sentence no longer matches reality, the intent is ambiguous, or regeneration cannot help
-
-explanation: one short sentence why. recommendation: one short sentence what the engineer should do.
-Output only that single line — no code, no extra text."""
 
 #: Frozen surface listing of the driver facade — the only calls step code may make.
 #: Mirrors ``prettyplay/driver/.usages/facade.md`` verbatim; the driver facade is a
@@ -69,6 +53,14 @@ page.find_by_text(text)           — element by visible text
 page.aria_snapshot()              — accessibility-tree page state
 page.screenshot()                 — full-page PNG bytes
 page.url                          — current URL
+page.scroll_to_element(element)            — bring an element into the viewport (works inside scrollable ancestors)
+page.scroll_down(pixels)                   — scroll the page down by an amount
+page.scroll_up(pixels)                     — scroll the page up by an amount
+page.scroll_to_bottom()                    — scroll to the end of the page
+page.scroll_to_top()                       — scroll to the start of the page
+page.scroll_into_view(element, container)  — bring an element into view inside a specific scrollable container
+page.scroll_container_down(container, pixels) — scroll a scrollable container down by an amount
+page.scroll_container_up(container, pixels)   — scroll a scrollable container up by an amount
 element.click()                   — click with auto-wait
 element.fill(value)               — set input text
 element.select_option(value)      — choose an option
@@ -184,6 +176,14 @@ class StepGenerator:
     ) -> CachedStep:
         """Run the shared attempt loop until a candidate works or the budget runs out.
 
+        A failed check — a candidate ``AssertionError`` — stops the retries at
+        once and is classified: the attempt budget is never spent on a
+        legitimately failing assertion. Any other candidate failure is retried
+        as a regeneration request carrying the code and its error. When the
+        budget runs out, the generation pool classifies the last candidate;
+        the healing pool raises without classification — the healer attaches
+        the verdict it already holds, so no extra LLM request is made.
+
         Args:
             identity: the address of the step.
             step_text: the sentence of the step.
@@ -197,33 +197,44 @@ class StepGenerator:
             The cached step holding the proven code.
 
         Raises:
-            IncurableStepError: the attempt budget of the step is exhausted.
+            ProductDefectError: a failed candidate check classified as a
+                genuine product defect.
+            IncurableStepError: the attempt budget of the step is exhausted,
+                or a failure classified as incurable.
             LlmUnavailableError: the provider service failed; no retry.
         """
         attempt = 0
         code = None
         spend = self._budgets.try_generation if pool == "generation" else self._budgets.try_healing
+
         while True:
             if not spend(identity):
-                recommendation = (
-                    "reword the step or raise generation_attempts"
-                    if pool == "generation"
-                    else "reword the step or raise healing_attempts"
-                )
                 # причина кандидата — часть контракта reason: «the specific incurability cause»
                 reason = f"{pool} attempt budget exhausted"
+
                 if error:
                     reason = f"{reason}; last failure: {error}"
-                raise IncurableStepError(
-                    step_text,
-                    reason,
-                    recommendation,
-                )
+                if pool == "healing":
+                    raise IncurableStepError(
+                        step_text,
+                        reason,
+                        None,  # вердикт присоединяет healer — без второго LLM-запроса
+                    )
+                if error is None:
+                    raise IncurableStepError(
+                        step_text,
+                        reason,
+                        None,  # классифицировать нечего: ни одного кандидата не было
+                    )
+
+                raise IncurableStepError(step_text, reason, self._classify(step_text, code, error, page))
+
             attempt += 1
             self._reporter.emit("on_generation_started", {"step_text": step_text, "attempt": attempt})
 
             snapshot = page.aria_snapshot()
             screenshot = page.screenshot() if self._config.send_screenshots else None
+
             code = self._provider.generate_step_code(
                 prompt=GENERATION_PROMPT,
                 step_text=step_text,
@@ -234,9 +245,17 @@ class StepGenerator:
                 existing_code=existing_code,
                 error=error,
             )
+
             try:
                 run_step_code(code, page)
-            except Exception as candidate_error:  # любой сбой кандидата лечится повтором
+            except AssertionError as check_failure:
+                # провалённая проверка: попытки не тратятся — классифицируем и останавливаемся
+                reason = f"candidate check failed: {first_line_short(check_failure)}"
+                verdict = self._classify(step_text, code, reason, page)
+                if verdict is not None and verdict.category == "product_defect":
+                    raise ProductDefectError(step_text, first_line_short(check_failure), verdict) from None
+                raise IncurableStepError(step_text, reason, verdict) from None
+            except Exception as candidate_error:  # прочий сбой кандидата лечится повтором
                 existing_code = code
                 error = first_line_short(candidate_error)
             else:
@@ -248,4 +267,46 @@ class StepGenerator:
             created_at=date.today().isoformat(),  # noqa: DTZ011 — календарная дата создания шага
         )
         self._cache.save(step)
+
         return step
+
+    def _classify(self, step_text: str, code: str | None, error: str, page: PageFacade) -> FailureVerdict | None:
+        """Classify a failure through the shared routine with the quiet skip.
+
+        Every classification inside the loop enriches an already-decided
+        failure, so an unavailable LLM yields no verdict — the failure never
+        waits for it and never turns into an infrastructure error.
+
+        Args:
+            step_text: the sentence of the failed step.
+            code: the code of the last candidate.
+            error: the failure description of the candidate.
+            page: the live page facade of the test.
+
+        Returns:
+            The verdict of the classification, or ``None`` when the LLM was
+            unavailable — the quiet skip logs a WARNING.
+        """
+        try:
+            classification = classify_step_failure(self._config, self._provider, step_text, code, error, page)
+        except LlmUnavailableError:
+            logger.warning("verdict skipped: llm unavailable")
+            return None
+
+        return _verdict(classification)
+
+
+def _verdict(classification: FailureClassification) -> FailureVerdict:
+    """Build the verdict value object carried by the terminal errors.
+
+    Args:
+        classification: the classification verdict of the provider.
+
+    Returns:
+        The frozen verdict of the terminal failure.
+    """
+    return FailureVerdict(
+        category=classification.category,
+        explanation=classification.explanation,
+        recommendation=classification.recommendation,
+    )

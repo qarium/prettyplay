@@ -1,3 +1,10 @@
+Imports:
+  - Types:
+      - PrettyplayError
+    Usages:
+      - taxonomy
+    From: prettyplay/failures
+
 Usages:
   conventions: .goga/usages/conventions.md
   pydantic: .goga/usages/cooks/pydantic.md
@@ -5,20 +12,37 @@ Usages:
 Annotations: |
   Use `conventions` for code writing rules and testing.
   Use `pydantic` for data models and TOML loading.
+  Use `taxonomy` from Imports for the failure base the configuration error joins.
 
   All data models — pydantic v2, kw_only=True, empty defaults (None only for explicit absence).
   Naming: PascalCase for classes; snake_case for functions, methods, properties.
   Type hints mandatory; no *args/**kwargs; generics parameterized.
+  A validation failure never surfaces as a raw pydantic error: the loader wraps it into the loud actionable `ConfigurationError`.
 
 ---
 
-"Config(provider: str, browser: str, model: str, generation_model: str, classification_model: str, base_url: str, cache_root: str, generation_attempts: int, healing_attempts: int, send_screenshots: bool)":
+"PrettyplayError::ConfigurationError(message: str)":
+  location: loader.py
+  annotations: |
+    An invalid prettyplay configuration: the loaded [tool.prettyplay] section failed validation.
+
+    `message`: the rendered actionable text — one line per invalid setting: the setting name, the received value, the allowed values or range.
+
+    Requirements:
+    - Raised by `load_config` with the original pydantic ValidationError chained
+    - Catchable with the single library except clause: derives from `PrettyplayError` (see `taxonomy` from Imports)
+    - Never carries a verdict: a configuration failure is not a step failure
+  properties:
+    "message -> str": |
+      The rendered actionable validation text.
+
+"Config(provider: str, browser: str, model: str, generation_model: str, classification_model: str, base_url: str, cache_root: str, generation_attempts: int, healing_attempts: int, send_screenshots: bool, headless: bool)":
   location: models.py
   annotations: |
     Validated project settings — the single source of the immutable configuration part.
 
     `provider`: the LLM provider of the {openai, anthropic} set; default openai.
-    `browser`: browser of the {chromium, firefox, webkit} matrix; default chromium.
+    `browser`: browser of the {chromium, firefox, webkit, chrome, msedge} set; chrome and msedge launch the locally installed browser through the driver channel mechanism; default chromium.
     `model`: main LLM model name.
     `generation_model`: optional generation override; empty — fallback to `model`.
     `classification_model`: optional classification override; empty — fallback to `model`.
@@ -27,10 +51,11 @@ Annotations: |
     `generation_attempts`: generation attempt budget per step per run; default 3.
     `healing_attempts`: healing attempt budget per step per run; default 2.
     `send_screenshots`: optional screenshot input to the LLM; default False.
+    `headless`: run the browser without a visible window; default True.
 
     Requirements:
     - kw_only construction; every field has an empty default
-    - provider validated against {openai, anthropic}; browser against the matrix; invalid value — loud actionable error
+    - provider validated against {openai, anthropic}; browser against the five-value set; invalid value — loud actionable error
     - attempts are positive integers
 
     Constraints:
@@ -39,7 +64,7 @@ Annotations: |
     "provider -> str": |
       The LLM provider setting: openai or anthropic.
     "browser -> str": |
-      The browser setting of the {chromium, firefox, webkit} matrix.
+      The browser setting of the {chromium, firefox, webkit, chrome, msedge} set.
     "model -> str": |
       The main LLM model name.
     "generation_model -> str": |
@@ -56,6 +81,8 @@ Annotations: |
       The healing attempt budget per step per run.
     "send_screenshots -> bool": |
       Whether screenshots are attached to LLM requests.
+    "headless -> bool": |
+      Whether the browser runs without a visible window.
     "effective_generation_model -> str": |
       generation_model when non-empty, otherwise model.
     "effective_classification_model -> str": |
@@ -73,11 +100,12 @@ Annotations: |
     1. Resolve the pyproject.toml path: given `pyproject_path` or the first match found upwards from the current directory
     2. Parse TOML: stdlib tomllib on Python 3.11+, tomli on 3.10 (see `pydantic`)
     3. Extract the tool.prettyplay section; a missing section is an empty section
-    4. Apply environment overrides: each setting is overridden by PRETTYPLAY_<SETTING_UPPERCASE> when the variable is set
-    5. Construct `Config`; a validation failure raises a loud actionable error naming the invalid setting
+    4. Apply environment overrides: each setting is overridden by PRETTYPLAY_<SETTING_UPPERCASE> when the variable is set; the browser override is PRETTYPLAY_BROWSER_NAME, the headless override is PRETTYPLAY_BROWSER_HEADLESS
+    5. Construct `Config`; on a validation failure render the actionable text — one line per invalid setting: the setting name, the received value, the allowed values — and raise `ConfigurationError` with the original ValidationError chained
 
     Requirements:
     - An env override exists for every setting of `Config`
+    - A raw pydantic.ValidationError never leaves the loader
     - The empty cache_root setting is resolved to the absolute default <repo root>/.prettyplay/cache/ at load
 
     Constraints:
@@ -89,4 +117,4 @@ Annotations: |
 Author: Goga
 CreatedAt: 07/09/26
 Description: |
-  Project settings of prettyplay: the validated [tool.prettyplay] schema and the loader with environment overrides.
+  Project settings of prettyplay: the validated [tool.prettyplay] schema with the browser channels and headless mode, and the loader with environment overrides and the actionable configuration error.

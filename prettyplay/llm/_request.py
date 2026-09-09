@@ -36,6 +36,7 @@ def extract_code_block(answer: str) -> str:
         answer itself when it carries no closed fence.
     """
     match = _FENCED_BLOCK.search(answer)
+
     if match is None:
         return answer
 
@@ -60,6 +61,7 @@ def require_completion_text(text: str | None, provider: str) -> str:
     """
     if not text:
         raise LlmUnavailableError(f"llm unavailable: {provider} returned empty completion")
+
     return text
 
 
@@ -95,10 +97,12 @@ def build_fields_text(  # noqa: PLR0913, PLR0917 — the parameters mirror the f
         f"PAGE SNAPSHOT:\n{snapshot}",
         f"PAGE API:\n{page_api}",
     ]
+
     if existing_code is not None:
         sections.append(f"CODE:\n{existing_code}")
     if error is not None:
         sections.append(f"ERROR:\n{error}")
+
     return "\n\n".join(sections)
 
 
@@ -151,6 +155,7 @@ def openai_user_content(text: str, screenshot: bytes | None) -> str | list[dict]
     """
     if screenshot is None:
         return text
+
     return [
         {"type": "text", "text": text},
         {
@@ -187,8 +192,10 @@ def parse_classification_line(answer: str) -> tuple[str, str, str] | None:
     """
     line = next((stripped for stripped in (line.strip() for line in answer.splitlines()) if stripped), "")
     parts = [part.strip() for part in line.split("|")]
+
     if len(parts) == VERDICT_FIELD_COUNT and parts[0] in CATEGORIES:
         return parts[0], parts[1], parts[2]
+
     return None
 
 
@@ -196,5 +203,7 @@ def _format_previous_steps(previous_steps: list[str]) -> str:
     """Render the scenario context section; an empty history stays explicit."""
     if not previous_steps:
         return "PREVIOUS STEPS:\n(none)"
+
     listed = "\n".join(f"- {sentence}" for sentence in previous_steps)
+
     return f"PREVIOUS STEPS:\n{listed}"

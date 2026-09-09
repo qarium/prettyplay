@@ -22,6 +22,12 @@ if TYPE_CHECKING:
 
 _T = TypeVar("_T")
 
+_SCROLL_INTO_VIEW_JS = """(el, target) => {
+    const cr = el.getBoundingClientRect();
+    const tr = target.getBoundingClientRect();
+    el.scrollTop += tr.top - cr.top - (el.clientHeight - tr.height) / 2;
+}"""
+
 
 class PageFacade:
     """The only page API the generated step code may use.
@@ -127,6 +133,79 @@ class PageFacade:
             The PNG image of the whole page as bytes.
         """
         return self._call(lambda: self._page.screenshot(full_page=True))
+
+    def scroll_to_element(self, element: LocatorFacade) -> None:
+        """Scroll the page so the element enters the viewport.
+
+        Works inside the nearest scrollable ancestor when the element lives in
+        a scrollable container; the scrolled state is awaited by the follow-up
+        locators and expectations, never by a delay.
+
+        Args:
+            element: the located element to bring into view.
+        """
+        self._call(element._locator.scroll_into_view_if_needed)
+
+    def scroll_down(self, pixels: int) -> None:
+        """Scroll the page down by an amount.
+
+        Args:
+            pixels: a positive scroll amount in CSS pixels.
+        """
+        self._call(lambda: self._page.mouse.wheel(0, pixels))
+
+    def scroll_up(self, pixels: int) -> None:
+        """Scroll the page up by an amount.
+
+        Args:
+            pixels: a positive scroll amount in CSS pixels.
+        """
+        self._call(lambda: self._page.mouse.wheel(0, -pixels))
+
+    def scroll_to_bottom(self) -> None:
+        """Scroll the page to its end."""
+        self._call(lambda: self._page.evaluate("window.scrollTo(0, document.body.scrollHeight)"))
+
+    def scroll_to_top(self) -> None:
+        """Scroll the page to its start."""
+        self._call(lambda: self._page.evaluate("window.scrollTo(0, 0)"))
+
+    def scroll_into_view(self, element: LocatorFacade, container: LocatorFacade) -> None:
+        """Bring the element into the visible area of the specific scrollable container.
+
+        For nested scrollables where the nearest-ancestor behavior of
+        ``scroll_to_element`` is not enough. The target is resolved through
+        ``element_handle()`` (which auto-waits) and passed to the container
+        evaluation as the live handle argument.
+
+        Args:
+            element: the located element to bring into view.
+            container: the located scrollable container, e.g. a carousel.
+        """
+
+        def scroll() -> None:
+            handle = element._locator.element_handle()
+            container._locator.evaluate(_SCROLL_INTO_VIEW_JS, handle)
+
+        self._call(scroll)
+
+    def scroll_container_down(self, container: LocatorFacade, pixels: int) -> None:
+        """Scroll the scrollable container down by an amount.
+
+        Args:
+            container: the located scrollable container.
+            pixels: a positive scroll amount in CSS pixels.
+        """
+        self._call(lambda: container._locator.evaluate("(el, px) => { el.scrollTop += px; }", pixels))
+
+    def scroll_container_up(self, container: LocatorFacade, pixels: int) -> None:
+        """Scroll the scrollable container up by an amount.
+
+        Args:
+            container: the located scrollable container.
+            pixels: a positive scroll amount in CSS pixels.
+        """
+        self._call(lambda: container._locator.evaluate("(el, px) => { el.scrollTop -= px; }", pixels))
 
     def close(self) -> None:
         """Close the isolated context of the page; the browser of the run stays alive."""

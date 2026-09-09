@@ -7,17 +7,35 @@ Domain: generating executable code for an unknown step. Audience: library intern
 ```python
 step = generator.generate(
     identity=identity,
-    step_text="нажать «Войти»",
-    previous_steps=["открыть страницу логина", "ввести логин и пароль"],
+    step_text="click the «Sign in» button",
+    previous_steps=["open the login page", "enter the login and password"],
     page=page,
 )
 ```
 
 - The loop: request code → execute against the live page → on failure re-request with the fresh error and snapshot
-- Attempts are budgeted per step per run (default 3): exhaustion raises IncurableStepError
+- A failed check of a candidate (an assertion that executed and did not hold) stops the retries at once: the failure goes to classification — product_defect raises ProductDefectError with the verdict, anything else raises IncurableStepError with it; when the LLM is unavailable at this classification the verdict is skipped quietly (WARNING in the log) and IncurableStepError raises without it; one failed check is spent, never the whole budget
+- Other candidate failures (element not found, timeouts) retry with the fresh error and snapshot
+- Attempts are budgeted per step per run (default 3); exhaustion raises IncurableStepError carrying the classification verdict of the last candidate — when the LLM is unavailable the verdict is skipped quietly (WARNING in the log) and the failure raises without it
 - A success stores the step in the cache and returns it
-- Provider unavailability raises LlmUnavailableError immediately — no retry on it
+- Provider unavailability of a generation request raises LlmUnavailableError immediately — no retry on it
+
+## Classification call
+
+Both engines classify through one routine:
+
+```python
+from prettyplay.engine import classify_step_failure
+
+classification = classify_step_failure(
+    config=config, provider=provider,
+    step_text="click the «Sign in» button", code=step_code,
+    error="element not found: button «Sign in»", page=page,
+)
+```
+
+The routine collects the fresh page snapshot (plus the screenshot when enabled) and calls the provider with the engine classification prompt. Provider unavailability propagates: the calling path decides whether it is a terminal infrastructure failure or a quiet verdict skip.
 
 ## The fixed form
 
-Generated code is one function receiving exactly one argument — the page facade — and working only through the facade surface: page.find_by_role(...).click(), element.expect_visible() and alike. No provider constructs, no direct driver imports, no fixed delays.
+Generated code is one function receiving exactly one argument — the page facade — and working only through the facade surface: page.find_by_role(...).click(), element.expect_visible(), page.scroll_down(600) and alike. No provider constructs, no direct driver imports, no fixed delays.

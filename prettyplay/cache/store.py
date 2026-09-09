@@ -80,6 +80,7 @@ class StepCache:
                 self._writable = os.access(target_dir, os.W_OK)
             except OSError:
                 self._writable = False
+
         return self._writable
 
     def load(self, identity: StepIdentity) -> CachedStep | None:
@@ -180,11 +181,14 @@ class StepCache:
         """
         if path is None or path == "":
             return None
+
         subdir = Path(path)
+
         if subdir.is_absolute():
             raise ValueError(f"cache path must be a subdirectory, got absolute {path!r}")
         if ".." in subdir.parts:
             raise ValueError(f"cache path must stay inside the cache root, got {path!r}")
+
         return subdir
 
     def _emit_skipped(self, step: CachedStep, reason: str) -> None:
@@ -215,11 +219,14 @@ def _parse_header(text: str) -> dict[str, str]:
     for node in module.body:
         if not isinstance(node, ast.Assign) or len(node.targets) != 1:
             continue
+
         target = node.targets[0]
+
         if isinstance(target, ast.Name) and target.id in _HEADER_FIELDS:
             fields[target.id] = ast.literal_eval(node.value)
 
     missing = [name for name in _HEADER_FIELDS if name not in fields]
+
     if missing:
         raise KeyError(", ".join(missing))
 

@@ -17,7 +17,9 @@ class Config(BaseModel):
 
     Attributes:
         provider: the LLM provider of the {openai, anthropic} set; default openai.
-        browser: browser of the {chromium, firefox, webkit} matrix; default chromium.
+        browser: browser of the {chromium, firefox, webkit, chrome, msedge} set;
+            chrome and msedge launch the locally installed browser through the
+            driver channel mechanism; default chromium.
         model: main LLM model name.
         generation_model: optional generation override; empty falls back to ``model``.
         classification_model: optional classification override; empty falls back to ``model``.
@@ -26,12 +28,13 @@ class Config(BaseModel):
         generation_attempts: generation attempt budget per step per run; default 3.
         healing_attempts: healing attempt budget per step per run; default 2.
         send_screenshots: whether screenshots are attached to LLM requests.
+        headless: run the browser without a visible window; default True.
     """
 
     model_config = ConfigDict(kw_only=True)
 
     provider: Literal["openai", "anthropic"] = "openai"
-    browser: Literal["chromium", "firefox", "webkit"] = "chromium"
+    browser: Literal["chromium", "firefox", "webkit", "chrome", "msedge"] = "chromium"
     model: str = ""
     generation_model: str = ""
     classification_model: str = ""
@@ -40,6 +43,7 @@ class Config(BaseModel):
     generation_attempts: PositiveInt = 3
     healing_attempts: PositiveInt = 2
     send_screenshots: bool = False
+    headless: bool = True
 
     @property
     def effective_generation_model(self) -> str:

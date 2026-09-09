@@ -33,12 +33,39 @@ class FakeExpectation:
         self._assertions.append("to_be_enabled")
 
 
+class FakeMouse:
+    """Fake Playwright ``page.mouse``; records wheel calls."""
+
+    def __init__(self) -> None:
+        self.wheel_calls: list[tuple[int, int]] = []
+
+    def wheel(self, delta_x: int, delta_y: int) -> None:
+        self.wheel_calls.append((delta_x, delta_y))
+
+
+class FakeElementHandle:
+    """Fake ``element_handle()`` result: a serializable live handle."""
+
+    def __init__(self, locator: "FakeLocator") -> None:
+        self._locator = locator
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, FakeElementHandle) and other._locator is self._locator
+
+    def __hash__(self) -> int:
+        return id(self._locator)
+
+
 class FakeLocator:
     """Fake Playwright locator hidden behind the facade; records every call."""
 
     def __init__(self) -> None:
         self.calls: list[tuple[Any, ...]] = []
         self.assertions: list[str] = []
+        self.evaluate_calls: list[tuple[str, Any]] = []
+        self.evaluate_args: list[Any] = []
+        self.scroll_into_view_called = False
+        self.element_handle_returns_self_locator = True
         self.fail_on_click = False
 
     def click(self) -> None:
@@ -52,6 +79,19 @@ class FakeLocator:
     def select_option(self, value: str) -> None:
         self.calls.append(("select_option", value))
 
+    def scroll_into_view_if_needed(self) -> None:
+        self.calls.append(("scroll_into_view_if_needed",))
+        self.scroll_into_view_called = True
+
+    def element_handle(self) -> FakeElementHandle:
+        self.calls.append(("element_handle",))
+        return FakeElementHandle(self)
+
+    def evaluate(self, script: str, arg: Any = None) -> None:
+        self.calls.append(("evaluate", script, arg))
+        self.evaluate_calls.append((script, arg))
+        self.evaluate_args.append(arg)
+
 
 class FakeContext:
     """Fake isolated browser context; ``close`` records the call."""
@@ -61,6 +101,13 @@ class FakeContext:
 
     def close(self) -> None:
         self.close_calls += 1
+
+
+class DetachedLocator(FakeLocator):
+    """Fake locator whose target detached: ``element_handle()`` resolves to ``None``."""
+
+    def element_handle(self) -> None:
+        self.calls.append(("element_handle",))
 
 
 class FakeBodyLocator(FakeLocator):
@@ -81,7 +128,9 @@ class FakePage:
     def __init__(self, url: str = "about:blank", snapshot: str = "- heading Адреса") -> None:
         self.url = url
         self.calls: list[tuple[Any, ...]] = []
+        self.evaluate_calls: list[tuple[str, Any]] = []
         self.locators: list[FakeLocator] = []
+        self.mouse = FakeMouse()
         self._context = FakeContext()
         self._body = FakeBodyLocator(snapshot)
         self._locator_factory = FakeLocator
@@ -89,6 +138,10 @@ class FakePage:
     def goto(self, url: str) -> None:
         self.calls.append(("goto", url))
         self.url = url
+
+    def evaluate(self, script: str, arg: Any = None) -> None:
+        self.calls.append(("evaluate", script, arg))
+        self.evaluate_calls.append((script, arg))
 
     def get_by_role(self, role: str, name: str | None = None) -> FakeLocator:
         locator = self._locator_factory()
@@ -150,6 +203,14 @@ class TestPageFacadeContract:
             "aria_snapshot",
             "screenshot",
             "url",
+            "scroll_to_element",
+            "scroll_down",
+            "scroll_up",
+            "scroll_to_bottom",
+            "scroll_to_top",
+            "scroll_into_view",
+            "scroll_container_down",
+            "scroll_container_up",
             "close",
         ]
 
@@ -171,6 +232,16 @@ class TestPageFacadeContract:
         assert list(inspect.signature(PageFacade.screenshot).parameters) == ["self"]
         assert list(inspect.signature(PageFacade.close).parameters) == ["self"]
 
+    def test_scroll_method_signatures_match_contract(self) -> None:
+        assert list(inspect.signature(PageFacade.scroll_to_element).parameters) == ["self", "element"]
+        assert list(inspect.signature(PageFacade.scroll_down).parameters) == ["self", "pixels"]
+        assert list(inspect.signature(PageFacade.scroll_up).parameters) == ["self", "pixels"]
+        assert list(inspect.signature(PageFacade.scroll_to_bottom).parameters) == ["self"]
+        assert list(inspect.signature(PageFacade.scroll_to_top).parameters) == ["self"]
+        assert list(inspect.signature(PageFacade.scroll_into_view).parameters) == ["self", "element", "container"]
+        assert list(inspect.signature(PageFacade.scroll_container_down).parameters) == ["self", "container", "pixels"]
+        assert list(inspect.signature(PageFacade.scroll_container_up).parameters) == ["self", "container", "pixels"]
+
     def test_locator_facade_signatures_match_contract(self) -> None:
         assert list(inspect.signature(LocatorFacade.click).parameters) == ["self"]
         assert list(inspect.signature(LocatorFacade.fill).parameters) == ["self", "value"]
@@ -187,6 +258,25 @@ class TestPageFacadeContract:
         assert role_hints["role"] is str
         assert role_hints["name"] is str
         assert role_hints["return"] is LocatorFacade
+
+    def test_scroll_method_annotations_match_contract(self) -> None:
+        to_element = get_type_hints(PageFacade.scroll_to_element)
+        assert to_element["element"] is LocatorFacade
+        assert to_element["return"] is type(None)
+
+        down = get_type_hints(PageFacade.scroll_down)
+        assert down["pixels"] is int
+        assert down["return"] is type(None)
+
+        into_view = get_type_hints(PageFacade.scroll_into_view)
+        assert into_view["element"] is LocatorFacade
+        assert into_view["container"] is LocatorFacade
+        assert into_view["return"] is type(None)
+
+        container_down = get_type_hints(PageFacade.scroll_container_down)
+        assert container_down["container"] is LocatorFacade
+        assert container_down["pixels"] is int
+        assert container_down["return"] is type(None)
 
     def test_no_raw_playwright_objects_escape(self) -> None:
         page = FakePage()
@@ -274,6 +364,105 @@ class TestPageFacadeLogic:
 
         assert page.context.close_calls == 1
         assert page.calls == []  # браузерных вызовов не было — только context.close()
+
+
+class TestPageFacadeScrollLogic:
+    """Logic tests: delegation of every scroll method to the Playwright primitives."""
+
+    def test_scroll_primitives_delegate_to_playwright(self) -> None:
+        page = FakePage()
+        facade = make_page_facade(page)
+        element = facade.find_by_text("Fifth card")
+        container = facade.find_by_role("list", name="Recommendations")
+        fake_element = element._locator
+        fake_container = container._locator
+
+        facade.scroll_down(600)
+        facade.scroll_up(300)
+        facade.scroll_to_bottom()
+        facade.scroll_to_top()
+        facade.scroll_to_element(element)
+        facade.scroll_into_view(element, container)
+        facade.scroll_container_down(container, 400)
+        facade.scroll_container_up(container, 200)
+
+        assert page.mouse.wheel_calls == [(0, 600), (0, -300)]
+        assert page.evaluate_calls[0][0].startswith("window.scrollTo(0, document.body.scrollHeight)")
+        assert page.evaluate_calls[1][0].startswith("window.scrollTo(0, 0)")
+        assert fake_element.scroll_into_view_called is True
+        assert fake_element.calls == [("scroll_into_view_if_needed",), ("element_handle",)]
+        assert fake_container.evaluate_calls[-3] == (
+            "(el, target) => {\n"
+            "    const cr = el.getBoundingClientRect();\n"
+            "    const tr = target.getBoundingClientRect();\n"
+            "    el.scrollTop += tr.top - cr.top - (el.clientHeight - tr.height) / 2;\n"
+            "}",
+            FakeElementHandle(fake_element),
+        )
+        assert fake_container.evaluate_args[-1] == 200
+        assert "scrollTop -=" in fake_container.evaluate_calls[-1][0]
+        assert fake_container.evaluate_args[-2] == 400
+        assert "scrollTop +=" in fake_container.evaluate_calls[-2][0]
+        assert "scrollTop +=" in fake_container.evaluate_calls[-3][0]
+        assert "getBoundingClientRect" in fake_container.evaluate_calls[-3][0]
+
+    def test_scroll_into_view_passes_live_handle_of_the_target(self) -> None:
+        page = FakePage()
+        facade = make_page_facade(page)
+        element = facade.find_by_text("Fifth card")
+        container = facade.find_by_role("region", name="Carousel")
+        fake_element = element._locator
+        fake_container = container._locator
+
+        facade.scroll_into_view(element, container)
+
+        script, arg = fake_container.evaluate_calls[0]
+        assert ("element_handle",) in fake_element.calls
+        assert isinstance(arg, FakeElementHandle)
+        assert arg._locator is fake_element  # the live handle of the target, not the locator
+        assert "getBoundingClientRect" in script
+        assert "el.scrollTop" in script
+
+    def test_scroll_into_view_passes_none_handle_of_a_detached_target(self) -> None:
+        page = FakePage()
+        page._locator_factory = DetachedLocator  # the element handle resolves to None
+        facade = make_page_facade(page)
+        element = facade.find_by_text("Detached card")
+        container = facade.find_by_role("region", name="Carousel")
+
+        facade.scroll_into_view(element, container)
+
+        # the resolved handle reaches the container evaluation as-is — the page fails the render
+        assert container._locator.evaluate_args == [None]
+        assert ("element_handle",) in element._locator.calls
+
+    def test_scroll_to_element_uses_nearest_scrollable_ancestor_primitive(self) -> None:
+        page = FakePage()
+        facade = make_page_facade(page)
+        element = facade.find_by_text("Load more")
+
+        facade.scroll_to_element(element)
+
+        assert element._locator.calls == [("scroll_into_view_if_needed",)]
+        assert page.calls == [("get_by_text", "Load more")]  # nothing else touched the page
+
+    def test_scroll_methods_never_sleep(self) -> None:
+        page = FakePage()
+        facade = make_page_facade(page)
+        element = facade.find_by_text("Footer")
+        container = facade.find_by_role("list", name="Results")
+
+        with mock.patch("time.sleep") as sleep:
+            facade.scroll_down(600)
+            facade.scroll_up(300)
+            facade.scroll_to_bottom()
+            facade.scroll_to_top()
+            facade.scroll_to_element(element)
+            facade.scroll_into_view(element, container)
+            facade.scroll_container_down(container, 400)
+            facade.scroll_container_up(container, 200)
+
+        assert sleep.call_count == 0  # the scrolled state is awaited by locators, never by a delay
 
 
 class TestLocatorFacadeLogic:

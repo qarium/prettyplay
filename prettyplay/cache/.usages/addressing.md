@@ -8,7 +8,7 @@ Domain: step identity and addressing of the cache. Audience: engineers reasoning
 |---|---|---|
 | cache_key | the main object constructor argument | a different key — a different step |
 | step type | action vs assertion | the same sentence as action and as assertion — two steps |
-| normalized sentence | NFC, trim, whitespace collapse, casefold | «Нажать Войти» equals «нажать  войти »; a Russian sentence and its English translation are different steps |
+| normalized sentence | NFC, trim, whitespace collapse, casefold | «Click Sign in» equals «click  sign in »; a Russian sentence and its English translation are different steps |
 
 A missing cache entry for the computed address is a cache miss — the step is generated, not an error.
 
@@ -17,7 +17,7 @@ A missing cache entry for the computed address is a cache miss — the step is g
 ```python
 from prettyplay.cache import StepIdentity, normalize_step_text
 
-normalized = normalize_step_text("  Нажать   Войти ")
+normalized = normalize_step_text("  Click   Sign In ")
 identity = StepIdentity(
     cache_key="login-flow",
     step_type="action",

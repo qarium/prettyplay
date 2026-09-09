@@ -228,4 +228,5 @@ docs/superpowers/
 example.py
 
 # Agents
+.claude/
 CLAUDE.md

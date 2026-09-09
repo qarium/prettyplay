@@ -2,14 +2,72 @@
 
 from __future__ import annotations
 
+import types
+from pathlib import Path
 from types import TracebackType
 
 from .cache import StepCache
 from .driver import PageFacade
 from .engine import StepGenerator, StepHealer
 from .executor import StepExecutor
+from .failures.errors import PrettyplayError
 from .reporting import StepHooks, StepReporter
 from .runtime import get_runtime
+
+
+def _raise_folded(error: PrettyplayError) -> types.NoReturn:
+    """Re-raise a library failure with its traceback folded to this boundary.
+
+    The head link of the caught traceback is the facade method's own frame;
+    the folded traceback keeps exactly that link, so the internal library
+    frames (engine, healing, provider) never appear in what the runner shows.
+    The same exception object is re-raised — never a copy — keeping identity
+    for hook consumers and ``except`` clauses, and adding no context nesting.
+    The chained exceptions (``__context__``/``__cause__``) keep their identity
+    and messages — the original step failure stays visible for debugging —
+    but their tracebacks are folded away too: a runner that renders the chain
+    shows no internal frames either.
+
+    Args:
+        error: the library failure leaving ``action``/``assertion``.
+
+    Raises:
+        Always: the given error with the folded traceback attached.
+    """
+    tb = error.__traceback__
+    _fold_chain_tracebacks(error)
+
+    folded = types.TracebackType(
+        tb_next=None,
+        tb_frame=tb.tb_frame,
+        tb_lasti=tb.tb_lasti,
+        tb_lineno=tb.tb_lineno,
+    )
+
+    raise error.with_traceback(folded)
+
+
+def _fold_chain_tracebacks(error: BaseException) -> None:
+    """Drop the tracebacks of the chained exceptions, keeping the chains themselves.
+
+    Args:
+        error: the exception whose ``__context__``/``__cause__`` chains are folded.
+    """
+    pending = [error]
+    seen: set[int] = set()
+
+    while pending:
+        current = pending.pop()
+
+        if id(current) in seen:
+            continue
+
+        seen.add(id(current))
+
+        for link in (current.__context__, current.__cause__):
+            if link is not None:
+                link.__traceback__ = None
+                pending.append(link)
 
 
 class PrettyTest:
@@ -46,6 +104,7 @@ class PrettyTest:
         self._runtime = get_runtime()
         self._reporter = StepReporter(hooks=[])
         self._cache = StepCache(self._runtime.config, cache_path, self._reporter)
+
         self._generator = StepGenerator(
             self._runtime.config,
             self._runtime.provider,
@@ -89,18 +148,83 @@ class PrettyTest:
     def action(self, text: str) -> None:
         """Execute one action step sentence through the step cycle.
 
+        A library failure leaving this method carries its traceback folded to
+        this boundary: the runner sees the test frame and the boundary frame
+        with the rendered message, never the internal engine frames.
+
         Args:
             text: the sentence of the action as written by the engineer.
+
+        Raises:
+            ProductDefectError: the step expectation is genuinely broken in the product.
+            IncurableStepError: the step never generated successfully, or the verdict
+                says regeneration cannot help.
+            LlmUnavailableError: the provider service failed; no retry.
         """
-        self._executor.execute(text, "action", self._ensure_page())
+        try:
+            self._executor.execute(text, "action", self._ensure_page())
+        except PrettyplayError as error:
+            _raise_folded(error)
 
     def assertion(self, text: str) -> None:
         """Execute one assertion step sentence through the step cycle.
 
+        A library failure leaving this method carries its traceback folded to
+        this boundary, exactly as :meth:`action` does.
+
         Args:
             text: the sentence of the assertion as written by the engineer.
+
+        Raises:
+            ProductDefectError: the step expectation is genuinely broken in the product.
+            IncurableStepError: the step never generated successfully, or the verdict
+                says regeneration cannot help.
+            LlmUnavailableError: the provider service failed; no retry.
         """
-        self._executor.execute(text, "assertion", self._ensure_page())
+        try:
+            self._executor.execute(text, "assertion", self._ensure_page())
+        except PrettyplayError as error:
+            _raise_folded(error)
+
+    def get_screenshot(self) -> bytes:
+        """Return a full-page PNG screenshot of the current test page.
+
+        The decision to take a screenshot belongs to the author: nothing is
+        captured automatically on step failures.
+
+        Returns:
+            The PNG image bytes of the page.
+
+        Raises:
+            PrettyplayError: no test page exists yet — run a step first.
+        """
+        if self._page is None:
+            raise PrettyplayError("no test page yet: run a step first — the page opens lazily on the first step")
+
+        return self._page.screenshot()
+
+    def save_screenshot(self, filepath: str) -> None:
+        """Save a full-page PNG screenshot of the current test page to a file.
+
+        Parent directories are not created: nothing is created silently —
+        a missing directory is a loud failure.
+
+        Args:
+            filepath: the destination path of the PNG file.
+
+        Raises:
+            PrettyplayError: no test page exists yet, or the file cannot be
+                written; the original ``OSError`` is chained.
+        """
+        if self._page is None:
+            raise PrettyplayError("no test page yet: run a step first — the page opens lazily on the first step")
+
+        image = self._page.screenshot()
+
+        try:
+            Path(filepath).write_bytes(image)
+        except OSError as error:
+            raise PrettyplayError(f"cannot write the screenshot to {filepath}: {error}") from error
 
     def add_hooks(self, hooks: StepHooks) -> None:
         """Register integrator hooks for the events of this test.

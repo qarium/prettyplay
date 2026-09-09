@@ -15,9 +15,9 @@ Domain: classifying a failed cached step before healing. Audience: engineers rea
 ```python
 classification = provider.classify_failure(
     prompt=system_prompt,  # the system prompt text comes from the calling engine
-    step_text="нажать «Войти»",
+    step_text="click the «Sign in» button",
     code=step_code,
-    error="element not found: button «Войти»",
+    error="element not found: button «Sign in»",
     snapshot=snapshot_text,
     screenshot=None,
 )

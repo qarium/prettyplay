@@ -4,8 +4,9 @@ Usages:
 Annotations: |
   Use `conventions` for code writing rules and testing.
 
-  The failure taxonomy of the library: three distinct, user-distinguishable failure kinds; every failure carries an actionable message.
-  All failure types derive from the single library base `PrettyplayError`.
+  The failure taxonomy of the library: three distinct, user-distinguishable step failure kinds plus the shared verdict type; every failure carries an actionable message.
+  All failure types derive from the single library base `PrettyplayError`; ProductDefectError additionally derives from AssertionError — the failed check is a failure, never an error, in any runner.
+  The rendered message of a terminal failure starts with its primary reason; the verdict render is appended, never interleaved.
 
 ---
 
@@ -16,41 +17,84 @@ Annotations: |
 
     `message`: the failure description.
 
-"PrettyplayError::ProductDefectError(step_text: str, message: str)":
+"FailureVerdict(category: str, explanation: str, recommendation: str)":
+  location: errors.py
+  annotations: |
+    The verdict of a terminal step failure: what the LLM saw on the page at the moment of the failure and what the engineer should do next.
+
+    `category`: the classification label: rot, product_defect or incurable.
+    `explanation`: what happened on the page — one short sentence.
+    `recommendation`: the recommended engineer action — one short sentence.
+
+    Requirements:
+    - Built by the engines from the failure classification; the failure types never request it themselves
+  properties:
+    "category -> str": |
+      The classification label: rot, product_defect or incurable.
+    "explanation -> str": |
+      What happened on the page at the moment of the failure.
+    "recommendation -> str": |
+      The recommended engineer action.
+  methods:
+    "render() -> text: str": |
+      Render the verdict as stable labelled lines — the single render used by the exception message tail, the hook event payload and the log record.
+
+      `text`: the rendered verdict.
+
+      Algorithm:
+      1. Build one line per non-empty field: category:, explanation:, recommendation:
+      2. Join the lines
+
+      Requirements:
+      - Labels are stable lowercase words — integrators parse them
+
+"PrettyplayError::ProductDefectError(step_text: str, message: str, verdict: FailureVerdict | None)":
   location: errors.py
   annotations: |
     A real functional product defect: the expectation of an assertion step legitimately did not hold against the current application state. This is the signal the test suite exists for.
 
     `step_text`: the sentence of the failed step.
-    `message`: what exactly was expected and what was observed.
+    `message`: what exactly was expected and what was observed — the primary reason.
+    `verdict`: the optional `FailureVerdict`; absent when the LLM was unavailable — the failure never waits for it.
 
     Requirements:
+    - Derives from `PrettyplayError` and AssertionError: catchable as any library failure and as an assertion failure in the same except clauses
+    - The rendered message starts with `message`; the `verdict` render is appended when present
+    - The traceback a runner sees starts at the library boundary — internal library frames are folded away
     - Propagates to the test runner as a failing test: no retry, no healing
-    - The message names the expectation and the observed state
+
+    Constraints:
+    - The library facade stays framework-agnostic: the runner alignment is done by the type itself, never by a runner plugin or integration
   properties:
     "step_text -> str": |
       The sentence of the failed step.
     "message -> str": |
       What exactly was expected and what was observed.
+    "verdict -> FailureVerdict | None": |
+      The optional failure verdict; None — the explicit absence when the LLM was unavailable.
 
-"PrettyplayError::IncurableStepError(step_text: str, reason: str, recommendation: str)":
+"PrettyplayError::IncurableStepError(step_text: str, reason: str, verdict: FailureVerdict | None)":
   location: errors.py
   annotations: |
     An incurable step: regeneration cannot produce working code — the attempt budget is exhausted, the step text no longer matches the application reality, or the intent is ambiguous.
 
     `step_text`: the sentence of the failed step.
-    `reason`: the specific incurability cause.
-    `recommendation`: the recommended engineer action, e.g. reword the step or refresh the cache.
+    `reason`: the specific incurability cause — the primary reason of the rendered message.
+    `verdict`: the optional `FailureVerdict` — reused from a classification that already happened or requested at budget exhaustion; absent when the LLM was unavailable.
 
     Requirements:
-    - Carries all three fields; the rendered message includes each of them
+    - The recommendation is carried by `verdict`; the recommendation property derives from it, falling back to the built-in path guidance when the verdict is absent
+    - The rendered message starts with `reason`, then appends the `verdict` render when present; the fallback recommendation keeps the message actionable without a verdict
+    - An execution failure, not a failed check: derives from `PrettyplayError` only, never from AssertionError
   properties:
     "step_text -> str": |
       The sentence of the failed step.
     "reason -> str": |
       The specific incurability cause.
     "recommendation -> str": |
-      The recommended engineer action.
+      The recommended engineer action: verdict recommendation when present, the built-in path guidance otherwise.
+    "verdict -> FailureVerdict | None": |
+      The optional failure verdict; None — the explicit absence when the LLM was unavailable.
 
 "PrettyplayError::LlmUnavailableError(message: str)":
   location: errors.py
@@ -70,4 +114,4 @@ Annotations: |
 Author: Goga
 CreatedAt: 07/09/26
 Description: |
-  The failure taxonomy of prettyplay: product defect, incurable step, LLM infrastructure — mutations of one library base.
+  The failure taxonomy of prettyplay: product defect, incurable step, LLM infrastructure — mutations of one library base — and the shared verdict of a terminal failure.

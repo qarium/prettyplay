@@ -10,6 +10,9 @@ dockerfile: .goga/Dockerfile
 build:
   task_executor:
     agent: developer
+  review_executor:
+    agent: reviewer
+    base_ref: master
 
 pipeline:
   agent: claude

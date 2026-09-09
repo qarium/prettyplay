@@ -6,9 +6,10 @@ from pathlib import Path
 import pytest
 from prettyplay.cache import CachedStep, RunBudgets, StepCache, StepIdentity
 from prettyplay.config import Config
-from prettyplay.engine import StepHealer
-from prettyplay.engine.generator import CLASSIFICATION_PROMPT
+from prettyplay.engine import StepGenerator, StepHealer
+from prettyplay.engine.classification import CLASSIFICATION_PROMPT
 from prettyplay.failures import (
+    FailureVerdict,
     IncurableStepError,
     LlmUnavailableError,
     PrettyplayError,
@@ -17,8 +18,10 @@ from prettyplay.failures import (
 from prettyplay.llm import FailureClassification
 from prettyplay.reporting import StepHooks, StepReporter
 
-FAILED_CODE = "def step(page) -> None:\n    page.find_by_role('button', name='Войти').click()\n"
-HEALED_CODE = "def step(page) -> None:\n    page.find_by_role('button', name='Sign in').click()\n"
+FAILED_CODE = "def step(page) -> None:\n    page.find_by_role('button', name='Sign in').click()\n"
+HEALED_CODE = "def step(page) -> None:\n    page.find_by_text('Sign in').click()\n"
+TIMEOUT_CODE = "def step(page) -> None:\n    page.find_by_role('button', name='Submit').click()\n"
+CHECK_CODE = "def step(page) -> None:\n    page.find_by_text('Welcome back').expect_visible()\n"
 
 
 class FakePage:
@@ -31,12 +34,47 @@ class FakePage:
         return b"png"
 
 
-class ClassificationProvider:
-    """Stub provider boundary returning one scripted verdict with recorded requests."""
+class TimeoutPage(FakePage):
+    """Fake page where every regenerated candidate fails with a TimeoutError."""
 
-    def __init__(self, verdict: FailureClassification) -> None:
-        self.verdict = verdict
-        self.calls: list[dict[str, object]] = []
+    def find_by_role(self, role: str, name: str) -> None:
+        raise TimeoutError("waiting for the element timed out")
+
+
+class FailingLocator:
+    """Fake element boundary: the expectation fails with the scripted message."""
+
+    def expect_visible(self) -> None:
+        raise AssertionError("banner missing")
+
+
+class CheckFailingPage(FakePage):
+    """Fake page where the candidate check fails with an AssertionError."""
+
+    def find_by_text(self, text: str) -> FailingLocator:
+        return FailingLocator()
+
+
+class FakeProvider:
+    """Fake provider boundary: scripted verdicts and candidates with recorded requests."""
+
+    def __init__(
+        self,
+        classifications: list[FailureClassification | Exception],
+        answers: list[str] | None = None,
+    ) -> None:
+        self.classifications = list(classifications)
+        self.answers = list(answers or [])
+        self.classify_failure_calls: list[dict[str, object]] = []
+        self.generate_step_code_calls: list[dict[str, object]] = []
+
+    @property
+    def classify_failure_call_count(self) -> int:
+        return len(self.classify_failure_calls)
+
+    @property
+    def generate_step_code_call_count(self) -> int:
+        return len(self.generate_step_code_calls)
 
     def classify_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
@@ -47,7 +85,7 @@ class ClassificationProvider:
         snapshot: str,
         screenshot: bytes | None,
     ) -> FailureClassification:
-        self.calls.append(
+        self.classify_failure_calls.append(
             {
                 "prompt": prompt,
                 "step_text": step_text,
@@ -57,18 +95,35 @@ class ClassificationProvider:
                 "screenshot": screenshot,
             }
         )
-        return self.verdict
+        verdict = self.classifications.pop(0)
+        if isinstance(verdict, Exception):
+            raise verdict
+        return verdict
 
-
-class UnavailableProvider:
-    """Stub provider whose service is down: classification raises LlmUnavailableError."""
-
-    def __init__(self) -> None:
-        self.calls = 0
-
-    def classify_failure(self, **_kwargs: object) -> FailureClassification:
-        self.calls += 1
-        raise LlmUnavailableError("llm unavailable: openai request failed")
+    def generate_step_code(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
+        self,
+        prompt: str,
+        step_text: str,
+        previous_steps: list[str],
+        snapshot: str,
+        screenshot: bytes | None,
+        page_api: str,
+        existing_code: str | None,
+        error: str | None,
+    ) -> str:
+        self.generate_step_code_calls.append(
+            {
+                "prompt": prompt,
+                "step_text": step_text,
+                "previous_steps": previous_steps,
+                "snapshot": snapshot,
+                "screenshot": screenshot,
+                "page_api": page_api,
+                "existing_code": existing_code,
+                "error": error,
+            }
+        )
+        return self.answers.pop(0)
 
 
 class SpyGenerator:
@@ -124,7 +179,7 @@ class RecorderHook(StepHooks):
 
 
 class TestStepHealerContract:
-    """Contract tests: facade import, constructor and method signatures."""
+    """Contract tests: facade import, constructor and method signatures, verdict building."""
 
     def test_step_healer_is_importable_from_facade(self) -> None:
         assert isinstance(StepHealer, type)
@@ -151,18 +206,39 @@ class TestStepHealerContract:
             "page",
         ]
 
+    def test_healer_builds_verdict_value_objects(self, tmp_path: Path) -> None:
+        provider = FakeProvider([FailureClassification(category="incurable", explanation="e", recommendation="r")])
+        fixture = HealerFixture(provider, tmp_path)
+
+        with pytest.raises(IncurableStepError) as excinfo:
+            fixture.healer.heal(fixture.failed_step, "err", [], FakePage())
+
+        verdict = excinfo.value.verdict
+        assert isinstance(verdict, FailureVerdict)  # the verdict object, not a string recommendation
+        assert (verdict.category, verdict.explanation, verdict.recommendation) == ("incurable", "e", "r")
+
 
 class HealerFixture:
     """Healer assembled with stubs and spies, plus the failed step under healing."""
 
-    def __init__(self, provider: object, tmp_path: Path) -> None:
+    def __init__(
+        self,
+        provider: object,
+        tmp_path: Path,
+        real_generator: bool = False,
+        limits: tuple[int, int] = (3, 2),
+    ) -> None:
         self.recorder = RecorderHook()
         self.reporter = StepReporter(hooks=[self.recorder])
         self.config = Config(cache_root=str(tmp_path))
         self.cache = SpyCache()
-        self.budgets = RunBudgets(3, 2)
+        self.budgets = RunBudgets(*limits)
         self.failed_step = CachedStep(
-            identity=StepIdentity(cache_key="login-flow", step_type="action", normalized_text="нажать войти"),
+            identity=StepIdentity(
+                cache_key="login-flow",
+                step_type="action",
+                normalized_text="click the sign in button",
+            ),
             code=FAILED_CODE,
             created_at="2026-09-07",
         )
@@ -171,16 +247,25 @@ class HealerFixture:
             code=HEALED_CODE,
             created_at="2026-09-08",
         )
-        self.generator = SpyGenerator(self.healed_step)
+        if real_generator:
+            self.generator = StepGenerator(self.config, provider, self.cache, self.budgets, self.reporter)
+        else:
+            self.generator = SpyGenerator(self.healed_step)
         self.healer = StepHealer(self.config, provider, self.generator, self.cache, self.budgets, self.reporter)
 
 
 class TestStepHealerLogic:
-    """Logic tests: classification branching, event visibility, error propagation."""
+    """Logic tests: classification branching, verdict reuse, event visibility, error propagation."""
 
     def test_heal_rot_regenerates_and_reports_healed(self, tmp_path: Path) -> None:
-        provider = ClassificationProvider(
-            FailureClassification(category="rot", explanation="кнопка переименована", recommendation="проверить шаг")
+        provider = FakeProvider(
+            [
+                FailureClassification(
+                    category="rot",
+                    explanation="the button was renamed",
+                    recommendation="refresh the cache",
+                )
+            ]
         )
         fixture = HealerFixture(provider, tmp_path)
         page = FakePage()
@@ -188,7 +273,7 @@ class TestStepHealerLogic:
         healed = fixture.healer.heal(
             step=fixture.failed_step,
             error="element not found",
-            previous_steps=["открыть"],
+            previous_steps=["open the page"],
             page=page,
         )
 
@@ -196,35 +281,35 @@ class TestStepHealerLogic:
         assert len(fixture.generator.calls) == 1
         call = fixture.generator.calls[0]
         assert call["existing_code"] == FAILED_CODE
-        assert call["previous_steps"] == ["открыть"]
+        assert call["previous_steps"] == ["open the page"]
         assert call["identity"] == fixture.failed_step.identity
         assert fixture.recorder.events == [
-            ("on_healing_started", {"step_text": "нажать войти", "category": "rot"}),
-            ("on_healed", {"step_text": "нажать войти", "explanation": "кнопка переименована"}),
+            ("on_healing_started", {"step_text": "click the sign in button", "category": "rot"}),
+            ("on_healed", {"step_text": "click the sign in button", "explanation": "the button was renamed"}),
         ]
         assert fixture.cache.save_calls == []  # кэш пишет generator после успешного исполнения
 
     def test_heal_sends_prompt_and_step_context_to_classification(self, tmp_path: Path) -> None:
-        provider = ClassificationProvider(FailureClassification(category="rot", explanation="e", recommendation="r"))
+        provider = FakeProvider([FailureClassification(category="rot", explanation="e", recommendation="r")])
         fixture = HealerFixture(provider, tmp_path)
 
-        fixture.healer.heal(fixture.failed_step, "element not found", ["открыть"], FakePage())
+        fixture.healer.heal(fixture.failed_step, "element not found", ["open the page"], FakePage())
 
-        request = provider.calls[0]
+        request = provider.classify_failure_calls[0]
         assert request["prompt"] == CLASSIFICATION_PROMPT
-        assert request["step_text"] == "нажать войти"
+        assert request["step_text"] == "click the sign in button"
         assert request["code"] == FAILED_CODE
         assert request["error"] == "element not found"
         assert request["snapshot"] == "- snapshot"
         assert request["screenshot"] is None  # send_screenshots по умолчанию False
 
     def test_heal_attaches_screenshot_when_enabled(self, tmp_path: Path) -> None:
-        provider = ClassificationProvider(FailureClassification(category="rot", explanation="e", recommendation="r"))
+        provider = FakeProvider([FailureClassification(category="rot", explanation="e", recommendation="r")])
         recorder = RecorderHook()
         reporter = StepReporter(hooks=[recorder])
         config = Config(cache_root=str(tmp_path), send_screenshots=True)
         failed_step = CachedStep(
-            identity=StepIdentity(cache_key="k", step_type="action", normalized_text="шаг"),
+            identity=StepIdentity(cache_key="k", step_type="action", normalized_text="click submit"),
             code=FAILED_CODE,
             created_at="2026-09-07",
         )
@@ -239,44 +324,45 @@ class TestStepHealerLogic:
 
         healer.heal(failed_step, "err", [], FakePage())
 
-        assert provider.calls[0]["screenshot"] == b"png"
+        assert provider.classify_failure_calls[0]["screenshot"] == b"png"
 
-    def test_heal_provider_unavailable_propagates(self, tmp_path: Path) -> None:
-        provider = UnavailableProvider()
-        fixture = HealerFixture(provider, tmp_path)
-
-        with pytest.raises(LlmUnavailableError):
-            fixture.healer.heal(fixture.failed_step, "err", [], FakePage())
-
-        assert provider.calls == 1
-        assert fixture.generator.calls == []
-        assert fixture.cache.save_calls == []
-
-    def test_heal_product_defect_raises_and_keeps_cache(self, tmp_path: Path) -> None:
-        provider = ClassificationProvider(
-            FailureClassification(
-                category="product_defect", explanation="ожидание не оправдалось", recommendation="чинить продукт"
-            )
+    def test_heal_product_defect_carries_full_verdict(self, tmp_path: Path) -> None:
+        provider = FakeProvider(
+            [
+                FailureClassification(
+                    category="product_defect",
+                    explanation="expected the total 100, observed 90",
+                    recommendation="file a bug",
+                )
+            ]
         )
         fixture = HealerFixture(provider, tmp_path)
 
         with pytest.raises(ProductDefectError) as excinfo:
-            fixture.healer.heal(fixture.failed_step, "text mismatch", ["шаг"], FakePage())
+            fixture.healer.heal(fixture.failed_step, "text mismatch", ["open the page"], FakePage())
 
-        assert isinstance(excinfo.value, PrettyplayError)  # единый except на границе suite
-        assert fixture.generator.calls == []
-        assert fixture.cache.save_calls == []
+        rendered = str(excinfo.value)
+        assert isinstance(excinfo.value.verdict, FailureVerdict)
+        assert excinfo.value.verdict.recommendation == "file a bug"
+        assert rendered.startswith("expected the total 100, observed 90")
+        assert rendered.count("expected the total 100, observed 90") == 2  # message + вердикт-рендер explanation
+        assert "recommendation: file a bug" in rendered
         assert fixture.recorder.events == [
-            ("on_healing_started", {"step_text": "нажать войти", "category": "product_defect"})
+            ("on_healing_started", {"step_text": "click the sign in button", "category": "product_defect"})
         ]
+        assert provider.generate_step_code_call_count == 0  # дефект продукта не регенерируется
+        assert fixture.generator.calls == []
+        assert fixture.cache.save_calls == []  # кэш не тронут
 
-    def test_heal_incurable_carries_verdict_fields(self, tmp_path: Path) -> None:
-        provider = ClassificationProvider(
-            FailureClassification(
-                category="incurable",
-                explanation="текст шага не соответствует реальности",
-                recommendation="переформулируйте шаг",
-            )
+    def test_heal_incurable_carries_verdict_and_skips_regeneration(self, tmp_path: Path) -> None:
+        provider = FakeProvider(
+            [
+                FailureClassification(
+                    category="incurable",
+                    explanation="the step text no longer matches reality",
+                    recommendation="reword the step",
+                )
+            ]
         )
         fixture = HealerFixture(provider, tmp_path)
 
@@ -284,12 +370,106 @@ class TestStepHealerLogic:
             fixture.healer.heal(fixture.failed_step, "err", [], FakePage())
 
         rendered = str(excinfo.value)
-        assert excinfo.value.reason == "текст шага не соответствует реальности"
-        assert excinfo.value.recommendation == "переформулируйте шаг"
-        assert "нажать войти" in rendered
-        assert "текст шага не соответствует реальности" in rendered
-        assert "переформулируйте шаг" in rendered
+        assert isinstance(excinfo.value, PrettyplayError)  # единый except на границе suite
+        assert excinfo.value.reason == "the step text no longer matches reality"
+        assert excinfo.value.verdict.category == "incurable"
+        assert excinfo.value.recommendation == "reword the step"  # из вердикта, не fallback
+        assert rendered.endswith("recommendation: reword the step")
+        assert provider.generate_step_code_call_count == 0  # лечение не запрашивает регенерацию
         assert fixture.generator.calls == []
+        assert fixture.cache.save_calls == []
+
+    def test_heal_rot_exhaustion_reuses_verdict_without_second_request(self, tmp_path: Path) -> None:
+        provider = FakeProvider(
+            classifications=[
+                FailureClassification(
+                    category="rot",
+                    explanation="the selector rotted",
+                    recommendation="refresh the cache",
+                )
+            ],
+            answers=[TIMEOUT_CODE],
+        )
+        fixture = HealerFixture(provider, tmp_path, real_generator=True, limits=(1, 1))
+
+        with pytest.raises(IncurableStepError) as excinfo:
+            fixture.healer.heal(fixture.failed_step, "element not found", [], TimeoutPage())
+
+        assert excinfo.value.verdict.category == "rot"  # вердикт шага 1, без второго LLM-запроса
+        assert excinfo.value.reason.startswith("healing attempt budget exhausted")
+        assert "last failure:" in excinfo.value.reason
+        assert isinstance(excinfo.value.__cause__, IncurableStepError)  # raise … from incurable
+        assert provider.classify_failure_call_count == 1
+        assert provider.generate_step_code_call_count == 1
+        assert fixture.cache.save_calls == []  # доказанного кандидата нет — кэш не тронут
+
+    def test_heal_classification_unavailable_is_infrastructure_failure(self, tmp_path: Path) -> None:
+        provider = FakeProvider([LlmUnavailableError("anthropic down")])
+        fixture = HealerFixture(provider, tmp_path)
+
+        with pytest.raises(LlmUnavailableError) as excinfo:
+            fixture.healer.heal(fixture.failed_step, "err", [], FakePage())
+
+        assert "anthropic" in str(excinfo.value)
+        assert provider.classify_failure_call_count == 1
+        assert fixture.generator.calls == []
+        assert fixture.cache.save_calls == []
+
+    def test_heal_preserves_fresh_verdict_from_regenerate_failed_check(self, tmp_path: Path) -> None:
+        provider = FakeProvider(
+            classifications=[
+                FailureClassification(
+                    category="rot",
+                    explanation="the selector rotted",
+                    recommendation="refresh the cache",
+                ),
+                FailureClassification(
+                    category="product_defect",
+                    explanation="the banner is genuinely missing",
+                    recommendation="file a bug",
+                ),
+            ],
+            answers=[CHECK_CODE],
+        )
+        fixture = HealerFixture(provider, tmp_path, real_generator=True)
+
+        with pytest.raises(ProductDefectError) as excinfo:
+            fixture.healer.heal(fixture.failed_step, "element not found", [], CheckFailingPage())
+
+        # the fresh failed-check verdict wins; the except branch never rewrites it
+        assert excinfo.value.verdict.category == "product_defect"
+        assert excinfo.value.message == "banner missing"
+        assert provider.classify_failure_call_count == 2  # классификация healer + свежая в регенерации
+        assert fixture.cache.save_calls == []
+
+    def test_heal_preserves_fresh_incurable_verdict_from_regenerate_failed_check(self, tmp_path: Path) -> None:
+        """A fresh failed-check IncurableStepError is re-raised untouched (not the rot verdict)."""
+        provider = FakeProvider(
+            classifications=[
+                FailureClassification(
+                    category="rot",
+                    explanation="the selector rotted",
+                    recommendation="refresh the cache",
+                ),
+                FailureClassification(
+                    category="incurable",
+                    explanation="the banner step is ambiguous",
+                    recommendation="reword the step",
+                ),
+            ],
+            answers=[CHECK_CODE],
+        )
+        fixture = HealerFixture(provider, tmp_path, real_generator=True)
+
+        with pytest.raises(IncurableStepError) as excinfo:
+            fixture.healer.heal(fixture.failed_step, "element not found", [], CheckFailingPage())
+
+        # вердикт свежей классификации регенерации — ветка «raise» без перезаписи вердиктом rot
+        assert excinfo.value.verdict is not None
+        assert excinfo.value.verdict.category == "incurable"
+        assert excinfo.value.verdict.explanation == "the banner step is ambiguous"
+        assert excinfo.value.reason.startswith("candidate check failed")
+        assert provider.classify_failure_call_count == 2
         assert fixture.cache.save_calls == []
 
 
@@ -299,7 +479,7 @@ class TestEngineCellFacade:
     def test_engine_facade_reexports_all_entities(self) -> None:
         from prettyplay import engine  # noqa: PLC0415 — проверка фасада клетки
 
-        assert sorted(engine.__all__) == ["StepGenerator", "StepHealer", "run_step_code"]
+        assert sorted(engine.__all__) == ["StepGenerator", "StepHealer", "classify_step_failure", "run_step_code"]
 
 
 def test_real_cache_spy_not_needed_for_healer(tmp_path: Path) -> None:
@@ -309,11 +489,11 @@ def test_real_cache_spy_not_needed_for_healer(tmp_path: Path) -> None:
     config = Config(cache_root=str(tmp_path))
     cache = StepCache(config, None, reporter)
     failed_step = CachedStep(
-        identity=StepIdentity(cache_key="k", step_type="action", normalized_text="шаг"),
+        identity=StepIdentity(cache_key="k", step_type="action", normalized_text="click submit"),
         code=FAILED_CODE,
         created_at="2026-09-07",
     )
-    provider = ClassificationProvider(FailureClassification(category="rot", explanation="e", recommendation="r"))
+    provider = FakeProvider([FailureClassification(category="rot", explanation="e", recommendation="r")])
     healer = StepHealer(config, provider, SpyGenerator(failed_step), cache, RunBudgets(3, 2), reporter)
 
     healed = healer.heal(failed_step, "err", [], FakePage())
