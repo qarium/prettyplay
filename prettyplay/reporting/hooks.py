@@ -7,7 +7,7 @@ need. No event bus, no queuing, no delivery retries.
 
 
 class StepHooks:
-    """Callback contract of the eight prettyplay events; every base method is a no-op."""
+    """Callback contract of the nine prettyplay events; every base method is a no-op."""
 
     def on_step_started(self, step_text: str, step_type: str) -> None:
         """A step started executing; ``step_type`` is action or assertion."""
@@ -17,6 +17,9 @@ class StepHooks:
 
     def on_step_failed(self, step_text: str, step_type: str, error: str) -> None:
         """The step failed; ``error`` is a short human-readable failure description."""
+
+    def on_step_verdict(self, step_text: str, category: str, explanation: str, recommendation: str) -> None:
+        """The terminal failure of the step carried a verdict; fires after on_step_failed."""
 
     def on_generation_started(self, step_text: str, attempt: int) -> None:
         """A code generation attempt started; ``attempt`` is the 1-based attempt number."""

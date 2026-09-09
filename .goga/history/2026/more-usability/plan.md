@@ -1214,22 +1214,22 @@ handles it.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (in `tests/reporting/test_hooks.py`; expected to fail): add to
+- [x] **Contract tests** (in `tests/reporting/test_hooks.py`; expected to fail): add to
   `EVENT_SIGNATURES`: `"on_step_verdict": [("step_text", str), ("category", str),
   ("explanation", str), ("recommendation", str)]` — the existing contract tests then cover the
   9-method surface automatically (update the "all eight" test name/docstring to nine)
-- [ ] **Code**: add the `on_step_verdict` no-op method with the docstring "The terminal failure
+- [x] **Code**: add the `on_step_verdict` no-op method with the docstring "The terminal failure
   of the step carried a verdict; fires after on_step_failed."; update the class docstring event
   count 8 → 9
-- [ ] **Interface verification**: `.venv/bin/python -m pytest tests/reporting/ -q`
-- [ ] **Logic tests**: `StepHooks().on_step_verdict("s", "incurable", "e", "rec")` returns
+- [x] **Interface verification**: `.venv/bin/python -m pytest tests/reporting/ -q`
+- [x] **Logic tests**: `StepHooks().on_step_verdict("s", "incurable", "e", "rec")` returns
   `None` (no-op base); a `RecordingHooks(StepHooks)` subclass overriding the method receives
   the four payload fields as separate strings
-- [ ] **Debugging**: `.venv/bin/python -m pytest tests/reporting/ -x` — fix implementation
+- [x] **Debugging**: `.venv/bin/python -m pytest tests/reporting/ -x` — fix implementation
   until green
-- [ ] **Contract re-verification**: `from prettyplay.reporting import StepHooks, StepReporter`;
+- [x] **Contract re-verification**: `from prettyplay.reporting import StepHooks, StepReporter`;
   `reporter.py` untouched; the other eight events untouched
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/reporting/`
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/reporting/`
 
 ### Task 10: the verdict event in `StepExecutor.execute` (root)
 
