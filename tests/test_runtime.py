@@ -62,6 +62,29 @@ class TestPrettyplayRuntime:
         assert runtime1.close in registered
         assert runtime2.close in registered
 
+    def test_close_unregisters_own_atexit_hook(self) -> None:
+        runtime = PrettyplayRuntime(Config())
+
+        with mock.patch("prettyplay.runtime.atexit.unregister") as unregister_mock:
+            runtime.close()
+
+        unregister_mock.assert_called_once_with(runtime.close)  # закрытый рантайм не прибит до конца процесса
+
+    def test_driver_started_after_close_rearms_atexit_hook(self) -> None:
+        runtime = PrettyplayRuntime(Config())
+
+        with (
+            mock.patch("prettyplay.runtime.atexit.register") as register_mock,
+            mock.patch("prettyplay.runtime.atexit.unregister"),
+        ):
+            runtime.close()
+
+            with mock.patch("prettyplay.runtime.DriverSession"):
+                started = runtime.driver  # ленивый старт драйвера после close
+
+        assert started is not None
+        assert register_mock.call_count == 1  # повторно стартовавший драйвер снова имеет свою остановку на выходе
+
     def test_close_before_open_page_is_noop(self) -> None:
         runtime = PrettyplayRuntime(Config())
 

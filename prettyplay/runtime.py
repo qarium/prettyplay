@@ -28,7 +28,9 @@ class PrettyplayRuntime:
     first request, so no LLM key is needed to build the runtime. Every
     instance registers its own close with ``atexit``, so the browser and the
     Playwright driver of the test stop synchronously before the process exits
-    even when the test never calls close explicitly.
+    even when the test never calls close explicitly. A manual ``close``
+    unregisters the hook — a closed runtime never stays pinned for the rest
+    of the process — and a driver started after a close re-arms it.
 
     Attributes:
         _config: validated project settings of the test.
@@ -61,9 +63,14 @@ class PrettyplayRuntime:
 
     @property
     def driver(self) -> DriverSession:
-        """The browser driver of the test, constructed lazily exactly once."""
+        """The browser driver of the test, constructed lazily exactly once.
+
+        A construction after a ``close`` re-arms the ``atexit`` hook the
+        close dropped: a freshly started browser always has its exit stop.
+        """
         if self._driver is None:
             self._driver = DriverSession(self._config)
+            atexit.register(self.close)
 
         return self._driver
 
@@ -87,9 +94,14 @@ class PrettyplayRuntime:
         """Stop the browser driver of the test; safe when nothing was started.
 
         Idempotent: a call before any driver access and repeated calls are
-        no-ops — this also protects the double close of a manual call
-        followed by the ``atexit`` hook registered in ``__init__``. The
-        runtime itself stays usable after the call.
+        no-ops. The call also drops the ``atexit`` hook registered in
+        ``__init__`` — a closed runtime and its objects are collectible, not
+        pinned until process exit — and a driver started later re-arms the
+        hook. The runtime itself stays usable after the call: the next
+        driver access constructs a fresh session.
         """
+        atexit.unregister(self.close)
+
         if self._driver is not None:
             self._driver.close()
+            self._driver = None

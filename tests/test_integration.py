@@ -330,6 +330,26 @@ def test_scenario_context_feeds_next_generation(tmp_path: Path) -> None:
     assert len([event for event, _payload in hook.events if event == "on_cache_saved"]) == 2
 
 
+def test_per_test_generation_prompt_reaches_the_provider_request(tmp_path: Path, monkeypatch) -> None:
+    """ADR-3 end to end: the per-test config layer carries the instructions into every generation request."""
+    monkeypatch.delenv("PRETTYPLAY_GENERATION_PROMPT", raising=False)
+    provider = StubProvider(answers=[WORKING_CODE])
+    page = FakePage()
+
+    with mock.patch("prettyplay.runtime.create_provider", return_value=provider):
+        # реальный load_config: программный слой идёт через настоящее слияние, не через заглушку
+        test = PrettyTest(
+            "login-flow",
+            config=Config(cache_root=str(tmp_path), generation_prompt="prefer data-test-id"),
+        )
+        with mock.patch.object(test._runtime, "open_page", return_value=page):
+            test.action("open the app page")
+            test.close()
+
+    assert provider.generation_requests[0]["user_instructions"] == "prefer data-test-id"
+    assert page.calls == [("open", "https://app.example.com")]  # сгенерированный код исполнен
+
+
 def test_rot_healing_regenerates_rewrites_cache_and_passes(tmp_path: Path) -> None:
     """Flow C: a rotted cached step is classified, regenerated, re-cached and passes."""
     step_text = "нажать Войти"

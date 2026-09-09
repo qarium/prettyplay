@@ -179,21 +179,27 @@ class DriverSession:
         """Stop the browser and the Playwright driver; safe when nothing was started.
 
         Idempotent: repeated calls and a call before any launch are no-ops.
+        A failing browser close (e.g. after a crash) never skips the
+        Playwright stop and the worker thread join — its error still
+        propagates after both ran.
         """
         worker = self._worker
         if worker is None:
             return
 
-        if self._browser is not None:
-            worker.run(self._browser.close)
+        try:
+            if self._browser is not None:
+                worker.run(self._browser.close)
+        finally:
             self._browser = None
 
-        if self._playwright is not None:
-            worker.run(self._playwright.stop)
-            self._playwright = None
-
-        worker.close()
-        self._worker = None
+            try:
+                if self._playwright is not None:
+                    worker.run(self._playwright.stop)
+            finally:
+                self._playwright = None
+                worker.close()
+                self._worker = None
 
     def _launch(self) -> None:
         """Start the driver thread, the Playwright session and the browser.

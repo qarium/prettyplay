@@ -97,6 +97,15 @@ class FakeBrowser:
         self.close_calls += 1
 
 
+class CrashingBrowser(FakeBrowser):
+    """Fake browser whose close fails, as after a crash of the browser process."""
+
+    def close(self) -> None:
+        self._factory.threads.append(threading.get_ident())
+        self.close_calls += 1
+        raise Error("Target page, context or browser has been closed")
+
+
 class FakeContext:
     """Fake isolated browser context owning one page."""
 
@@ -338,6 +347,21 @@ class TestDriverSessionLogic:
         browser = factory.contexts[0].browser
         assert browser.close_calls == 1
         assert factory.stop_calls == 1
+
+    def test_close_stops_driver_even_when_browser_close_fails(self) -> None:
+        factory = FakePlaywrightFactory()
+        factory.chromium._browser = CrashingBrowser(factory)  # крахнутый процесс браузера
+
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(Config(browser="chromium"))
+            session.open_context()
+
+            with pytest.raises(Error, match="has been closed"):
+                session.close()  # сорвавшийся browser.close не прячет ошибку
+
+        assert factory.stop_calls == 1  # playwright.stop не пропущен — процесс драйвера не течёт
+        worker = session._worker
+        assert worker is None or worker._thread is None  # поток воркера присоединён
 
     def test_close_before_launch_is_noop(self) -> None:
         factory = FakePlaywrightFactory()

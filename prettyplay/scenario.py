@@ -246,19 +246,23 @@ class PrettyTest:
         """Close the page and the whole runtime of this test.
 
         The isolated page context closes first, then the runtime stops
-        unconditionally: browser close, Playwright stop, driver thread
-        join. The browser of this test does not outlive the test.
+        unconditionally — a failing page close (e.g. after a browser crash)
+        never keeps the browser of the test alive; its error still propagates.
+        The browser of this test does not outlive the test.
 
         Idempotent and safe before the first step: nothing was opened —
-        nothing is closed beyond the no-op runtime close. Repeated calls
-        and the atexit double-close of the runtime are protected by this
-        idempotency.
+        nothing is closed beyond the no-op runtime close. The page reference
+        drops before its close runs, so even a failing page close never
+        repeats on a retried ``close``.
         """
-        if self._page:
-            self._page.close()
-            self._page = None
+        page = self._page
+        self._page = None
 
-        self._runtime.close()
+        try:
+            if page is not None:
+                page.close()
+        finally:
+            self._runtime.close()
 
     def __enter__(self) -> PrettyTest:
         """Enter the scenario block of one test.

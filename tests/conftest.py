@@ -1,6 +1,23 @@
 """Shared fixtures of the prettyplay test suite."""
 
+from types import SimpleNamespace
+from unittest import mock
+
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _no_runtime_atexit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep every test-built runtime out of the real process ``atexit`` registry.
+
+    Each ``PrettyplayRuntime`` registers its close with ``atexit``; without
+    this isolation the suite would accumulate live exit hooks — and the
+    runtimes they pin — for every test-built object until interpreter exit.
+    """
+    monkeypatch.setattr(
+        "prettyplay.runtime.atexit",
+        SimpleNamespace(register=mock.Mock(name="atexit_register"), unregister=mock.Mock(name="atexit_unregister")),
+    )
 
 
 def _toml_value(value) -> str:

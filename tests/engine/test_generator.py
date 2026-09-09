@@ -296,14 +296,13 @@ class TestStepGeneratorLogic:
 
     def test_regenerate_carries_user_instructions_with_code_and_error(self, tmp_path: Path) -> None:
         provider = StubProvider([WORKING_CODE])
-        fixture = GeneratorFixture(tmp_path, provider, limits=(1, 1))
-        fixture.config = Config(cache_root=str(tmp_path), generation_prompt="prefer data-test-id")
-        fixture.generator = StepGenerator(
-            fixture.config, provider, fixture.cache, fixture.budgets, fixture.reporter
-        )
+        recorder = RecorderHook()
+        reporter = StepReporter(hooks=[recorder])
+        config = Config(cache_root=str(tmp_path), generation_prompt="prefer data-test-id")
+        generator = StepGenerator(config, provider, StepCache(config, None, reporter), RunBudgets(1, 1), reporter)
         page = FakePage()
 
-        fixture.generator.regenerate(
+        generator.regenerate(
             make_identity(),
             "click Sign in",
             [],

@@ -68,16 +68,6 @@ class TestRunBudgetsLogic:
         assert budgets.try_generation(IDENTITY) is False
         assert budgets.try_healing(IDENTITY) is True  # healing pool intact
 
-    def test_budgets_are_shared_within_one_test_registry(self) -> None:
-        """One registry serves exactly one test: spending inside that test is never reset."""
-        budgets = RunBudgets(generation_limit=1, healing_limit=1)
-
-        assert budgets.try_generation(IDENTITY) is True
-
-        # Поздний потребитель того же теста: тот же реестр, попытки не вернулись.
-        budgets2 = budgets
-        assert budgets2.try_generation(IDENTITY) is False
-
     def test_reused_step_gets_fresh_budget_in_each_test(self) -> None:
         """Each test owns its own registry: a step reused across tests starts with full limits."""
         first_test = RunBudgets(generation_limit=1, healing_limit=1)

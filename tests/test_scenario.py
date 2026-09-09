@@ -10,7 +10,7 @@ from unittest import mock
 import pytest
 from prettyplay import PrettyTest
 from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step_text
-from prettyplay.config import Config
+from prettyplay.config import Config, PrettyConfig
 from prettyplay.failures import FailureVerdict, IncurableStepError, PrettyplayError
 from prettyplay.llm import FailureClassification, LlmProvider
 from prettyplay.reporting import StepHooks, StepReporter
@@ -182,10 +182,7 @@ class TestPrettyTestLogic:
 
     def test_scenario_builds_own_runtime_per_test(self, tmp_path: Path) -> None:
         """ADR-1 core acceptance: two tests hold two runtimes with two registries, no singleton."""
-        with (
-            mock.patch("prettyplay.scenario.load_config", return_value=Config(model="gpt-5")) as load_config_mock,
-            mock.patch("prettyplay.runtime.PrettyplayRuntime.close"),  # harmless atexit of each runtime
-        ):
+        with mock.patch("prettyplay.scenario.load_config", return_value=Config(model="gpt-5")) as load_config_mock:
             t1 = PrettyTest("k1")
             t2 = PrettyTest("k2")
 
@@ -193,32 +190,78 @@ class TestPrettyTestLogic:
             assert t1._runtime.budgets is not t2._runtime.budgets
             assert load_config_mock.call_args_list == [mock.call(None, None), mock.call(None, None)]
 
+    def test_scenario_forwards_config_overrides_through_real_loader(
+        self, tmp_path: Path, write_pyproject, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The ``config`` parameter reaches the real ``load_config``: explicit values win, the file layer survives."""
+        for name in (
+            "PRETTYPLAY_MODEL",
+            "PRETTYPLAY_BROWSER_NAME",
+            "PRETTYPLAY_CACHE_ROOT",
+            "PRETTYPLAY_GENERATION_PROMPT",
+        ):
+            monkeypatch.delenv(name, raising=False)
+
+        write_pyproject(model="gpt-4o", browser="firefox", generation_prompt="file instructions")
+        monkeypatch.chdir(tmp_path)  # load_config(None) ищет pyproject.toml вверх от cwd
+
+        test = PrettyTest(CACHE_KEY, config=PrettyConfig(generation_prompt="per-test instructions"))
+
+        effective = test._runtime.config
+        assert effective.generation_prompt == "per-test instructions"  # программный слой выигрывает
+        assert effective.model == "gpt-4o"  # нетронутые поля берутся из файла
+        assert effective.browser == "firefox"
+        assert effective.cache_root == str(tmp_path / ".prettyplay" / "cache")
+
     def test_scenario_close_stops_page_and_runtime(self, tmp_path: Path) -> None:
         seed_cache(tmp_path)
         page = FakePage()
-        driver_mock = mock.Mock(name="driver")
 
         with scenario_on_tmp_cache(tmp_path):
             test = PrettyTest(CACHE_KEY)
             runtime = test._runtime
+            driver_mock = mock.Mock(name="driver")
             runtime._driver = driver_mock  # a started driver: the test close must stop it
 
             with mock.patch.object(runtime, "open_page", return_value=page) as open_page_mock:
                 test.action(STEP_TEXT)
                 open_page_mock.assert_called_once()
 
-            runtime._driver = None  # the started driver is detached: the page close path leaves it alone
-            runtime.close = mock.Mock(name="runtime_close", side_effect=runtime.close)
-
-            with mock.patch.object(runtime, "open_page", return_value=page):
                 test.close()
-                test.close()  # idempotent: neither the page nor the runtime closes twice
-
-            runtime.close.side_effect = None
-            runtime.close.side_effect = RuntimeError("already closed")
+                test.close()  # idempotent: neither the page nor the driver closes twice
 
         assert page.close_count == 1
-        assert runtime.close.call_count == 2  # close безусловно зовёт runtime.close — и это безвредно
+        driver_mock.close.assert_called_once()  # план: «the driver close recorded once»
+        assert runtime._driver is None  # остановленная сессия больше не держится рантаймом
+
+    def test_scenario_close_stops_runtime_when_page_close_fails(self, tmp_path: Path) -> None:
+        """A failing page close (a crashed browser) never keeps the runtime alive."""
+        seed_cache(tmp_path)
+
+        class CrashingPage(FakePage):
+            def close(self) -> None:
+                self.close_count += 1
+                raise RuntimeError("page close failed")
+
+        page = CrashingPage()
+
+        with scenario_on_tmp_cache(tmp_path):
+            test = PrettyTest(CACHE_KEY)
+            runtime = test._runtime
+            driver_mock = mock.Mock(name="driver")
+            runtime._driver = driver_mock
+
+            with mock.patch.object(runtime, "open_page", return_value=page):
+                test.action(STEP_TEXT)
+
+                with pytest.raises(RuntimeError, match="page close failed"):
+                    test.close()
+
+                driver_mock.close.assert_called_once()  # рантайм остановлен, хоть закрытие страницы и сорвалось
+                test.close()  # сорвавшееся закрытие страницы не повторяется
+
+        assert page.close_count == 1
+        assert test._page is None
 
     def test_scenario_close_before_first_step_is_safe(self, tmp_path: Path) -> None:
         seed_cache(tmp_path)
