@@ -1295,10 +1295,10 @@ over the facade screenshot, with the loud no-page guard and the wrapped write fa
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (in `tests/test_scenario.py`; expected to fail): `PrettyTest` has
+- [x] **Contract tests** (in `tests/test_scenario.py`; expected to fail): `PrettyTest` has
   callable `get_screenshot` and `save_screenshot`; `action`/`assertion` remain callable with a
   single `text` parameter
-- [ ] **Code**: wrap the executor call of both `action` and `assertion` in
+- [x] **Code**: wrap the executor call of both `action` and `assertion` in
   `try: … except PrettyplayError as error: _raise_folded(error)`; implement the module-level
   (or private static) `_raise_folded(error) -> NoReturn`: `tb = error.__traceback__` (the head
   link is the facade method's own frame); `folded = types.TracebackType(tb_next=None,
@@ -1307,15 +1307,15 @@ over the facade screenshot, with the loud no-page guard and the wrapped write fa
   `raise error.with_traceback(folded)` — the **same** exception object, never a copy (identity
   for hook consumers and `except` clauses; re-raising the same object adds no `__context__`
   nesting). Non-library exceptions pass through the `except PrettyplayError` filter untouched
-- [ ] **Code**: implement `get_screenshot() -> bytes`: `if self._page is None: raise
+- [x] **Code**: implement `get_screenshot() -> bytes`: `if self._page is None: raise
   PrettyplayError("no test page yet: run a step first — the page opens lazily on the first
   step")`; `return self._page.screenshot()`
-- [ ] **Code**: implement `save_screenshot(filepath: str) -> None`: the same no-page guard;
+- [x] **Code**: implement `save_screenshot(filepath: str) -> None`: the same no-page guard;
   `image = self._page.screenshot()`; `try: Path(filepath).write_bytes(image)` /
   `except OSError as error: raise PrettyplayError(f"cannot write the screenshot to {filepath}:
   {error}") from error` — parent directories are **not** created; nothing is created silently
-- [ ] **Interface verification**: `.venv/bin/python -m pytest tests/test_scenario.py -q`
-- [ ] **Logic tests** (design scenarios; monkeypatched `get_runtime`/executor chains, stub
+- [x] **Interface verification**: `.venv/bin/python -m pytest tests/test_scenario.py -q`
+- [x] **Logic tests** (design scenarios; monkeypatched `get_runtime`/executor chains, stub
   runtime whose `open_page` returns a `FakePage` with `screenshot() -> b"png-bytes"`,
   English sample data):
   - `test_action_folds_traceback_to_boundary`: a generator stub raising
@@ -1339,12 +1339,12 @@ over the facade screenshot, with the loud no-page guard and the wrapped write fa
     `not filepath.exists()` (nothing created silently)
   - `test_scenario_close_then_screenshot_raises` (edge): one step run, then `t.close()` →
     `pytest.raises(PrettyplayError, t.get_screenshot)`
-- [ ] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — fix implementation until green
-- [ ] **Contract re-verification**: `from prettyplay import PrettyTest`; `close()`, the context
+- [x] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — fix implementation until green
+- [x] **Contract re-verification**: `from prettyplay import PrettyTest`; `close()`, the context
   manager protocol, `add_hooks` and `cache_key` untouched; the folding works identically for
   `ProductDefectError` (an `AssertionError` in any runner), `IncurableStepError` and
   `LlmUnavailableError`
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/scenario.py`
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/scenario.py`
 
 ### Task 12: Integration tests for the verdict reporting cycles
 
