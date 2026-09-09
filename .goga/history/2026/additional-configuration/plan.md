@@ -951,21 +951,21 @@ contract tests; tests/test_integration.py — the public-surface test.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (tests/test_runtime.py + tests/test_integration.py — expected to fail at this stage):
+- [x] **Contract tests** (tests/test_runtime.py + tests/test_integration.py — expected to fail at this stage):
   `PrettyplayRuntime.__init__` parameters `["config"]`; properties `config`/`budgets`/`driver`/`provider`,
   methods `open_page`/`close` on the surface; `prettyplay.__all__ == ["PrettyTest", "PrettyConfig",
   "PrettyplayRuntime", "StepExecutor"]`, `prettyplay.PrettyConfig is prettyplay.config.Config`,
   `not hasattr(prettyplay, "get_runtime")`
-- [ ] **Code**: delete `get_runtime` and the module global `_runtime`; register `atexit.register(self.close)`
+- [x] **Code**: delete `get_runtime` and the module global `_runtime`; register `atexit.register(self.close)`
   inside `__init__`; keep the lazy driver/provider properties and the idempotent close as they are
-- [ ] **Code**: docstrings — "Run-scoped composition root ... per process" → the per-test composition root; the
+- [x] **Code**: docstrings — "Run-scoped composition root ... per process" → the per-test composition root; the
   atexit requirement documented on `close`
-- [ ] **Code**: root facade `prettyplay/__init__.py` — `from .config import PrettyConfig` re-export, drop the
+- [x] **Code**: root facade `prettyplay/__init__.py` — `from .config import PrettyConfig` re-export, drop the
   `get_runtime` import/export, `__all__ = ["PrettyTest", "PrettyConfig", "PrettyplayRuntime", "StepExecutor"]`
-- [ ] **Code**: tests/test_runtime.py — delete `TestGetRuntime` and the `isolated_runtime_global` fixture, drop
+- [x] **Code**: tests/test_runtime.py — delete `TestGetRuntime` and the `isolated_runtime_global` fixture, drop
   the `get_runtime` import assertions, keep the constructor/surface contract tests
-- [ ] **Interface verification**: `pytest tests/test_runtime.py tests/test_integration.py -x` — all pass
-- [ ] **Logic tests**:
+- [x] **Interface verification**: `pytest tests/test_runtime.py tests/test_integration.py -x` — all pass
+- [x] **Logic tests**:
   - positive `test_runtime_registers_own_atexit_close` (tests/test_runtime.py) —
     `mock.patch("prettyplay.runtime.atexit.register")`; `r1 = PrettyplayRuntime(cfg)`,
     `r2 = PrettyplayRuntime(cfg)` → `register.call_count == 2`; `r1.close` and `r2.close` each appear in the
@@ -977,11 +977,11 @@ contract tests; tests/test_integration.py — the public-surface test.
   - positive `test_pretty_config_exported_and_get_runtime_removed` (tests/test_integration.py) —
     `prettyplay.PrettyConfig is Config`, `"PrettyConfig" in prettyplay.__all__`,
     `not hasattr(prettyplay, "get_runtime")` (the embedding contract and the deliberate breaking change)
-- [ ] **Debugging**: `pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code)
-- [ ] **Contract re-verification**: every instance registers its own atexit close; construction never requires
+- [x] **Debugging**: `pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code)
+- [x] **Contract re-verification**: every instance registers its own atexit close; construction never requires
   LLM credentials; `Config` remains importable from `prettyplay.config` for the other cells; no reference to
   `get_runtime` remains anywhere in the tree
-- [ ] **Lint**: `ruff check prettyplay tests` — fix formatting if necessary
+- [x] **Lint**: `ruff check prettyplay tests` — fix formatting if necessary
 
 ### Task 10: Integration tests — the cache address is instruction-independent (integration tests)
 

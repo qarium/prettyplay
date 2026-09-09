@@ -6,6 +6,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from unittest import mock
 
+import prettyplay
 import pytest
 from prettyplay import PrettyTest
 from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step_text
@@ -235,6 +236,13 @@ def no_llm_credentials(monkeypatch):
     """Run without provider keys: the cached path needs none of them."""
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+
+def test_pretty_config_exported_and_get_runtime_removed() -> None:
+    """The embedding contract: PrettyConfig re-exported, the singleton gone."""
+    assert prettyplay.PrettyConfig is Config
+    assert prettyplay.__all__ == ["PrettyTest", "PrettyConfig", "PrettyplayRuntime", "StepExecutor"]
+    assert not hasattr(prettyplay, "get_runtime")
 
 
 @contextlib.contextmanager

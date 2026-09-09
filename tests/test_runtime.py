@@ -1,33 +1,20 @@
-"""Tests for the composition root of the prettyplay root cell."""
+"""Tests for the per-test composition root of the prettyplay root cell."""
 
 import inspect
 from unittest import mock
 
-import prettyplay.runtime as runtime_module
 import pytest
-from prettyplay import PrettyplayRuntime, get_runtime
+from prettyplay import PrettyplayRuntime
 from prettyplay.cache import RunBudgets, StepIdentity
 from prettyplay.config import Config
 from prettyplay.driver import DriverSession
 
 
-@pytest.fixture(autouse=True)
-def isolated_runtime_global():
-    """Reset the process runtime singleton before and after every test."""
-    runtime_module._runtime = None
-    yield
-    runtime_module._runtime = None
-
-
 class TestRuntimeContract:
-    """Contract tests: facade import, constructor, surface and the singleton entry."""
+    """Contract tests: facade import, constructor and the instance surface."""
 
-    def test_runtime_names_importable_from_root_facade(self) -> None:
+    def test_runtime_importable_from_root_facade(self) -> None:
         assert isinstance(PrettyplayRuntime, type)
-        assert callable(get_runtime)
-
-    def test_get_runtime_takes_no_arguments(self) -> None:
-        assert list(inspect.signature(get_runtime).parameters) == []
 
     def test_constructor_signature_matches_contract(self) -> None:
         parameters = list(inspect.signature(PrettyplayRuntime.__init__).parameters.values())[1:]
@@ -42,47 +29,8 @@ class TestRuntimeContract:
             assert callable(getattr(PrettyplayRuntime, name)), name
 
 
-class TestGetRuntime:
-    """Logic tests: the process-wide singleton behind get_runtime."""
-
-    def test_get_runtime_is_process_singleton(self) -> None:
-        config = Config(model="gpt-5")
-
-        with mock.patch("prettyplay.runtime.load_config", return_value=config) as load_config_mock:
-            runtime1 = get_runtime()
-            runtime2 = get_runtime()
-
-        assert runtime1 is runtime2
-        assert load_config_mock.call_count == 1
-        assert runtime1.config is config
-
-    def test_get_runtime_registers_atexit_close(self) -> None:
-        config = Config(model="gpt-5")
-
-        with (
-            mock.patch("prettyplay.runtime.load_config", return_value=config),
-            mock.patch("prettyplay.runtime.atexit.register") as register_mock,
-        ):
-            runtime = get_runtime()
-
-        register_mock.assert_called_once_with(runtime.close)
-
-    def test_get_runtime_registers_atexit_once(self) -> None:
-        config = Config(model="gpt-5")
-
-        with (
-            mock.patch("prettyplay.runtime.load_config", return_value=config),
-            mock.patch("prettyplay.runtime.atexit.register") as register_mock,
-        ):
-            get_runtime()
-            get_runtime()
-            get_runtime()
-
-        register_mock.assert_called_once()
-
-
 class TestPrettyplayRuntime:
-    """Logic tests: eager composition, laziness and the driver lifecycle."""
+    """Logic tests: eager composition, laziness, per-test ownership and the driver lifecycle."""
 
     def test_runtime_constructs_without_llm_credentials(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -102,6 +50,18 @@ class TestPrettyplayRuntime:
         create_provider_mock.assert_not_called()
         driver_session_mock.assert_not_called()
 
+    def test_runtime_registers_own_atexit_close(self) -> None:
+        config = Config(model="gpt-5")
+
+        with mock.patch("prettyplay.runtime.atexit.register") as register_mock:
+            runtime1 = PrettyplayRuntime(config)
+            runtime2 = PrettyplayRuntime(config)
+
+        registered = [call.args[0] for call in register_mock.call_args_list]
+        assert register_mock.call_count == 2
+        assert runtime1.close in registered
+        assert runtime2.close in registered
+
     def test_close_before_open_page_is_noop(self) -> None:
         runtime = PrettyplayRuntime(Config())
 
@@ -114,6 +74,17 @@ class TestPrettyplayRuntime:
         assert isinstance(runtime.budgets, RunBudgets)
         assert [runtime.budgets.try_generation(identity) for _ in range(4)] == [True, True, True, False]
         assert [runtime.budgets.try_healing(identity) for _ in range(3)] == [True, True, False]
+
+    def test_reused_step_gets_fresh_budget_per_test(self) -> None:
+        config = Config(generation_attempts=1, healing_attempts=1)
+        identity = StepIdentity(cache_key="k", step_type="action", normalized_text="шаг")
+        first = PrettyplayRuntime(config)
+        second = PrettyplayRuntime(config)
+
+        assert first.budgets is not second.budgets
+        assert first.budgets.try_generation(identity) is True
+        assert first.budgets.try_generation(identity) is False
+        assert second.budgets.try_generation(identity) is True
 
     def test_driver_is_lazy_and_memoized(self) -> None:
         runtime = PrettyplayRuntime(Config())
