@@ -540,23 +540,23 @@ construction (ADR-3 boundary). Providers pass the value through unchanged; SDK c
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (tests/llm/test_provider.py — expected to fail at this stage): `GENERATE_STEP_CODE_PARAMS`
+- [x] **Contract tests** (tests/llm/test_provider.py — expected to fail at this stage): `GENERATE_STEP_CODE_PARAMS`
   of tests/llm/test_provider.py — used by the `LlmProvider.generate_step_code`,
   `OpenAiProvider.generate_step_code` and `AnthropicProvider.generate_step_code` signature tests — lists
   `user_instructions` second (after `prompt`); the `NotImplementedError` base-body calls pass the new
   keyword; `classify_failure` signature unchanged
-- [ ] **Code**: `build_fields_text` gains `user_instructions: str` as its first parameter and renders the block
+- [x] **Code**: `build_fields_text` gains `user_instructions: str` as its first parameter and renders the block
   exactly per the algorithm above
-- [ ] **Code**: the port `LlmProvider.generate_step_code` inserts `user_instructions: str` as the second
+- [x] **Code**: the port `LlmProvider.generate_step_code` inserts `user_instructions: str` as the second
   parameter; docstring documents empty → no block, non-empty → verbatim USER INSTRUCTIONS block identical in both
   implementations
-- [ ] **Code**: both providers insert the parameter at the same position and forward it to
+- [x] **Code**: both providers insert the parameter at the same position and forward it to
   `build_fields_text`; update their docstrings; request/response code paths unchanged
-- [ ] **Code**: update the existing `generate_step_code` calls in tests/llm/* to the new signature; give the
+- [x] **Code**: update the existing `generate_step_code` calls in tests/llm/* to the new signature; give the
   engine test stub providers (tests/engine/test_generator.py `StubProvider`) a `user_instructions: str = ""`
   keyword so the untouched engine stays green (recording/assertions come with Task 7)
-- [ ] **Interface verification**: `pytest tests/llm -x` — all pass
-- [ ] **Logic tests**:
+- [x] **Interface verification**: `pytest tests/llm -x` — all pass
+- [x] **Logic tests**:
   - positive `test_build_fields_text_places_user_instructions_after_page_api`
     (tests/llm/test_request.py) — with all fields set:
     `text.index("PAGE API:") < text.index("USER INSTRUCTIONS:") < text.index("CODE:")` and
@@ -574,10 +574,13 @@ construction (ADR-3 boundary). Providers pass the value through unchanged; SDK c
   - negative `test_classify_failure_never_carries_user_instructions` (tests/llm/test_openai_provider.py) —
     `Config(generation_prompt="prefer data-test-id")`; `classify_failure(...)` captured user text has no
     `"USER INSTRUCTIONS"`
-- [ ] **Debugging**: `pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code)
-- [ ] **Contract re-verification**: port and both mutations expose identical signatures; one shared helper
+- [x] **Debugging**: `pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code)
+  (the single remaining failure, `test_page_api_surface_mirrors_facade_practice`, is the documented Task 7
+  red-phase test — it fails identically at the Task 3 commit because facade.md was updated ahead of the code;
+  not a Task 4 regression: 404 passed vs 399 before, the same 1 pre-existing failure)
+- [x] **Contract re-verification**: port and both mutations expose identical signatures; one shared helper
   renders the block (parity by construction); no instructions leak into `classify_failure`
-- [ ] **Lint**: `ruff check prettyplay tests` — fix formatting if necessary
+- [x] **Lint**: `ruff check prettyplay tests` — fix formatting if necessary
 
 ### Task 5: `PageFacade` — universal locators `find_by_attribute` / `find_by_css` / `find_by_xpath` (TDD coding)
 

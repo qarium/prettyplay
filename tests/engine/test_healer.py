@@ -103,17 +103,19 @@ class FakeProvider:
     def generate_step_code(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
         prompt: str,
-        step_text: str,
-        previous_steps: list[str],
-        snapshot: str,
-        screenshot: bytes | None,
-        page_api: str,
-        existing_code: str | None,
-        error: str | None,
+        user_instructions: str = "",
+        step_text: str = "",
+        previous_steps: list[str] | None = None,
+        snapshot: str = "",
+        screenshot: bytes | None = None,
+        page_api: str = "",
+        existing_code: str | None = None,
+        error: str | None = None,
     ) -> str:
         self.generate_step_code_calls.append(
             {
                 "prompt": prompt,
+                "user_instructions": user_instructions,
                 "step_text": step_text,
                 "previous_steps": previous_steps,
                 "snapshot": snapshot,

@@ -66,6 +66,7 @@ def require_completion_text(text: str | None, provider: str) -> str:
 
 
 def build_fields_text(  # noqa: PLR0913, PLR0917 — the parameters mirror the fixed port signature
+    user_instructions: str,
     step_text: str,
     previous_steps: list[str],
     snapshot: str,
@@ -76,6 +77,10 @@ def build_fields_text(  # noqa: PLR0913, PLR0917 — the parameters mirror the f
     """Build the plain-text generation request fields shared by both providers.
 
     Args:
+        user_instructions: the project's code style instructions from the
+            generation_prompt setting; empty — the request carries no
+            instructions block, non-empty — rendered verbatim as a separate
+            USER INSTRUCTIONS block after the page API block.
         step_text: the sentence of the step to generate.
         previous_steps: the sentences of the previous steps of the test, in
             execution order — scenario context.
@@ -88,8 +93,8 @@ def build_fields_text(  # noqa: PLR0913, PLR0917 — the parameters mirror the f
 
     Returns:
         The request fields as one text with STEP / PREVIOUS STEPS /
-        PAGE SNAPSHOT / PAGE API sections and, on regeneration requests,
-        CODE / ERROR sections.
+        PAGE SNAPSHOT / PAGE API sections, the optional USER INSTRUCTIONS
+        section and, on regeneration requests, CODE / ERROR sections.
     """
     sections = [
         f"STEP:\n{step_text}",
@@ -98,6 +103,8 @@ def build_fields_text(  # noqa: PLR0913, PLR0917 — the parameters mirror the f
         f"PAGE API:\n{page_api}",
     ]
 
+    if user_instructions:
+        sections.append(f"USER INSTRUCTIONS:\n{user_instructions}")
     if existing_code is not None:
         sections.append(f"CODE:\n{existing_code}")
     if error is not None:

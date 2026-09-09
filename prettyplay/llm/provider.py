@@ -18,6 +18,7 @@ class LlmProvider:
     def generate_step_code(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
         prompt: str,
+        user_instructions: str,
         step_text: str,
         previous_steps: list[str],
         snapshot: str,
@@ -31,6 +32,11 @@ class LlmProvider:
         Args:
             prompt: the system prompt text supplied by the calling engine;
                 applied verbatim as the system message.
+            user_instructions: the project's code style instructions supplied
+                by the calling engine from the generation_prompt setting;
+                empty — the request carries no instructions block, non-empty —
+                rendered verbatim as a separate USER INSTRUCTIONS block of the
+                user content, identically in both implementations.
             step_text: the sentence of the step to generate.
             previous_steps: the sentences of the previous steps of the test,
                 in execution order — scenario context.

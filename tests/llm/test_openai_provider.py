@@ -13,6 +13,7 @@ from prettyplay.llm import LlmProvider, OpenAiProvider
 GENERATE_STEP_CODE_PARAMS = [
     "self",
     "prompt",
+    "user_instructions",
     "step_text",
     "previous_steps",
     "snapshot",
@@ -24,6 +25,7 @@ GENERATE_STEP_CODE_PARAMS = [
 CLASSIFY_FAILURE_PARAMS = ["self", "prompt", "step_text", "code", "error", "snapshot", "screenshot"]
 
 WORKING_CODE = "def step(page) -> None:\n    page.open('https://example.com')\n"
+USER_INSTRUCTIONS = "prefer data-test-id"
 
 
 def make_client_create(answer: str = WORKING_CODE) -> tuple[object, list[dict]]:
@@ -88,6 +90,7 @@ class TestOpenAiProviderLogic:
         ):
             provider.generate_step_code(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 previous_steps=[],
                 snapshot="- snap",
@@ -145,6 +148,7 @@ class TestOpenAiProviderLogic:
         with mock.patch.object(provider, "_get_client", return_value=client):
             code = provider.generate_step_code(
                 prompt="system prompt text",
+                user_instructions="",
                 step_text="открыть страницу",
                 previous_steps=["шаг один"],
                 snapshot="- snap",
@@ -175,6 +179,7 @@ class TestOpenAiProviderLogic:
         with mock.patch.object(provider, "_get_client", return_value=client):
             code = provider.generate_step_code(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 previous_steps=[],
                 snapshot="- snap",
@@ -194,6 +199,7 @@ class TestOpenAiProviderLogic:
         with mock.patch.object(provider, "_get_client", return_value=client):
             provider.generate_step_code(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 previous_steps=[],
                 snapshot="- snap",
@@ -215,6 +221,7 @@ class TestOpenAiProviderLogic:
         with mock.patch.object(provider, "_get_client", return_value=client):
             provider.generate_step_code(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 previous_steps=[],
                 snapshot="- snap",
@@ -261,6 +268,7 @@ class TestOpenAiProviderLogic:
         with mock.patch("prettyplay.llm.openai_provider.OpenAI", return_value=client) as sdk:
             provider.generate_step_code(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 previous_steps=[],
                 snapshot="- snap",
@@ -382,6 +390,7 @@ class TestOpenAiProviderLogic:
         ):
             provider.generate_step_code(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 previous_steps=[],
                 snapshot="- snap",
@@ -408,6 +417,7 @@ class TestOpenAiProviderLogic:
         ):
             provider.generate_step_code(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 previous_steps=[],
                 snapshot="- snap",
@@ -419,6 +429,50 @@ class TestOpenAiProviderLogic:
 
         assert "empty completion" in str(excinfo.value)
         assert isinstance(excinfo.value, PrettyplayError)
+
+    def test_openai_generate_step_code_carries_user_instructions(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "test")
+        fenced = f"```python\n{WORKING_CODE}```"
+        client, requests = make_client_create(answer=fenced)
+        provider = OpenAiProvider(Config(model="gpt-5"))
+
+        with mock.patch.object(provider, "_get_client", return_value=client):
+            code = provider.generate_step_code(
+                prompt="SYS",
+                user_instructions=USER_INSTRUCTIONS,
+                step_text="s",
+                previous_steps=[],
+                snapshot="- snap",
+                screenshot=None,
+                page_api="page.open(...)",
+                existing_code=None,
+                error=None,
+            )
+
+        assert code == WORKING_CODE  # fenced block unwrapped
+        request = requests[0]
+        assert request["messages"][0] == {"role": "system", "content": "SYS"}
+        user = request["messages"][1]["content"]
+        assert f"USER INSTRUCTIONS:\n{USER_INSTRUCTIONS}" in user
+        assert user.index("PAGE API:") < user.index("USER INSTRUCTIONS:")  # после блока API страницы
+
+    def test_classify_failure_never_carries_user_instructions(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "test")
+        client, requests = make_client_create(answer="rot | e | r")
+        provider = OpenAiProvider(Config(model="gpt-5", generation_prompt=USER_INSTRUCTIONS))
+
+        with mock.patch.object(provider, "_get_client", return_value=client):
+            provider.classify_failure(
+                prompt="p",
+                step_text="s",
+                code="c",
+                error="e",
+                snapshot="- snap",
+                screenshot=None,
+            )
+
+        user = requests[0]["messages"][1]["content"]
+        assert "USER INSTRUCTIONS" not in user  # ADR-3: классификация без инструкций
 
     def test_empty_choices_in_classify_maps_to_llm_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
