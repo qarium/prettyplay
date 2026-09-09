@@ -4,7 +4,7 @@ Domain: how a run is composed — runtime, contexts, hooks, failures. Audience: 
 
 ## Composition
 
-One process-wide runtime per run: the configuration, the browser process, the LLM provider and the attempt budgets are created once and shared by every test. Each PrettyTest opens its own isolated browser context and closes it on close(). Tests normally never touch the runtime directly — constructing PrettyTest is enough.
+One process-wide runtime per run: the configuration, the browser process, the LLM provider and the attempt budgets are created once and shared by every test. Each PrettyTest opens its own isolated browser context and closes it on close(). Tests normally never touch the runtime directly — constructing PrettyTest is enough. When the process exits, the runtime stops the browser and the driver synchronously before returning control to the terminal — scripts never leave browser processes behind.
 
 ## Wiring into a framework
 
@@ -35,7 +35,7 @@ Generate locally where the LLM is reachable, commit the cache directory, run CI 
 
 The Playwright session lives in a background driver thread owned by the library: the thread that executes the steps never holds a running asyncio loop, so interactive hosts that drive their own prompt through asyncio (IPython, Jupyter) keep working after every step — passed or failed.
 
-The browser process stays alive for the whole session once the first step has run. Release it explicitly when interactive exploration is over:
+The browser process stays alive for the whole session once the first step has run. In scripts it stops automatically at process exit via the runtime atexit hook. In an interactive session the process keeps living between cells, so release the browser explicitly when interactive exploration is over:
 
 ```python
 from prettyplay import get_runtime

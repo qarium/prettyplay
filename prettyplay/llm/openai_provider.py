@@ -31,6 +31,7 @@ def _first_choice_text(response: object) -> str | None:
     """
     choices = getattr(response, "choices", None) or []
     message = getattr(choices[0], "message", None) if choices else None
+
     return getattr(message, "content", None)
 
 
@@ -68,8 +69,10 @@ class OpenAiProvider(LlmProvider):
         """
         if self._client is None:
             api_key = os.environ.get("OPENAI_API_KEY")
+
             if not api_key:
                 raise LlmUnavailableError("llm unavailable: openai: OPENAI_API_KEY is not set")
+
             self._client = OpenAI(api_key=api_key, base_url=self._config.base_url or None)
         return self._client
 
@@ -114,6 +117,7 @@ class OpenAiProvider(LlmProvider):
             {"role": "system", "content": prompt},
             {"role": "user", "content": openai_user_content(text, screenshot)},
         ]
+
         try:
             response = self._get_client().chat.completions.create(
                 model=self._config.effective_generation_model,
@@ -121,6 +125,7 @@ class OpenAiProvider(LlmProvider):
             )
         except OpenAIError as sdk_error:
             raise LlmUnavailableError("llm unavailable: openai request failed") from sdk_error
+
         return extract_code_block(require_completion_text(_first_choice_text(response), "openai"))
 
     def classify_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
@@ -157,6 +162,7 @@ class OpenAiProvider(LlmProvider):
             {"role": "system", "content": prompt},
             {"role": "user", "content": openai_user_content(text, screenshot)},
         ]
+
         try:
             response = self._get_client().chat.completions.create(
                 model=self._config.effective_classification_model,
@@ -167,7 +173,9 @@ class OpenAiProvider(LlmProvider):
 
         answer = require_completion_text(_first_choice_text(response), "openai")
         parsed = parse_classification_line(answer)
+
         if parsed is None:
             return FailureClassification(**unparsable_classification())
+
         category, explanation, recommendation = parsed
         return FailureClassification(category=category, explanation=explanation, recommendation=recommendation)

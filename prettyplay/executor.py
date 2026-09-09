@@ -72,12 +72,14 @@ class StepExecutor:
         """
         try:
             self._reporter.emit("on_step_started", {"step_text": step_text, "step_type": step_type})
+
             identity = StepIdentity(
                 cache_key=self.cache_key,
                 step_type=step_type,
                 normalized_text=normalize_step_text(step_text),
             )
             cached = self._cache.load(identity)
+
             if cached is not None:
                 try:
                     run_step_code(cached.code, page)
@@ -93,6 +95,7 @@ class StepExecutor:
                 "on_step_failed",
                 {"step_text": step_text, "step_type": step_type, "error": first_line_short(error)},
             )
+
             if isinstance(error, (ProductDefectError, IncurableStepError)) and error.verdict is not None:
                 self._reporter.emit(
                     "on_step_verdict",

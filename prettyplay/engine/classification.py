@@ -58,6 +58,7 @@ def classify_step_failure(  # noqa: PLR0913, PLR0917 — the parameter list is f
     """
     snapshot = page.aria_snapshot()
     screenshot = page.screenshot() if config.send_screenshots else None
+
     return provider.classify_failure(
         prompt=CLASSIFICATION_PROMPT,
         step_text=step_text,

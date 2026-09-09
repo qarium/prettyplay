@@ -36,12 +36,14 @@ def _raise_folded(error: PrettyplayError) -> types.NoReturn:
     """
     tb = error.__traceback__
     _fold_chain_tracebacks(error)
+
     folded = types.TracebackType(
         tb_next=None,
         tb_frame=tb.tb_frame,
         tb_lasti=tb.tb_lasti,
         tb_lineno=tb.tb_lineno,
     )
+
     raise error.with_traceback(folded)
 
 
@@ -53,11 +55,15 @@ def _fold_chain_tracebacks(error: BaseException) -> None:
     """
     pending = [error]
     seen: set[int] = set()
+
     while pending:
         current = pending.pop()
+
         if id(current) in seen:
             continue
+
         seen.add(id(current))
+
         for link in (current.__context__, current.__cause__):
             if link is not None:
                 link.__traceback__ = None
@@ -98,6 +104,7 @@ class PrettyTest:
         self._runtime = get_runtime()
         self._reporter = StepReporter(hooks=[])
         self._cache = StepCache(self._runtime.config, cache_path, self._reporter)
+
         self._generator = StepGenerator(
             self._runtime.config,
             self._runtime.provider,
@@ -193,6 +200,7 @@ class PrettyTest:
         """
         if self._page is None:
             raise PrettyplayError("no test page yet: run a step first — the page opens lazily on the first step")
+
         return self._page.screenshot()
 
     def save_screenshot(self, filepath: str) -> None:
@@ -210,7 +218,9 @@ class PrettyTest:
         """
         if self._page is None:
             raise PrettyplayError("no test page yet: run a step first — the page opens lazily on the first step")
+
         image = self._page.screenshot()
+
         try:
             Path(filepath).write_bytes(image)
         except OSError as error:

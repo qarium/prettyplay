@@ -19,6 +19,7 @@ class PrettyplayError(Exception):
 
     def __init__(self, message: str) -> None:
         self.message = message
+
         super().__init__(message)
 
 
@@ -78,6 +79,7 @@ class ProductDefectError(PrettyplayError, AssertionError):
         self.step_text = step_text
         self.message = message
         self.verdict = verdict
+
         PrettyplayError.__init__(self, message)
 
     def __str__(self) -> str:
@@ -107,6 +109,7 @@ class IncurableStepError(PrettyplayError):
         self.step_text = step_text
         self.reason = reason
         self.verdict = verdict
+
         super().__init__(reason)
 
     @property
@@ -140,4 +143,5 @@ class LlmUnavailableError(PrettyplayError):
 
     def __init__(self, message: str) -> None:
         self.message = message
+
         super().__init__(message)

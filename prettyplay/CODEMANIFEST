@@ -167,6 +167,9 @@ Annotations: |
     "close()": |
       Stop the browser and the driver; safe when nothing was started.
 
+      Requirements:
+      - The singleton built by `get_runtime` registers this close with atexit, so the driver stops synchronously before the process exits even when no test closes the runtime explicitly; manual calls stay valid and idempotent
+
 "get_runtime() -> runtime: PrettyplayRuntime":
   location: runtime.py
   annotations: |
@@ -177,6 +180,7 @@ Annotations: |
     Requirements:
     - One instance per process for the whole run
     - Repeated calls are cheap
+    - The first call registers the runtime close with atexit: the browser and the Playwright driver stop synchronously before the process exits — the driver processes never outlive the script into the caller's terminal
 
 ---
 

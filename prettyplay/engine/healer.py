@@ -83,12 +83,15 @@ class StepHealer:
         """
         step_text = step.identity.normalized_text
         classification = classify_step_failure(self._config, self._provider, step_text, step.code, error, page)
+
         verdict = FailureVerdict(
             category=classification.category,
             explanation=classification.explanation,
             recommendation=classification.recommendation,
         )
+
         self._reporter.emit("on_healing_started", {"step_text": step_text, "category": classification.category})
+
         if classification.category == "product_defect":
             raise ProductDefectError(step_text, classification.explanation, verdict)
         if classification.category == "incurable":

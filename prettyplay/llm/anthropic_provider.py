@@ -34,6 +34,7 @@ def _first_text_block(response: object) -> str | None:
     for block in getattr(response, "content", None) or []:
         if getattr(block, "type", None) == "text":
             return getattr(block, "text", None)
+
     return None
 
 
@@ -71,8 +72,10 @@ class AnthropicProvider(LlmProvider):
         """
         if self._client is None:
             api_key = os.environ.get("ANTHROPIC_API_KEY")
+
             if not api_key:
                 raise LlmUnavailableError("llm unavailable: anthropic: ANTHROPIC_API_KEY is not set")
+
             self._client = Anthropic(api_key=api_key, base_url=self._config.base_url or None)
         return self._client
 
@@ -90,6 +93,7 @@ class AnthropicProvider(LlmProvider):
         """
         if screenshot is None:
             return text
+
         return [
             {"type": "text", "text": text},
             {
@@ -139,6 +143,7 @@ class AnthropicProvider(LlmProvider):
                 service request failed.
         """
         text = build_fields_text(step_text, previous_steps, snapshot, page_api, existing_code, error)
+
         try:
             response = self._get_client().messages.create(
                 model=self._config.effective_generation_model,
@@ -148,6 +153,7 @@ class AnthropicProvider(LlmProvider):
             )
         except AnthropicError as sdk_error:
             raise LlmUnavailableError("llm unavailable: anthropic request failed") from sdk_error
+
         return extract_code_block(require_completion_text(_first_text_block(response), "anthropic"))
 
     def classify_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
@@ -180,6 +186,7 @@ class AnthropicProvider(LlmProvider):
                 service request failed.
         """
         text = build_classification_fields(step_text, code, error, snapshot)
+
         try:
             response = self._get_client().messages.create(
                 model=self._config.effective_classification_model,
@@ -192,7 +199,9 @@ class AnthropicProvider(LlmProvider):
 
         answer = require_completion_text(_first_text_block(response), "anthropic")
         parsed = parse_classification_line(answer)
+
         if parsed is None:
             return FailureClassification(**unparsable_classification())
+
         category, explanation, recommendation = parsed
         return FailureClassification(category=category, explanation=explanation, recommendation=recommendation)

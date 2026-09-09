@@ -206,10 +206,12 @@ class StepGenerator:
         attempt = 0
         code = None
         spend = self._budgets.try_generation if pool == "generation" else self._budgets.try_healing
+
         while True:
             if not spend(identity):
                 # причина кандидата — часть контракта reason: «the specific incurability cause»
                 reason = f"{pool} attempt budget exhausted"
+
                 if error:
                     reason = f"{reason}; last failure: {error}"
                 if pool == "healing":
@@ -224,12 +226,15 @@ class StepGenerator:
                         reason,
                         None,  # классифицировать нечего: ни одного кандидата не было
                     )
+
                 raise IncurableStepError(step_text, reason, self._classify(step_text, code, error, page))
+
             attempt += 1
             self._reporter.emit("on_generation_started", {"step_text": step_text, "attempt": attempt})
 
             snapshot = page.aria_snapshot()
             screenshot = page.screenshot() if self._config.send_screenshots else None
+
             code = self._provider.generate_step_code(
                 prompt=GENERATION_PROMPT,
                 step_text=step_text,
@@ -240,6 +245,7 @@ class StepGenerator:
                 existing_code=existing_code,
                 error=error,
             )
+
             try:
                 run_step_code(code, page)
             except AssertionError as check_failure:
@@ -261,6 +267,7 @@ class StepGenerator:
             created_at=date.today().isoformat(),  # noqa: DTZ011 — календарная дата создания шага
         )
         self._cache.save(step)
+
         return step
 
     def _classify(self, step_text: str, code: str | None, error: str, page: PageFacade) -> FailureVerdict | None:
@@ -285,6 +292,7 @@ class StepGenerator:
         except LlmUnavailableError:
             logger.warning("verdict skipped: llm unavailable")
             return None
+
         return _verdict(classification)
 
 

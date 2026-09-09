@@ -88,16 +88,19 @@ def _find_pyproject() -> Path:
         candidate = directory / "pyproject.toml"
         if candidate.is_file():
             return candidate
+
     raise FileNotFoundError("pyproject.toml not found upward from the current directory")
 
 
 def _collect_env_overrides() -> dict[str, str]:
     """Collect the set environment overrides of all supported settings."""
     overrides: dict[str, str] = {}
+
     for field, env_name in _ENV_NAMES.items():
         value = os.environ.get(env_name)
         if value is not None:
             overrides[field] = value
+
     return overrides
 
 
@@ -113,6 +116,7 @@ def _render_validation(error: ValidationError) -> str:
         internals in the user-visible text.
     """
     lines: list[str] = []
+
     for entry in error.errors():
         field = entry["loc"][0]
         received = entry.get("input")
