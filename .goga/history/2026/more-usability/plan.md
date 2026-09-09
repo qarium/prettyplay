@@ -813,20 +813,20 @@ chained. A raw pydantic error never leaves the loader.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (in `tests/config/test_loader.py`; expected to fail):
+- [x] **Contract tests** (in `tests/config/test_loader.py`; expected to fail):
   `from prettyplay.config import ConfigurationError` works; `issubclass(ConfigurationError,
   PrettyplayError)`; `inspect.signature(ConfigurationError.__init__)` is the single `message`
-- [ ] **Code**: define `ConfigurationError(PrettyplayError)` in `loader.py` (no new `__init__`
+- [x] **Code**: define `ConfigurationError(PrettyplayError)` in `loader.py` (no new `__init__`
   needed — `.message` exposes the rendered actionable text via the base); import
   `PrettyplayError` from `..failures.errors` and `ValidationError` from `pydantic`
-- [ ] **Code**: add the legacy check — before merging, `if "PRETTYPLAY_BROWSER" in os.environ:
+- [x] **Code**: add the legacy check — before merging, `if "PRETTYPLAY_BROWSER" in os.environ:
   raise ConfigurationError("PRETTYPLAY_BROWSER is no longer supported: use
   PRETTYPLAY_BROWSER_NAME")` (user-approved D1=(a): loud, actionable, names both variables)
-- [ ] **Code**: rework the env name map — `browser → PRETTYPLAY_BROWSER_NAME`,
+- [x] **Code**: rework the env name map — `browser → PRETTYPLAY_BROWSER_NAME`,
   `headless → PRETTYPLAY_BROWSER_HEADLESS`, every other field →
   `"PRETTYPLAY_" + field.upper()`; a set variable wins (empty string included); add `headless`
   to the overridable fields
-- [ ] **Code**: wrap the `Config(**merged)` construction — `except ValidationError as error:
+- [x] **Code**: wrap the `Config(**merged)` construction — `except ValidationError as error:
   raise ConfigurationError(_render_validation(error)) from error`; `_render_validation` builds
   one line per entry of `error.errors()`:
   `f"{field}: received {input!r} — allowed: {ALLOWED.get(field, entry.msg)}"` with the static
@@ -834,10 +834,10 @@ chained. A raw pydantic error never leaves the loader.
   generation_attempts / healing_attempts → `a positive integer`; headless → `a boolean`; the
   string model/base_url/cache_root fields → `a non-empty string`; fallback → the pydantic
   message), lines joined with `"\n"`
-- [ ] **Code**: add `ConfigurationError` to `prettyplay/config/__init__.py` imports and
+- [x] **Code**: add `ConfigurationError` to `prettyplay/config/__init__.py` imports and
   `__all__`
-- [ ] **Interface verification**: `.venv/bin/python -m pytest tests/config/test_loader.py -q`
-- [ ] **Logic tests** (design scenarios; `tmp_path` pyproject files, `monkeypatch.setenv` /
+- [x] **Interface verification**: `.venv/bin/python -m pytest tests/config/test_loader.py -q`
+- [x] **Logic tests** (design scenarios; `tmp_path` pyproject files, `monkeypatch.setenv` /
   `delenv`):
   - `test_load_env_browser_name_and_headless`: pyproject with `browser = "chromium"`; set
     `PRETTYPLAY_BROWSER_NAME=firefox` and `PRETTYPLAY_BROWSER_HEADLESS=false` →
@@ -855,10 +855,10 @@ chained. A raw pydantic error never leaves the loader.
     the removed `PRETTYPLAY_BROWSER` override — switch it to `PRETTYPLAY_BROWSER_NAME`; update
     the `_ALL_ENV_FIELDS` autouse fixture list (`BROWSER` → `BROWSER_NAME`, add
     `BROWSER_HEADLESS`)
-- [ ] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — fix implementation until green
-- [ ] **Contract re-verification**: `from prettyplay.config import ConfigurationError,
+- [x] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — fix implementation until green
+- [x] **Contract re-verification**: `from prettyplay.config import ConfigurationError,
   Config, load_config`; `FileNotFoundError` behavior (no pyproject found) unchanged
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/config/`
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/config/`
 
 ### Task 4: headless and channel launch in `DriverSession` (driver)
 
