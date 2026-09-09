@@ -259,7 +259,7 @@ class TestPrettyTestLogic:
 
         with mock.patch.object(runtime, "open_page", return_value=page):
             test = PrettyTest(CACHE_KEY)
-            test._executor = FailingExecutor()  # noqa: SLF001 — устанавливаем заглушку цикла
+            test._executor = FailingExecutor()  # заглушка цикла шагов
 
             with pytest.raises(IncurableStepError) as excinfo:
                 test.assertion("s")
@@ -283,13 +283,46 @@ class TestPrettyTestLogic:
 
         with mock.patch.object(runtime, "open_page", return_value=page):
             test = PrettyTest(CACHE_KEY)
-            test._executor = FailingExecutor()  # noqa: SLF001 — устанавливаем заглушку цикла
+            test._executor = FailingExecutor()  # заглушка цикла шагов
 
             with pytest.raises(IncurableStepError) as excinfo:
                 test.action("s")
 
         assert excinfo.value is error  # тот же объект — никогда копия
         assert excinfo.value.__context__ is None  # повторный raise не вкладывает контекст
+
+    def test_folded_error_folds_chained_tracebacks(self, tmp_path: Path) -> None:
+        """The context/cause chains survive for debugging, their internal frames do not."""
+        runtime = make_runtime(tmp_path)
+        page = FakePage()
+        terminal = IncurableStepError("s", "r", FailureVerdict("incurable", "e", "rec"))
+        original = TimeoutError("waiting for the element timed out")
+        inner = IncurableStepError("s", "inner reason", FailureVerdict("rot", "e2", "r2"))
+
+        class ChainingExecutor:
+            """Stub executor raising the terminal error from an except handler."""
+
+            cache_key = CACHE_KEY
+
+            def execute(self, step_text: str, step_type: str, page_: FakePage) -> None:
+                try:
+                    raise original
+                except TimeoutError:
+                    # how the healer raises from the executor's except handler: context + cause
+                    raise terminal from inner
+
+        with mock.patch.object(runtime, "open_page", return_value=page):
+            test = PrettyTest(CACHE_KEY)
+            test._executor = ChainingExecutor()  # заглушка цикла шагов
+
+            with pytest.raises(IncurableStepError) as excinfo:
+                test.action("s")
+
+        assert excinfo.value is terminal
+        assert excinfo.value.__context__ is original  # цепочка сохранена для отладки
+        assert excinfo.value.__cause__ is inner
+        assert original.__traceback__ is None  # кадры цепочки свёрнуты — раннер их не покажет
+        assert inner.__traceback__ is None
 
     def test_non_library_exception_passes_through_untouched(self, tmp_path: Path) -> None:
         runtime = make_runtime(tmp_path)
@@ -305,7 +338,7 @@ class TestPrettyTestLogic:
 
         with mock.patch.object(runtime, "open_page", return_value=page):
             test = PrettyTest(CACHE_KEY)
-            test._executor = FailingExecutor()  # noqa: SLF001 — устанавливаем заглушку цикла
+            test._executor = FailingExecutor()  # заглушка цикла шагов
 
             with pytest.raises(RuntimeError) as excinfo:
                 test.action("s")

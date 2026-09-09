@@ -229,9 +229,9 @@ class DriverSession:
     def _launch_engine(self, playwright: Playwright) -> Browser:
         """Launch the browser engine selected by the configuration.
 
-        The bundled engines launch headless-only; ``chrome``/``msedge`` name a
-        locally installed browser launched through the chromium engine with the
-        matching channel. A channel launch without the installed browser fails
+        Every engine launches with the ``headless`` setting; ``chrome``/``msedge``
+        name a locally installed browser launched through the chromium engine with
+        the matching channel. A channel launch without the installed browser fails
         with Playwright's own actionable error, propagated as-is.
 
         Args:

@@ -182,6 +182,7 @@ class PageFacade:
             element: the located element to bring into view.
             container: the located scrollable container, e.g. a carousel.
         """
+
         def scroll() -> None:
             handle = element._locator.element_handle()
             container._locator.evaluate(_SCROLL_INTO_VIEW_JS, handle)

@@ -245,7 +245,7 @@ class StepGenerator:
             except AssertionError as check_failure:
                 # провалённая проверка: попытки не тратятся — классифицируем и останавливаемся
                 reason = f"candidate check failed: {first_line_short(check_failure)}"
-                verdict = self._classify_quietly(step_text, code, reason, page)
+                verdict = self._classify(step_text, code, reason, page)
                 if verdict is not None and verdict.category == "product_defect":
                     raise ProductDefectError(step_text, first_line_short(check_failure), verdict) from None
                 raise IncurableStepError(step_text, reason, verdict) from None
@@ -263,8 +263,12 @@ class StepGenerator:
         self._cache.save(step)
         return step
 
-    def _classify(self, step_text: str, code: str | None, error: str, page: PageFacade) -> FailureVerdict:
-        """Classify a failure through the shared routine and build the verdict.
+    def _classify(self, step_text: str, code: str | None, error: str, page: PageFacade) -> FailureVerdict | None:
+        """Classify a failure through the shared routine with the quiet skip.
+
+        Every classification inside the loop enriches an already-decided
+        failure, so an unavailable LLM yields no verdict — the failure never
+        waits for it and never turns into an infrastructure error.
 
         Args:
             step_text: the sentence of the failed step.
@@ -273,39 +277,15 @@ class StepGenerator:
             page: the live page facade of the test.
 
         Returns:
-            The verdict of the classification.
-
-        Raises:
-            LlmUnavailableError: the provider service failed during the
-                classification request.
-        """
-        classification = classify_step_failure(self._config, self._provider, step_text, code, error, page)
-        return _verdict(classification)
-
-    def _classify_quietly(
-        self,
-        step_text: str,
-        code: str | None,
-        error: str,
-        page: PageFacade,
-    ) -> FailureVerdict | None:
-        """Classify with the quiet skip: an unavailable LLM yields no verdict, not a failure.
-
-        Args:
-            step_text: the sentence of the failed step.
-            code: the code of the failed candidate.
-            error: the failure description of the candidate.
-            page: the live page facade of the test.
-
-        Returns:
             The verdict of the classification, or ``None`` when the LLM was
-            unavailable — the failure never waits for the verdict.
+            unavailable — the quiet skip logs a WARNING.
         """
         try:
-            return self._classify(step_text, code, error, page)
+            classification = classify_step_failure(self._config, self._provider, step_text, code, error, page)
         except LlmUnavailableError:
             logger.warning("verdict skipped: llm unavailable")
             return None
+        return _verdict(classification)
 
 
 def _verdict(classification: FailureClassification) -> FailureVerdict:

@@ -115,16 +115,3 @@ class TestConfigLogic:
         message = str(excinfo.value)
         assert "browser" in message
         assert "chromium" in message
-
-    def test_config_headless_default_and_browser_channels(self) -> None:
-        config = Config()
-
-        assert config.headless is True
-        assert config.browser == "chromium"
-        for name in ("chromium", "firefox", "webkit", "chrome", "msedge"):
-            assert Config(browser=name).browser == name
-        assert Config(headless=False).headless is False
-
-    def test_unknown_browser_rejected_at_model(self) -> None:
-        with pytest.raises(pydantic.ValidationError):
-            Config(browser="netscape")

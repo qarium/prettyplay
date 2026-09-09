@@ -192,6 +192,7 @@ class TestDriverSessionContract:
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
             session = DriverSession(Config(browser="chromium"))
             page = session.open_context()
+            session.close()
 
         assert isinstance(page, PageFacade)
 
@@ -217,6 +218,7 @@ class TestDriverSessionContract:
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
             session = DriverSession(Config(browser="msedge", headless=False))
             session.open_context()
+            session.close()
 
         assert factory.launches == ["chromium"]  # канал запускается движком chromium
         assert factory.launch_kwargs == [{"headless": False, "channel": "msedge"}]
@@ -227,6 +229,7 @@ class TestDriverSessionContract:
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
             session = DriverSession(Config())
             session.open_context()
+            session.close()
 
         assert factory.launches == ["chromium"]
         assert factory.launch_kwargs == [{"headless": True}]
@@ -245,6 +248,7 @@ class TestDriverSessionLogic:
 
             page1 = session.open_context()
             page2 = session.open_context()
+            session.close()
 
         assert factory.start_calls == 1
         assert factory.launches == ["chromium"]  # launches == 1
@@ -257,6 +261,7 @@ class TestDriverSessionLogic:
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
             session = DriverSession(Config(browser="firefox"))
             session.open_context()
+            session.close()
 
         assert factory.launches == ["firefox"]
 
@@ -282,9 +287,7 @@ class TestDriverSessionLogic:
     def test_channel_launch_without_installed_browser_propagates_loudly(self) -> None:
         factory = FakePlaywrightFactory()
         # Playwright's native Error names the distribution and the install remedy
-        factory.chromium = FailingEngine(
-            "chromium", factory, Error("Chromium distribution 'chrome' is not found")
-        )
+        factory.chromium = FailingEngine("chromium", factory, Error("Chromium distribution 'chrome' is not found"))
 
         def open_context() -> None:
             session = DriverSession(Config(browser="chrome"))
@@ -339,6 +342,7 @@ class TestDriverSessionLogic:
             session.open_context()
             session.close()
             page = session.open_context()  # новый запуск после закрытия
+            session.close()
 
         assert factory.start_calls == 2
         assert len(factory.launches) == 2
@@ -360,9 +364,10 @@ class TestDriverSessionLogic:
         factory.chromium = FakeEngine("chromium", factory)  # повторная попытка запускается чисто
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
             page = session.open_context()
+            session.close()
 
         assert factory.start_calls == 2
-        assert factory.stop_calls == 1  # лишних стопов нет
+        assert factory.stop_calls == 2  # лишних стопов нет
         assert isinstance(page, PageFacade)
 
 
@@ -383,10 +388,8 @@ class FailingEngine:
 class TestDriverSessionWorkerThread:
     """Behavior tests: the Playwright session lives in a dedicated driver thread.
 
-    Note: several older tests open a context without closing the session, so
-    daemon worker threads of previous tests may still linger in the process —
-    assertions must target the thread object of THIS session, never the global
-    thread enumeration.
+    Every test closes its session, so no worker thread outlives its test —
+    assertions may rely on the worker of THIS session alone.
     """
 
     def test_playwright_lifecycle_runs_in_dedicated_thread(self) -> None:

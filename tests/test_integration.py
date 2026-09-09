@@ -388,6 +388,46 @@ def test_cache_path_subdirectories_do_not_collide(tmp_path: Path) -> None:
     assert (tmp_path / "marketing" / identity.filename).exists()
 
 
+def test_generated_failed_check_verdict_fails_the_test_loudly(tmp_path: Path) -> None:
+    """Flow A failure: a first-run candidate check fails, stops the retries and carries the verdict."""
+    step_text = "see the welcome banner"
+    check_code = "def step(page) -> None:\n    page.find_by_text('Welcome back').expect_visible()\n"
+    provider = StubProvider(
+        answers=[check_code],
+        verdict=FailureClassification(
+            category="product_defect", explanation="the banner is genuinely missing", recommendation="file a bug"
+        ),
+    )
+    page = FakePage(broken_lookups=frozenset({"find_by_text"}))  # lookup fails: the check did not hold
+    hook = RecorderHook()
+
+    with installed_runtime(tmp_path, provider, page):
+        test = PrettyTest("login-flow")
+        test.add_hooks(hook)
+        with pytest.raises(ProductDefectError) as excinfo:
+            test.assertion(step_text)
+        test.close()
+
+    assert excinfo.value.verdict is not None
+    assert excinfo.value.verdict.category == "product_defect"
+    assert len(provider.generation_requests) == 1  # стоп ретраев: бюджет не тратится на проваленную проверку
+    assert len(provider.classification_requests) == 1
+    assert provider.classification_requests[0]["error"] == "candidate check failed: element not found"
+    identity = StepIdentity(
+        cache_key="login-flow", step_type="assertion", normalized_text=normalize_step_text(step_text)
+    )
+    assert not (tmp_path / identity.filename).exists()  # проваленный кандидат не кэшируется
+    assert [event for event, _payload in hook.events] == [
+        "on_step_started",
+        "on_generation_started",
+        "on_step_failed",
+        "on_step_verdict",
+    ]
+    frames = [entry.filename for entry in traceback.extract_tb(excinfo.value.__traceback__)]
+    assert frames[-1].endswith("scenario.py")  # трейсбек сложен до границы фасада
+    assert not any(entry.endswith(("generator.py", "executor.py", "classification.py")) for entry in frames)
+
+
 def test_product_defect_verdict_fails_the_test_loudly(tmp_path: Path) -> None:
     """A classified product defect surfaces through PrettyTest.action with an intact cache."""
     step_text = "нажать Войти"

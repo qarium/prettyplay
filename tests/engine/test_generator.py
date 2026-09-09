@@ -7,6 +7,7 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from prettyplay.cache import RunBudgets, StepCache, StepIdentity
 from prettyplay.config import Config
 from prettyplay.engine import StepGenerator
@@ -126,6 +127,14 @@ class TimeoutPage(FakePage):
     def find_by_role(self, role: str, name: str) -> None:
         self.calls.append(("find_by_role", role, name))
         raise TimeoutError("navigation timed out")
+
+
+class PlaywrightTimeoutPage(FakePage):
+    """Fake page where the locator action fails with the real Playwright TimeoutError."""
+
+    def find_by_role(self, role: str, name: str) -> None:
+        self.calls.append(("find_by_role", role, name))
+        raise PlaywrightTimeoutError("locator.click: Timeout 30000ms exceeded")
 
 
 class RecorderHook(StepHooks):
@@ -494,6 +503,38 @@ class TestStepGeneratorLogic:
         assert excinfo.value.reason.startswith("candidate check failed")
         warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
         assert any("verdict skipped" in record.message for record in warnings)
+
+    def test_generate_exhaustion_quiet_verdict_skip_on_unavailable_classification(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Exhaustion classification quiet-skips too: the budget failure is never masked."""
+        provider = StubProvider([BROKEN_CODE], verdict=LlmUnavailableError("openai down"))
+        fixture = GeneratorFixture(tmp_path, provider, limits=(1, 2))
+        page = TimeoutPage()
+
+        with caplog.at_level(logging.WARNING, logger="prettyplay"), pytest.raises(IncurableStepError) as excinfo:
+            fixture.generator.generate(make_identity(), "impossible step", [], page)
+
+        assert excinfo.value.reason.startswith("generation attempt budget exhausted")
+        assert "last failure:" in excinfo.value.reason
+        assert excinfo.value.verdict is None  # quiet skip — not an infrastructure failure
+        assert excinfo.value.recommendation == "reword the step or refresh the cache"  # fallback без вердикта
+        warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
+        assert any("verdict skipped" in record.message for record in warnings)
+
+    def test_generate_playwright_timeout_is_retried_not_a_failed_check(self, tmp_path: Path) -> None:
+        """ADR-3 boundary pin: the real Playwright locator timeout is not an AssertionError."""
+        assert not issubclass(PlaywrightTimeoutError, AssertionError)  # граница, на которую опирается стоп проверок
+        provider = StubProvider([BROKEN_CODE, WORKING_CODE], verdict=ROT_VERDICT)
+        fixture = GeneratorFixture(tmp_path, provider)
+        page = PlaywrightTimeoutPage()
+
+        step = fixture.generator.generate(make_identity(), "press the sign in button", [], page)
+
+        assert step.code == WORKING_CODE
+        assert len(provider.calls) == 2  # таймаут локатора тратит попытку и уходит в ретрай, не в стоп проверок
+        assert provider.calls[1]["existing_code"] == BROKEN_CODE
+        assert provider.classify_failure_calls == []
 
     def test_generate_first_refusal_without_candidate(self, tmp_path: Path) -> None:
         provider = StubProvider([], verdict=ROT_VERDICT)

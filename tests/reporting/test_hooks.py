@@ -2,7 +2,7 @@
 
 import inspect
 
-from prettyplay.reporting import StepHooks
+from prettyplay.reporting import StepHooks, StepReporter
 
 EVENT_SIGNATURES: dict[str, list[tuple[str, type]]] = {
     "on_step_started": [("step_text", str), ("step_type", str)],
@@ -64,8 +64,18 @@ class TestStepVerdictLogic:
     def test_verdict_base_is_no_op(self) -> None:
         assert StepHooks().on_step_verdict("s", "incurable", "e", "rec") is None
 
-    def test_recording_subclass_receives_four_string_fields(self) -> None:
+    def test_verdict_event_dispatches_the_four_string_fields_to_the_hook(self) -> None:
         hooks = RecordingHooks()
-        hooks.on_step_verdict("click Sign in", "product_defect", "the total shows 90", "file a bug")
+
+        StepReporter(hooks=[hooks]).emit(
+            "on_step_verdict",
+            {
+                "step_text": "click Sign in",
+                "category": "product_defect",
+                "explanation": "the total shows 90",
+                "recommendation": "file a bug",
+            },
+        )
+
         assert hooks.verdict_calls == [("click Sign in", "product_defect", "the total shows 90", "file a bug")]
         assert all(isinstance(value, str) for value in hooks.verdict_calls[0])

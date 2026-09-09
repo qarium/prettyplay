@@ -23,6 +23,10 @@ def _raise_folded(error: PrettyplayError) -> types.NoReturn:
     frames (engine, healing, provider) never appear in what the runner shows.
     The same exception object is re-raised — never a copy — keeping identity
     for hook consumers and ``except`` clauses, and adding no context nesting.
+    The chained exceptions (``__context__``/``__cause__``) keep their identity
+    and messages — the original step failure stays visible for debugging —
+    but their tracebacks are folded away too: a runner that renders the chain
+    shows no internal frames either.
 
     Args:
         error: the library failure leaving ``action``/``assertion``.
@@ -31,6 +35,7 @@ def _raise_folded(error: PrettyplayError) -> types.NoReturn:
         Always: the given error with the folded traceback attached.
     """
     tb = error.__traceback__
+    _fold_chain_tracebacks(error)
     folded = types.TracebackType(
         tb_next=None,
         tb_frame=tb.tb_frame,
@@ -38,6 +43,25 @@ def _raise_folded(error: PrettyplayError) -> types.NoReturn:
         tb_lineno=tb.tb_lineno,
     )
     raise error.with_traceback(folded)
+
+
+def _fold_chain_tracebacks(error: BaseException) -> None:
+    """Drop the tracebacks of the chained exceptions, keeping the chains themselves.
+
+    Args:
+        error: the exception whose ``__context__``/``__cause__`` chains are folded.
+    """
+    pending = [error]
+    seen: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        for link in (current.__context__, current.__cause__):
+            if link is not None:
+                link.__traceback__ = None
+                pending.append(link)
 
 
 class PrettyTest:

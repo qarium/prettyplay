@@ -53,6 +53,7 @@ _ALLOWED_TEXT: dict[str, str] = {
     "generation_attempts": "a positive integer",
     "healing_attempts": "a positive integer",
     "headless": "a boolean",
+    "send_screenshots": "a boolean",
     "model": "a non-empty string",
     "generation_model": "a non-empty string",
     "classification_model": "a non-empty string",

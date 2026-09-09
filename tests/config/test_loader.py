@@ -117,6 +117,30 @@ class TestLoadConfigLogic:
         assert message.count("\n") == 1  # exactly two lines, one per setting
         assert isinstance(excinfo.value.__cause__, ValidationError)
 
+    @pytest.mark.parametrize(
+        ("env_name", "env_value", "setting", "allowed"),
+        [
+            ("PRETTYPLAY_BROWSER_HEADLESS", "maybe", "headless", "a boolean"),
+            ("PRETTYPLAY_SEND_SCREENSHOTS", "perhaps", "send_screenshots", "a boolean"),
+            ("PRETTYPLAY_PROVIDER", "yandex", "provider", "openai, anthropic"),
+        ],
+        ids=["headless", "send_screenshots", "provider"],
+    )
+    def test_invalid_setting_renders_allowed_values(  # noqa: PLR0913, PLR0917 — параметры параметризации
+        self, tmp_path, monkeypatch, env_name: str, env_value: str, setting: str, allowed: str
+    ) -> None:
+        """Every overridable setting fails with its own allowed-values line — no pydantic internals."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(PYPROJECT_WITH_SECTION, encoding="utf-8")
+        monkeypatch.setenv(env_name, env_value)
+
+        with pytest.raises(ConfigurationError) as excinfo:
+            load_config(pyproject_path=str(pyproject))
+
+        line = next(line for line in str(excinfo.value).splitlines() if line.startswith(f"{setting}:"))
+        assert f"received {env_value!r}" in line
+        assert line.endswith(f"allowed: {allowed}")
+
     def test_legacy_browser_env_raises_configuration_error(self, tmp_path, monkeypatch) -> None:
         """The removed env name fails loudly and names its replacement."""
         pyproject = tmp_path / "pyproject.toml"

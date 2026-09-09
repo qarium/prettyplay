@@ -103,6 +103,13 @@ class FakeContext:
         self.close_calls += 1
 
 
+class DetachedLocator(FakeLocator):
+    """Fake locator whose target detached: ``element_handle()`` resolves to ``None``."""
+
+    def element_handle(self) -> None:
+        self.calls.append(("element_handle",))
+
+
 class FakeBodyLocator(FakeLocator):
     """Fake ``page.locator("body")``: yields the recorded aria snapshot."""
 
@@ -415,6 +422,19 @@ class TestPageFacadeScrollLogic:
         assert arg._locator is fake_element  # the live handle of the target, not the locator
         assert "getBoundingClientRect" in script
         assert "el.scrollTop" in script
+
+    def test_scroll_into_view_passes_none_handle_of_a_detached_target(self) -> None:
+        page = FakePage()
+        page._locator_factory = DetachedLocator  # the element handle resolves to None
+        facade = make_page_facade(page)
+        element = facade.find_by_text("Detached card")
+        container = facade.find_by_role("region", name="Carousel")
+
+        facade.scroll_into_view(element, container)
+
+        # the resolved handle reaches the container evaluation as-is — the page fails the render
+        assert container._locator.evaluate_args == [None]
+        assert ("element_handle",) in element._locator.calls
 
     def test_scroll_to_element_uses_nearest_scrollable_ancestor_primitive(self) -> None:
         page = FakePage()

@@ -206,10 +206,16 @@ class TestStepHealerContract:
             "page",
         ]
 
-    def test_healer_builds_verdict_value_objects(self) -> None:
-        source = inspect.getsource(StepHealer)
+    def test_healer_builds_verdict_value_objects(self, tmp_path: Path) -> None:
+        provider = FakeProvider([FailureClassification(category="incurable", explanation="e", recommendation="r")])
+        fixture = HealerFixture(provider, tmp_path)
 
-        assert "FailureVerdict(" in source  # вердикты, а не строковые recommendation
+        with pytest.raises(IncurableStepError) as excinfo:
+            fixture.healer.heal(fixture.failed_step, "err", [], FakePage())
+
+        verdict = excinfo.value.verdict
+        assert isinstance(verdict, FailureVerdict)  # the verdict object, not a string recommendation
+        assert (verdict.category, verdict.explanation, verdict.recommendation) == ("incurable", "e", "r")
 
 
 class HealerFixture:
@@ -228,7 +234,11 @@ class HealerFixture:
         self.cache = SpyCache()
         self.budgets = RunBudgets(*limits)
         self.failed_step = CachedStep(
-            identity=StepIdentity(cache_key="login-flow", step_type="action", normalized_text="click the sign in button"),
+            identity=StepIdentity(
+                cache_key="login-flow",
+                step_type="action",
+                normalized_text="click the sign in button",
+            ),
             code=FAILED_CODE,
             created_at="2026-09-07",
         )
@@ -249,7 +259,13 @@ class TestStepHealerLogic:
 
     def test_heal_rot_regenerates_and_reports_healed(self, tmp_path: Path) -> None:
         provider = FakeProvider(
-            [FailureClassification(category="rot", explanation="the button was renamed", recommendation="refresh the cache")]
+            [
+                FailureClassification(
+                    category="rot",
+                    explanation="the button was renamed",
+                    recommendation="refresh the cache",
+                )
+            ]
         )
         fixture = HealerFixture(provider, tmp_path)
         page = FakePage()
@@ -366,7 +382,11 @@ class TestStepHealerLogic:
     def test_heal_rot_exhaustion_reuses_verdict_without_second_request(self, tmp_path: Path) -> None:
         provider = FakeProvider(
             classifications=[
-                FailureClassification(category="rot", explanation="the selector rotted", recommendation="refresh the cache")
+                FailureClassification(
+                    category="rot",
+                    explanation="the selector rotted",
+                    recommendation="refresh the cache",
+                )
             ],
             answers=[TIMEOUT_CODE],
         )
@@ -398,7 +418,11 @@ class TestStepHealerLogic:
     def test_heal_preserves_fresh_verdict_from_regenerate_failed_check(self, tmp_path: Path) -> None:
         provider = FakeProvider(
             classifications=[
-                FailureClassification(category="rot", explanation="the selector rotted", recommendation="refresh the cache"),
+                FailureClassification(
+                    category="rot",
+                    explanation="the selector rotted",
+                    recommendation="refresh the cache",
+                ),
                 FailureClassification(
                     category="product_defect",
                     explanation="the banner is genuinely missing",
@@ -412,10 +436,40 @@ class TestStepHealerLogic:
         with pytest.raises(ProductDefectError) as excinfo:
             fixture.healer.heal(fixture.failed_step, "element not found", [], CheckFailingPage())
 
-        # свежий вердикт проваленной проверки побеждает; except IncurableStepError его не трогает
+        # the fresh failed-check verdict wins; the except branch never rewrites it
         assert excinfo.value.verdict.category == "product_defect"
         assert excinfo.value.message == "banner missing"
         assert provider.classify_failure_call_count == 2  # классификация healer + свежая в регенерации
+        assert fixture.cache.save_calls == []
+
+    def test_heal_preserves_fresh_incurable_verdict_from_regenerate_failed_check(self, tmp_path: Path) -> None:
+        """A fresh failed-check IncurableStepError is re-raised untouched (not the rot verdict)."""
+        provider = FakeProvider(
+            classifications=[
+                FailureClassification(
+                    category="rot",
+                    explanation="the selector rotted",
+                    recommendation="refresh the cache",
+                ),
+                FailureClassification(
+                    category="incurable",
+                    explanation="the banner step is ambiguous",
+                    recommendation="reword the step",
+                ),
+            ],
+            answers=[CHECK_CODE],
+        )
+        fixture = HealerFixture(provider, tmp_path, real_generator=True)
+
+        with pytest.raises(IncurableStepError) as excinfo:
+            fixture.healer.heal(fixture.failed_step, "element not found", [], CheckFailingPage())
+
+        # вердикт свежей классификации регенерации — ветка «raise» без перезаписи вердиктом rot
+        assert excinfo.value.verdict is not None
+        assert excinfo.value.verdict.category == "incurable"
+        assert excinfo.value.verdict.explanation == "the banner step is ambiguous"
+        assert excinfo.value.reason.startswith("candidate check failed")
+        assert provider.classify_failure_call_count == 2
         assert fixture.cache.save_calls == []
 
 
