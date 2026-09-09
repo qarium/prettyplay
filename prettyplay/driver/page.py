@@ -34,7 +34,7 @@ class PageFacade:
 
     Wraps one isolated browser context created by
     :class:`~prettyplay.driver.session.DriverSession`; ``close`` closes the
-    context and leaves the shared browser of the run alive.
+    context and leaves the browser of the test running.
 
     Attributes:
         _page: the wrapped Playwright page; never exposed through the facade.
@@ -116,6 +116,56 @@ class PageFacade:
             The facade of the located element.
         """
         locator = self._call(lambda: self._page.get_by_text(text))
+        return self._wrap_locator(locator)
+
+    def find_by_attribute(self, name: str, value: str) -> LocatorFacade:
+        """Find an element by the value of one of its attributes.
+
+        Intended for data-* attributes (e.g. ``data-test-id``); the CSS engine
+        handles the attribute selector natively and the returned handle
+        auto-waits exactly like the other locating methods.
+
+        Args:
+            name: the full attribute name, e.g. ``data-test-id``.
+            value: the attribute value to match.
+
+        Returns:
+            The facade of the located element.
+        """
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        locator = self._call(lambda: self._page.locator(f'[{name}="{escaped}"]'))
+        return self._wrap_locator(locator)
+
+    def find_by_css(self, selector: str) -> LocatorFacade:
+        """Find an element by a CSS selector.
+
+        The selector is passed through verbatim — escaping belongs to the
+        caller, a universal escaping would break ``>``/``+`` combinators.
+
+        Args:
+            selector: a valid CSS selector expression, e.g. ``form > button.primary``.
+
+        Returns:
+            The facade of the located element.
+        """
+        locator = self._call(lambda: self._page.locator(selector))
+        return self._wrap_locator(locator)
+
+    def find_by_xpath(self, xpath: str) -> LocatorFacade:
+        """Find an element by an XPath expression.
+
+        The explicit ``xpath=`` engine prefix keeps every expression uniform:
+        Playwright sniffs XPath implicitly only via a ``//`` or ``..`` prefix,
+        so an expression such as ``*[@id='main']`` would otherwise silently go
+        to the CSS engine.
+
+        Args:
+            xpath: a valid XPath expression, e.g. ``//button[@type='submit']``.
+
+        Returns:
+            The facade of the located element.
+        """
+        locator = self._call(lambda: self._page.locator(f"xpath={xpath}"))
         return self._wrap_locator(locator)
 
     def aria_snapshot(self) -> str:
@@ -208,7 +258,7 @@ class PageFacade:
         self._call(lambda: container._locator.evaluate("(el, px) => { el.scrollTop -= px; }", pixels))
 
     def close(self) -> None:
-        """Close the isolated context of the page; the browser of the run stays alive."""
+        """Close the isolated context of the page; the test's browser keeps running."""
         self._call(self._context.close)
 
     def _wrap_locator(self, locator: Locator) -> LocatorFacade:

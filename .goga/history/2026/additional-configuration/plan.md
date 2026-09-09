@@ -619,14 +619,14 @@ inherits the driver-thread boundary and Playwright's auto-wait. No errors raised
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (tests/driver/test_page.py — expected to fail at this stage): `PageFacade` exposes
+- [x] **Contract tests** (tests/driver/test_page.py — expected to fail at this stage): `PageFacade` exposes
   `find_by_attribute(name, value)`, `find_by_css(selector)`, `find_by_xpath(xpath)` after `find_by_text` in the
   declared order; each returns a `LocatorFacade`
-- [ ] **Code**: implement the three methods per the algorithms above, with Google docstrings
+- [x] **Code**: implement the three methods per the algorithms above, with Google docstrings
   (`find_by_attribute`: intended use data-* attributes, e.g. `data-test-id`)
-- [ ] **Code**: update the `PageFacade.close` docstring per-test wording while touching the file
-- [ ] **Interface verification**: `pytest tests/driver/test_page.py -x` — all pass
-- [ ] **Logic tests** (tests/driver/test_page.py — hand-built `PageFacade(fake_page, fake_context)` with a
+- [x] **Code**: update the `PageFacade.close` docstring per-test wording while touching the file
+- [x] **Interface verification**: `pytest tests/driver/test_page.py -x` — all pass
+- [x] **Logic tests** (tests/driver/test_page.py — hand-built `PageFacade(fake_page, fake_context)` with a
   recording fake page, worker `None` → inline calls):
   - positive `test_find_by_attribute_builds_css_attribute_selector` —
     `facade.find_by_attribute("data-test-id", "submit-button")` → the fake recorded
@@ -638,10 +638,13 @@ inherits the driver-thread boundary and Playwright's auto-wait. No errors raised
   - edge `test_find_by_attribute_escapes_quotes_and_backslashes` —
     `facade.find_by_attribute("data-test-id", 'a"b\\c')` → the single recorded selector is
     `[data-test-id="a\"b\\c"]` (escaped form), no exception
-- [ ] **Debugging**: `pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code)
-- [ ] **Contract re-verification**: no raw Playwright object crosses the facade; the existing method set is
+- [x] **Debugging**: `pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code)
+  (410 passed, the single failure `test_page_api_surface_mirrors_facade_practice` is the documented Task 7
+  red-phase test — it failed identically at the Task 4 commit; Task 5 adds 11 driver tests: 35 page-facade
+  tests total, driver cell 60 green)
+- [x] **Contract re-verification**: no raw Playwright object crosses the facade; the existing method set is
   untouched (backward-compatibility contract — extend, never rename or remove)
-- [ ] **Lint**: `ruff check prettyplay tests` — fix formatting if necessary
+- [x] **Lint**: `ruff check prettyplay tests` — fix formatting if necessary
 
 ### Task 6: `DriverSession` — remote ws connect branch with the endpoint-naming error (TDD coding)
 
