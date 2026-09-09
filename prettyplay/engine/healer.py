@@ -45,7 +45,7 @@ class StepHealer:
             generator: the regeneration loop handling the rot verdict.
             cache: the store of the failed step; written by the generator
                 only — accepted for contract symmetry, never read here.
-            budgets: the per-run attempt registry; spent by the generator —
+            budgets: the per-test attempt registry; spent by the generator —
                 accepted for contract symmetry, never read here.
             reporter: the visibility point for engine events.
         """

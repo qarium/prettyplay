@@ -12,7 +12,7 @@ from prettyplay.cache import RunBudgets, StepCache, StepIdentity
 from prettyplay.config import Config
 from prettyplay.engine import StepGenerator
 from prettyplay.engine import generator as generator_module  # для проверки переноса CLASSIFICATION_PROMPT
-from prettyplay.engine.generator import GENERATION_PROMPT, PAGE_API_SURFACE
+from prettyplay.engine.generator import PAGE_API_SURFACE, SYSTEM_PROMPT
 from prettyplay.failures import IncurableStepError, LlmUnavailableError, ProductDefectError
 from prettyplay.llm import FailureClassification
 from prettyplay.reporting import StepHooks, StepReporter
@@ -191,6 +191,10 @@ class TestStepGeneratorContract:
             "error",
         ]
 
+    def test_system_prompt_constant_renamed(self) -> None:
+        assert hasattr(generator_module, "SYSTEM_PROMPT")
+        assert not hasattr(generator_module, "GENERATION_PROMPT")  # переименован константой Task 7
+
 
 class GeneratorFixture:
     """Generator assembled on a tmp cache with recording visibility, for logic tests."""
@@ -258,7 +262,7 @@ class TestStepGeneratorLogic:
         fixture.generator.generate(make_identity(), "открыть страницу", [], page)
 
         request = provider.calls[0]
-        assert request["prompt"] == GENERATION_PROMPT
+        assert request["prompt"] == SYSTEM_PROMPT
         assert request["snapshot"] == "- snapshot"
         assert request["page_api"] == PAGE_API_SURFACE
         assert request["screenshot"] is None  # send_screenshots по умолчанию False
@@ -274,6 +278,56 @@ class TestStepGeneratorLogic:
         generator.generate(make_identity(), "открыть страницу", [], page)
 
         assert provider.calls[0]["screenshot"] == b"png"
+
+    def test_generator_passes_generation_prompt_to_provider(self, tmp_path: Path) -> None:
+        provider = StubProvider([WORKING_CODE])
+        recorder = RecorderHook()
+        reporter = StepReporter(hooks=[recorder])
+        config = Config(cache_root=str(tmp_path), generation_prompt="prefer data-test-id")
+        generator = StepGenerator(config, provider, StepCache(config, None, reporter), RunBudgets(3, 2), reporter)
+        page = FakePage()
+
+        generator.generate(make_identity(), "click Sign in", [], page)
+
+        captured = provider.calls[0]
+        assert captured["user_instructions"] == "prefer data-test-id"
+        assert captured["prompt"] == SYSTEM_PROMPT
+        assert "page.find_by_attribute(name, value)" in captured["page_api"]
+
+    def test_regenerate_carries_user_instructions_with_code_and_error(self, tmp_path: Path) -> None:
+        provider = StubProvider([WORKING_CODE])
+        fixture = GeneratorFixture(tmp_path, provider, limits=(1, 1))
+        fixture.config = Config(cache_root=str(tmp_path), generation_prompt="prefer data-test-id")
+        fixture.generator = StepGenerator(
+            fixture.config, provider, fixture.cache, fixture.budgets, fixture.reporter
+        )
+        page = FakePage()
+
+        fixture.generator.regenerate(
+            make_identity(),
+            "click Sign in",
+            [],
+            page,
+            existing_code="def step(page) -> None:\n    page.open('https://old')\n",
+            error="TimeoutError",
+        )
+
+        captured = provider.calls[0]
+        # instructions travel with the regeneration-only fields through the one shared call site
+        assert captured["user_instructions"] == "prefer data-test-id"
+        assert captured["existing_code"] == "def step(page) -> None:\n    page.open('https://old')\n"
+        assert captured["error"] == "TimeoutError"
+        assert captured["prompt"] == SYSTEM_PROMPT
+
+    def test_empty_generation_prompt_passes_empty_instructions(self, tmp_path: Path) -> None:
+        provider = StubProvider([WORKING_CODE])
+        fixture = GeneratorFixture(tmp_path, provider)
+        page = FakePage()
+
+        fixture.generator.generate(make_identity(), "click Sign in", [], page)
+
+        # движок передаёт значение безусловно; пустая строка означает «нет блока» в хелпере провайдера
+        assert provider.calls[0]["user_instructions"] == ""
 
     def test_generate_retries_with_existing_code_then_succeeds(self, tmp_path: Path) -> None:
         provider = StubProvider([BROKEN_CODE, WORKING_CODE], verdict=ROT_VERDICT)
@@ -560,19 +614,37 @@ class TestPromptConstants:
     """Constant tests: prompts and the frozen page API surface."""
 
     def test_generation_prompt_is_frozen_text(self) -> None:
-        assert GENERATION_PROMPT.startswith("You generate executable Python code")
-        assert "def step(page) -> None:" in GENERATION_PROMPT
+        assert SYSTEM_PROMPT.startswith("You generate executable Python code")
+        assert "def step(page) -> None:" in SYSTEM_PROMPT
 
     def test_generation_prompt_carries_the_scroll_rule(self) -> None:
         assert (
             "- Scroll abilities exist for scenario scrolling: bring an element into view, scroll by an "
-            "amount, to the page end or start, inside a scrollable container" in GENERATION_PROMPT
+            "amount, to the page end or start, inside a scrollable container" in SYSTEM_PROMPT
         )
         # правило скролла стоит сразу после правила поиска элементов
-        locating = GENERATION_PROMPT.index("Locating by role and accessible name")
-        scroll = GENERATION_PROMPT.index("Scroll abilities exist")
-        no_delays = GENERATION_PROMPT.index("No fixed delays")
+        locating = SYSTEM_PROMPT.index("Locating by role and accessible name")
+        scroll = SYSTEM_PROMPT.index("Scroll abilities exist")
+        no_delays = SYSTEM_PROMPT.index("No fixed delays")
         assert locating < scroll < no_delays
+
+    def test_system_prompt_documents_user_instructions_input(self) -> None:
+        # строка входа USER INSTRUCTIONS стоит сразу после строки входа PAGE API
+        page_api_input = SYSTEM_PROMPT.index("- PAGE API: the exact surface listing")
+        user_instructions_input = SYSTEM_PROMPT.index("- USER INSTRUCTIONS: the project's code style guidance")
+        code_input = SYSTEM_PROMPT.index("- CODE: the existing step code that failed")
+        assert page_api_input < user_instructions_input < code_input
+
+    def test_system_prompt_carries_the_universal_locating_priority(self) -> None:
+        assert (
+            "- Attribute, CSS and XPath locating exist for elements without accessible names — the "
+            "accessibility-first priority stands unless USER INSTRUCTIONS say otherwise" in SYSTEM_PROMPT
+        )
+        # приоритет универсального поиска стоит сразу после строки role/text/label
+        locating = SYSTEM_PROMPT.index("Locating by role and accessible name is preferred")
+        universal = SYSTEM_PROMPT.index("Attribute, CSS and XPath locating exist")
+        scroll = SYSTEM_PROMPT.index("Scroll abilities exist")
+        assert locating < universal < scroll
 
     def test_classification_prompt_moved_out_of_generator(self) -> None:
         assert not hasattr(generator_module, "CLASSIFICATION_PROMPT")  # переехала в classification.py
@@ -583,6 +655,9 @@ class TestPromptConstants:
             "page.find_by_role(role, name)",
             "page.find_by_label(label)",
             "page.find_by_text(text)",
+            "page.find_by_attribute(name, value)",
+            "page.find_by_css(selector)",
+            "page.find_by_xpath(xpath)",
             "page.aria_snapshot()",
             "page.screenshot()",
             "page.url",
@@ -622,6 +697,9 @@ class TestPromptConstants:
             "page.find_by_role(role, name)",
             "page.find_by_label(label)",
             "page.find_by_text(text)",
+            "page.find_by_attribute(name, value)",
+            "page.find_by_css(selector)",
+            "page.find_by_xpath(xpath)",
             "page.aria_snapshot()",
             "page.screenshot()",
             "page.url",

@@ -790,18 +790,19 @@ providers now **record** `user_instructions` (Task 4 gave them the parameter wit
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (tests/engine/test_generator.py — expected to fail at this stage):
+- [x] **Contract tests** (tests/engine/test_generator.py — expected to fail at this stage):
   `generator_module.SYSTEM_PROMPT` exists (`GENERATION_PROMPT` gone); `StepGenerator` constructor/generate/
   regenerate signatures unchanged
-- [ ] **Code**: rename the constant and update its text verbatim per the target text above
-- [ ] **Code**: extend `PAGE_API_SURFACE` with the three rows after `page.find_by_text(text)` in the constant's
+- [x] **Code**: rename the constant and update its text verbatim per the target text above
+- [x] **Code**: extend `PAGE_API_SURFACE` with the three rows after `page.find_by_text(text)` in the constant's
   padding style, comment tying it to `facade.md` preserved
-- [ ] **Code**: pass `user_instructions=self._config.generation_prompt` at the `generate_step_code` call site in
+- [x] **Code**: pass `user_instructions=self._config.generation_prompt` at the `generate_step_code` call site in
   `_loop` (one call site covering both pools)
-- [ ] **Code**: update the engine stub providers to record `user_instructions`; update the per-run → per-test
+- [x] **Code**: update the engine stub providers to record `user_instructions`; update the per-run → per-test
   docstrings in `generator.py` and `healer.py`
-- [ ] **Interface verification**: `pytest tests/engine -x` — all pass
-- [ ] **Logic tests** (tests/engine/test_generator.py — fake provider recording `generate_step_code` kwargs,
+- [x] **Interface verification**: `pytest tests/engine -x` — all pass (65 engine tests green; the stub provider
+  already recorded `user_instructions` since Task 4 — Task 7 asserts the captured value)
+- [x] **Logic tests** (tests/engine/test_generator.py — fake provider recording `generate_step_code` kwargs,
   fake page, stub cache, budgets):
   - positive `test_generator_passes_generation_prompt_to_provider` —
     `Config(generation_prompt="prefer data-test-id")`; `generator.generate(identity, "click Sign in", [],
@@ -817,11 +818,15 @@ providers now **record** `user_instructions` (Task 4 gave them the parameter wit
     `"page.find_by_attribute(name, value)" in PAGE_API_SURFACE`,
     `"page.find_by_css(selector)" in PAGE_API_SURFACE`,
     `"page.find_by_xpath(xpath)" in PAGE_API_SURFACE` (the listing and `facade.md` must change together)
-- [ ] **Debugging**: `pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code)
-- [ ] **Contract re-verification**: instructions reach generation and regeneration only — never classification,
+- [x] **Debugging**: `pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code)
+  (420 passed, zero failures — the Task 4/5/6 documented red-phase test
+  `test_page_api_surface_mirrors_facade_practice` went green with the surface rows; plus
+  `test_empty_generation_prompt_passes_empty_instructions`, `test_system_prompt_documents_user_instructions_input`,
+  `test_system_prompt_carries_the_universal_locating_priority`, `test_system_prompt_constant_renamed`)
+- [x] **Contract re-verification**: instructions reach generation and regeneration only — never classification,
   never the step address; every generation request carries the exact page API surface from `facade`; the budget
   semantics of `_loop` unchanged
-- [ ] **Lint**: `ruff check prettyplay tests` — fix formatting if necessary
+- [x] **Lint**: `ruff check prettyplay tests` — fix formatting if necessary
 
 ### Task 8: `PrettyTest` — per-test composition with the `config` parameter (TDD coding)
 
