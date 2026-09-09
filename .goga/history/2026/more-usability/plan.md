@@ -980,10 +980,10 @@ step". Export the routine from the engine facade.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (new file `tests/engine/test_classification.py`; expected to fail):
+- [x] **Contract tests** (new file `tests/engine/test_classification.py`; expected to fail):
   `from prettyplay.engine import classify_step_failure` works (facade); the routine is callable
   with the six declared parameters `(config, provider, step_text, code, error, page)`
-- [ ] **Code**: create `prettyplay/engine/classification.py` with `CLASSIFICATION_PROMPT` (the
+- [x] **Code**: create `prettyplay/engine/classification.py` with `CLASSIFICATION_PROMPT` (the
   moved text, "a web UI test step" wording) and
   `classify_step_failure(config, provider, step_text, code, error, page) ->
   FailureClassification`: `snapshot = page.aria_snapshot()`; `screenshot = page.screenshot() if
@@ -991,12 +991,12 @@ step". Export the routine from the engine facade.
   prompt=CLASSIFICATION_PROMPT, step_text=step_text, code=code, error=error,
   snapshot=snapshot, screenshot=screenshot)`; `LlmUnavailableError` propagates untouched — this
   routine never swallows it
-- [ ] **Code**: remove `CLASSIFICATION_PROMPT` from `generator.py`; keep `GENERATION_PROMPT`
+- [x] **Code**: remove `CLASSIFICATION_PROMPT` from `generator.py`; keep `GENERATION_PROMPT`
   and `PAGE_API_SURFACE` there; update `healer.py` to import it from `.classification` (the
   healer body still calls the provider inline until Task 8 — only the import path moves now);
   add `classify_step_failure` to `prettyplay/engine/__init__.py` imports and `__all__`
-- [ ] **Interface verification**: `.venv/bin/python -m pytest tests/engine/ -q`
-- [ ] **Logic tests** (design scenarios; `FakePage` with snapshot `"body: main"` and `b"png"`,
+- [x] **Interface verification**: `.venv/bin/python -m pytest tests/engine/ -q`
+- [x] **Logic tests** (design scenarios; `FakePage` with snapshot `"body: main"` and `b"png"`,
   a fake provider returning `FailureClassification`, `Config(send_screenshots=True)`):
   - `test_classify_step_failure_collects_and_calls_port`: `result.category == "rot"`;
     `kwargs = provider.classify_failure_calls[0]`; `kwargs["step_text"] == "click Sign in"`;
@@ -1007,14 +1007,14 @@ step". Export the routine from the engine facade.
   - `test_classify_step_failure_without_screenshots` (review addition):
     `Config(send_screenshots=False)` → the `screenshot` kwarg is `None` and
     `page.screenshot_calls == 0`
-- [ ] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — fix implementation until green
+- [x] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — fix implementation until green
   (including the `CLASSIFICATION_PROMPT` import-path breakages in `tests/engine/test_healer.py`
   and `tests/engine/test_generator.py`: drop `CLASSIFICATION_PROMPT` from the
   `prettyplay.engine.generator` import block of both files — the frozen-prompt test of Task 7
   imports it from `prettyplay.engine.classification`)
-- [ ] **Contract re-verification**: `from prettyplay.engine import classify_step_failure,
+- [x] **Contract re-verification**: `from prettyplay.engine import classify_step_failure,
   StepGenerator, StepHealer, run_step_code`; the port keyword signature matches the call kwargs
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/engine/` — if the moved prompt trips E501,
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/engine/` — if the moved prompt trips E501,
   extend the `pyproject.toml` per-file-ignores with `prettyplay/engine/classification.py`
   (`pyproject.toml` is tooling, not a CODEMANIFEST)
 

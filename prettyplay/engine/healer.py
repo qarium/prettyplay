@@ -6,7 +6,8 @@ from ..driver import PageFacade
 from ..failures import IncurableStepError, ProductDefectError
 from ..llm import LlmProvider
 from ..reporting import StepReporter
-from .generator import CLASSIFICATION_PROMPT, StepGenerator
+from .classification import CLASSIFICATION_PROMPT
+from .generator import StepGenerator
 
 
 class StepHealer:

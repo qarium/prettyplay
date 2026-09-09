@@ -286,12 +286,15 @@ class TestDriverSessionLogic:
             "chromium", factory, Error("Chromium distribution 'chrome' is not found")
         )
 
+        def open_context() -> None:
+            session = DriverSession(Config(browser="chrome"))
+            session.open_context()
+
         with (
             mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory),
             pytest.raises(Error, match="is not found"),
         ):
-            session = DriverSession(Config(browser="chrome"))
-            session.open_context()
+            open_context()
 
     def test_close_stops_browser_and_driver(self) -> None:
         factory = FakePlaywrightFactory()

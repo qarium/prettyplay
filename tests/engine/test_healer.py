@@ -7,7 +7,7 @@ import pytest
 from prettyplay.cache import CachedStep, RunBudgets, StepCache, StepIdentity
 from prettyplay.config import Config
 from prettyplay.engine import StepHealer
-from prettyplay.engine.generator import CLASSIFICATION_PROMPT
+from prettyplay.engine.classification import CLASSIFICATION_PROMPT
 from prettyplay.failures import (
     IncurableStepError,
     LlmUnavailableError,
@@ -299,7 +299,7 @@ class TestEngineCellFacade:
     def test_engine_facade_reexports_all_entities(self) -> None:
         from prettyplay import engine  # noqa: PLC0415 — проверка фасада клетки
 
-        assert sorted(engine.__all__) == ["StepGenerator", "StepHealer", "run_step_code"]
+        assert sorted(engine.__all__) == ["StepGenerator", "StepHealer", "classify_step_failure", "run_step_code"]
 
 
 def test_real_cache_spy_not_needed_for_healer(tmp_path: Path) -> None:

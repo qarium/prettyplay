@@ -8,11 +8,8 @@ import pytest
 from prettyplay.cache import RunBudgets, StepCache, StepIdentity
 from prettyplay.config import Config
 from prettyplay.engine import StepGenerator
-from prettyplay.engine.generator import (
-    CLASSIFICATION_PROMPT,
-    GENERATION_PROMPT,
-    PAGE_API_SURFACE,
-)
+from prettyplay.engine import generator as generator_module  # для проверки переноса CLASSIFICATION_PROMPT
+from prettyplay.engine.generator import GENERATION_PROMPT, PAGE_API_SURFACE
 from prettyplay.failures import IncurableStepError, LlmUnavailableError
 from prettyplay.reporting import StepHooks, StepReporter
 
@@ -363,9 +360,8 @@ class TestPromptConstants:
         assert GENERATION_PROMPT.startswith("You generate executable Python code")
         assert "def step(page) -> None:" in GENERATION_PROMPT
 
-    def test_classification_prompt_is_frozen_text(self) -> None:
-        assert CLASSIFICATION_PROMPT.startswith("You classify a failure")
-        assert "category | explanation | recommendation" in CLASSIFICATION_PROMPT
+    def test_classification_prompt_moved_out_of_generator(self) -> None:
+        assert not hasattr(generator_module, "CLASSIFICATION_PROMPT")  # переехала в classification.py
 
     def test_page_api_surface_lists_every_facade_call(self) -> None:
         for call in (

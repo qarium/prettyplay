@@ -37,27 +37,6 @@ Rules:
 - The step must complete exactly what STEP says — nothing more, nothing less
 - Output only the code block, no explanations"""
 
-#: System prompt of every classification request; used by the healer, applied verbatim.
-CLASSIFICATION_PROMPT = """You classify a failure of a cached web UI test step.
-
-Input you receive:
-- STEP: the step sentence
-- CODE: the step code that failed
-- ERROR: the failure description
-- PAGE SNAPSHOT: the accessibility snapshot of the current page
-- SCREENSHOT: an image of the page, when attached
-
-Answer with exactly one line of the form:
-category | explanation | recommendation
-
-where category is one of:
-- rot — the UI changed (selectors, texts, structure) and the step can be regenerated for the same intent
-- product_defect — the step works as written but the expected behavior of the application is genuinely broken
-- incurable — the step sentence no longer matches reality, the intent is ambiguous, or regeneration cannot help
-
-explanation: one short sentence why. recommendation: one short sentence what the engineer should do.
-Output only that single line — no code, no extra text."""
-
 #: Frozen surface listing of the driver facade — the only calls step code may make.
 #: Mirrors ``prettyplay/driver/.usages/facade.md`` verbatim; the driver facade is a
 #: backward-compatibility contract, so this constant changes only together with it.
