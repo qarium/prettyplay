@@ -3,10 +3,10 @@
 from ..cache import CachedStep, RunBudgets, StepCache
 from ..config import Config
 from ..driver import PageFacade
-from ..failures import IncurableStepError, ProductDefectError
+from ..failures import FailureVerdict, IncurableStepError, ProductDefectError
 from ..llm import LlmProvider
 from ..reporting import StepReporter
-from .classification import CLASSIFICATION_PROMPT
+from .classification import classify_step_failure
 from .generator import StepGenerator
 
 
@@ -75,33 +75,39 @@ class StepHealer:
         Raises:
             ProductDefectError: the expectation of the step is genuinely
                 broken in the product; the cache stays untouched.
-            IncurableStepError: the verdict says regeneration cannot help.
+            IncurableStepError: the verdict says regeneration cannot help,
+                or the regeneration attempt budget is exhausted — the
+                exhaustion reuses the verdict of this classification, no
+                second LLM request is made.
             LlmUnavailableError: the provider service failed; no retry.
         """
         step_text = step.identity.normalized_text
-        snapshot = page.aria_snapshot()
-        screenshot = page.screenshot() if self._config.send_screenshots else None
-        verdict = self._provider.classify_failure(
-            prompt=CLASSIFICATION_PROMPT,
-            step_text=step_text,
-            code=step.code,
-            error=error,
-            snapshot=snapshot,
-            screenshot=screenshot,
+        classification = classify_step_failure(self._config, self._provider, step_text, step.code, error, page)
+        verdict = FailureVerdict(
+            category=classification.category,
+            explanation=classification.explanation,
+            recommendation=classification.recommendation,
         )
-        self._reporter.emit("on_healing_started", {"step_text": step_text, "category": verdict.category})
-        if verdict.category == "product_defect":
-            raise ProductDefectError(step_text, verdict.explanation, None)  # кэш не тронут; вердикт — задача 8
-        if verdict.category == "incurable":
-            raise IncurableStepError(step_text, verdict.explanation, None)  # вердикт — задача 8
+        self._reporter.emit("on_healing_started", {"step_text": step_text, "category": classification.category})
+        if classification.category == "product_defect":
+            raise ProductDefectError(step_text, classification.explanation, verdict)
+        if classification.category == "incurable":
+            raise IncurableStepError(step_text, classification.explanation, verdict)
 
-        healed = self._generator.regenerate(
-            identity=step.identity,
-            step_text=step_text,
-            previous_steps=previous_steps,
-            page=page,
-            existing_code=step.code,
-            error=error,
-        )
-        self._reporter.emit("on_healed", {"step_text": step_text, "explanation": verdict.explanation})
+        try:
+            healed = self._generator.regenerate(
+                identity=step.identity,
+                step_text=step_text,
+                previous_steps=previous_steps,
+                page=page,
+                existing_code=step.code,
+                error=error,
+            )
+        except IncurableStepError as incurable:
+            if incurable.verdict is None:
+                # исчерпание регенерации: вердикт этой классификации, без второго LLM-запроса
+                raise IncurableStepError(step_text, incurable.reason, verdict) from incurable
+            raise  # свежий вердикт проваленной проверки никогда не перезаписывается
+
+        self._reporter.emit("on_healed", {"step_text": step_text, "explanation": classification.explanation})
         return healed

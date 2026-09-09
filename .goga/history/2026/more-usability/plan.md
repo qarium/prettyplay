@@ -1145,25 +1145,25 @@ defect always fails the test.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (in `tests/engine/test_healer.py`; expected to fail): `heal` signature
+- [x] **Contract tests** (in `tests/engine/test_healer.py`; expected to fail): `heal` signature
   unchanged `(step, error, previous_steps, page)`; the healer constructs `FailureVerdict`
   objects (no string third arguments anywhere in the file)
-- [ ] **Code**: replace the inline classification with `classification =
+- [x] **Code**: replace the inline classification with `classification =
   classify_step_failure(config, provider, step_text, step.code, error, page)`
   (`LlmUnavailableError` propagates — an explicit infrastructure failure) and `verdict =
   FailureVerdict(classification.category, classification.explanation,
   classification.recommendation)`; `emit("on_healing_started", {step_text, category})`
-- [ ] **Code**: `product_defect` → `raise ProductDefectError(step_text,
+- [x] **Code**: `product_defect` → `raise ProductDefectError(step_text,
   classification.explanation, verdict)`; `incurable` → `raise IncurableStepError(step_text,
   classification.explanation, verdict)`
-- [ ] **Code**: `rot` → `healed = generator.regenerate(...)` inside
+- [x] **Code**: `rot` → `healed = generator.regenerate(...)` inside
   `try: … except IncurableStepError as incurable:` — if `incurable.verdict is None`
   (regeneration exhaustion): `raise IncurableStepError(step_text, incurable.reason, verdict)
   from incurable` (the step-1 verdict; the reason already names the exhausted pool); else
   re-raise as-is (a fresh failed-check verdict is never overwritten). On success:
   `emit("on_healed", {step_text, explanation})`, return `healed`
-- [ ] **Interface verification**: `.venv/bin/python -m pytest tests/engine/test_healer.py -q`
-- [ ] **Logic tests** (design scenarios; English sample data, fake provider with scripted
+- [x] **Interface verification**: `.venv/bin/python -m pytest tests/engine/test_healer.py -q`
+- [x] **Logic tests** (design scenarios; English sample data, fake provider with scripted
   sequences and call counters):
   - `test_heal_product_defect_carries_full_verdict`: classification
     `FailureClassification("product_defect", "expected the total 100, observed 90", "file a
@@ -1194,11 +1194,11 @@ defect always fails the test.
     `excinfo.value.verdict.category == "product_defect"` (the fresh verdict, not the rot one)
   - fix the registered breakages in this file: error constructors and recommendation fallbacks
     → verdict form
-- [ ] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — fix implementation until green
-- [ ] **Contract re-verification**: `heal` called exactly once per classification
+- [x] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — fix implementation until green
+- [x] **Contract re-verification**: `heal` called exactly once per classification
   (`classify_failure_call_count == 1` in every scenario); all four exit paths carry their
   verdicts; the cache write happens only via the generator
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/engine/`
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/engine/`
 
 ### Task 9: the `on_step_verdict` hook event (reporting)
 

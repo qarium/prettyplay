@@ -425,8 +425,7 @@ def test_incurable_verdict_fails_with_verdict_fields(tmp_path: Path) -> None:
         test.close()
 
     assert excinfo.value.reason == "текст шага не соответствует реальности"
-    # fallback: вердикт прикрепит задача 8
-    assert excinfo.value.recommendation == "reword the step or refresh the cache"
+    assert excinfo.value.recommendation == "переформулируйте шаг"  # вердикт healer'а, не fallback
     assert provider.generation_requests == []  # лечение не запрашивает регенерацию
     rewritten = (tmp_path / identity.filename).read_text(encoding="utf-8")
     assert "find_by_role" in rewritten  # кэш не тронут
