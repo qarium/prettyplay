@@ -655,15 +655,15 @@ Cross-entity verification through the `PrettyTest` facade (the existing `tests/t
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] Create/extend the scenarios in `tests/test_integration.py` (fake page + fake provider + recording hooks, `PrettyTest` with a `tmp_path` pyproject):
+- [x] Create/extend the scenarios in `tests/test_integration.py` (fake page + fake provider + recording hooks, `PrettyTest` with a `tmp_path` pyproject):
   - strict + cache miss: `PrettyTest(..., config=PrettyConfig(strict=True))` → `action(...)` raises `IncurableStepError`; `str(exc)` follows the structured template (`step:` line, fallback `recommendation:`); the `on_step_failed` hook payload `["error"] == str(exc)`; `on_step_verdict` never fires; no generation/healing events
   - strict + failed cached step with a product_defect fake classification on an assertion step: raises `ProductDefectError` carrying the verdict; `on_step_verdict` fires with the three verdict fields; the log record of `on_step_failed` carries the same multi-line render (`error` extra field, no `ctx_` prefixing)
   - non-strict rot flow: the healer regenerates through the fake provider; the healed step re-executes and the cache is rewritten; the `on_step_failed` of an intermediate terminal case (unhealable) carries the full render with the `error:` line (full text, no truncation)
   - classification instructions through the runtime: `PrettyConfig(classification_prompt=...)` reaches the fake provider's `classify_failure(user_instructions=...)` on the strict path; `generation_prompt` never reaches a classification call and vice versa
   - settings flow: a pyproject with `[tool.prettyplay.browser]` reaches the wired executor config (`browser.screen`, `strict`) without launching a browser
-- [ ] Test edge case: strict mode never writes the cache — after a strict failure, no new cache file appears (generation path never runs)
-- [ ] Run validation: `pytest tests/test_integration.py -v`, then the full gates — `pytest tests/ -x` green; `ruff check prettyplay/` clean; `python -c "from prettyplay import BrowserConfig, PrettyConfig, PrettyTest"` succeeds
-- [ ] Final sweep: module docstrings of `errors.py`, `models.py`, `loader.py`, `session.py`, `executor.py`, `text.py`, `classification.py` carry no statements about the old flat keys, the verdict-tail render or `first_line_short`; `prettyplay/cache`, `prettyplay/reporting` sources and every `CODEMANIFEST` are untouched (`git diff --stat` check)
+- [x] Test edge case: strict mode never writes the cache — after a strict failure, no new cache file appears (generation path never runs)
+- [x] Run validation: `pytest tests/test_integration.py -v`, then the full gates — `pytest tests/ -x` green; `ruff check prettyplay/` clean; `python -c "from prettyplay import BrowserConfig, PrettyConfig, PrettyTest"` succeeds
+- [x] Final sweep: module docstrings of `errors.py`, `models.py`, `loader.py`, `session.py`, `executor.py`, `text.py`, `classification.py` carry no statements about the old flat keys, the verdict-tail render or `first_line_short`; `prettyplay/cache`, `prettyplay/reporting` sources and every `CODEMANIFEST` are untouched (`git diff --stat` check — verified against the architecture-stage commit 682911b, the baseline the implementation tasks started from)
 
 ---
 
@@ -679,16 +679,16 @@ Cross-entity verification through the `PrettyTest` facade (the existing `tests/t
 
 ## Completion Criteria
 
-- [ ] Every contract entity is implemented in the correct `location` (`BrowserConfig`, `Config`, `load_config`, `render_terminal_message`, `FailureVerdict.render`, `ProductDefectError`, `IncurableStepError`, `LLMUnavailableError`, `LLMProvider`, `OpenAIProvider`/`AnthropicProvider` `classify_failure`, `DriverSession.open_context`, `classify_step_failure`, `StepGenerator`, `StepHealer`, `StepExecutor`, `PrettyTest`)
-- [ ] Every contract entity is accessible from its facade (`render_terminal_message` from `prettyplay.failures`; `BrowserConfig` from `prettyplay.config` and from `prettyplay`)
-- [ ] Properties and methods match the declared API (eight-parameter `StepExecutor`; `user_instructions` in `classify_failure`; `error` before `verdict` in the terminal errors)
-- [ ] Descriptions are reflected in behavior (screen precedence matrix, strict replay-only guarantees, one-render rule, full-text error field, USER INSTRUCTIONS placement parity, colon-free authored reasons)
-- [ ] Contract dependencies are met (imports resolve; no cross-import cycles introduced)
-- [ ] Re-exports are accessible from the facade (`->PrettyConfig`, `->BrowserConfig`)
-- [ ] Every coding task followed the TDD workflow (contract tests → code → verification → logic tests → debugging → re-verification → lint)
-- [ ] Contract tests and logic tests cover facade, API, and behavior within each coding task (26 design scenarios + updates of the pinned old shapes)
-- [ ] Integration tests exist for the cross-entity scenarios (strict run, one-render across exception/log/hook, settings flow)
-- [ ] No package boundary was expanded (`prettyplay/cache` and `prettyplay/reporting` sources untouched; no new cells)
-- [ ] `CODEMANIFEST` files were not modified (contract is read-only)
-- [ ] All validation commands pass (`pytest tests/ -x`, `ruff check prettyplay/`, facade import)
-- [ ] Every Usages entry is mentioned in at least one task (`conventions`, `pydantic`, `playwright`, `openai`, `anthropic`, `system_prompt`/`classification_prompt` inline, imported `taxonomy`/`facade`/`classification`/`hooks`/`generation`/`healing`)
+- [x] Every contract entity is implemented in the correct `location` (`BrowserConfig`, `Config`, `load_config`, `render_terminal_message`, `FailureVerdict.render`, `ProductDefectError`, `IncurableStepError`, `LLMUnavailableError`, `LLMProvider`, `OpenAIProvider`/`AnthropicProvider` `classify_failure`, `DriverSession.open_context`, `classify_step_failure`, `StepGenerator`, `StepHealer`, `StepExecutor`, `PrettyTest`)
+- [x] Every contract entity is accessible from its facade (`render_terminal_message` from `prettyplay.failures`; `BrowserConfig` from `prettyplay.config` and from `prettyplay`)
+- [x] Properties and methods match the declared API (eight-parameter `StepExecutor`; `user_instructions` in `classify_failure`; `error` before `verdict` in the terminal errors)
+- [x] Descriptions are reflected in behavior (screen precedence matrix, strict replay-only guarantees, one-render rule, full-text error field, USER INSTRUCTIONS placement parity, colon-free authored reasons)
+- [x] Contract dependencies are met (imports resolve; no cross-import cycles introduced)
+- [x] Re-exports are accessible from the facade (`->PrettyConfig`, `->BrowserConfig`)
+- [x] Every coding task followed the TDD workflow (contract tests → code → verification → logic tests → debugging → re-verification → lint)
+- [x] Contract tests and logic tests cover facade, API, and behavior within each coding task (26 design scenarios + updates of the pinned old shapes)
+- [x] Integration tests exist for the cross-entity scenarios (strict run, one-render across exception/log/hook, settings flow)
+- [x] No package boundary was expanded (`prettyplay/cache` and `prettyplay/reporting` sources untouched; no new cells)
+- [x] `CODEMANIFEST` files were not modified (contract is read-only)
+- [x] All validation commands pass (`pytest tests/ -x`, `ruff check prettyplay/`, facade import)
+- [x] Every Usages entry is mentioned in at least one task (`conventions`, `pydantic`, `playwright`, `openai`, `anthropic`, `system_prompt`/`classification_prompt` inline, imported `taxonomy`/`facade`/`classification`/`hooks`/`generation`/`healing`)

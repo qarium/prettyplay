@@ -1,6 +1,8 @@
 """Integration tests of the full step cycle through the public ``PrettyTest`` facade."""
 
 import contextlib
+import logging
+import os
 import traceback
 from collections.abc import Iterator
 from pathlib import Path
@@ -10,7 +12,7 @@ import prettyplay
 import pytest
 from prettyplay import BrowserConfig, PrettyTest
 from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step_text
-from prettyplay.config import Config
+from prettyplay.config import Config, load_config
 from prettyplay.failures import IncurableStepError, ProductDefectError
 from prettyplay.llm import FailureClassification, LLMProvider
 from prettyplay.reporting import StepHooks, StepReporter
@@ -241,6 +243,14 @@ def no_llm_credentials(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
 
 
+@pytest.fixture(autouse=True)
+def clean_prettyplay_env(monkeypatch):
+    """Unset every PRETTYPLAY_* variable: the file layer each test loads stays deterministic."""
+    for name in list(os.environ):
+        if name.startswith("PRETTYPLAY_"):
+            monkeypatch.delenv(name, raising=False)
+
+
 def test_pretty_config_exported_and_get_runtime_removed() -> None:
     """The embedding contract: PrettyConfig and BrowserConfig re-exported, the singleton gone."""
     assert prettyplay.PrettyConfig is Config
@@ -292,6 +302,21 @@ def seed_step(  # noqa: PLR0913 — the address fields mirror the identity tripl
         CachedStep(identity=identity, code=code, created_at="2026-09-08")
     )
     return identity
+
+
+@contextlib.contextmanager
+def configured_test(config: Config, provider: LLMProvider, page: FakePage) -> Iterator[PrettyTest]:
+    """Build one PrettyTest through the real layered loader carrying the given config.
+
+    Unlike :func:`installed_test` the settings resolve through the real
+    ``load_config`` merge — the programmatic layer wins over the file layer,
+    exactly as an integrator's ``PrettyTest(..., config=PrettyConfig(...))``
+    does; the provider factory and the page stay stubbed boundaries.
+    """
+    with mock.patch("prettyplay.runtime.create_provider", return_value=provider):
+        test = PrettyTest("login-flow", config=config)
+        with mock.patch.object(test._runtime, "open_page", return_value=page):
+            yield test
 
 
 def test_action_cached_step_runs_without_llm(tmp_path: Path) -> None:
@@ -561,3 +586,208 @@ def test_incurable_verdict_fails_with_verdict_fields(tmp_path: Path) -> None:
     assert rendered.index("текст шага не соответствует реальности") < rendered.index("explanation:")
     assert "category:" not in rendered  # the category travels in structured fields, never in the render
     assert rendered.endswith("recommendation: переформулируйте шаг")
+
+
+def test_strict_cache_miss_raises_incurable_without_generation(tmp_path: Path) -> None:
+    """Strict + cache miss: generation is forbidden; the render carries the step and the fallback guidance."""
+    provider = ForbiddenProvider()
+    page = FakePage()
+    hook = RecorderHook()
+
+    with configured_test(Config(strict=True, cache_root=str(tmp_path)), provider, page) as test:
+        test.add_hooks(hook)
+        with pytest.raises(IncurableStepError) as excinfo:
+            test.action("Нажать «Войти»")
+        test.close()
+
+    assert excinfo.value.reason == "strict mode forbids generation — the step is missing from the cache"
+    assert excinfo.value.error == ""
+    assert excinfo.value.verdict is None
+    rendered = str(excinfo.value)
+    assert "step: Нажать «Войти»" in rendered
+    assert "recommendation: reword the step or refresh the cache" in rendered  # render-only fallback verdict
+    assert provider.calls == 0  # no LLM boundary touched at all
+    assert [event for event, _payload in hook.events] == ["on_step_started", "on_step_failed"]
+    assert hook.events[1][1]["error"] == str(excinfo.value)  # one render — never re-composed
+
+
+def test_strict_failed_cached_step_classifies_without_healing(tmp_path: Path, caplog) -> None:
+    """Strict + failed cached step: classification is the only LLM call; the log record carries the render."""
+    step_text = "виден баннер «С возвращением»"
+    broken_code = "def step(page) -> None:\n    page.find_by_text('Welcome back').expect_visible()\n"
+    seed_step(tmp_path, step_text, broken_code, cache_key="login-flow", step_type="assertion")
+    provider = StubProvider(
+        verdict=FailureClassification(
+            category="product_defect", explanation="баннера нет в продукте", recommendation="завести дефект"
+        ),
+    )
+    page = FakePage(broken_lookups=frozenset({"find_by_text"}))
+    hook = RecorderHook()
+    caplog.set_level(logging.INFO, logger="prettyplay")
+
+    with configured_test(Config(strict=True, cache_root=str(tmp_path)), provider, page) as test:
+        test.add_hooks(hook)
+        with pytest.raises(ProductDefectError) as excinfo:
+            test.assertion(step_text)
+        test.close()
+
+    assert excinfo.value.verdict is not None
+    assert excinfo.value.verdict.category == "product_defect"
+    assert excinfo.value.error == "element not found"  # assertion failure — no type prefix
+    assert provider.generation_requests == []  # classification is the only LLM call of the strict path
+    assert len(provider.classification_requests) == 1
+    assert [event for event, _payload in hook.events] == [
+        "on_step_started",
+        "on_step_failed",
+        "on_step_verdict",
+    ]  # no on_healing_started / on_generation_started: the engines never run
+    assert hook.events[1][1]["error"] == str(excinfo.value)
+    assert hook.events[2][1] == {
+        "step_text": step_text,
+        "category": "product_defect",
+        "explanation": "баннера нет в продукте",
+        "recommendation": "завести дефект",
+    }
+    records = [record for record in caplog.records if record.getMessage() == "on_step_failed"]
+    assert len(records) == 1
+    assert records[0].error == str(excinfo.value)  # the same multi-line render, never re-composed
+    assert "\n" in records[0].error
+    assert not hasattr(records[0], "ctx_error")  # "error" is not a reserved log-record key — no prefixing
+
+
+def test_nonstrict_unhealable_failure_carries_full_error_text(tmp_path: Path) -> None:
+    """Non-strict unhealable flow: on_step_failed carries the full error line — no 200-char truncation."""
+    long_error = "locator.click: Timeout 30000ms exceeded; waiting for " + "x" * 220
+    failing_code = f"def step(page) -> None:\n    raise RuntimeError({long_error!r})\n"
+    seed_step(tmp_path, "нажать Войти", failing_code, cache_key="login-flow")
+    provider = StubProvider(
+        verdict=FailureClassification(
+            category="incurable", explanation="шаг не соответствует реальности", recommendation="переформулируйте шаг"
+        ),
+    )
+    page = FakePage()
+    hook = RecorderHook()
+
+    with configured_test(Config(cache_root=str(tmp_path)), provider, page) as test:
+        test.add_hooks(hook)
+        with pytest.raises(IncurableStepError) as excinfo:
+            test.action("нажать Войти")
+        test.close()
+
+    assert excinfo.value.error == f"RuntimeError: {long_error}"  # full typed text, well past the old 200-char cut
+    failed = hook.events[[event for event, _payload in hook.events].index("on_step_failed")][1]
+    assert failed["error"] == str(excinfo.value)  # the render — never re-composed
+    assert f"error: RuntimeError: {long_error}" in failed["error"]  # the full error line of the template
+
+
+def test_classification_instructions_reach_only_classification_requests(tmp_path: Path) -> None:
+    """The configured prompts reach their own request kinds only — generation and classification stay separate."""
+    provider = StubProvider(
+        answers=[WORKING_CODE],
+        verdict=FailureClassification(category="rot", explanation="селектор сгнил", recommendation="обновить шаг"),
+    )
+    broken_code = "def step(page) -> None:\n    page.find_by_role('button', name='Войти').click()\n"
+
+    # non-strict pass: one generation request — the generation instructions ride along
+    with configured_test(
+        Config(
+            cache_root=str(tmp_path / "generated"),
+            generation_prompt="prefer data-test-id",
+            classification_prompt="answer in Russian",
+        ),
+        provider,
+        FakePage(),
+    ) as test:
+        test.action("open the app page")
+        test.close()
+
+    # strict pass: one classification request of a failed cached step — the classification instructions ride along
+    seed_step(tmp_path / "classified", "нажать Войти", broken_code, cache_key="login-flow")
+    with configured_test(
+        Config(
+            strict=True,
+            cache_root=str(tmp_path / "classified"),
+            generation_prompt="prefer data-test-id",
+            classification_prompt="answer in Russian",
+        ),
+        provider,
+        FakePage(broken_lookups=frozenset({"find_by_role"})),
+    ) as test:
+        with pytest.raises(IncurableStepError):  # strict: rot is still incurable — the healer never runs
+            test.action("нажать Войти")
+        test.close()
+
+    assert [request["user_instructions"] for request in provider.generation_requests] == ["prefer data-test-id"]
+    assert [request["user_instructions"] for request in provider.classification_requests] == ["answer in Russian"]
+    assert (
+        "- USER INSTRUCTIONS: the project's classification guidance, when configured"
+        in provider.classification_requests[0]["prompt"]
+    )
+    # no cross-contamination between the two configured texts and the request kinds
+    assert "answer in Russian" not in provider.generation_requests[0]["prompt"]
+    assert "prefer data-test-id" not in provider.classification_requests[0]["prompt"]
+
+
+def test_pyproject_settings_reach_the_executor_config(tmp_path: Path) -> None:
+    """The file layer flows into the wired executor config — without launching a browser."""
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        "[tool.prettyplay]\n"
+        "strict = true\n"
+        "\n"
+        "[tool.prettyplay.browser]\n"
+        'name = "firefox"\n'
+        'screen = "fullscreen"\n'
+        "headless = false\n",
+        encoding="utf-8",
+    )
+
+    with (
+        mock.patch(
+            "prettyplay.scenario.load_config",
+            side_effect=lambda _path, overrides: load_config(str(pyproject), overrides),
+        ),
+        mock.patch("prettyplay.runtime.create_provider", return_value=ForbiddenProvider()),
+    ):
+        test = PrettyTest("login-flow")
+
+    wired = test._executor._config
+    assert wired.strict is True
+    assert wired.browser.name == "firefox"
+    assert wired.browser.screen == "fullscreen"
+    assert wired.browser.headless is False
+    assert test._runtime._driver is None  # the driver constructs lazily — construction launched nothing
+    test.close()
+
+
+def test_strict_failure_never_writes_the_cache(tmp_path: Path) -> None:
+    """Strict mode never writes the cache: the generation path — the only writer — never runs."""
+    miss_root = tmp_path / "miss"
+    failed_root = tmp_path / "failed"
+    miss_root.mkdir()
+    failed_root.mkdir()
+
+    # cache miss: generation is forbidden — the empty cache stays empty
+    with configured_test(Config(strict=True, cache_root=str(miss_root)), ForbiddenProvider(), FakePage()) as test:
+        with pytest.raises(IncurableStepError):
+            test.action("шаг, которого нет в кэше")
+        test.close()
+
+    assert [path for path in miss_root.rglob("*") if path.is_file()] == []
+
+    # failed cached step: classification only — the seeded file survives untouched
+    step_text = "нажать Войти"
+    broken_code = "def step(page) -> None:\n    page.find_by_role('button', name='Войти').click()\n"
+    identity = seed_step(failed_root, step_text, broken_code, cache_key="login-flow")
+    provider = StubProvider(
+        verdict=FailureClassification(category="rot", explanation="селектор сгнил", recommendation="обновить шаг")
+    )
+    page = FakePage(broken_lookups=frozenset({"find_by_role"}))
+
+    with configured_test(Config(strict=True, cache_root=str(failed_root)), provider, page) as test:
+        with pytest.raises(IncurableStepError):
+            test.action(step_text)
+        test.close()
+
+    assert [path.name for path in failed_root.iterdir()] == [identity.filename]
+    assert "find_by_role" in (failed_root / identity.filename).read_text(encoding="utf-8")  # bytes unchanged
