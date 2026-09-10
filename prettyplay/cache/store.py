@@ -144,7 +144,7 @@ class StepCache:
 
         for _ in range(_REPLACE_ATTEMPTS):
             try:
-                Path(tmp_name).replace(self._target_dir() / step.identity.filename)
+                os.replace(tmp_name, self._target_dir() / step.identity.filename)
                 break
             except PermissionError:
                 time.sleep(_REPLACE_BACKOFF_SECONDS)  # Windows: target busy
