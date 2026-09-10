@@ -431,7 +431,7 @@ class TestUniversalLocatorLogic:
 
         element = facade.find_by_attribute("data-test-id", 'a"b\\c')
 
-        assert page.calls == [('locator', '[data-test-id="a\\"b\\\\c"]')]
+        assert page.calls == [("locator", '[data-test-id="a\\"b\\\\c"]')]
         assert isinstance(element, LocatorFacade)
 
     def test_universal_locators_never_raise_eagerly(self) -> None:

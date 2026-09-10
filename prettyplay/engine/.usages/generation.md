@@ -29,9 +29,12 @@ Both engines classify through one routine:
 from prettyplay.engine import classify_step_failure
 
 classification = classify_step_failure(
-    config=config, provider=provider,
-    step_text="click the «Sign in» button", code=step_code,
-    error="element not found: button «Sign in»", page=page,
+    config=config,
+    provider=provider,
+    step_text="click the «Sign in» button",
+    code=step_code,
+    error="element not found: button «Sign in»",
+    page=page,
 )
 ```
 

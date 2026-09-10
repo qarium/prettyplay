@@ -36,7 +36,7 @@ Two author-facing abilities on the test object:
 ```python
 with PrettyTest("login-flow") as t:
     t.action("open the login page")
-    png = t.get_screenshot()                 # full-page PNG bytes of the current state
+    png = t.get_screenshot()  # full-page PNG bytes of the current state
     t.save_screenshot("artifacts/home.png")  # write full-page PNG to an explicit path
 ```
 

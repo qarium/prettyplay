@@ -187,8 +187,6 @@ def load_config(pyproject_path: str | None = None, overrides: Config | None = No
         return file_config
 
     explicit = overrides.model_fields_set
-    update = {
-        name: value for name, value in overrides if name in explicit and (value or not isinstance(value, str))
-    }
+    update = {name: value for name, value in overrides if name in explicit and (value or not isinstance(value, str))}
 
     return file_config.model_copy(update=update)

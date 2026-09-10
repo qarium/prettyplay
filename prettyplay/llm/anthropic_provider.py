@@ -148,9 +148,7 @@ class AnthropicProvider(LlmProvider):
             LlmUnavailableError: the SDK client is unavailable or the
                 service request failed.
         """
-        text = build_fields_text(
-            user_instructions, step_text, previous_steps, snapshot, page_api, existing_code, error
-        )
+        text = build_fields_text(user_instructions, step_text, previous_steps, snapshot, page_api, existing_code, error)
 
         try:
             response = self._get_client().messages.create(

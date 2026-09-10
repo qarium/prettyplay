@@ -118,9 +118,7 @@ class OpenAiProvider(LlmProvider):
             LlmUnavailableError: the SDK client is unavailable or the
                 service request failed.
         """
-        text = build_fields_text(
-            user_instructions, step_text, previous_steps, snapshot, page_api, existing_code, error
-        )
+        text = build_fields_text(user_instructions, step_text, previous_steps, snapshot, page_api, existing_code, error)
         messages = [
             {"role": "system", "content": prompt},
             {"role": "user", "content": openai_user_content(text, screenshot)},

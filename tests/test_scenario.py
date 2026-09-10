@@ -605,6 +605,9 @@ class TestInstructionsIndependentCacheAddress:
         assert first._runtime.budgets is not second._runtime.budgets
         assert first._runtime.budgets._generation_used == {}  # cache hit spends no attempts
         assert second._runtime.budgets._generation_used == {}
-        assert first._runtime.budgets.try_generation(
-            StepIdentity(cache_key=CACHE_KEY, step_type="action", normalized_text=normalize_step_text(STEP_TEXT))
-        ) is True
+        assert (
+            first._runtime.budgets.try_generation(
+                StepIdentity(cache_key=CACHE_KEY, step_type="action", normalized_text=normalize_step_text(STEP_TEXT))
+            )
+            is True
+        )
