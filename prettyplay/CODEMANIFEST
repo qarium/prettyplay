@@ -1,6 +1,7 @@
 Imports:
   - Types:
       - Config AS PrettyConfig
+      - BrowserConfig
       - load_config
     From: prettyplay/config
   - Types:
@@ -12,8 +13,9 @@ Imports:
   - Types:
       - ProductDefectError
       - IncurableStepError
-      - LlmUnavailableError
+      - LLMUnavailableError
       - PrettyplayError
+      - FailureVerdict
     Usages:
       - taxonomy
     From: prettyplay/failures
@@ -28,13 +30,14 @@ Imports:
       - RunBudgets
     From: prettyplay/cache
   - Types:
-      - LlmProvider
+      - LLMProvider
       - create_provider
     From: prettyplay/llm
   - Types:
       - StepGenerator
       - StepHealer
       - run_step_code
+      - classify_step_failure
     Usages:
       - generation
       - healing
@@ -53,10 +56,14 @@ Annotations: |
   Framework-agnostic: no plugin machinery, no runner integration — the integrator wires the library in a few lines.
   Step sentences are visible in the test output through the standard logger prettyplay; step texts land in the cache and in LLM requests — never put secrets or personal data into a step sentence.
   `PrettyConfig` — the public name of the settings model — is re-exported by this facade (see the embedding).
+  `BrowserConfig` — the public name of the browser settings group — is re-exported by this facade (see the embedding), uniform with `PrettyConfig`.
+  Strict mode — the strict field of the effective config — makes the step cycle replay-only: cached code executes honestly, nothing is ever (re)generated. A cache miss is the incurable failure stating that strict forbids generation; a failed cached step is at most classified — never regenerated; without LLM access the failure raises immediately by step type. Classifications are the only LLM calls of a strict run; the generation and healing budgets are never consumed.
 
 ---
 
 ->PrettyConfig: {}
+
+->BrowserConfig: {}
 
 "PrettyTest(cache_key: str, cache_path: str | None, config: PrettyConfig | None)":
   location: scenario.py
@@ -65,7 +72,7 @@ Annotations: |
 
     `cache_key`: the mandatory explicit context key — part of the step address; equal keys in the shared root reuse steps across tests.
     `cache_path`: the optional cache subdirectory — part of the address; steps never leak across subdirectories.
-    `config`: per-test overrides — the same full model; explicitly set values win, unset/empty fields resolve from pyproject+env; None — everything resolves from pyproject+env, as before.
+    `config`: per-test overrides — the same full model, the nested `BrowserConfig` group and the strict switch included; explicitly set values win, unset/empty fields resolve from pyproject+env; None — everything resolves from pyproject+env, as before.
 
     Supports the context manager protocol: exit closes the test.
 
@@ -75,7 +82,7 @@ Annotations: |
     3. Construct the per-test reporter: `StepReporter` with an empty hooks list; add_hooks appends to it
     4. Construct the per-test `StepCache` from the runtime config, `cache_path` and the reporter
     5. Construct `StepGenerator` and `StepHealer` from the runtime config, provider and budgets, the step cache and the reporter
-    6. Construct `StepExecutor` with `cache_key`, the cache, the engines, the runtime budgets and the reporter
+    6. Construct `StepExecutor` with `cache_key`, the cache, the engines, the runtime budgets, the reporter, the runtime config and the runtime provider
     7. The test page opens lazily on the first step via the runtime open_page
 
     Requirements:
@@ -88,12 +95,12 @@ Annotations: |
     "action(text: str)": |
       Execute the action step `text`.
 
-      Delegates to the executor execute with the step type action, the sentence and the test page; failures propagate by kind — `ProductDefectError`, `IncurableStepError`, `LlmUnavailableError` (see `taxonomy`).
+      Delegates to the executor execute with the step type action, the sentence and the test page; failures propagate by kind — `ProductDefectError`, `IncurableStepError`, `LLMUnavailableError` (see `taxonomy`).
       A `PrettyplayError` leaving this method carries its traceback folded to the library boundary: internal library frames — engine, healing, provider — do not appear in what the runner shows.
     "assertion(text: str)": |
       Execute the assertion step `text` — a legitimately failed expectation surfaces as the product defect failure.
 
-      Delegates to the executor execute with the step type assertion; failures propagate by kind — `ProductDefectError`, `IncurableStepError`, `LlmUnavailableError` (see `taxonomy`).
+      Delegates to the executor execute with the step type assertion; failures propagate by kind — `ProductDefectError`, `IncurableStepError`, `LLMUnavailableError` (see `taxonomy`).
       A `PrettyplayError` leaving this method carries its traceback folded to the library boundary: internal library frames — engine, healing, provider — do not appear in what the runner shows.
     "get_screenshot() -> image: bytes": |
       Return a full-page PNG image of the current state of the test page — uniform with the facade screenshot.
@@ -116,16 +123,19 @@ Annotations: |
     "close()": |
       Close the test page context and stop the whole runtime of this test — the browser process, the Playwright driver and the driver thread; idempotent; the context manager exit does the same.
 
-"StepExecutor(cache_key: str, cache: StepCache, generator: StepGenerator, healer: StepHealer, budgets: RunBudgets, reporter: StepReporter)":
+"StepExecutor(cache_key: str, cache: StepCache, generator: StepGenerator, healer: StepHealer, budgets: RunBudgets, reporter: StepReporter, config: PrettyConfig, provider: LLMProvider)":
   location: executor.py
   annotations: |
-    The owner of the step cycle: cache hit — execute; cache miss — generate and store; cached failure — heal.
+    The owner of the step cycle: cache hit — execute; cache miss — generate and store; cached failure — heal. In strict mode the cycle is replay-only: nothing is ever (re)generated.
 
     `cache_key`: the context key of the owning test object.
     `cache`: the step cache of the test.
-    `generator` and `healer`: the engines (see `generation` and `healing` from Imports).
-    `budgets`: the per-test attempt registry.
+    `generator` and `healer`: the engines (see `generation` and `healing` from Imports) — never invoked in strict mode.
+    `budgets`: the per-test attempt registry — never consumed in strict mode.
     `reporter`: the visibility point.
+    `config`: the effective settings of the test — the source of the strict switch.
+    `provider`: the LLM port of the test — the source of the strict-path classification.
+    A classification reached on the strict path is carried by the raised terminal failure as a `FailureVerdict`.
   methods:
     "execute(step_text: str, step_type: str, page: PageFacade)": |
       Run one step through the full cycle.
@@ -133,16 +143,19 @@ Annotations: |
       Algorithm:
       1. Report on_step_started with the sentence and the step type
       2. Build the step identity: `normalize_step_text`, then `StepIdentity` with the test cache key and the step type
-      3. Load the cached step: a hit executes its code with `run_step_code` against `page`
-      4. On a hit execution failure: delegate to the healer heal with the failure description and the scenario context — a healed step is already re-executed and stored by the engine
-      5. On a miss: the generator generate — the engine stores the step on success
+      3. Load the cached step. Strict mode and a miss: raise `IncurableStepError` — the reason states that strict mode forbids generation and names the cache miss, the error field empty, the verdict absent; no generation request is made, no budget consumed. A hit: execute its code with `run_step_code` against `page`
+      4. On a hit execution failure. Strict mode — classification only: classify via `classify_step_failure` passing the full underlying error; a product_defect classification raises `ProductDefectError` carrying the verdict and the full underlying error — the message names what was expected against what was observed per the classification explanation; a rot or incurable classification raises `IncurableStepError` carrying them — the reason names the classification explanation; both authored colon-free; never regenerated: the healer is not invoked, the healing budget stays untouched, on_healing_started never fires; an unavailable LLM at this classification is skipped quietly with a WARNING and the failure raises immediately by step type without a verdict — an assertion step raises `ProductDefectError`, an action step raises `IncurableStepError`, each carrying the full underlying error, the message/reason stating that the step failed in strict mode without an LLM verdict — colon-free. Otherwise: delegate to the healer heal with the failure description and the scenario context — a healed step is already re-executed and stored by the engine
+      5. Otherwise on a miss: the generator generate — the engine stores the step on success
       6. Append the sentence to the scenario context of the test — the previous step texts feed the next generation
-      7. Report on_step_passed; on a failed step report on_step_failed with the sentence, the step type and the short error description — then, when the terminal failure carries a verdict, report on_step_verdict with the sentence and the three verdict fields; finally raise by kind — `ProductDefectError`, `IncurableStepError`, `LlmUnavailableError` (see `taxonomy`)
+      7. Report on_step_passed; on a failed step report on_step_failed with the sentence, the step type and the full render — the rendered message of the raised error, never re-composed; then, when the terminal failure carries a verdict, report on_step_verdict with the sentence and the three verdict fields taken from the verdict object; finally raise by kind — `ProductDefectError`, `IncurableStepError`, `LLMUnavailableError` (see `taxonomy`)
 
       Requirements:
       - The scenario context lives per test: steps of different tests never mix
       - A cached step executes with no LLM involvement whatsoever
       - An assertion step surfaces a legitimately failed expectation as the product defect failure
+      - Strict mode: the only LLM calls are classifications; the generation and healing budgets are never consumed; the engines are never invoked
+      - The error text carried by the raised failures: for failed checks — without the AssertionError prefix, the exception type already carries the assertion semantics; for action steps — the full underlying error text with its type
+      - One render per terminal failure: the exception message, the on_step_failed error payload and the log record carry the same rendered text
 
 "PrettyplayRuntime(config: PrettyConfig)":
   location: runtime.py
@@ -160,7 +173,7 @@ Annotations: |
       The browser process of this test, created lazily.
     "budgets -> RunBudgets": |
       The attempt registry of the test — one budget per step within the test.
-    "provider -> LlmProvider": |
+    "provider -> LLMProvider": |
       The LLM provider instance, created lazily on first access via `create_provider`.
 
       Requirements:
@@ -177,6 +190,6 @@ Annotations: |
 ---
 
 Author: Goga
-CreatedAt: 07/09/26
+CreatedAt: 10/09/26
 Description: |
-  The facade of prettyplay: the per-test scenario object with screenshot abilities, the step cycle executor with verdict reporting, and the per-test composition root.
+  The facade of prettyplay: the per-test scenario object with screenshot abilities, the step cycle executor with the strict replay-only path and verdict reporting, the per-test composition root, and the re-exported settings models — PrettyConfig and BrowserConfig.

@@ -45,11 +45,11 @@ with PrettyTest("login-flow") as t:
 
 ## Addressing
 
-The constructor arguments form the cache address: cache_key (mandatory) and cache_path (optional subdirectory). Equal cache keys in the shared root reuse one cached step across tests; a different language, step type or key is a different step.
+The constructor arguments form the cache address: cache_key (mandatory) and cache_path (optional subdirectory). Equal cache keys in the shared root reuse one cached step across tests; a different language, step type or key is a different step. User instructions (generation_prompt, classification_prompt) take no part in the address — a cached step never regenerates because the instructions changed.
 
 ## What you see
 
-Step sentences go to the logger prettyplay at info level — the suite output reads as a plain-language scenario. Healing, cache writes and skipped writes are reported loudly through the same logger.
+Step sentences go to the logger prettyplay at info level — the suite output reads as a plain-language scenario. A failed step renders one structured message — the primary reason, the step and the full underlying error, the verdict — identical in the runner output, the log and the on_step_failed hook. Healing, cache writes and skipped writes are reported loudly through the same logger.
 
 ## Limitations
 

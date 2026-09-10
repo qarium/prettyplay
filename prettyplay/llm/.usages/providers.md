@@ -26,7 +26,9 @@ base_url overrides the provider endpoint when set.
 
 ## Parity
 
-Both providers expose the same two operations — generate_step_code and classify_failure — with identical inputs, identical output shapes and the identical failure taxonomy: a provider service failure raises LlmUnavailableError; cached step code never depends on the provider. One request per attempt; attempt budgets belong to the calling engine.
+Both providers expose the same two operations — generate_step_code and classify_failure — with identical inputs, identical output shapes and the identical failure taxonomy: a provider service failure raises LLMUnavailableError; cached step code never depends on the provider. One request per attempt; attempt budgets belong to the calling engine.
+
+User instructions parity: each operation carries its own instructions — generation requests render the generation_prompt setting, classification requests render the classification_prompt setting — as a verbatim USER INSTRUCTIONS block with identical placement semantics in both providers. A parity requirement, not a capability difference.
 
 ## Answer shape
 

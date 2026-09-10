@@ -3,6 +3,8 @@ language: python
 image: prettyplay:latest
 dockerfile: .goga/Dockerfile
 
+.base-ref: &base-ref 0.0.x
+
 .claude-env: &claude-env
   ANTHROPIC_MODEL: opus
   ANTHROPIC_BASE_URL: "https://api.z.ai/api/anthropic"
@@ -12,13 +14,16 @@ build:
     agent: developer
   review_executor:
     agent: reviewer
-    base_ref: master
+    base_ref: *base-ref
 
 pipeline:
   agent: claude
   env:
     <<: *claude-env
     ANTHROPIC_DEFAULT_OPUS_MODEL: "glm-5.3[1m]"
+
+topics:
+  base_ref: *base-ref
 
 codemanifest:
   usages:

@@ -6,7 +6,9 @@ Annotations: |
 
   The failure taxonomy of the library: three distinct, user-distinguishable step failure kinds plus the shared verdict type; every failure carries an actionable message.
   All failure types derive from the single library base `PrettyplayError`; ProductDefectError additionally derives from AssertionError — the failed check is a failure, never an error, in any runner.
-  The rendered message of a terminal failure starts with its primary reason; the verdict render is appended, never interleaved.
+  The rendered message of a terminal failure follows the single structured template: the primary reason alone on the first line — no kind label and no internal colons, the exception type prefix rendered by the runner supplies the kind; then --- separated blocks.
+  One render — produced at exception construction through `render_terminal_message` — feeds the exception message, the log record and the on_step_failed hook payload; consumers never re-compose.
+  Reason texts authored by the engines and the executor are written without colons — the first-line contract of the render.
 
 ---
 
@@ -17,17 +19,42 @@ Annotations: |
 
     `message`: the failure description.
 
+"render_terminal_message(reason: str, step_text: str, error: str, verdict: FailureVerdict | None) -> text: str":
+  location: errors.py
+  annotations: |
+    Compose the single structured render of a terminal failure — the one text used by the exception message, the log record and the on_step_failed hook payload.
+
+    `reason`: the primary reason — the first line of the render; authored without colons.
+    `step_text`: the sentence of the failed step; empty — no step line.
+    `error`: the full underlying error text of the failed step code, locator details included; for failed checks passed without the AssertionError prefix — the exception type already carries the assertion semantics; empty — no error line.
+    `verdict`: the optional `FailureVerdict`; None or an empty render — no verdict block.
+    `text`: the rendered message.
+
+    Algorithm:
+    1. First line: `reason` verbatim
+    2. When `step_text` or `error` is non-empty: append the --- separator, then the step: line for a non-empty `step_text` and the error: line for a non-empty `error`
+    3. When `verdict` renders non-empty: append the --- separator, then the verdict block render
+    4. Join the lines
+
+    Requirements:
+    - The block order is fixed: reason, step/error, verdict
+    - Both step and error empty — the whole middle block is omitted, no bare separator
+    - The render ends without a trailing separator
+
+    Constraints:
+    - Never embed the step code — it lives in the cache and the log
+
 "FailureVerdict(category: str, explanation: str, recommendation: str)":
   location: errors.py
   annotations: |
     The verdict of a terminal step failure: what the LLM saw on the page at the moment of the failure and what the engineer should do next.
 
-    `category`: the classification label: rot, product_defect or incurable.
+    `category`: the classification label: rot, product_defect or incurable — travels in structured fields only, never in the render.
     `explanation`: what happened on the page — one short sentence.
     `recommendation`: the recommended engineer action — one short sentence.
 
     Requirements:
-    - Built by the engines from the failure classification; the failure types never request it themselves
+    - Built by the engines and the strict-mode executor from the failure classification; the failure types never request it themselves
   properties:
     "category -> str": |
       The classification label: rot, product_defect or incurable.
@@ -37,29 +64,31 @@ Annotations: |
       The recommended engineer action.
   methods:
     "render() -> text: str": |
-      Render the verdict as stable labelled lines — the single render used by the exception message tail, the hook event payload and the log record.
+      Render the verdict block of the structured terminal message — the aligned explanation and recommendation lines.
 
-      `text`: the rendered verdict.
+      `text`: the rendered verdict block; empty when both fields are empty.
 
       Algorithm:
-      1. Build one line per non-empty field: category:, explanation:, recommendation:
+      1. Build one line per non-empty field: explanation: and recommendation: — the values start at one column, aligned after the longest label; multi-line continuations indent to the same value column
       2. Join the lines
 
       Requirements:
+      - The category line is dropped: the category travels in the structured fields of the on_step_verdict event, never in the render
       - Labels are stable lowercase words — integrators parse them
 
-"PrettyplayError::ProductDefectError(step_text: str, message: str, verdict: FailureVerdict | None)":
+"PrettyplayError::ProductDefectError(step_text: str, message: str, error: str, verdict: FailureVerdict | None)":
   location: errors.py
   annotations: |
     A real functional product defect: the expectation of an assertion step legitimately did not hold against the current application state. This is the signal the test suite exists for.
 
     `step_text`: the sentence of the failed step.
     `message`: what exactly was expected and what was observed — the primary reason.
+    `error`: the full underlying error text of the failed step code, locator details included; for failed checks carried without the AssertionError prefix; empty — the render carries no error line.
     `verdict`: the optional `FailureVerdict`; absent when the LLM was unavailable — the failure never waits for it.
 
     Requirements:
     - Derives from `PrettyplayError` and AssertionError: catchable as any library failure and as an assertion failure in the same except clauses
-    - The rendered message starts with `message`; the `verdict` render is appended when present
+    - The rendered message is composed through `render_terminal_message` from `message`, `step_text`, `error` and `verdict`
     - The traceback a runner sees starts at the library boundary — internal library frames are folded away
     - Propagates to the test runner as a failing test: no retry, no healing
 
@@ -70,33 +99,38 @@ Annotations: |
       The sentence of the failed step.
     "message -> str": |
       What exactly was expected and what was observed.
+    "error -> str": |
+      The full underlying error text of the failed step code; empty means no underlying code error.
     "verdict -> FailureVerdict | None": |
       The optional failure verdict; None — the explicit absence when the LLM was unavailable.
 
-"PrettyplayError::IncurableStepError(step_text: str, reason: str, verdict: FailureVerdict | None)":
+"PrettyplayError::IncurableStepError(step_text: str, reason: str, error: str, verdict: FailureVerdict | None)":
   location: errors.py
   annotations: |
-    An incurable step: regeneration cannot produce working code — the attempt budget is exhausted, the step text no longer matches the application reality, or the intent is ambiguous.
+    An incurable step: regeneration cannot produce working code — the attempt budget is exhausted, the step text no longer matches the application reality, the intent is ambiguous, or strict mode forbids generation.
 
     `step_text`: the sentence of the failed step.
-    `reason`: the specific incurability cause — the primary reason of the rendered message.
+    `reason`: the specific incurability cause — the primary reason of the rendered message; authored without colons.
+    `error`: the full underlying error text of the failed step code, locator details included; empty — the render carries no error line.
     `verdict`: the optional `FailureVerdict` — reused from a classification that already happened or requested at budget exhaustion; absent when the LLM was unavailable.
 
     Requirements:
     - The recommendation is carried by `verdict`; the recommendation property derives from it, falling back to the built-in path guidance when the verdict is absent
-    - The rendered message starts with `reason`, then appends the `verdict` render when present; the fallback recommendation keeps the message actionable without a verdict
+    - The rendered message is composed through `render_terminal_message` from `reason`, `step_text`, `error` and `verdict`; the fallback recommendation keeps the message actionable without a verdict
     - An execution failure, not a failed check: derives from `PrettyplayError` only, never from AssertionError
   properties:
     "step_text -> str": |
       The sentence of the failed step.
     "reason -> str": |
       The specific incurability cause.
+    "error -> str": |
+      The full underlying error text of the failed step code; empty means no underlying code error.
     "recommendation -> str": |
       The recommended engineer action: verdict recommendation when present, the built-in path guidance otherwise.
     "verdict -> FailureVerdict | None": |
       The optional failure verdict; None — the explicit absence when the LLM was unavailable.
 
-"PrettyplayError::LlmUnavailableError(message: str)":
+"PrettyplayError::LLMUnavailableError(message: str)":
   location: errors.py
   annotations: |
     LLM infrastructure failure: the provider service is unreachable, times out, rate-limits or rejects authentication. Blocks only code generation and healing; cached steps keep running.
@@ -112,6 +146,6 @@ Annotations: |
 ---
 
 Author: Goga
-CreatedAt: 07/09/26
+CreatedAt: 10/09/26
 Description: |
-  The failure taxonomy of prettyplay: product defect, incurable step, LLM infrastructure — mutations of one library base — and the shared verdict of a terminal failure.
+  The failure taxonomy of prettyplay: product defect, incurable step, LLM infrastructure — mutations of one library base — the shared verdict of a terminal failure, and the single structured render of its message.

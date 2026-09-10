@@ -1,0 +1,21 @@
+# Browser screen modes, strict replay, structured failure messages, classification instructions
+
+Context: four product gaps in prettyplay — no way to control the browser size, no honest replay-only mode for CI, unreadable exception output, and no way to steer the language of LLM explanations. All decisions below were confirmed with the product owner in a discovery interview (2026-09-10).
+
+## Decisions
+
+1. **Browser settings become a nested group.** `[tool.prettyplay.browser]` holds `name` (formerly `browser`), `screen`, `headless`, `endpoint` (formerly `browser_endpoint`); the programmatic override is a `BrowserConfig` model inside `PrettyConfig`. Fields inside the group carry no `browser_` prefix — the group name already scopes them. Env overrides stay flat: `PRETTYPLAY_BROWSER_{NAME|SCREEN|HEADLESS|ENDPOINT}`. Old flat keys are a hard break (pre-1.0): a loud `ConfigurationError` pointing at the new location. Why: browser concerns read as one unit, and the flat `PRETTYPLAY_BROWSER_*` env scheme already existed.
+
+2. **`screen` is the single size setting.** Values: empty (Playwright default), `WxH` (fixed viewport), `fullscreen`, or a Playwright device name — mobile emulation via the full device descriptor (viewport, user agent, touch, `is_mobile`, device scale factor); an unknown device name is a loud error suggesting close names. `fullscreen` means a maximized window with the viewport following the window on a local headed launch; headless and remote connects fall back to a fixed 1920×1080 viewport, since no window exists there. `WxH` and device descriptors apply in every launch mode. Why: one mutually exclusive value instead of three overlapping flags.
+
+3. **Strict mode is replay-only.** `strict = false` by default, env `PRETTYPLAY_STRICT`, per-test override. Cached code executes honestly and nothing is ever (re)generated: a cache miss raises `IncurableStepError` stating that strict forbids generation; a failed cached step is classified only when LLM access is configured — `product_defect` → `ProductDefectError`, `rot`/`incurable` → `IncurableStepError` — with no regeneration in any case; with no LLM the failure raises immediately without a verdict (WARNING, the existing quiet-skip pattern). Generation and healing budgets are never consumed; the only LLM calls are classifications. Rejected: heal-only-off variants (they still let new LLM code run in CI) and raw-exception propagation (breaks the single `except PrettyplayError` boundary and keeps verdicts out of the exception).
+
+4. **Terminal failure messages follow one structured template.** First line: `kind: primary reason`. Then a `---`-separated block with `step:` (the step sentence) and `error:` (the full underlying error from the failed step code, including locator details). Then a verdict block with `explanation:` and `recommendation:`, values column-aligned, multi-line continuations indented to the same column. The category line is dropped — the exception type already carries the category. Empty blocks are omitted entirely (no verdict → no verdict block; no underlying code error → no `error:` line). The failed step's code is never included — it lives in the cache and the log. One render feeds the exception message, the log record and the hook payload; traceback folding stays as is. Why: the old label soup blended the primary signal, the step and the verdict into a wall of text and hid the real error from the generated code.
+
+5. **`classification_prompt` mirrors `generation_prompt`.** A non-empty value renders as a USER INSTRUCTIONS block in classification requests only — generation requests never see it, and classification never sees `generation_prompt` (as today). Env override `PRETTYPLAY_CLASSIFICATION_PROMPT`; step addressing is unaffected. Why: the driving use case is answer language — e.g. explanations and recommendations in Russian — without touching code generation.
+
+## Consequences
+
+- The `[tool.prettyplay]` schema change is breaking: projects must migrate `browser`, `headless`, `browser_endpoint` to the `browser` group before upgrading.
+- Strict mode makes cache-miss failures an expected CI signal: generating a step is a deliberate non-strict act.
+- `fullscreen` cannot be pixel-identical across environments — headed local runs follow the actual screen; headless and remote runs are pinned to 1920×1080.

@@ -19,15 +19,18 @@ Annotations: |
   Type hints mandatory; no *args/**kwargs; generics parameterized.
   A validation failure never surfaces as a raw pydantic error: the loader wraps it into the loud actionable `ConfigurationError`.
   Layered resolution: a value passed programmatically wins over the pyproject+env layer only when explicitly set; empty string means unset for string fields. One model — one place of validation — file and programmatic values validate identically. `Config` is publicly known as PrettyConfig.
+  The browser settings form the nested browser group of `BrowserConfig` inside `Config` (see `pydantic`): fields inside the group carry no browser_ prefix — the group name scopes them. Env overrides stay flat: PRETTYPLAY_BROWSER_NAME, PRETTYPLAY_BROWSER_SCREEN, PRETTYPLAY_BROWSER_HEADLESS, PRETTYPLAY_BROWSER_ENDPOINT.
+  The old flat keys browser, headless and browser_endpoint at the [tool.prettyplay] level are a hard pre-1.0 break: the loader rejects them with a loud actionable `ConfigurationError` naming the new location.
+  The screen setting is validated at format level only (see `pydantic`): a WxH-shaped string must carry positive width and height; every other value — including fullscreen and Playwright device names — passes through unresolved, because the device registry belongs to the running Playwright, never to the config.
 
 ---
 
 "PrettyplayError::ConfigurationError(message: str)":
   location: loader.py
   annotations: |
-    An invalid prettyplay configuration: the loaded [tool.prettyplay] section failed validation.
+    An invalid prettyplay configuration: the loaded [tool.prettyplay] section failed validation or carries removed keys.
 
-    `message`: the rendered actionable text — one line per invalid setting: the setting name, the received value, the allowed values or range.
+    `message`: the rendered actionable text — one line per invalid setting: the setting name, the received value, the allowed values or range; a removed old flat key renders one line naming the key and its new home inside [tool.prettyplay.browser].
 
     Requirements:
     - Raised by `load_config` with the original pydantic ValidationError chained
@@ -37,38 +40,67 @@ Annotations: |
     "message -> str": |
       The rendered actionable validation text.
 
-"Config(provider: str, browser: str, model: str, generation_model: str, classification_model: str, base_url: str, cache_root: str, generation_prompt: str, browser_endpoint: str, generation_attempts: int, healing_attempts: int, send_screenshots: bool, headless: bool)":
+"BrowserConfig(name: str, screen: str, headless: bool, endpoint: str)":
+  location: models.py
+  annotations: |
+    The nested browser group of the project settings: engine, screen mode, window visibility and the remote endpoint of the browser.
+
+    `name`: browser of the {chromium, firefox, webkit, chrome, msedge} set; chrome and msedge launch the locally installed browser through the driver channel mechanism; default chromium.
+    `screen`: the single size setting; empty — Playwright default; WxH — fixed viewport; fullscreen — maximized window on a local headed launch, fixed 1920x1080 under headless and remote connects; any other value — a Playwright device name applied as the full descriptor (see `pydantic`).
+    `headless`: run the browser without a visible window of a local launch; default True.
+    `endpoint`: ws endpoint of a remote browser; empty — local launch; default empty.
+
+    Requirements:
+    - kw_only construction; every field has an empty or neutral default
+    - `name` validated against the five-value set; invalid value — loud actionable error
+    - a non-empty `endpoint` is a valid ws/wss URL — otherwise a loud actionable error
+    - `screen` is validated at format level only: a WxH-shaped value must carry positive integers; values not shaped like WxH — including fullscreen and device names — pass through unresolved
+
+    Constraints:
+    - Never resolve device names here: the devices registry belongs to the running Playwright (see `pydantic`)
+  properties:
+    "name -> str": |
+      The browser setting of the {chromium, firefox, webkit, chrome, msedge} set.
+    "screen -> str": |
+      The single size setting: empty, WxH, fullscreen or a Playwright device name.
+    "headless -> bool": |
+      Whether the browser runs without a visible window of a local launch; ignored on a remote connect.
+    "endpoint -> str": |
+      The ws endpoint of a remote browser; empty means the local launch.
+
+"Config(provider: str, browser: BrowserConfig, model: str, generation_model: str, classification_model: str, base_url: str, cache_root: str, generation_prompt: str, classification_prompt: str, strict: bool, generation_attempts: int, healing_attempts: int, send_screenshots: bool)":
   location: models.py
   annotations: |
     Validated project settings — the single source of the immutable configuration part.
 
     `provider`: the LLM provider of the {openai, anthropic} set; default openai.
-    `browser`: browser of the {chromium, firefox, webkit, chrome, msedge} set; chrome and msedge launch the locally installed browser through the driver channel mechanism; default chromium.
+    `browser`: the nested browser group — a `BrowserConfig` with the engine, the screen mode, the window visibility and the remote endpoint.
     `model`: main LLM model name.
     `generation_model`: optional generation override; empty — fallback to `model`.
     `classification_model`: optional classification override; empty — fallback to `model`.
     `base_url`: optional custom LLM API endpoint.
     `cache_root`: cache root; empty — default <repo root>/.prettyplay/cache/ resolved by `load_config`.
-    `generation_prompt`: user instructions for generation requests; non-empty — a separate USER INSTRUCTIONS block in generation and regeneration requests; empty — no block; default empty.
-    `browser_endpoint`: ws endpoint of a remote browser; empty — local launch; default empty.
+    `generation_prompt`: user instructions for generation requests; non-empty — a separate USER INSTRUCTIONS block in generation and regeneration requests; classification requests never see it; empty — no block; default empty.
+    `classification_prompt`: user instructions for classification requests; non-empty — a separate USER INSTRUCTIONS block in classification requests only; generation requests never see it; takes no part in the step address; empty — no block; default empty.
+    `strict`: replay-only mode; True — cached code executes honestly and nothing is ever (re)generated: a cache miss fails as incurable, a failed cached step is at most classified; default False.
     `generation_attempts`: generation attempt budget per step per test; default 3.
     `healing_attempts`: healing attempt budget per step per test; default 2.
     `send_screenshots`: optional screenshot input to the LLM; default False.
-    `headless`: run the browser without a visible window of a local launch; default True.
 
     Requirements:
     - kw_only construction; every field has an empty default
-    - provider validated against {openai, anthropic}; browser against the five-value set; invalid value — loud actionable error
+    - provider validated against {openai, anthropic}; the name inside `browser` against the five-value set; invalid values — loud actionable error
     - attempts are positive integers
-    - a non-empty browser_endpoint is a valid ws/wss URL — otherwise a loud actionable error
+    - a non-empty endpoint inside `browser` is a valid ws/wss URL — otherwise a loud actionable error
+    - `strict`, `classification_prompt` and the `browser` group participate in the layered merge of `load_config` like every other setting
 
     Constraints:
     - No secret values in fields: LLM API keys are never stored in the config; keys come only from environment variables
   properties:
     "provider -> str": |
       The LLM provider setting: openai or anthropic.
-    "browser -> str": |
-      The browser setting of the {chromium, firefox, webkit, chrome, msedge} set.
+    "browser -> BrowserConfig": |
+      The nested browser settings group.
     "model -> str": |
       The main LLM model name.
     "generation_model -> str": |
@@ -81,16 +113,16 @@ Annotations: |
       The cache root; empty means the default resolved at load.
     "generation_prompt -> str": |
       The user instructions for generation requests; empty means no instructions block.
-    "browser_endpoint -> str": |
-      The ws endpoint of a remote browser; empty means the local launch.
+    "classification_prompt -> str": |
+      The user instructions for classification requests; empty means no instructions block.
+    "strict -> bool": |
+      Whether the run is replay-only: no generation, no healing.
     "generation_attempts -> int": |
       The generation attempt budget per step per test.
     "healing_attempts -> int": |
       The healing attempt budget per step per test.
     "send_screenshots -> bool": |
       Whether screenshots are attached to LLM requests.
-    "headless -> bool": |
-      Whether the browser runs without a visible window of a local launch; ignored on a remote connect.
     "effective_generation_model -> str": |
       generation_model when non-empty, otherwise model.
     "effective_classification_model -> str": |
@@ -109,14 +141,18 @@ Annotations: |
     1. Resolve the pyproject.toml path: given `pyproject_path` or the first match found upwards from the current directory
     2. Parse TOML: stdlib tomllib on Python 3.11+, tomli on 3.10 (see `pydantic`)
     3. Extract the tool.prettyplay section; a missing section is an empty section
-    4. Apply environment overrides: each setting is overridden by PRETTYPLAY_<SETTING_UPPERCASE> when the variable is set; the browser override is PRETTYPLAY_BROWSER_NAME, the headless override is PRETTYPLAY_BROWSER_HEADLESS
-    5. Construct `Config`; on a validation failure render the actionable text — one line per invalid setting: the setting name, the received value, the allowed values — and raise `ConfigurationError` with the original ValidationError chained
-    6. `overrides` is None — return the file layer as is
-    7. Overlay the explicitly set fields of `overrides` onto the file layer (the model with empty defaults, model_copy — see `pydantic`): a field participates when it was passed at construction and is non-empty for strings; untouched model defaults never overwrite file values
-    8. Return the effective `Config`
+    4. Reject the removed legacy env name: PRETTYPLAY_BROWSER set in the environment raises `ConfigurationError` before merging — the message names PRETTYPLAY_BROWSER_NAME as the replacement
+    5. Apply environment overrides: each setting is overridden by PRETTYPLAY_<SETTING_UPPERCASE> when the variable is set; the browser group reads PRETTYPLAY_BROWSER_NAME, PRETTYPLAY_BROWSER_SCREEN, PRETTYPLAY_BROWSER_HEADLESS, PRETTYPLAY_BROWSER_ENDPOINT; strict reads PRETTYPLAY_STRICT; classification_prompt reads PRETTYPLAY_CLASSIFICATION_PROMPT
+    6. Reject the removed old flat keys: browser, headless or browser_endpoint present at the [tool.prettyplay] level raise `ConfigurationError` immediately — one line per key naming its new home inside [tool.prettyplay.browser] (browser → name, headless → headless, browser_endpoint → endpoint)
+    7. Construct `Config`; on a validation failure render the actionable text — one line per invalid setting: the setting name, the received value, the allowed values — and raise `ConfigurationError` with the original ValidationError chained
+    8. `overrides` is None — return the file layer as is
+    9. Overlay the explicitly set fields of `overrides` onto the file layer (the model with empty defaults, model_copy — see `pydantic`): a field participates when it was passed at construction and is non-empty for strings; the merge reaches inside the browser group — explicitly set fields of a passed `BrowserConfig` win over the file layer, untouched group defaults never overwrite file values; strict participates when passed explicitly — an explicit False overrides too
+    10. Return the effective `Config`
 
     Requirements:
-    - An env override exists for every setting of `Config` (including PRETTYPLAY_GENERATION_PROMPT and PRETTYPLAY_BROWSER_ENDPOINT)
+    - An env override exists for every setting of `Config` (including PRETTYPLAY_STRICT, PRETTYPLAY_CLASSIFICATION_PROMPT and the four PRETTYPLAY_BROWSER_* variables)
+    - The removed legacy env name PRETTYPLAY_BROWSER fails loudly before merging: it belongs to the same pre-1.0 hard break as the old flat keys
+    - Scalar env overrides parse by the field type: booleans accept true/false/1/0 case-insensitively, integers parse as decimal integers; an unparseable value raises the loud actionable `ConfigurationError` naming the setting, the received value and the accepted form — never a silent ignore
     - A raw pydantic.ValidationError never leaves the loader
     - The empty cache_root setting is resolved to the absolute default <repo root>/.prettyplay/cache/ at load
 
@@ -127,6 +163,6 @@ Annotations: |
 ---
 
 Author: Goga
-CreatedAt: 07/09/26
+CreatedAt: 10/09/26
 Description: |
-  Project settings of prettyplay: the validated [tool.prettyplay] schema with the browser channels, the headless mode, the generation instructions and the remote browser endpoint, and the loader with environment overrides, explicit per-test merging and the actionable configuration error.
+  Project settings of prettyplay: the validated [tool.prettyplay] schema with the nested browser group (engine, screen mode, headless, endpoint), the strict replay-only switch, the generation and classification instructions, and the loader with flat env overrides for the group, the removed-flat-key rejection, explicit per-test merging that reaches inside the group and the actionable configuration error.

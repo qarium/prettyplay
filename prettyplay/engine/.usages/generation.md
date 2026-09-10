@@ -15,11 +15,13 @@ step = generator.generate(
 
 - The loop: request code → execute against the live page → on failure re-request with the fresh error and snapshot
 - A non-empty generation_prompt setting adds a USER INSTRUCTIONS block to every generation and regeneration request — the project's code style guidance (e.g. prefer data-test-id attributes); classification requests never carry it; changing the instructions never invalidates the cache — cached steps run as stored
+- A non-empty classification_prompt setting adds a USER INSTRUCTIONS block to classification requests only — the project's steering for verdict explanations (e.g. answer in a specific language); generation requests never carry it
 - A failed check of a candidate (an assertion that executed and did not hold) stops the retries at once: the failure goes to classification — product_defect raises ProductDefectError with the verdict, anything else raises IncurableStepError with it; when the LLM is unavailable at this classification the verdict is skipped quietly (WARNING in the log) and IncurableStepError raises without it; one failed check is spent, never the whole budget
 - Other candidate failures (element not found, timeouts) retry with the fresh error and snapshot
 - Attempts are budgeted per step per test (default 3); exhaustion raises IncurableStepError carrying the classification verdict of the last candidate — when the LLM is unavailable the verdict is skipped quietly (WARNING in the log) and the failure raises without it
+- Raised terminal failures carry the full failure description of the candidate in their error field
 - A success stores the step in the cache and returns it
-- Provider unavailability of a generation request raises LlmUnavailableError immediately — no retry on it
+- Provider unavailability of a generation request raises LLMUnavailableError immediately — no retry on it
 
 ## Classification call
 
@@ -38,7 +40,7 @@ classification = classify_step_failure(
 )
 ```
 
-The routine collects the fresh page snapshot (plus the screenshot when enabled) and calls the provider with the engine classification prompt. Provider unavailability propagates: the calling path decides whether it is a terminal infrastructure failure or a quiet verdict skip.
+The routine collects the fresh page snapshot (plus the screenshot when enabled) and calls the provider with the engine classification prompt; a non-empty classification_prompt setting of the config reaches the request as a USER INSTRUCTIONS block. Provider unavailability propagates: the calling path decides whether it is a terminal infrastructure failure or a quiet verdict skip.
 
 ## The fixed form
 

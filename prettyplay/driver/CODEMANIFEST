@@ -9,13 +9,14 @@ Usages:
 
 Annotations: |
   Use `conventions` for code writing rules and testing.
-  Use `playwright` for the sync API lifecycle, locators, auto-wait, the accessibility snapshot, browser channels, remote connects and the scroll primitives.
+  Use `playwright` for the sync API lifecycle, locators, auto-wait, the accessibility snapshot, browser channels, remote connects, the screen modes and the scroll primitives.
 
   The driver is Playwright sync-only: the async API is out of scope.
   The whole Playwright session — start, browser, contexts, pages — lives in one dedicated driver thread owned by the library: the sync API parks its private event loop on its starting thread, so the thread executing the steps never holds a running asyncio loop (interactive hosts such as IPython and Jupyter keep working between steps).
   Driver-thread calls are strictly sequential: one facade call runs at a time; concurrent driving is out of scope.
   One browser process per test: the session is owned by the test's runtime — no state is shared between tests through the library.
-  The start mode branches on the browser_endpoint setting of `Config`: empty — local launch with headless and the channel for chrome/msedge; set — connect over the Playwright ws endpoint: headless is ignored, channels do not apply, the browser setting selects the engine (see `playwright`).
+  The start mode branches on the endpoint setting of the browser group of `Config`: empty — local launch with headless and the channel for chrome/msedge; set — connect over the Playwright ws endpoint: headless is ignored, channels do not apply, the name setting selects the engine (see `playwright`).
+  The screen setting of the browser group resolves at context creation (see `playwright`): the empty value keeps the Playwright default; WxH and device descriptors apply in every launch mode; fullscreen follows the window on a local headed launch and pins to a fixed 1920x1080 viewport where no window exists. Device names resolve against the devices registry of the running Playwright — the package never hard-codes a device list.
   All waits go through locators and expectations; fixed delays (time.sleep and similar) are forbidden.
   The facade surface is a backward-compatibility contract: generated step code works only through `PageFacade` and LocatorFacade, so the existing method set must not break across library releases — extend, never rename or remove.
 
@@ -26,7 +27,7 @@ Annotations: |
   annotations: |
     Lifecycle owner of the Playwright sync driver and the browser process of one test.
 
-    `config`: project settings; the browser setting selects the browser of the {chromium, firefox, webkit, chrome, msedge} set — chrome and msedge launch the locally installed browser through the channel mechanism; headless controls the window visibility of a local launch; browser_endpoint switches the start to a remote connect (see `playwright`).
+    `config`: project settings; the browser group carries the engine — the name of the {chromium, firefox, webkit, chrome, msedge} set, chrome and msedge launch the locally installed browser through the channel mechanism — the screen size mode, the headless window visibility of a local launch and the endpoint switching the start to a remote connect (see `playwright`).
 
     Requirements:
     - The Playwright session lives in a dedicated driver thread owned by the session: every Playwright-touching operation of this type runs there, and the calling thread never holds a running asyncio loop after any call
@@ -35,14 +36,20 @@ Annotations: |
       Open a fresh isolated context with one page of this test's browser.
 
       Algorithm:
-      1. Start lazily on the first call: constructing the session starts nothing — start the dedicated driver thread, then start Playwright inside it; an empty browser_endpoint — launch the selected engine locally with headless from the project settings and the channel for the chrome/msedge values; a set browser_endpoint — connect over the Playwright ws endpoint of the selected engine: headless is ignored and channels do not apply; a failed launch or connect stops the started driver and closes the thread, so a retry begins from a clean state
-      2. Create a fresh isolated browser context and its page inside the driver thread (see `playwright`)
-      3. Wrap the page into `PageFacade` bound to the driver thread and return it
+      1. Start lazily on the first call: constructing the session starts nothing — start the dedicated driver thread, then start Playwright inside it; an empty endpoint — launch the selected engine locally with headless from the browser group and the channel for the chrome/msedge values; a set endpoint — connect over the Playwright ws endpoint of the selected engine: headless is ignored and channels do not apply; a failed launch or connect stops the started driver and closes the thread, so a retry begins from a clean state
+      2. Resolve the screen setting of the browser group into the context parameters, by precedence: the literal fullscreen value — a local headed launch (headless false, endpoint empty) starts the window maximized through the engine launch arguments and opens the context without a fixed viewport, so the viewport follows the window (see `playwright`); headless or a remote connect — a fixed 1920x1080 viewport, no window exists there; a WxH-shaped value — the viewport dictionary of the parsed width and height, in every launch mode; any other value — a device name: present in the devices registry of the running Playwright — the full descriptor applies to the context (viewport, user_agent, touch, is_mobile, device_scale_factor) in every launch mode; absent — a loud actionable error suggesting close device names from the registry
+      3. Create a fresh isolated browser context and its page inside the driver thread with the resolved parameters (see `playwright`)
+      4. Wrap the page into `PageFacade` bound to the driver thread and return it
 
       Requirements:
       - Each result is isolated from every other context
       - A channel launch without the installed browser fails loudly with an actionable message naming the missing browser
       - A failed connect fails loudly with an actionable message naming the endpoint
+      - WxH and device descriptors apply in every launch mode: local headed, local headless, remote connect
+      - fullscreen is not pixel-identical across environments — a headed run follows the actual screen, headless and remote runs are pinned to 1920x1080
+
+      Constraints:
+      - `PageFacade` and `LocatorFacade` stay untouched by the screen modes — the changes live in context creation only
     "close()": |
       Stop the browser, the Playwright driver and the driver thread; safe to call when nothing was started.
 
@@ -157,6 +164,6 @@ Annotations: |
 ---
 
 Author: Goga
-CreatedAt: 07/09/26
+CreatedAt: 10/09/26
 Description: |
-  The Playwright sync driver of prettyplay: the per-test session with local launches and remote ws connects, and the narrow backward-compatible page facade with universal locators and scroll abilities for generated step code.
+  The Playwright sync driver of prettyplay: the per-test session with local launches, remote ws connects and the screen modes — fixed viewport, device emulation, fullscreen — and the narrow backward-compatible page facade with universal locators and scroll abilities for generated step code.

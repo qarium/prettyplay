@@ -8,6 +8,8 @@ Annotations: |
   Log messages: lowercase, concise operational wording, stable event names, contextual metadata attached.
   Never log secrets, credentials, tokens or personal sensitive data.
   Step lifecycle events — including the verdict event — are logged at INFO; a skipped cache write and a failed hook call — WARNING.
+  The error field of the on_step_failed event and its log record carry the full structured render of the terminal failure — the same multi-line text the raised exception carries: the primary reason line, the --- separated step/error block and the verdict block; integrators display it verbatim.
+  The on_step_verdict event keeps its structured fields built from the verdict object of the failure — never parsed from the render.
 
 ---
 
@@ -23,7 +25,7 @@ Annotations: |
     "on_step_passed(step_text: str, step_type: str)": |
       The step finished successfully.
     "on_step_failed(step_text: str, step_type: str, error: str)": |
-      The step failed; `error` is a short human-readable failure description.
+      The step failed; `error` is the full rendered failure message — the same structured text carried by the raised exception and the log record: the primary reason line, the --- separated step/error block and the verdict block; display it verbatim.
     "on_step_verdict(step_text: str, category: str, explanation: str, recommendation: str)": |
       The terminal failure of the step carried a verdict; fires after on_step_failed.
 
@@ -34,7 +36,7 @@ Annotations: |
 
       Requirements:
       - Not fired when the verdict was skipped: LLM unavailability logs a WARNING and raises no event
-      - Payload values are plain strings, uniform with the other events
+      - Payload values are built from the verdict object of the failure — plain strings, uniform with the other events, never parsed from the rendered error text
     "on_generation_started(step_text: str, attempt: int)": |
       A code generation attempt started; `attempt` is the 1-based attempt number.
     "on_healing_started(step_text: str, category: str)": |
@@ -74,6 +76,6 @@ Annotations: |
 ---
 
 Author: Goga
-CreatedAt: 07/09/26
+CreatedAt: 10/09/26
 Description: |
-  Visibility of prettyplay: the logger prettyplay plus the thin StepHooks callback contract.
+  Visibility of prettyplay: the logger prettyplay plus the thin StepHooks callback contract; the step failure event carries the full structured render of the terminal failure.

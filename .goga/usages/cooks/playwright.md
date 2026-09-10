@@ -39,6 +39,32 @@ Rules:
 - `headless` comes from configuration; the default is `True` — the current behavior
 - A channel requires the real browser installed on user infrastructure: a missing browser fails loudly with an actionable message; engine binaries come from `playwright install` on user infrastructure — the package never bundles browsers
 
+## Screen modes — viewport, fullscreen, device emulation
+
+The `screen` setting of the browser group selects the single size mode; it applies at context creation:
+
+```python
+# fixed viewport — screen = "1280x720"
+context = browser.new_context(viewport={"width": 1280, "height": 720})
+
+# device emulation — screen = "iPhone 13"
+with sync_playwright() as p:
+    descriptor = p.devices["iPhone 13"]
+context = browser.new_context(**descriptor)
+# viewport, user_agent, touch, is_mobile, device_scale_factor — the full descriptor
+
+# fullscreen on a local headed launch — screen = "fullscreen"
+browser = engine.launch(headless=False, args=["--start-maximized"])  # chromium family
+context = browser.new_context(no_viewport=True)  # the viewport follows the window
+```
+
+Rules:
+- An empty `screen` keeps the Playwright default — the current behavior
+- `WxH` and device descriptors apply in every launch mode: local headed, local headless, remote connect
+- `fullscreen`: no window exists in headless mode or on a remote connect — the context is pinned to a fixed 1920×1080 viewport; on a local headed launch the window starts maximized and the viewport follows it (`no_viewport=True`)
+- An unknown device name fails loudly with an actionable message suggesting close device names
+- Device names resolve against the `devices` registry of the running Playwright — the package never hard-codes a device list
+
 ## Remote execution — ws endpoint connect
 
 A set `browser_endpoint` (env `PRETTYPLAY_BROWSER_ENDPOINT`) switches the driver from a local launch to a connect over the Playwright ws endpoint — e.g. a Playwright Server or a hosted browser grid:

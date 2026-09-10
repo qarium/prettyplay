@@ -29,27 +29,32 @@ The immutable part of project settings lives in `pyproject.toml` (ADR-13). A pyd
 from pydantic import BaseModel, ConfigDict
 
 
+class BrowserConfig(BaseModel):
+    model_config = ConfigDict(kw_only=True)
+
+    name: str = "chromium"       # chromium | firefox | webkit | chrome | msedge
+    screen: str = ""             # "" | WxH | fullscreen | Playwright device name
+    headless: bool = True        # env PRETTYPLAY_BROWSER_HEADLESS
+    endpoint: str = ""           # remote ws endpoint; empty -> local launch
+
+
 class PrettyplayConfig(BaseModel):
     model_config = ConfigDict(kw_only=True)
 
-    browser: str = "chromium"           # chromium | firefox | webkit | chrome | msedge
-    headless: bool = True               # headless mode (env PRETTYPLAY_BROWSER_HEADLESS)
+    browser: BrowserConfig = BrowserConfig()   # nested [tool.prettyplay.browser] group
     model: str = ""
-    generation_model: str = ""           # optional override, falls back to model
-    classification_model: str = ""       # optional override, falls back to model
-    base_url: str = ""
-    cache_root: str = ""                 # empty -> <repo root>/.prettyplay/cache/ (ADR-5)
-    generation_attempts: int = 3         # ADR-8
-    healing_attempts: int = 2            # ADR-8
-    send_screenshots: bool = False       # ADR-7
-    generation_prompt: str = ""          # user instructions for the generation requests (env PRETTYPLAY_GENERATION_PROMPT)
-    browser_endpoint: str = ""           # remote ws endpoint; empty -> local launch (env PRETTYPLAY_BROWSER_ENDPOINT)
+    strict: bool = False                        # replay-only mode (env PRETTYPLAY_STRICT)
+    classification_prompt: str = ""             # classification user instructions (env PRETTYPLAY_CLASSIFICATION_PROMPT)
+    # ... the remaining settings unchanged
 ```
 
 Configuration rules:
 
+- Nested group: `[tool.prettyplay.browser]` maps onto `BrowserConfig`; fields inside the group carry no `browser_` prefix — the group name already scopes them
+- Env overrides stay flat: `PRETTYPLAY_BROWSER_{NAME|SCREEN|HEADLESS|ENDPOINT}`; the other settings keep `PRETTYPLAY_<SETTING_UPPERCASE>`
+- Old flat keys (`browser`, `headless`, `browser_endpoint` at the `[tool.prettyplay]` level) are a hard break: a loud `ConfigurationError` points at the new location
+- Layered merge extends to the nested model: explicitly set fields of a passed `BrowserConfig` win over the file layer
 - Secrets (LLM API keys) are never stored in the config file; the config may reference an environment variable **name** (ADR-13)
-- Every setting has an environment override for CI; the browser override is `PRETTYPLAY_BROWSER_NAME` — the legacy `PRETTYPLAY_BROWSER` no longer applies and, when met, is answered with a hint naming the new variable
 - Invalid configuration fails loudly with an actionable message (see below)
 
 ## Layered merge — explicit values over pyproject+env

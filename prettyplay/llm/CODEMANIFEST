@@ -3,7 +3,7 @@ Imports:
       - Config
     From: prettyplay/config
   - Types:
-      - LlmUnavailableError
+      - LLMUnavailableError
     From: prettyplay/failures
 
 Usages:
@@ -16,14 +16,14 @@ Annotations: |
   Use `openai` and `anthropic` for the SDK call patterns and the error mapping of the two providers.
 
   Provider parity is absolute: both providers expose the same operations, accept the same inputs, return the same output shapes and map failures to the same taxonomy; the provider choice is a configuration decision, never a capability difference.
-  The user instructions input participates in both provider implementations with identical semantics — a parity requirement, not a capability difference.
+  The user instructions input participates in both provider implementations with identical semantics: generation requests render the generation instructions, classification requests render the classification instructions — each verbatim as a separate USER INSTRUCTIONS block; classification requests never carry the generation instructions and generation requests never carry the classification instructions; a parity requirement, not a capability difference.
   API keys come only from environment variables; never log keys or payloads containing secrets.
   One completion request per attempt: attempt budgets are owned by the calling engine, never by a provider.
   Cached step code never depends on the provider: the provider serves generation and classification only.
 
 ---
 
-"LlmProvider()":
+"LLMProvider()":
   location: provider.py
   annotations: |
     The unified LLM port of the library: code generation for a step and failure classification for healing. One contract, two interchangeable implementations selected by configuration.
@@ -43,12 +43,13 @@ Annotations: |
       `code`: the generated step code of the fixed form, working only through the driver facade; the first markdown-fenced block of the answer is unwrapped — an answer with no closed fence returns verbatim.
 
       Requirements:
-      - A provider service failure (connectivity, timeout, rate limit, authentication) raises `LlmUnavailableError` naming the provider
+      - A provider service failure (connectivity, timeout, rate limit, authentication) raises `LLMUnavailableError` naming the provider
       - The generated code contains no provider-specific constructs
-    "classify_failure(prompt: str, step_text: str, code: str, error: str, snapshot: str, screenshot: bytes | None) -> classification: FailureClassification": |
+    "classify_failure(prompt: str, user_instructions: str, step_text: str, code: str, error: str, snapshot: str, screenshot: bytes | None) -> classification: FailureClassification": |
       Classify a failed cached step.
 
       `prompt`: the system prompt text supplied by the calling engine — applied verbatim as the system message.
+      `user_instructions`: the project's classification instructions supplied by the calling engine from the classification_prompt setting; empty — the request carries no instructions block; non-empty — rendered by the provider implementations verbatim as a separate USER INSTRUCTIONS block of the user content, identically in both.
       `step_text`: the sentence of the failed step.
       `code`: the existing step code that failed.
       `error`: the human-readable description of the failure.
@@ -56,33 +57,36 @@ Annotations: |
       `screenshot`: an optional PNG image of the page; passed only when the project enables screenshots.
       `classification`: the `FailureClassification` verdict.
 
-"LlmProvider::OpenAiProvider(config: Config)":
+      Requirements:
+      - A provider service failure raises `LLMUnavailableError` naming the provider
+
+"LLMProvider::OpenAIProvider(config: Config)":
   location: openai_provider.py
   annotations: |
-    The openai SDK implementation of `LlmProvider` (see `openai`).
+    The openai SDK implementation of `LLMProvider` (see `openai`).
 
     `config`: project settings; the generation model is the effective_generation_model of `config`, the classification model is the effective_classification_model of `config`; the base_url setting of `config` overrides the endpoint when set.
 
     Algorithm (both operations):
-    1. Build the request: the prompt text as the system message, the user content carrying the inputs — a non-empty user_instructions renders as a separate USER INSTRUCTIONS block placed after the page API block, before the regeneration-only blocks (CODE, ERROR)
+    1. Build the request: the prompt text as the system message, the user content carrying the inputs — a non-empty user_instructions of a generation request renders as a separate USER INSTRUCTIONS block placed after the page API block, before the regeneration-only blocks (CODE, ERROR); a non-empty user_instructions of a classification request renders as the separate USER INSTRUCTIONS block placed last in the user content, after all classification inputs (STEP, CODE, ERROR, PAGE SNAPSHOT)
     2. Send one completion request via the SDK
     3. Extract the text answer; a generation answer unwraps its first markdown-fenced block — an unfenced answer passes through verbatim
-    4. An SDK error maps to `LlmUnavailableError` (see `openai`)
+    4. An SDK error maps to `LLMUnavailableError` (see `openai`)
 
-"LlmProvider::AnthropicProvider(config: Config)":
+"LLMProvider::AnthropicProvider(config: Config)":
   location: anthropic_provider.py
   annotations: |
-    The anthropic SDK implementation of `LlmProvider` (see `anthropic`); full parity with the openai implementation.
+    The anthropic SDK implementation of `LLMProvider` (see `anthropic`); full parity with the openai implementation.
 
     `config`: the same settings semantics as the openai implementation.
 
     Algorithm (both operations):
-    1. Build the request: the prompt text as the system message, the user content carrying the inputs — a non-empty user_instructions renders as a separate USER INSTRUCTIONS block placed after the page API block, before the regeneration-only blocks (CODE, ERROR)
+    1. Build the request: the prompt text as the system message, the user content carrying the inputs — a non-empty user_instructions of a generation request renders as a separate USER INSTRUCTIONS block placed after the page API block, before the regeneration-only blocks (CODE, ERROR); a non-empty user_instructions of a classification request renders as the separate USER INSTRUCTIONS block placed last in the user content, after all classification inputs (STEP, CODE, ERROR, PAGE SNAPSHOT)
     2. Send one message request via the SDK
     3. Extract the text answer; a generation answer unwraps its first markdown-fenced block — an unfenced answer passes through verbatim
-    4. An SDK error maps to `LlmUnavailableError` (see `anthropic`)
+    4. An SDK error maps to `LLMUnavailableError` (see `anthropic`)
 
-"create_provider(config: Config) -> provider: LlmProvider":
+"create_provider(config: Config) -> provider: LLMProvider":
   location: provider.py
   annotations: |
     Select and construct the LLM provider from configuration.
@@ -120,6 +124,6 @@ Annotations: |
 ---
 
 Author: Goga
-CreatedAt: 07/09/26
+CreatedAt: 10/09/26
 Description: |
-  The LLM port of prettyplay: one contract, the openai and anthropic SDK implementations in full parity, and the failure classification verdict.
+  The LLM port of prettyplay: one contract, the openai and anthropic SDK implementations in full parity — generation and classification user instructions with identical semantics — and the failure classification verdict.
