@@ -1,11 +1,24 @@
-"""The step cycle: cache hit — execute; cache miss — generate; cached failure — heal."""
+"""The step cycle: cache hit — execute; miss — generate or stop in strict mode; cached failure — heal or classify."""
 
-from .cache import RunBudgets, StepCache, StepIdentity, normalize_step_text
+import logging
+from typing import NoReturn
+
+from .cache import CachedStep, RunBudgets, StepCache, StepIdentity, normalize_step_text
+from .config import PrettyConfig
 from .driver import PageFacade
-from .engine import StepGenerator, StepHealer, run_step_code
+from .engine import StepGenerator, StepHealer, classify_step_failure, run_step_code
 from .engine.text import format_step_error
-from .failures import IncurableStepError, ProductDefectError
+from .failures import FailureVerdict, IncurableStepError, LLMUnavailableError, ProductDefectError
+from .llm import LLMProvider
 from .reporting import StepReporter
+
+logger = logging.getLogger("prettyplay")
+
+#: Strict-mode cache miss — generation is forbidden, so the miss is incurable.
+_STRICT_MISS_REASON = "strict mode forbids generation — the step is missing from the cache"
+
+#: Strict-mode terminal failure produced by the quiet verdict skip.
+_STRICT_NO_VERDICT_REASON = "the step failed in strict mode without an llm verdict"
 
 
 class StepExecutor:
@@ -16,8 +29,11 @@ class StepExecutor:
     generator, which stores the step after the candidate has actually
     worked; a failed cached step delegates to the healer, whose verdict
     decides between a loud product defect, an incurable step, and rot
-    regeneration. The scenario context — the sentences of the previous
-    steps of this test — feeds every generation and healing request.
+    regeneration. In strict replay-only mode nothing is ever (re)generated:
+    a cache miss is incurable outright, and a failed cached step is at most
+    classified — the only LLM call — then raised by its category. The
+    scenario context — the sentences of the previous steps of this test —
+    feeds every generation and healing request.
 
     Attributes:
         cache_key: the context key of the owning test object.
@@ -25,6 +41,8 @@ class StepExecutor:
         _generator: the generation engine of the cycle.
         _healer: the healing engine of the cycle.
         _reporter: the visibility point of the test.
+        _config: project settings; the strict switch picks the replay-only path.
+        _provider: the LLM port implementation of the strict classification.
         _scenario: the sentences of the previous steps of this test.
     """
 
@@ -36,6 +54,8 @@ class StepExecutor:
         healer: StepHealer,
         budgets: RunBudgets,  # noqa: ARG002 — spent by the engine; kept for contract symmetry
         reporter: StepReporter,
+        config: PrettyConfig,
+        provider: LLMProvider,
     ) -> None:
         """Keep the collaborators of the step cycle and reset the scenario context.
 
@@ -47,12 +67,18 @@ class StepExecutor:
             budgets: the per-test attempt registry; attempts are spent
                 by the engine, not by the executor.
             reporter: the visibility point of the test.
+            config: project settings; the strict switch picks the
+                replay-only path and the classification prompt feeds it.
+            provider: the LLM port implementation of the strict classification;
+                a lightweight object — no SDK client, no credentials.
         """
         self.cache_key = cache_key
         self._cache = cache
         self._generator = generator
         self._healer = healer
         self._reporter = reporter
+        self._config = config
+        self._provider = provider
         self._scenario: list[str] = []  # test scenario context
 
     def execute(self, step_text: str, step_type: str, page: PageFacade) -> None:
@@ -65,9 +91,12 @@ class StepExecutor:
 
         Raises:
             ProductDefectError: the healed step verdict says the expectation
-                of the step is genuinely broken in the product.
+                of the step is genuinely broken in the product; in strict
+                mode, a product_defect classification of a failed cached
+                step — or an assertion step failing without a verdict.
             IncurableStepError: the step never generated successfully, or the
-                verdict says regeneration cannot help.
+                verdict says regeneration cannot help; in strict mode, any
+                cache miss or non-product-defect classification.
             LLMUnavailableError: the provider service failed; no retry.
         """
         try:
@@ -83,8 +112,16 @@ class StepExecutor:
             if cached is not None:
                 try:
                     run_step_code(cached.code, page)
-                except Exception as error:  # cached code failed — context goes to healing
-                    self._healer.heal(cached, format_step_error(error), self._scenario, page)  # healed = re-executed
+                except Exception as error:  # cached code failed — the mode picks the reaction
+                    error_text = format_step_error(error)
+
+                    if self._config.strict:
+                        self._strict_failure(step_text, step_type, cached, error_text, page)  # always raises
+                    else:
+                        # healed = re-executed
+                        self._healer.heal(cached, error_text, self._scenario, page)
+            elif self._config.strict:
+                raise IncurableStepError(step_text, _STRICT_MISS_REASON, "", None)
             else:
                 self._generator.generate(identity, step_text, self._scenario, page)
 
@@ -93,7 +130,7 @@ class StepExecutor:
         except Exception as error:
             self._reporter.emit(
                 "on_step_failed",
-                {"step_text": step_text, "step_type": step_type, "error": str(error)},
+                {"step_text": step_text, "step_type": step_type, "error": str(error)},  # the render, verbatim
             )
 
             if isinstance(error, (ProductDefectError, IncurableStepError)) and error.verdict is not None:
@@ -107,3 +144,54 @@ class StepExecutor:
                     },
                 )
             raise
+
+    def _strict_failure(
+        self,
+        step_text: str,
+        step_type: str,
+        step: CachedStep,
+        error_text: str,
+        page: PageFacade,
+    ) -> NoReturn:
+        """Turn the failure of a cached step into a terminal error by classification only.
+
+        Strict mode never regenerates and never heals: the classification is
+        the only LLM call, and its category picks the error kind — a product
+        defect fails loudly, everything else is incurable (rot included: the
+        healer never runs). When the LLM is unavailable the verdict is
+        skipped quietly and the step type alone picks the kind: a failed
+        assertion is the signal the suite exists for, a failed action merely
+        did not run.
+
+        Args:
+            step_text: the sentence of the failed step.
+            step_type: the kind of the step sentence ({action, assertion}).
+            step: the cached step whose code failed.
+            error_text: the full formatted error text of the failure.
+            page: the live page facade of the current test.
+
+        Raises:
+            Always: ProductDefectError or IncurableStepError — the strict
+                terminal verdict of the failed cached step.
+        """
+        try:
+            classification = classify_step_failure(
+                self._config, self._provider, step_text, step.code, error_text, page
+            )
+        except LLMUnavailableError:
+            logger.warning("verdict skipped: llm unavailable")
+
+            # from None: the skip is logged; the step failure itself travels in the error field
+            if step_type == "assertion":
+                raise ProductDefectError(step_text, _STRICT_NO_VERDICT_REASON, error_text, None) from None
+            raise IncurableStepError(step_text, _STRICT_NO_VERDICT_REASON, error_text, None) from None
+
+        verdict = FailureVerdict(
+            category=classification.category,
+            explanation=classification.explanation,
+            recommendation=classification.recommendation,
+        )
+
+        if classification.category == "product_defect":
+            raise ProductDefectError(step_text, classification.explanation, error_text, verdict)
+        raise IncurableStepError(step_text, classification.explanation, error_text, verdict)

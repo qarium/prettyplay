@@ -8,7 +8,7 @@ from unittest import mock
 
 import prettyplay
 import pytest
-from prettyplay import PrettyTest
+from prettyplay import BrowserConfig, PrettyTest
 from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step_text
 from prettyplay.config import Config
 from prettyplay.failures import IncurableStepError, ProductDefectError
@@ -242,9 +242,10 @@ def no_llm_credentials(monkeypatch):
 
 
 def test_pretty_config_exported_and_get_runtime_removed() -> None:
-    """The embedding contract: PrettyConfig re-exported, the singleton gone."""
+    """The embedding contract: PrettyConfig and BrowserConfig re-exported, the singleton gone."""
     assert prettyplay.PrettyConfig is Config
-    assert prettyplay.__all__ == ["PrettyTest", "PrettyConfig", "PrettyplayRuntime", "StepExecutor"]
+    assert prettyplay.BrowserConfig is BrowserConfig
+    assert prettyplay.__all__ == ["PrettyTest", "PrettyConfig", "BrowserConfig", "PrettyplayRuntime", "StepExecutor"]
     assert not hasattr(prettyplay, "get_runtime")
 
 

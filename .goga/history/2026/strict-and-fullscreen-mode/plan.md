@@ -582,9 +582,9 @@ Implements the root-cell contract: `StepExecutor` (`prettyplay/executor.py`) gai
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Declaration**: state that Task 7 (root cell) is being executed
-- [ ] **Contract tests**: add to `tests/test_executor.py`, `tests/test_scenario.py` — `StepExecutor(cache_key, cache, generator, healer, budgets, reporter, config, provider)` eight-parameter signature; `prettyplay.__all__` contains `"BrowserConfig"`; `from prettyplay import BrowserConfig` resolves to `prettyplay.config.models.BrowserConfig` (expected to fail at this stage)
-- [ ] **Code**: implement the strict-aware `execute` in `prettyplay/executor.py`:
+- [x] **Declaration**: state that Task 7 (root cell) is being executed
+- [x] **Contract tests**: add to `tests/test_executor.py`, `tests/test_scenario.py` — `StepExecutor(cache_key, cache, generator, healer, budgets, reporter, config, provider)` eight-parameter signature; `prettyplay.__all__` contains `"BrowserConfig"`; `from prettyplay import BrowserConfig` resolves to `prettyplay.config.models.BrowserConfig` (expected to fail at this stage)
+- [x] **Code**: implement the strict-aware `execute` in `prettyplay/executor.py`:
 
 ```
 TRY:
@@ -628,21 +628,21 @@ ELSE → raise IncurableStepError(step_text, classification.explanation, error_t
 # generator never invoked, generation budget untouched
 ```
 
-- [ ] **Code**: wire `PrettyTest` (`prettyplay/scenario.py`) — construction step 6 becomes `StepExecutor(cache_key, cache, generator, healer, budgets, reporter, config=runtime.config, provider=runtime.provider)`; steps 1–5 unchanged
-- [ ] **Code**: update the root facade (`prettyplay/__init__.py`) — `from .config import BrowserConfig, PrettyConfig`; `__all__ = ["PrettyTest", "PrettyConfig", "BrowserConfig", "PrettyplayRuntime", "StepExecutor"]`
-- [ ] **Interface verification**: run `pytest tests/test_executor.py tests/test_scenario.py -v` — the contract tests pass
-- [ ] **Logic tests** (scenarios from the design, verbatim):
+- [x] **Code**: wire `PrettyTest` (`prettyplay/scenario.py`) — construction step 6 becomes `StepExecutor(cache_key, cache, generator, healer, budgets, reporter, config=runtime.config, provider=runtime.provider)`; steps 1–5 unchanged
+- [x] **Code**: update the root facade (`prettyplay/__init__.py`) — `from .config import BrowserConfig, PrettyConfig`; `__all__ = ["PrettyTest", "PrettyConfig", "BrowserConfig", "PrettyplayRuntime", "StepExecutor"]`
+- [x] **Interface verification**: run `pytest tests/test_executor.py tests/test_scenario.py -v` — the contract tests pass
+- [x] **Logic tests** (scenarios from the design, verbatim):
   - `test_executor_strict_cache_miss_raises_without_generation` (positive) — executor wired with a cache whose `load` returns `None`; recording generator/healer; `Config(strict=True)`; fake provider; `executor.execute("Нажать «Войти»", "action", page)`: `pytest.raises(IncurableStepError)`; `exc.reason == "strict mode forbids generation — the step is missing from the cache"`; `exc.error == ""` and `exc.verdict is None`; `generator.generate` not called; `healer.heal` not called; `budgets.try_generation` never called; `"step: Нажать «Войти»" in str(exc)`; `"recommendation:" in str(exc)` (fallback verdict); the `on_step_failed` payload `["error"] == str(exc)` (one render); no `on_generation_started` / `on_healing_started` events
   - `test_executor_strict_failed_cached_step_classifies_only` (positive) — cache returns a `CachedStep` whose code raises a `TimeoutError` (action) / assertion text (assertion); fake provider returning `FailureClassification("product_defect" | "rot" | "incurable", …)`, then a second run with a provider raising `LLMUnavailableError`: product_defect + assertion → `pytest.raises(ProductDefectError)`, `exc.verdict.category == "product_defect"`, `exc.error == "TimeoutError: locator.click: Timeout 30000ms exceeded"` (typed prefix for action errors); an assertion-failure error field carries no `"AssertionError"` prefix; rot → `pytest.raises(IncurableStepError)`, `healer.heal` not called, no `on_healing_started`, `budgets.try_healing` never called; LLM unavailable + assertion step → `ProductDefectError`, `verdict is None`, `"the step failed in strict mode without an llm verdict" == exc.message`; LLM unavailable + action step → `IncurableStepError`, same reason wording, `exc.error` carries the full text; `caplog` has one WARNING `"verdict skipped: llm unavailable"`; `provider.generate_step_code` never called on any strict run
   - `test_executor_events_carry_full_render_and_verdict_fields` (positive) — non-strict executor; healer stub raising `ProductDefectError("step", "msg", "err-text", FailureVerdict("product_defect", "expl", "rec"))`; recording hooks; a cached step failing at `run_step_code`: the `on_step_failed` hook payload `["error"] == str(raised)` == the full render (contains `"---"` and `"recommendation:"`); the `on_step_verdict` payload == `{"step_text": "step", "category": "product_defect", "explanation": "expl", "recommendation": "rec"}`; the payload fields come from the verdict object (never parsed from the render)
   - `test_incurable_fallback_verdict_never_fires_the_event` (edge) — strict executor, cache miss; recording hooks: `"recommendation: reword the step or refresh the cache"` in the `on_step_failed` error payload; `on_step_verdict` never called; `raised.verdict is None`
   - `test_pretty_test_wires_config_and_provider_into_executor` (edge) — `PrettyTest(cache_key="k", config=PrettyConfig(strict=True, browser=BrowserConfig(screen="fullscreen", headless=False)))`; inspect the wired executor: `executor._config.strict is True`; `executor._config.browser.screen == "fullscreen"`; the executor provider is the runtime provider instance
   - `test_facade_reexports_browser_config` (positive) — in `tests/test_scenario.py`: `BrowserConfig is prettyplay.config.models.BrowserConfig`; `"BrowserConfig" in prettyplay.__all__`
-- [ ] **Code**: update the existing executor/scenario/integration tests to the eight-parameter constructor and the strict-aware payload expectations
-- [ ] **Debugging**: run `pytest tests/ -x` — fix implementation code until all tests pass
-- [ ] **Contract re-verification**: strict mode — the only LLM calls are classifications; the generation and healing budgets are never consumed; the engines are never invoked; the executor WARNING wording matches the engines (`"verdict skipped: llm unavailable"`); construction stays credential-free
-- [ ] **Lint**: `ruff check prettyplay/` — fix formatting, apply decomposition if necessary
-- [ ] **Completion**: mark the checkboxes of this task as completed
+- [x] **Code**: update the existing executor/scenario/integration tests to the eight-parameter constructor and the strict-aware payload expectations
+- [x] **Debugging**: run `pytest tests/ -x` — fix implementation code until all tests pass
+- [x] **Contract re-verification**: strict mode — the only LLM calls are classifications; the generation and healing budgets are never consumed; the engines are never invoked; the executor WARNING wording matches the engines (`"verdict skipped: llm unavailable"`); construction stays credential-free
+- [x] **Lint**: `ruff check prettyplay/` — fix formatting, apply decomposition if necessary
+- [x] **Completion**: mark the checkboxes of this task as completed
 
 ### Task 8: Integration tests — strict run and structured render through the public facade
 

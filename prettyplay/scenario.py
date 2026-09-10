@@ -77,8 +77,11 @@ class PrettyTest:
     The test writes its scenario in plain sentences — :meth:`action` and
     :meth:`assertion` — and this object does the rest: addressing of the
     cached steps by the context key, the isolated page of the test, and the
-    full step cycle delegated to the executor. Construction is cheap: the
-    page opens lazily on the first step and no LLM credential is needed.
+    full step cycle delegated to the executor (in strict replay-only mode:
+    cached code only, classification at most). Construction is cheap: the
+    page opens lazily on the first step and no LLM credential is needed —
+    the runtime provider handed to the executor is a lightweight object,
+    its SDK client stays lazy until the first request.
     Every test composes its own runtime here — no process-wide state, no
     state leaks between tests; two tests in one process hold two runtimes,
     two attempt registries and two browser sessions.
@@ -134,6 +137,8 @@ class PrettyTest:
             self._healer,
             self._runtime.budgets,
             self._reporter,
+            config=self._runtime.config,
+            provider=self._runtime.provider,  # cheap object construction; the SDK client stays lazy
         )
         self._page: PageFacade | None = None
 

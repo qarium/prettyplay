@@ -7,8 +7,9 @@ from collections.abc import Iterator
 from pathlib import Path
 from unittest import mock
 
+import prettyplay
 import pytest
-from prettyplay import PrettyTest
+from prettyplay import BrowserConfig, PrettyTest
 from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step_text
 from prettyplay.config import Config, PrettyConfig
 from prettyplay.failures import FailureVerdict, IncurableStepError, PrettyplayError
@@ -143,6 +144,10 @@ class TestPrettyTestContract:
     def test_pretty_test_is_importable_from_facade(self) -> None:
         assert isinstance(PrettyTest, type)
 
+    def test_facade_reexports_browser_config(self) -> None:
+        assert BrowserConfig is prettyplay.config.models.BrowserConfig
+        assert "BrowserConfig" in prettyplay.__all__
+
     def test_constructor_signature_matches_contract(self) -> None:
         parameters = list(inspect.signature(PrettyTest.__init__).parameters.values())[1:]
 
@@ -223,6 +228,25 @@ class TestPrettyTestLogic:
         assert effective.model == "gpt-4o"  # untouched fields come from the file
         assert effective.browser.name == "firefox"
         assert effective.cache_root == str(tmp_path / ".prettyplay" / "cache")
+
+    def test_pretty_test_wires_config_and_provider_into_executor(self, tmp_path: Path) -> None:
+        """The runtime config and the runtime provider reach the executor; no browser launched."""
+        config = PrettyConfig(
+            cache_root=str(tmp_path),
+            strict=True,
+            browser=BrowserConfig(screen="fullscreen", headless=False),
+        )
+
+        with mock.patch("prettyplay.scenario.load_config", return_value=config):
+            test = PrettyTest(CACHE_KEY)
+
+        executor = test._executor
+        assert executor._config is test._runtime.config  # the wired executor reads the runtime settings
+        assert executor._config.strict is True
+        assert executor._config.browser.screen == "fullscreen"
+        assert executor._config.browser.headless is False
+        assert executor._provider is test._runtime.provider  # the runtime provider instance, lazily built
+        assert test._runtime._driver is None  # construction stays browser-free
 
     def test_scenario_close_stops_page_and_runtime(self, tmp_path: Path) -> None:
         seed_cache(tmp_path)
