@@ -21,10 +21,10 @@ from prettyplay import PrettyTest
 
 def test_login():
     t = PrettyTest("login-flow")
-    t.action("открыть страницу логина")
-    t.action("ввести логин и пароль")
-    t.action("нажать «Войти»")
-    t.assertion("появилась надпись «Добро пожаловать»")
+    t.action("open the login page")
+    t.action("enter the login and password")
+    t.action("click the Sign in button")
+    t.assertion("the Welcome message appears")
     t.close()
 ```
 
@@ -32,7 +32,7 @@ Or with the context manager:
 
 ```python
 with PrettyTest("login-flow") as t:
-    t.action("открыть страницу логина")
+    t.action("open the login page")
 ```
 
 Each `PrettyTest` is fully self-contained: it owns its settings, its attempt
