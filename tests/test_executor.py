@@ -8,7 +8,6 @@ import pytest
 from prettyplay import StepExecutor
 from prettyplay.cache import CachedStep, RunBudgets, StepCache, StepIdentity, normalize_step_text
 from prettyplay.config import Config
-from prettyplay.engine.text import first_line_short
 from prettyplay.failures import FailureVerdict, IncurableStepError, LLMUnavailableError, ProductDefectError
 from prettyplay.reporting import StepHooks, StepReporter
 
@@ -324,14 +323,13 @@ class TestStepExecutorLogic:
             {
                 "step_text": "шаг",
                 "step_type": "action",
-                # only the render's first line; the verdict tail stays out of the event
-                "error": first_line_short(failure),
+                "error": str(failure),  # the render, verbatim — never re-composed
             }
         ]
         assert not events_named(fixture.recorder, "on_step_passed")
         assert fixture.executor._scenario == []  # failure does not grow the scenario context
 
-    def test_failed_step_error_is_first_line_cut_to_200(self, tmp_path: Path) -> None:
+    def test_failed_step_error_is_the_full_render_uncut(self, tmp_path: Path) -> None:
         generator = RaisingGenerator(ValueError(f"first {'x' * 300}\nsecond line"))
         fixture = ExecutorFixture(tmp_path, generator, RecordingHealer())
         page = FakePage()
@@ -342,9 +340,9 @@ class TestStepExecutorLogic:
         failed = events_named(fixture.recorder, "on_step_failed")
         assert len(failed) == 1
         error = failed[0]["error"]
-        assert error == f"first {'x' * 300}"[:200]
-        assert len(error) == 200
-        assert "second line" not in error
+        assert error == f"first {'x' * 300}\nsecond line"  # str(error): the full text
+        assert len(error) > 200  # no truncation at the old 200-char cut
+        assert "second line" in error
 
     def test_messageless_cached_failure_flows_to_healing_without_crash(self, tmp_path: Path) -> None:
         generator = RecordingGenerator()

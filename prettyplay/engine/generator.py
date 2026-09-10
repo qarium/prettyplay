@@ -11,7 +11,7 @@ from ..llm import FailureClassification, LLMProvider
 from ..reporting import StepReporter
 from .classification import classify_step_failure
 from .execution import run_step_code
-from .text import first_line_short
+from .text import format_step_error
 
 logger = logging.getLogger("prettyplay")
 
@@ -214,18 +214,12 @@ class StepGenerator:
 
         while True:
             if not spend(identity):
-                # candidate cause is part of the reason contract: «the specific incurability cause»
+                # colon-free authored reason; the candidate failure travels in the error field
                 reason = f"{pool} attempt budget exhausted"
 
-                if error:
-                    reason = f"{reason}; last failure: {error}"
                 if pool == "healing":
-                    raise IncurableStepError(
-                        step_text,
-                        reason,
-                        "",  # healer attaches the verdict — no second LLM request
-                        None,
-                    )
+                    # healer attaches the verdict — no second LLM request
+                    raise IncurableStepError(step_text, reason, error or "", None)
                 if error is None:
                     raise IncurableStepError(
                         step_text,
@@ -234,7 +228,7 @@ class StepGenerator:
                         None,
                     )
 
-                raise IncurableStepError(step_text, reason, "", self._classify(step_text, code, error, page))
+                raise IncurableStepError(step_text, reason, error, self._classify(step_text, code, error, page))
 
             attempt += 1
             self._reporter.emit("on_generation_started", {"step_text": step_text, "attempt": attempt})
@@ -258,14 +252,15 @@ class StepGenerator:
                 run_step_code(code, page)
             except AssertionError as check_failure:
                 # failed check: attempts not spent — classify and stop
-                reason = f"candidate check failed: {first_line_short(check_failure)}"
-                verdict = self._classify(step_text, code, reason, page)
+                error_field = str(check_failure)  # full text, no prefix — the type is the semantics
+                reason = f"candidate check failed — {error_field.partition(chr(10))[0]}"
+                verdict = self._classify(step_text, code, error_field, page)
                 if verdict is not None and verdict.category == "product_defect":
-                    raise ProductDefectError(step_text, first_line_short(check_failure), "", verdict) from None
-                raise IncurableStepError(step_text, reason, "", verdict) from None
+                    raise ProductDefectError(step_text, verdict.explanation, error_field, verdict) from None
+                raise IncurableStepError(step_text, reason, error_field, verdict) from None
             except Exception as candidate_error:  # other candidate failures heal via retry
                 existing_code = code
-                error = first_line_short(candidate_error)
+                error = format_step_error(candidate_error)
             else:
                 break
 

@@ -3,7 +3,7 @@
 from .cache import RunBudgets, StepCache, StepIdentity, normalize_step_text
 from .driver import PageFacade
 from .engine import StepGenerator, StepHealer, run_step_code
-from .engine.text import first_line_short
+from .engine.text import format_step_error
 from .failures import IncurableStepError, ProductDefectError
 from .reporting import StepReporter
 
@@ -84,7 +84,7 @@ class StepExecutor:
                 try:
                     run_step_code(cached.code, page)
                 except Exception as error:  # cached code failed — context goes to healing
-                    self._healer.heal(cached, first_line_short(error), self._scenario, page)  # healed = re-executed
+                    self._healer.heal(cached, format_step_error(error), self._scenario, page)  # healed = re-executed
             else:
                 self._generator.generate(identity, step_text, self._scenario, page)
 
@@ -93,7 +93,7 @@ class StepExecutor:
         except Exception as error:
             self._reporter.emit(
                 "on_step_failed",
-                {"step_text": step_text, "step_type": step_type, "error": first_line_short(error)},
+                {"step_text": step_text, "step_type": step_type, "error": str(error)},
             )
 
             if isinstance(error, (ProductDefectError, IncurableStepError)) and error.verdict is not None:

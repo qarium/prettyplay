@@ -13,6 +13,7 @@ Input you receive:
 - ERROR: the failure description
 - PAGE SNAPSHOT: the accessibility snapshot of the current page
 - SCREENSHOT: an image of the page, when attached
+- USER INSTRUCTIONS: the project's classification guidance, when configured
 
 Answer with exactly one line of the form:
 category | explanation | recommendation

@@ -63,6 +63,27 @@ class TestClassifyStepFailureContract:
             "page",
         ]
 
+    def test_forwards_classification_prompt_as_user_instructions(self, tmp_path: Path) -> None:
+        provider = ClassificationProvider(
+            FailureClassification(
+                category="rot",
+                explanation="the button was renamed",
+                recommendation="refresh the cache",
+            )
+        )
+        page = FakePage()
+
+        classify_step_failure(
+            Config(cache_root=str(tmp_path), classification_prompt="answer in Russian"),
+            provider,
+            "step",
+            "code",
+            "err",
+            page,
+        )
+
+        assert provider.classify_failure_calls[0]["user_instructions"] == "answer in Russian"
+
 
 class TestClassifyStepFailureLogic:
     """Logic tests: input collection and the port call shape."""
@@ -120,3 +141,33 @@ class TestClassifyStepFailureLogic:
             classify_step_failure(config, UnavailableProvider(), "s", STEP_CODE, "err", FakePage())
 
         assert "openai down" in str(excinfo.value)
+
+    def test_classify_step_failure_passes_classification_instructions(self, tmp_path: Path) -> None:
+        provider = ClassificationProvider(
+            FailureClassification(
+                category="rot",
+                explanation="the button was renamed",
+                recommendation="refresh the cache",
+            )
+        )
+        page = FakePage()
+
+        classify_step_failure(
+            Config(cache_root=str(tmp_path), classification_prompt="answer in Russian"),
+            provider,
+            "step",
+            "code",
+            "err",
+            page,
+        )
+
+        recorded = provider.classify_failure_calls[0]
+        assert recorded["user_instructions"] == "answer in Russian"
+        assert "- USER INSTRUCTIONS: the project's classification guidance, when configured" in recorded["prompt"]
+
+        empty = ClassificationProvider(
+            FailureClassification(category="rot", explanation="e", recommendation="r")
+        )
+        classify_step_failure(Config(cache_root=str(tmp_path)), empty, "step", "code", "err", FakePage())
+
+        assert empty.classify_failure_calls[0]["user_instructions"] == ""

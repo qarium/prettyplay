@@ -495,9 +495,9 @@ Implements the engine-cell concern: the `error` field of terminal failures carri
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Declaration**: state that Task 6 (engine cell) is being executed
-- [ ] **Contract tests**: add to `tests/engine/test_classification.py` and a new test module for the text policy — `classify_step_failure(config, provider, step_text, code, error, page)` signature unchanged and now forwards `user_instructions=config.classification_prompt`; `format_step_error(exc: Exception) -> str` importable from `prettyplay.engine.text`; `first_line_short` and `SHORT_ERROR_LENGTH` gone (expected to fail at this stage)
-- [ ] **Code**: implement `format_step_error` in `prettyplay/engine/text.py` and remove `first_line_short`/`SHORT_ERROR_LENGTH`:
+- [x] **Declaration**: state that Task 6 (engine cell) is being executed
+- [x] **Contract tests**: add to `tests/engine/test_classification.py` and a new test module for the text policy — `classify_step_failure(config, provider, step_text, code, error, page)` signature unchanged and now forwards `user_instructions=config.classification_prompt`; `format_step_error(exc: Exception) -> str` importable from `prettyplay.engine.text`; `first_line_short` and `SHORT_ERROR_LENGTH` gone (expected to fail at this stage)
+- [x] **Code**: implement `format_step_error` in `prettyplay/engine/text.py` and remove `first_line_short`/`SHORT_ERROR_LENGTH`:
 
 ```
 format_step_error(exc: Exception) -> str:
@@ -509,8 +509,8 @@ format_step_error(exc: Exception) -> str:
                                                                    # error yields the bare type name (no dangling ": ")
 ```
 
-- [ ] **Code**: `CLASSIFICATION_PROMPT` in `prettyplay/engine/classification.py` gains the input line `- USER INSTRUCTIONS: the project's classification guidance, when configured` (after SCREENSHOT — matching the engine cell inline usage text)
-- [ ] **Code**: rewrite the shared `_loop` of `StepGenerator` (`prettyplay/engine/generator.py`):
+- [x] **Code**: `CLASSIFICATION_PROMPT` in `prettyplay/engine/classification.py` gains the input line `- USER INSTRUCTIONS: the project's classification guidance, when configured` (after SCREENSHOT — matching the engine cell inline usage text)
+- [x] **Code**: rewrite the shared `_loop` of `StepGenerator` (`prettyplay/engine/generator.py`):
 
 ```
 1. attempt = 0; code = None; error = <regeneration param or None>
@@ -542,7 +542,7 @@ format_step_error(exc: Exception) -> str:
 
 (`_classify` unchanged apart from passing the full error text to the classification.)
 
-- [ ] **Code**: update `StepHealer.heal` (`prettyplay/engine/healer.py`) — the raises carry the error field:
+- [x] **Code**: update `StepHealer.heal` (`prettyplay/engine/healer.py`) — the raises carry the error field:
 
 ```
 1. classification = classify_step_failure(config, provider, step_text, step.code, error, page)
@@ -557,18 +557,18 @@ format_step_error(exc: Exception) -> str:
 7. classification unavailability → LLMUnavailableError (explicit infrastructure failure)
 ```
 
-- [ ] **Code**: adapt `prettyplay/executor.py` mechanically — import and use `format_step_error`: the heal input becomes `format_step_error(error)`; the `on_step_failed` payload becomes `{"step_text", "step_type", "error": str(error)}` (the render, verbatim — never re-composed)
-- [ ] **Interface verification**: run `pytest tests/engine/ tests/test_executor.py -v` — the contract tests pass
-- [ ] **Logic tests** (scenarios from the design, verbatim):
+- [x] **Code**: adapt `prettyplay/executor.py` mechanically — import and use `format_step_error`: the heal input becomes `format_step_error(error)`; the `on_step_failed` payload becomes `{"step_text", "step_type", "error": str(error)}` (the render, verbatim — never re-composed)
+- [x] **Interface verification**: run `pytest tests/engine/ tests/test_executor.py -v` — the contract tests pass
+- [x] **Logic tests** (scenarios from the design, verbatim):
   - `test_format_step_error_message_less_exceptions` (edge) — `format_step_error(AssertionError()) == ""`; `format_step_error(AssertionError("expected visible")) == "expected visible"`; `format_step_error(TimeoutError()) == "TimeoutError"`; `format_step_error(TimeoutError("click timeout")) == "TimeoutError: click timeout"`
   - `test_classify_step_failure_passes_classification_instructions` (positive) — `RecordingProvider` (records kwargs) stub; fake page returning snapshot "snap"; `classify_step_failure(Config(classification_prompt="answer in Russian"), provider, "step", "code", "err", page)`: `recorded["user_instructions"] == "answer in Russian"`; `"- USER INSTRUCTIONS: the project's classification guidance, when configured" in recorded["prompt"]`; `Config(classification_prompt="")` → `recorded["user_instructions"] == ""`
   - `test_generator_carries_full_error_text_in_terminal_failures` (edge) — generator with a provider returning code that raises `AssertionError("expected visible")` on the first candidate; classification stub: `ProductDefectError.error == "expected visible"` (full, no prefix, no truncation at 200 chars — use a >200-char message); `IncurableStepError` on budget exhaustion: `exc.error` == the last candidate full text; `exc.reason == "generation attempt budget exhausted"` (no colon, no embedded error)
   - `test_healer_and_strict_error_fields_end_to_end` (edge) — non-strict healer with a cached step failing `TimeoutError("click timeout")`; classification product_defect: `ProductDefectError.error == "TimeoutError: click timeout"`; `str(exc)` contains `"error: TimeoutError: click timeout"`; regeneration-exhaustion path: the outer `IncurableStepError.verdict` is the rot classification verdict and `.error` is the inner last-candidate text
-- [ ] **Code**: update the existing engine/executor tests that pin truncated errors, the colon-form reasons (`"candidate check failed: …"`, `"… exhausted; last failure: …"`) and the `first_line_short` import (`tests/engine/test_generator.py`, `tests/engine/test_healer.py`, `tests/engine/test_classification.py`, `tests/test_executor.py`)
-- [ ] **Debugging**: run `pytest tests/ -x` — fix implementation code until all tests pass
-- [ ] **Contract re-verification**: every terminal raise on the engine paths carries the full formatted text; reasons are colon-free (static templates by construction; embedded assertion/LLM texts are data and pass verbatim — `render_terminal_message` never rewrites the reason); the instructions take no part in the step address
-- [ ] **Lint**: `ruff check prettyplay/` — fix formatting, apply decomposition if necessary
-- [ ] **Completion**: mark the checkboxes of this task as completed
+- [x] **Code**: update the existing engine/executor tests that pin truncated errors, the colon-form reasons (`"candidate check failed: …"`, `"… exhausted; last failure: …"`) and the `first_line_short` import (`tests/engine/test_generator.py`, `tests/engine/test_healer.py`, `tests/engine/test_classification.py`, `tests/test_executor.py`)
+- [x] **Debugging**: run `pytest tests/ -x` — fix implementation code until all tests pass
+- [x] **Contract re-verification**: every terminal raise on the engine paths carries the full formatted text; reasons are colon-free (static templates by construction; embedded assertion/LLM texts are data and pass verbatim — `render_terminal_message` never rewrites the reason); the instructions take no part in the step address
+- [x] **Lint**: `ruff check prettyplay/` — fix formatting, apply decomposition if necessary
+- [x] **Completion**: mark the checkboxes of this task as completed
 
 ### Task 7: root cell — strict replay-only executor, wiring and the `BrowserConfig` facade re-export (TDD)
 

@@ -401,11 +401,57 @@ class TestStepHealerLogic:
 
         assert excinfo.value.verdict.category == "rot"  # the step 1 verdict, no second LLM request
         assert excinfo.value.reason.startswith("healing attempt budget exhausted")
-        assert "last failure:" in excinfo.value.reason
+        assert excinfo.value.error == "TimeoutError: waiting for the element timed out"  # the inner candidate
         assert isinstance(excinfo.value.__cause__, IncurableStepError)  # raise … from incurable
         assert provider.classify_failure_call_count == 1
         assert provider.generate_step_code_call_count == 1
         assert fixture.cache.save_calls == []  # no proven candidate — cache untouched
+
+    def test_healer_and_strict_error_fields_end_to_end(self, tmp_path: Path) -> None:
+        provider = FakeProvider(
+            classifications=[
+                FailureClassification(
+                    category="product_defect",
+                    explanation="the total is wrong",
+                    recommendation="file a bug",
+                )
+            ]
+        )
+        fixture = HealerFixture(provider, tmp_path)
+
+        with pytest.raises(ProductDefectError) as excinfo:
+            fixture.healer.heal(fixture.failed_step, "TimeoutError: click timeout", [], FakePage())
+
+        assert excinfo.value.error == "TimeoutError: click timeout"  # the full underlying error
+        assert "error: TimeoutError: click timeout" in str(excinfo.value)
+
+        rot_provider = FakeProvider(
+            classifications=[
+                FailureClassification(
+                    category="rot",
+                    explanation="the selector rotted",
+                    recommendation="refresh the cache",
+                )
+            ],
+            answers=[TIMEOUT_CODE],
+        )
+        rot_fixture = HealerFixture(rot_provider, tmp_path, real_generator=True, limits=(1, 1))
+
+        with pytest.raises(IncurableStepError) as rot:
+            rot_fixture.healer.heal(rot_fixture.failed_step, "element not found", [], TimeoutPage())
+
+        assert rot.value.verdict is not None
+        assert rot.value.verdict.category == "rot"  # the outer verdict is the rot classification verdict
+        assert rot.value.error == "TimeoutError: waiting for the element timed out"  # the inner last candidate
+
+    def test_classification_prompt_documents_user_instructions_input(self) -> None:
+        # the USER INSTRUCTIONS input line sits right after the SCREENSHOT input line
+        screenshot_input = CLASSIFICATION_PROMPT.index("- SCREENSHOT: an image of the page, when attached")
+        user_instructions_input = CLASSIFICATION_PROMPT.index(
+            "- USER INSTRUCTIONS: the project's classification guidance, when configured"
+        )
+        answer_line = CLASSIFICATION_PROMPT.index("Answer with exactly one line")
+        assert screenshot_input < user_instructions_input < answer_line
 
     def test_heal_classification_unavailable_is_infrastructure_failure(self, tmp_path: Path) -> None:
         provider = FakeProvider([LLMUnavailableError("anthropic down")])
@@ -442,7 +488,8 @@ class TestStepHealerLogic:
 
         # the fresh failed-check verdict wins; the except branch never rewrites it
         assert excinfo.value.verdict.category == "product_defect"
-        assert excinfo.value.message == "banner missing"
+        assert excinfo.value.message == "the banner is genuinely missing"  # the verdict explanation
+        assert excinfo.value.error == "banner missing"  # the full check text, no prefix
         assert provider.classify_failure_call_count == 2  # healer classification + a fresh one in regeneration
         assert fixture.cache.save_calls == []
 

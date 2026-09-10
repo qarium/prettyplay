@@ -352,7 +352,8 @@ class TestStepGeneratorLogic:
         with pytest.raises(IncurableStepError) as excinfo:
             fixture.generator.generate(make_identity(), "невозможный шаг", [], page)
 
-        assert excinfo.value.reason == "generation attempt budget exhausted; last failure: navigation timed out"
+        assert excinfo.value.reason == "generation attempt budget exhausted"
+        assert excinfo.value.error == "TimeoutError: navigation timed out"  # the last candidate, full and typed
         assert excinfo.value.verdict is not None
         assert excinfo.value.verdict.category == "rot"  # the verdict of the last candidate
         assert len(provider.calls) == 3
@@ -424,7 +425,8 @@ class TestStepGeneratorLogic:
                 error="assertion failed",  # the original cache error — reason must carry the candidate's last error
             )
 
-        assert excinfo.value.reason == "healing attempt budget exhausted; last failure: navigation timed out"
+        assert excinfo.value.reason == "healing attempt budget exhausted"
+        assert excinfo.value.error == "TimeoutError: navigation timed out"  # the last candidate of the pool
         assert excinfo.value.verdict is None  # the healer attaches the verdict — no second LLM request
         assert excinfo.value.recommendation == "reword the step or refresh the cache"  # fallback without a verdict
         assert len(provider.calls) == 1  # the healing budget (1) is exhausted after the first attempt
@@ -452,8 +454,8 @@ class TestStepGeneratorLogic:
         with pytest.raises(IncurableStepError) as excinfo:
             fixture.generator.generate(make_identity(), "невозможный шаг", [], page)
 
-        # an empty failure description leaves no "; last failure: " tail in reason
-        assert excinfo.value.reason == "candidate check failed: "
+        # an empty failure description leaves the em-dash reason without an error tail
+        assert excinfo.value.reason == "candidate check failed — "
 
     def test_generated_step_is_saved_into_cache(self, tmp_path: Path) -> None:
         provider = StubProvider([WORKING_CODE])
@@ -494,10 +496,12 @@ class TestStepGeneratorLogic:
 
         assert excinfo.value.verdict is not None
         assert excinfo.value.verdict.category == "product_defect"
+        assert excinfo.value.message == "the banner is missing"  # the verdict explanation is the reason
+        assert excinfo.value.error == "banner missing"  # the full check text, no prefix
         assert "banner missing" in str(excinfo.value)
         assert len(provider.calls) == 1  # retries stopped at once
         assert len(provider.classify_failure_calls) == 1
-        assert provider.classify_failure_calls[0]["error"] == "candidate check failed: banner missing"
+        assert provider.classify_failure_calls[0]["error"] == "banner missing"
 
     def test_generate_failed_check_non_defect_verdict_raises_incurable(self, tmp_path: Path) -> None:
         provider = StubProvider(
@@ -536,10 +540,10 @@ class TestStepGeneratorLogic:
             fixture.generator.generate(make_identity(), "невозможный шаг", [], page)
 
         assert excinfo.value.reason.startswith("generation attempt budget exhausted")
-        assert "last failure:" in excinfo.value.reason
+        assert excinfo.value.error == "TimeoutError: navigation timed out"
         assert excinfo.value.verdict is not None
         assert excinfo.value.verdict.category == "incurable"
-        assert provider.classify_failure_calls[0]["error"] == "navigation timed out"
+        assert provider.classify_failure_calls[0]["error"] == "TimeoutError: navigation timed out"
 
     def test_generate_quiet_verdict_skip_on_unavailable_classification(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
@@ -571,7 +575,7 @@ class TestStepGeneratorLogic:
             fixture.generator.generate(make_identity(), "impossible step", [], page)
 
         assert excinfo.value.reason.startswith("generation attempt budget exhausted")
-        assert "last failure:" in excinfo.value.reason
+        assert excinfo.value.error == "TimeoutError: navigation timed out"  # error field even without a verdict
         assert excinfo.value.verdict is None  # quiet skip — not an infrastructure failure
         assert excinfo.value.recommendation == "reword the step or refresh the cache"  # fallback without a verdict
         warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
@@ -607,6 +611,38 @@ class TestStepGeneratorLogic:
         assert excinfo.value.verdict is None  # nothing to classify
         assert provider.classify_failure_calls == []
         assert provider.calls == []
+
+    def test_generator_carries_full_error_text_in_terminal_failures(self, tmp_path: Path) -> None:
+        long_message = "Locator expected to be visible" + " x" * 120  # well past the old 200-char cut
+        defect_provider = StubProvider(
+            ["def step(page) -> None:\n    page.find_by_text('Welcome back').expect_visible()\n"],
+            verdict=FailureClassification(
+                category="product_defect",
+                explanation="the banner is gone",
+                recommendation="file a bug",
+            ),
+        )
+        defect_fixture = GeneratorFixture(tmp_path, defect_provider)
+        defect_page = FakePage(assertion_message=long_message)
+
+        with pytest.raises(ProductDefectError) as defect:
+            defect_fixture.generator.generate(make_identity(), "see the welcome banner", [], defect_page)
+
+        assert defect.value.error == long_message  # full, no prefix, no truncation at 200 chars
+        assert len(defect.value.error) > 200
+
+        exhausted_provider = StubProvider(
+            [BROKEN_CODE],
+            verdict=FailureClassification(category="incurable", explanation="e", recommendation="r"),
+        )
+        exhausted_fixture = GeneratorFixture(tmp_path, exhausted_provider, limits=(1, 2))
+        timeout_page = TimeoutPage()
+
+        with pytest.raises(IncurableStepError) as exhausted:
+            exhausted_fixture.generator.generate(make_identity(), "невозможный шаг", [], timeout_page)
+
+        assert exhausted.value.error == "TimeoutError: navigation timed out"  # the last candidate full text
+        assert exhausted.value.reason == "generation attempt budget exhausted"  # no colon, no embedded error
 
 
 class TestPromptConstants:

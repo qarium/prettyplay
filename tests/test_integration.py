@@ -439,7 +439,7 @@ def test_generated_failed_check_verdict_fails_the_test_loudly(tmp_path: Path) ->
     assert excinfo.value.verdict.category == "product_defect"
     assert len(provider.generation_requests) == 1  # retries stopped: budget not spent on a failed check
     assert len(provider.classification_requests) == 1
-    assert provider.classification_requests[0]["error"] == "candidate check failed: element not found"
+    assert provider.classification_requests[0]["error"] == "element not found"
     identity = StepIdentity(
         cache_key="login-flow", step_type="assertion", normalized_text=normalize_step_text(step_text)
     )
@@ -484,7 +484,8 @@ def test_product_defect_verdict_fails_the_test_loudly(tmp_path: Path) -> None:
         ("on_healing_started", {"step_text": "нажать войти", "category": "product_defect"}),
         (
             "on_step_failed",
-            {"step_text": "нажать Войти", "step_type": "action", "error": "ожидание не оправдалось"},
+            # the full structured render — str(exc), never re-composed
+            {"step_text": "нажать Войти", "step_type": "action", "error": str(excinfo.value)},
         ),
         (
             "on_step_verdict",
@@ -538,7 +539,8 @@ def test_incurable_verdict_fails_with_verdict_fields(tmp_path: Path) -> None:
         ("on_healing_started", {"step_text": "нажать войти", "category": "incurable"}),
         (
             "on_step_failed",
-            {"step_text": "нажать Войти", "step_type": "action", "error": "текст шага не соответствует реальности"},
+            # the full structured render — str(exc), never re-composed
+            {"step_text": "нажать Войти", "step_type": "action", "error": str(excinfo.value)},
         ),
         (
             "on_step_verdict",
