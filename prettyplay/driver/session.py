@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import difflib
 import queue
+import re
 import threading
 from collections.abc import Callable
 from typing import TypeVar, cast
@@ -133,8 +135,8 @@ class DriverSession:
 
     Attributes:
         _config: project settings; the ``browser`` group selects the engine of
-            the matrix and its ``endpoint`` switches the start to a remote ws
-            connect.
+            the matrix, its ``screen`` sets the size mode of every context,
+            and its ``endpoint`` switches the start to a remote ws connect.
         _playwright: the started Playwright driver; ``None`` until first start.
         _browser: the connected or launched browser process; ``None`` until first start.
         _worker: the thread owning the Playwright session; ``None`` until first start.
@@ -156,9 +158,17 @@ class DriverSession:
 
         The driver and the browser start lazily on the first call exactly once
         per test; each subsequent call only creates a new isolated context.
+        The context opens with the parameters the ``screen`` setting of the
+        browser group resolves to — the resolution itself runs inside the
+        driver thread, because the device registry belongs to the running
+        Playwright session.
 
         Returns:
             The facade of the new page of a fresh isolated context.
+
+        Raises:
+            Error: the ``screen`` value names a device absent from the
+                registry of the running Playwright.
         """
         if self._browser is None:
             self._launch()
@@ -167,7 +177,8 @@ class DriverSession:
         browser = self._browser
 
         def open_isolated() -> tuple[Page, BrowserContext]:
-            context: BrowserContext = browser.new_context()
+            params = self._screen_context_params()
+            context: BrowserContext = browser.new_context(**params)
             return context.new_page(), context
 
         page, context = worker.run(open_isolated)
@@ -175,6 +186,46 @@ class DriverSession:
         facade = PageFacade(page, context)
         facade._worker = worker  # facade calls go to the driver thread
         return facade
+
+    def _screen_context_params(self) -> dict[str, object]:
+        """Resolve the screen setting of the browser group into context parameters.
+
+        Runs inside the driver thread: the device registry is read from the
+        running Playwright session and is never hard-coded. The empty value
+        keeps the Playwright default; ``fullscreen`` follows the window of a
+        local headed launch and pins to a fixed viewport where no window
+        exists; a WxH value is a fixed viewport; any other value is a device
+        name resolved against the registry.
+
+        Returns:
+            The ``new_context`` keyword arguments of the resolved screen mode.
+
+        Raises:
+            Error: the value names no device of the running registry; the
+                message carries the closest registry names.
+        """
+        group = self._config.browser
+        screen = group.screen
+
+        if screen == "":
+            return {}
+
+        if screen == "fullscreen":
+            if group.endpoint == "" and not group.headless:
+                return {"no_viewport": True}  # the viewport follows the window
+            return {"viewport": {"width": 1920, "height": 1080}}  # no window exists there
+
+        match = re.fullmatch(r"(\d+)x(\d+)", screen)
+        if match is not None:
+            return {"viewport": {"width": int(match.group(1)), "height": int(match.group(2))}}
+
+        devices = self._playwright.devices  # the registry of the running Playwright
+        if screen in devices:
+            return dict(devices[screen])
+
+        close = difflib.get_close_matches(screen, devices, n=3, cutoff=0.5)
+        suggestion = f" — closest names: {', '.join(close)}" if close else ""
+        raise Error(f"unknown screen device {screen!r}: not in the playwright device registry{suggestion}")
 
     def close(self) -> None:
         """Stop the browser and the Playwright driver; safe when nothing was started.
@@ -249,7 +300,9 @@ class DriverSession:
         ``chrome``/``msedge`` name a locally installed browser launched through
         the chromium engine with the matching channel. A channel launch without
         the installed browser fails with Playwright's own actionable error,
-        propagated as-is.
+        propagated as-is. A chromium-family fullscreen on a local headed launch
+        starts the window maximized (``--start-maximized``) so the viewport-free
+        context follows the real screen; firefox/webkit keep their plain launch.
 
         Args:
             playwright: the started Playwright session of the worker thread.
@@ -285,6 +338,10 @@ class DriverSession:
             engine = engines[name]
             channel = None
 
+        launch_kwargs: dict[str, object] = {"headless": group.headless}
         if channel:
-            return cast(Browser, engine.launch(headless=group.headless, channel=channel))
-        return cast(Browser, engine.launch(headless=group.headless))
+            launch_kwargs["channel"] = channel
+        if group.screen == "fullscreen" and name in ("chromium", "chrome", "msedge") and not group.headless:
+            # a window exists only on a local headed launch — start it maximized
+            launch_kwargs["args"] = ["--start-maximized"]
+        return cast(Browser, engine.launch(**launch_kwargs))

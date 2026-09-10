@@ -1,6 +1,7 @@
 """Tests for the DriverSession browser lifecycle of the prettyplay.driver cell."""
 
 import asyncio
+import inspect
 import threading
 from unittest import mock
 
@@ -8,6 +9,24 @@ import pytest
 from playwright.sync_api import Error
 from prettyplay.config import BrowserConfig, Config
 from prettyplay.driver import DriverSession, PageFacade
+
+IPHONE_13_DESCRIPTOR: dict[str, object] = {
+    "viewport": {"width": 390, "height": 664},
+    "user_agent": "ua",
+    "has_touch": True,
+    "is_mobile": True,
+    "device_scale_factor": 3,
+    "default_browser_type": "webkit",
+}
+
+PIXEL_7_DESCRIPTOR: dict[str, object] = {
+    "viewport": {"width": 412, "height": 915},
+    "user_agent": "ua-pixel",
+    "has_touch": True,
+    "is_mobile": True,
+    "device_scale_factor": 2.625,
+    "default_browser_type": "chromium",
+}
 
 
 class FakePlaywrightFactory:
@@ -26,6 +45,8 @@ class FakePlaywrightFactory:
         self.launch_kwargs: list[dict] = []
         self.engine_starts: list[str] = []  # each engine start: launch or connect
         self.contexts: list[FakeContext] = []
+        self.context_kwargs: list[dict] = []  # kwargs of every new_context call
+        self.devices: dict[str, dict[str, object]] = {}  # the running device registry
         self.threads: list[int] = []  # thread ident of every boundary call
         self.chromium = FakeEngine("chromium", self)
         self.firefox = FakeEngine("firefox", self)
@@ -86,8 +107,9 @@ class FakeBrowser:
         self._factory = factory
         self.close_calls = 0
 
-    def new_context(self) -> "FakeContext":
+    def new_context(self, **kwargs: object) -> "FakeContext":
         self._factory.threads.append(threading.get_ident())
+        self._factory.context_kwargs.append(kwargs)
         context = FakeContext(self)
         self._factory.contexts.append(context)
         return context
@@ -489,6 +511,127 @@ class TestDriverSessionConnect:
         assert factory.start_calls == 2
         assert len(factory.engine_starts) == 2  # the second attempt counts as a new engine start
         assert isinstance(page, PageFacade)
+
+
+SCREEN_MODE_MATRIX = [
+    # (case, name, screen, headless, endpoint, expected launch kwargs, expected new_context kwargs)
+    # expected launch kwargs None — the remote connect path (connect, no launch)
+    ("empty-headed", "chromium", "", False, "", {"headless": False}, {}),
+    ("empty-headless", "chromium", "", True, "", {"headless": True}, {}),
+    ("empty-remote", "chromium", "", False, "ws://grid:3000", None, {}),
+    ("wxh-headed", "chromium", "1280x720", False, "", {"headless": False}, {"viewport": {"width": 1280, "height": 720}}),
+    ("wxh-headless", "chromium", "1280x720", True, "", {"headless": True}, {"viewport": {"width": 1280, "height": 720}}),
+    ("wxh-remote", "chromium", "1280x720", False, "ws://grid:3000", None, {"viewport": {"width": 1280, "height": 720}}),
+    ("device-headed", "chromium", "iPhone 13", False, "", {"headless": False}, dict(IPHONE_13_DESCRIPTOR)),
+    ("device-headless", "chromium", "iPhone 13", True, "", {"headless": True}, dict(IPHONE_13_DESCRIPTOR)),
+    ("device-remote", "chromium", "iPhone 13", False, "ws://grid:3000", None, dict(IPHONE_13_DESCRIPTOR)),
+    (
+        "fullscreen-chromium-headed",
+        "chromium",
+        "fullscreen",
+        False,
+        "",
+        {"headless": False, "args": ["--start-maximized"]},
+        {"no_viewport": True},
+    ),
+    (
+        "fullscreen-chrome-channel",
+        "chrome",
+        "fullscreen",
+        False,
+        "",
+        {"headless": False, "channel": "chrome", "args": ["--start-maximized"]},
+        {"no_viewport": True},
+    ),
+    ("fullscreen-headless", "chromium", "fullscreen", True, "", {"headless": True}, {"viewport": {"width": 1920, "height": 1080}}),
+    ("fullscreen-remote", "chromium", "fullscreen", False, "ws://grid:3000", None, {"viewport": {"width": 1920, "height": 1080}}),
+    ("fullscreen-firefox-headed", "firefox", "fullscreen", False, "", {"headless": False}, {"no_viewport": True}),
+    ("fullscreen-webkit-headed", "webkit", "fullscreen", False, "", {"headless": False}, {"no_viewport": True}),
+]
+
+
+class TestDriverSessionScreenModesContract:
+    """Contract tests: the open_context signature and the resolved context parameters."""
+
+    def test_open_context_signature_unchanged_no_parameters(self) -> None:
+        parameters = [name for name in inspect.signature(DriverSession.open_context).parameters if name != "self"]
+        assert parameters == []
+
+    @pytest.mark.parametrize(
+        ("screen", "expected_params"),
+        [
+            ("", {}),
+            ("1280x720", {"viewport": {"width": 1280, "height": 720}}),
+            ("iPhone 13", dict(IPHONE_13_DESCRIPTOR)),
+            ("fullscreen", {"no_viewport": True}),
+        ],
+        ids=["empty", "wxh", "device", "fullscreen-local-headed"],
+    )
+    def test_every_resolution_path_ends_in_new_context_with_params(self, screen: str, expected_params: dict) -> None:
+        factory = FakePlaywrightFactory()
+        factory.devices = {"iPhone 13": IPHONE_13_DESCRIPTOR, "Pixel 7": PIXEL_7_DESCRIPTOR}
+
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(Config(browser=BrowserConfig(screen=screen, headless=False)))
+            page = session.open_context()
+            session.close()
+
+        assert isinstance(page, PageFacade)
+        assert factory.context_kwargs == [expected_params]
+        assert threading.get_ident() not in set(factory.threads)  # the resolution ran in the worker
+
+
+class TestDriverSessionScreenModes:
+    """Logic tests: the screen-mode matrix of the context creation and unknown devices."""
+
+    @pytest.mark.parametrize(
+        ("name", "screen", "headless", "endpoint", "expected_launch", "expected_context"),
+        [row[1:] for row in SCREEN_MODE_MATRIX],
+        ids=[row[0] for row in SCREEN_MODE_MATRIX],
+    )
+    def test_open_context_screen_modes(
+        self,
+        name: str,
+        screen: str,
+        headless: bool,
+        endpoint: str,
+        expected_launch: dict | None,
+        expected_context: dict,
+    ) -> None:
+        factory = FakePlaywrightFactory()
+        factory.devices = {"iPhone 13": IPHONE_13_DESCRIPTOR, "Pixel 7": PIXEL_7_DESCRIPTOR}
+
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(
+                Config(browser=BrowserConfig(name=name, screen=screen, headless=headless, endpoint=endpoint))
+            )
+            page = session.open_context()
+            session.close()
+
+        assert isinstance(page, PageFacade)
+        assert factory.context_kwargs == [expected_context]
+
+        if expected_launch is None:  # the remote connect path
+            assert factory.launches == []
+            assert factory.chromium.connect_calls == [endpoint]
+        else:
+            assert factory.launch_kwargs == [expected_launch]
+            assert factory.chromium.connect_calls == []
+
+    def test_open_context_unknown_device_fails_loudly(self) -> None:
+        factory = FakePlaywrightFactory()
+        factory.devices = {"iPhone 13": IPHONE_13_DESCRIPTOR, "Pixel 7": PIXEL_7_DESCRIPTOR}
+
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(Config(browser=BrowserConfig(screen="iPhon 13")))
+            with pytest.raises(Error) as excinfo:
+                session.open_context()
+            session.close()
+
+        message = str(excinfo.value)
+        assert "iPhon" in message  # the unknown value itself is named
+        assert "iPhone 13" in message  # the close-name suggestion from the registry
+        assert factory.contexts == []  # no context was created
 
 
 class TestDriverSessionWorkerThread:

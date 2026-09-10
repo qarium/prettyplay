@@ -430,9 +430,9 @@ Implements the screen-mode resolution of `DriverSession.open_context` (`prettypl
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Declaration**: state that Task 5 (driver screen modes) is being executed
-- [ ] **Contract tests**: add to `tests/driver/test_session.py` — `open_context()` signature unchanged; every resolution path ends in `browser.new_context(...)` called inside the worker with the resolved parameters and returns a `PageFacade` (expected to fail at this stage — current `open_context` passes no parameters)
-- [ ] **Code**: implement the screen resolution in `prettyplay/driver/session.py` (`open_context`):
+- [x] **Declaration**: state that Task 5 (driver screen modes) is being executed
+- [x] **Contract tests**: add to `tests/driver/test_session.py` — `open_context()` signature unchanged; every resolution path ends in `browser.new_context(...)` called inside the worker with the resolved parameters and returns a `PageFacade` (expected to fail at this stage — current `open_context` passes no parameters)
+- [x] **Code**: implement the screen resolution in `prettyplay/driver/session.py` (`open_context`):
 
 ```
 1. IF browser is None: _launch()
@@ -466,8 +466,8 @@ Implements the screen-mode resolution of `DriverSession.open_context` (`prettypl
 4. RETURN PageFacade(page, context) bound to the worker  # facade untouched
 ```
 
-- [ ] **Interface verification**: run `pytest tests/driver/ -v` — the contract tests pass
-- [ ] **Logic tests** (scenarios from the design, verbatim):
+- [x] **Interface verification**: run `pytest tests/driver/ -v` — the contract tests pass
+- [x] **Logic tests** (scenarios from the design, verbatim):
   - `test_open_context_screen_modes` (parametrized matrix) — fake Playwright objects: `playwright.devices = {"iPhone 13": {"viewport": {"width": 390, "height": 664}, "user_agent": "ua", "has_touch": True, "is_mobile": True, "device_scale_factor": 3, "default_browser_type": "webkit"}}`; recording `browser.new_context`; recording `engine.launch`; `DriverSession(Config(browser=BrowserConfig(screen=s, headless=h, endpoint=e))).open_context()`:
     - `""` (any mode) → `new_context()` called with no kwargs
     - `"1280x720"` (any mode) → `new_context(viewport={"width": 1280, "height": 720})`
@@ -478,10 +478,10 @@ Implements the screen-mode resolution of `DriverSession.open_context` (`prettypl
     - `"fullscreen"` + firefox headed → `launch` without args; `new_context(no_viewport=True)`
     - `"fullscreen"` + remote connect → connect path; viewport pinned 1920x1080
   - `test_open_context_unknown_device_fails_loudly` (negative) — fake registry `{"iPhone 13": …, "Pixel 7": …}`; `BrowserConfig(screen="iPhon 13")`; `session.open_context()` → `pytest.raises(playwright Error)`; `"iPhon"` and `"iPhone 13"` both in `str(exc)` (close-name suggestion)
-- [ ] **Debugging**: run `pytest tests/ -x` — fix implementation code until all tests pass
-- [ ] **Contract re-verification**: WxH and device descriptors apply in every launch mode; `no_viewport=True` only ever on local headed launches; the device list is never hard-coded (registry of the running Playwright)
-- [ ] **Lint**: `ruff check prettyplay/` — fix formatting, apply decomposition if necessary
-- [ ] **Completion**: mark the checkboxes of this task as completed
+- [x] **Debugging**: run `pytest tests/ -x` — fix implementation code until all tests pass
+- [x] **Contract re-verification**: WxH and device descriptors apply in every launch mode; `no_viewport=True` only ever on local headed launches; the device list is never hard-coded (registry of the running Playwright)
+- [x] **Lint**: `ruff check prettyplay/` — fix formatting, apply decomposition if necessary
+- [x] **Completion**: mark the checkboxes of this task as completed
 
 ### Task 6: `prettyplay/engine` — full error-text policy and classification instructions (TDD)
 
