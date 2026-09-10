@@ -77,7 +77,7 @@ class TestAnthropicProviderContract:
     def test_constructor_reads_no_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
 
-        AnthropicProvider(Config())  # конструкция без исключений — клиент ленивый
+        AnthropicProvider(Config())  # constructs without exceptions — the client is lazy
 
 
 class TestAnthropicProviderLogic:
@@ -109,7 +109,7 @@ class TestAnthropicProviderLogic:
 
     def test_empty_content_maps_to_llm_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
-        client = make_client_returning(SimpleNamespace(content=[]))  # пустой ответ сервиса
+        client = make_client_returning(SimpleNamespace(content=[]))  # empty service response
         provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
 
         with (
@@ -150,7 +150,7 @@ class TestAnthropicProviderLogic:
                 error=None,
             )
 
-        assert code == WORKING_CODE  # не-текстовый первый блок не ломает извлечение
+        assert code == WORKING_CODE  # a non-text first block does not break extraction
 
     def test_content_without_any_text_block_maps_to_llm_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
@@ -176,7 +176,7 @@ class TestAnthropicProviderLogic:
     def test_anthropic_missing_api_key_surfaces_on_first_request(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
 
-        provider = AnthropicProvider(Config())  # не падает — конструктор не читает env
+        provider = AnthropicProvider(Config())  # does not fail — the constructor reads no env
 
         with pytest.raises(LlmUnavailableError) as excinfo:
             provider.classify_failure(
@@ -206,7 +206,7 @@ class TestAnthropicProviderLogic:
             )
 
         assert classification.category == "incurable"
-        assert len(requests) == 1  # один запрос на попытку
+        assert len(requests) == 1  # one request per attempt
 
     def test_generate_returns_code_with_prompt_verbatim_and_effective_model(
         self, monkeypatch: pytest.MonkeyPatch
@@ -239,7 +239,7 @@ class TestAnthropicProviderLogic:
         assert "открыть страницу" in user["content"]
         assert "шаг один" in user["content"]
         assert "page.open(...)" in user["content"]
-        assert "CODE" not in user["content"]  # регенерационные поля отсутствуют на первой попытке
+        assert "CODE" not in user["content"]  # no regeneration fields on the first attempt
 
     def test_generate_returns_code_extracted_from_markdown_fence(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
@@ -260,7 +260,7 @@ class TestAnthropicProviderLogic:
                 error=None,
             )
 
-        assert code == WORKING_CODE  # фенс снят — код фиксированной формы
+        assert code == WORKING_CODE  # fence stripped — fixed-form code
 
     def test_generate_regeneration_request_carries_code_and_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")

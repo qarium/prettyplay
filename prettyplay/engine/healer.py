@@ -108,9 +108,9 @@ class StepHealer:
             )
         except IncurableStepError as incurable:
             if incurable.verdict is None:
-                # исчерпание регенерации: вердикт этой классификации, без второго LLM-запроса
+                # regeneration exhausted: verdict of this classification, no second LLM request
                 raise IncurableStepError(step_text, incurable.reason, verdict) from incurable
-            raise  # свежий вердикт проваленной проверки никогда не перезаписывается
+            raise  # a fresh failed-check verdict is never overwritten
 
         self._reporter.emit("on_healed", {"step_text": step_text, "explanation": classification.explanation})
         return healed

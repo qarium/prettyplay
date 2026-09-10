@@ -74,8 +74,8 @@ class TestRunBudgetsLogic:
         second_test = RunBudgets(generation_limit=1, healing_limit=1)
 
         assert first_test.try_generation(IDENTITY) is True
-        assert first_test.try_generation(IDENTITY) is False  # исчерпан внутри первого теста
-        assert second_test.try_generation(IDENTITY) is True  # свежий бюджет нового теста
+        assert first_test.try_generation(IDENTITY) is False  # exhausted within the first test
+        assert second_test.try_generation(IDENTITY) is True  # a fresh budget for the new test
 
     def test_budgets_shared_between_two_consumers_of_one_registry(self) -> None:
         """The registry of one test is handed to several consumers; spending is shared, not per-consumer."""
@@ -88,7 +88,7 @@ class TestRunBudgetsLogic:
             def try_(self, identity: StepIdentity) -> bool:
                 return self.registry.try_generation(identity)
 
-        first, second = Consumer(budgets), Consumer(budgets)  # два потребителя одного реестра
+        first, second = Consumer(budgets), Consumer(budgets)  # two consumers of one registry
 
         assert first.try_(IDENTITY) is True
-        assert second.try_(IDENTITY) is False  # второму попытка не вернулась
+        assert second.try_(IDENTITY) is False  # the attempt was not returned to the second

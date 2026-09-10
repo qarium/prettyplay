@@ -1,23 +1,23 @@
 # Architecture Plan — additional-configuration
 
-**Topic:** `additional-configuration` — расширение конфигурации prettyplay (per-test рантайм, PrettyConfig со слиянием, инструкции генерации, универсальные локаторы, remote-браузер)
+**Topic:** `additional-configuration` — the prettyplay configuration extension (per-test runtime, PrettyConfig with merging, generation instructions, universal locators, remote browser)
 **Plan path:** `.goga/history/2026/additional-configuration/arch.md`
-**Base:** 5 ADR `.goga/history/2026/additional-configuration/adr.md` (принят 09.09.2026)
+**Base:** 5 ADRs `.goga/history/2026/additional-configuration/adr.md` (approved 09.09.2026)
 
-Все клетки — **модификация существующих** (modified). Новых клеток нет. Клетки `prettyplay/failures` и `prettyplay/reporting` не затрагиваются.
+All cells are **modifications of existing ones** (modified). There are no new cells. The `prettyplay/failures` and `prettyplay/reporting` cells are untouched.
 
 ---
 
 ## Implementation Order
 
-| # | Cell | Обоснование порядка |
+| # | Cell | Order rationale |
 |---|---|---|
-| 1 | `prettyplay/config` | Лист среди модифицируемых: зависит только от failures (не меняется); поставляет `Config`/`PrettyConfig`/`load_config` всем остальным |
-| 2 | `prettyplay/cache` | Зависит от config (готов) и reporting (не меняется); независимо от driver/llm |
-| 3 | `prettyplay/llm` | Зависит от config (готов) и failures (не меняется); независимо от cache/driver |
-| 4 | `prettyplay/driver` | Зависит от config (готов); независимо от cache/llm |
-| 5 | `prettyplay/engine` | Зависит от config, driver, cache, llm (все готовы) + failures/reporting |
-| 6 | `prettyplay` (корень) | Зависит от всех клеток выше; публикует `PrettyConfig`, собирает per-test рантайм |
+| 1 | `prettyplay/config` | A leaf among the modified ones: depends only on failures (unchanged); supplies `Config`/`PrettyConfig`/`load_config` to everyone else |
+| 2 | `prettyplay/cache` | Depends on config (ready) and reporting (unchanged); independent of driver/llm |
+| 3 | `prettyplay/llm` | Depends on config (ready) and failures (unchanged); independent of cache/driver |
+| 4 | `prettyplay/driver` | Depends on config (ready); independent of cache/llm |
+| 5 | `prettyplay/engine` | Depends on config, driver, cache, llm (all ready) + failures/reporting |
+| 6 | `prettyplay` (root) | Depends on all the cells above; publishes `PrettyConfig`, assembles the per-test runtime |
 
 ---
 
@@ -25,9 +25,9 @@
 
 ### Cell 1: `prettyplay/config` — MODIFIED
 
-**Дельта:** `Config` — сигнатура +2 поля (`generation_prompt`, `browser_endpoint`), +2 properties, валидация ws/wss, «per run»→«per test» в описаниях попыток; `load_config` — +параметр `overrides`, +шаги слияния 6–8; глобальная аннотация +строка layered resolution; Description футера дополнен.
+**Delta:** `Config` — signature +2 fields (`generation_prompt`, `browser_endpoint`), +2 properties, ws/wss validation, "per run"→"per test" in the attempt descriptions; `load_config` — +the `overrides` parameter, +merging steps 6–8; the global annotation +a layered resolution line; the footer Description extended.
 
-**CODEMANIFEST** (`prettyplay/config/CODEMANIFEST`), полное содержимое:
+**CODEMANIFEST** (`prettyplay/config/CODEMANIFEST`), full content:
 
 ```yaml
 Imports:
@@ -164,7 +164,7 @@ Description: |
   Project settings of prettyplay: the validated [tool.prettyplay] schema with the browser channels, the headless mode, the generation instructions and the remote browser endpoint, and the loader with environment overrides, explicit per-test merging and the actionable configuration error.
 ```
 
-**.usages** — `prettyplay/config/.usages/configuration.md`, полное содержимое:
+**.usages** — `prettyplay/config/.usages/configuration.md`, full content:
 
 ```md
 # Project configuration
@@ -260,9 +260,9 @@ print(config.browser, config.headless, config.generation_attempts)
 
 ### Cell 2: `prettyplay/cache` — MODIFIED
 
-**Дельта:** глобальная аннотация — «run-scoped»→«per-test» (одна строка); `RunBudgets` — описание/Requirements на per-test семантику (сигнатура и методы не меняются); Description футера «per-run»→«per-test». Остальные типы — дословно.
+**Delta:** the global annotation — "run-scoped"→"per-test" (one line); `RunBudgets` — the description/Requirements to per-test semantics (the signature and methods do not change); the footer Description "per-run"→"per-test". The other types — verbatim.
 
-**CODEMANIFEST** (`prettyplay/cache/CODEMANIFEST`), полное содержимое:
+**CODEMANIFEST** (`prettyplay/cache/CODEMANIFEST`), full content:
 
 ```yaml
 Imports:
@@ -419,7 +419,7 @@ Description: |
   The step cache of prettyplay: normalization, deterministic addressing, atomic repository storage and the per-test attempt budgets.
 ```
 
-**.usages** — `prettyplay/cache/.usages/budgets.md`, полное содержимое:
+**.usages** — `prettyplay/cache/.usages/budgets.md`, full content:
 
 ```md
 # Attempt budgets
@@ -449,9 +449,9 @@ if budgets.try_generation(identity):
 
 ### Cell 3: `prettyplay/llm` — MODIFIED
 
-**Дельта:** глобальная аннотация +строка паритета инструкций; `LlmProvider.generate_step_code` — +параметр `user_instructions` (вторым) с аннотацией; оба провайдера — Algorithm шаг 1 расширен блоком USER INSTRUCTIONS. `classify_failure`, `create_provider`, `FailureClassification` — дословно.
+**Delta:** the global annotation +an instructions-parity line; `LlmProvider.generate_step_code` — +the `user_instructions` parameter (second) with an annotation; both providers — Algorithm step 1 extended with the USER INSTRUCTIONS block. `classify_failure`, `create_provider`, `FailureClassification` — verbatim.
 
-**CODEMANIFEST** (`prettyplay/llm/CODEMANIFEST`), полное содержимое:
+**CODEMANIFEST** (`prettyplay/llm/CODEMANIFEST`), full content:
 
 ```yaml
 Imports:
@@ -581,24 +581,24 @@ Description: |
   The LLM port of prettyplay: one contract, the openai and anthropic SDK implementations in full parity, and the failure classification verdict.
 ```
 
-Формат блока в пользовательском контенте (общий провайдерам):
+The block format in the user content (shared by the providers):
 
 ```
 USER INSTRUCTIONS:
-<текст инструкций дословно>
+<instructions text verbatim>
 ```
 
-Блок добавляется только при непустых инструкциях; порядок блоков контента: STEP → PREVIOUS STEPS → PAGE SNAPSHOT → SCREENSHOT → PAGE API → USER INSTRUCTIONS → CODE → ERROR.
+The block is added only when the instructions are non-empty; the content block order: STEP → PREVIOUS STEPS → PAGE SNAPSHOT → SCREENSHOT → PAGE API → USER INSTRUCTIONS → CODE → ERROR.
 
-**.usages** — без изменений (`providers.md`, `classification.md` остаются как есть).
+**.usages** — unchanged (`providers.md`, `classification.md` stay as is).
 
 ---
 
 ### Cell 4: `prettyplay/driver` — MODIFIED
 
-**Дельта:** глобальная аннотация — инвариант per-test браузер + строка ветвления запуска; `DriverSession` — описание и Algorithm `open_context` с ветвлением launch/connect (+requirement о connect-ошибке); `PageFacade` — +3 метода локации; Description футера обновлён. `LocatorFacade` — дословно.
+**Delta:** the global annotation — the per-test browser invariant + the launch-branching line; `DriverSession` — the description and the `open_context` Algorithm with launch/connect branching (+a requirement about the connect error); `PageFacade` — +3 location methods; the footer Description updated. `LocatorFacade` — verbatim.
 
-**CODEMANIFEST** (`prettyplay/driver/CODEMANIFEST`), полное содержимое:
+**CODEMANIFEST** (`prettyplay/driver/CODEMANIFEST`), full content:
 
 ```yaml
 Imports:
@@ -765,7 +765,7 @@ Description: |
   The Playwright sync driver of prettyplay: the per-test session with local launches and remote ws connects, and the narrow backward-compatible page facade with universal locators and scroll abilities for generated step code.
 ```
 
-**.usages** — `prettyplay/driver/.usages/facade.md`, полное содержимое:
+**.usages** — `prettyplay/driver/.usages/facade.md`, full content:
 
 ```md
 # Driver facade
@@ -840,9 +840,9 @@ snapshot = page.aria_snapshot()
 
 ### Cell 5: `prettyplay/engine` — MODIFIED
 
-**Дельта:** Usages-ключ `generation_prompt` → **`system_prompt`** (содержимое: +строка входа USER INSTRUCTIONS, +правило Rules про attribute/CSS/XPath); аннотации — переименование ссылок, +строка про границы инструкций, «per run»→«per test»; `StepGenerator` — generate шаг 3 и regenerate шаг 1 несут инструкции, `config`-описание дополняет «the generation instructions», `budgets` — «per-test»; `StepHealer` — одна строка (`budgets` — «per-test»); практика `healing.md` — одна строка (run-scoped → per-test registry). `run_step_code`, `classify_step_failure` — дословно.
+**Delta:** the Usages key `generation_prompt` → **`system_prompt`** (content: +the USER INSTRUCTIONS input line, +a Rules rule about attribute/CSS/XPath); annotations — reference renaming, +a line about the instructions boundary, "per run"→"per test"; `StepGenerator` — generate step 3 and regenerate step 1 carry the instructions, the `config` description adds "the generation instructions", `budgets` — "per-test"; `StepHealer` — one line (`budgets` — "per-test"); the `healing.md` usage — one line (run-scoped → per-test registry). `run_step_code`, `classify_step_failure` — verbatim.
 
-**CODEMANIFEST** (`prettyplay/engine/CODEMANIFEST`), полное содержимое:
+**CODEMANIFEST** (`prettyplay/engine/CODEMANIFEST`), full content:
 
 ```yaml
 Imports:
@@ -1062,15 +1062,15 @@ Description: |
   The agent engine of prettyplay: step code generation with execution in the loop and failed-check classification, the fixed-form execution routine, the shared classification call, and healing with anti-masking and verdicts on terminal failures.
 ```
 
-**.usages** — `prettyplay/engine/.usages/healing.md`, дельта (одна строка в Rules):
+**.usages** — `prettyplay/engine/.usages/healing.md`, delta (one line in Rules):
 
 ```md
 - Generation and healing attempts live in one per-test registry — owned by the runtime of the test — with separate per-step limits (default 3 and 2)
 ```
 
-(было: «…in one run-scoped registry…»; остальной файл без изменений)
+(was: "…in one run-scoped registry…"; the rest of the file unchanged)
 
-**.usages** — `prettyplay/engine/.usages/generation.md`, полное содержимое:
+**.usages** — `prettyplay/engine/.usages/generation.md`, full content:
 
 ```md
 # Step generation
@@ -1119,11 +1119,11 @@ Generated code is one function receiving exactly one argument — the page facad
 
 ---
 
-### Cell 6: `prettyplay` (корень) — MODIFIED
+### Cell 6: `prettyplay` (root) — MODIFIED
 
-**Дельта:** Imports — `Config AS PrettyConfig`; глобальная аннотация +строка про re-export; Body — +embedding `->PrettyConfig: {}`, `PrettyTest` (+`config`, собственный рантайм, новая семантика close), `PrettyplayRuntime` (per-test, atexit), `StepExecutor` (аннотация budgets), **−`get_runtime`**; Description футера «run-scoped»→«per-test».
+**Delta:** Imports — `Config AS PrettyConfig`; the global annotation +a line about the re-export; Body — +embedding `->PrettyConfig: {}`, `PrettyTest` (+`config`, its own runtime, the new close semantics), `PrettyplayRuntime` (per-test, atexit), `StepExecutor` (the budgets annotation), **−`get_runtime`**; the footer Description "run-scoped"→"per-test".
 
-**CODEMANIFEST** (`prettyplay/CODEMANIFEST`), полное содержимое:
+**CODEMANIFEST** (`prettyplay/CODEMANIFEST`), full content:
 
 ```yaml
 Imports:
@@ -1310,7 +1310,7 @@ Description: |
   The facade of prettyplay: the per-test scenario object with screenshot abilities, the step cycle executor with verdict reporting, and the per-test composition root.
 ```
 
-**.usages** — `prettyplay/.usages/lifecycle.md`, полное содержимое:
+**.usages** — `prettyplay/.usages/lifecycle.md`, full content:
 
 ```md
 # Run lifecycle
@@ -1377,32 +1377,32 @@ prettyplay/config (✚) ────(Config)────────────
 prettyplay/failures (—) ──(LlmUnavailableError)───────────────> prettyplay/llm (✚)
 prettyplay/config (✚) ────(Config)────────────────────────────> prettyplay/driver (✚)
 prettyplay/reporting (—) ─(StepReporter)──────────────────────> prettyplay/engine (✚)
-prettyplay/failures (—) ───(4 ошибки)─────────────────────────> prettyplay/engine (✚)
+prettyplay/failures (—) ───(4 errors)──────────────────────────> prettyplay/engine (✚)
 prettyplay/driver (✚) ─────(PageFacade, facade)───────────────> prettyplay/engine (✚)
 prettyplay/cache (✚) ──────(StepCache, StepIdentity, CachedStep, RunBudgets)──> prettyplay/engine (✚)
 prettyplay/llm (✚) ────────(LlmProvider, classification)──────> prettyplay/engine (✚)
 prettyplay/config (✚) ────(Config AS PrettyConfig, load_config)──> prettyplay (✚)
 prettyplay/reporting (—) ─(StepHooks, StepReporter, hooks)───> prettyplay (✚)
-prettyplay/failures (—) ───(4 ошибки, taxonomy)───────────────> prettyplay (✚)
+prettyplay/failures (—) ───(4 errors, taxonomy)───────────────> prettyplay (✚)
 prettyplay/driver (✚) ─────(DriverSession, PageFacade)────────> prettyplay (✚)
 prettyplay/cache (✚) ──────(StepCache, StepIdentity, normalize_step_text, RunBudgets)──> prettyplay (✚)
 prettyplay/llm (✚) ────────(LlmProvider, create_provider)────> prettyplay (✚)
 prettyplay/engine (✚) ─────(StepGenerator, StepHealer, run_step_code, generation, healing)──> prettyplay (✚)
 ```
 
-Циклов нет. Порядок: failures, reporting → config → {cache, llm, driver} → engine → prettyplay.
+No cycles. Order: failures, reporting → config → {cache, llm, driver} → engine → prettyplay.
 
 ## Verification Checklist
 
-| Артефакт | Проверка после реализации |
+| Artifact | Check after implementation |
 |---|---|
-| `prettyplay/config/CODEMANIFEST` | `goga lint` зелёный; поля `generation_prompt`/`browser_endpoint` с пустыми дефолтами; валидация ws/wss; env `PRETTYPLAY_GENERATION_PROMPT`/`PRETTYPLAY_BROWSER_ENDPOINT`; `load_config(None, None)` ≡ текущее поведение; слияние: `base_url`/`model` только из файла выживают при переданном конфиге; фасад клетки экспортирует `Config`; корневой фасад ре-экспортирует его как `PrettyConfig` (embedding/`__all__` корня) |
-| `prettyplay/config/.usages/configuration.md` | таблица env полна (13 строк); пример слияния работает как описано |
-| `prettyplay/cache/CODEMANIFEST` + `budgets.md` | пер-тестовая семантика в текстах; адресация/хранилище не тронуты; `goga lint` зелёный |
-| `prettyplay/llm/CODEMANIFEST` | `user_instructions` вторым параметром; блок USER INSTRUCTIONS у обоих провайдеров в одном месте контента; `classify_failure` без изменений; паритет реализаций |
-| `prettyplay/driver/CODEMANIFEST` + `facade.md` | 3 новых локатора в манифесте и в Surface практики; ветвление launch/connect; headless игнорируется при connect; только расширение (обратная совместимость); `goga lint` зелёный |
-| `prettyplay/engine/CODEMANIFEST` + `generation.md` + `healing.md` | ключ `system_prompt` (ссылок на старое имя нет); USER INSTRUCTIONS в generate/regenerate; классификация без них; дефолтный приоритет role → text → label сохранён; листинг поверхности синхронен `facade.md`; пер-тестовые формулировки бюджетов во всех текстах (включая `StepHealer.budgets` и Rules практики healing) |
-| `prettyplay/CODEMANIFEST` + `lifecycle.md` | embedding `->PrettyConfig: {}`; `get_runtime` отсутствует в манифесте и `__all__`; `PrettyConfig` в `__all__`; `PrettyTest(cache_key, cache_path, config)`; atexit per-runtime; интерактивный пример с `test.close()` (включая assertion) |
-| Вся библиотека | `ruff check` зелёный; `pytest tests/ -x` зелёный; Python 3.10+; два `PrettyTest` изолированы; смена `generation_prompt` не инвалидирует кэш; remote-тесты через моки + `pytest.mark.skipif` |
+| `prettyplay/config/CODEMANIFEST` | `goga lint` green; the `generation_prompt`/`browser_endpoint` fields with empty defaults; ws/wss validation; env `PRETTYPLAY_GENERATION_PROMPT`/`PRETTYPLAY_BROWSER_ENDPOINT`; `load_config(None, None)` ≡ current behavior; merging: `base_url`/`model` set only in the file survive when a config is passed; the cell facade exports `Config`; the root facade re-exports it as `PrettyConfig` (the root's embedding/`__all__`) |
+| `prettyplay/config/.usages/configuration.md` | the env table is complete (13 rows); the merging example works as described |
+| `prettyplay/cache/CODEMANIFEST` + `budgets.md` | per-test semantics in the texts; addressing/storage untouched; `goga lint` green |
+| `prettyplay/llm/CODEMANIFEST` | `user_instructions` as the second parameter; the USER INSTRUCTIONS block in one and the same content place for both providers; `classify_failure` unchanged; implementation parity |
+| `prettyplay/driver/CODEMANIFEST` + `facade.md` | the 3 new locators in the manifest and in the usage's Surface; launch/connect branching; headless ignored on connect; extension only (backward compatibility); `goga lint` green |
+| `prettyplay/engine/CODEMANIFEST` + `generation.md` + `healing.md` | the `system_prompt` key (no references to the old name); USER INSTRUCTIONS in generate/regenerate; classification without them; the default priority role → text → label preserved; the surface listing synchronous with `facade.md`; per-test budget wording across all texts (including `StepHealer.budgets` and the Rules of the healing usage) |
+| `prettyplay/CODEMANIFEST` + `lifecycle.md` | embedding `->PrettyConfig: {}`; `get_runtime` absent from the manifest and `__all__`; `PrettyConfig` in `__all__`; `PrettyTest(cache_key, cache_path, config)`; atexit per-runtime; the interactive example with `test.close()` (including the assertion) |
+| The whole library | `ruff check` green; `pytest tests/ -x` green; Python 3.10+; two `PrettyTest`s isolated; changing `generation_prompt` does not invalidate the cache; remote tests via mocks + `pytest.mark.skipif` |
 
-**Вне артефактов плана** (готовые входы, обновлены на стадии формулировки): `.goga/usages/cooks/playwright.md`, `.goga/usages/cooks/pydantic.md`.
+**Outside the plan's artifacts** (ready inputs, updated at the formulation stage): `.goga/usages/cooks/playwright.md`, `.goga/usages/cooks/pydantic.md`.

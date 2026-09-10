@@ -113,7 +113,7 @@ class StepCache:
 
             return CachedStep(identity=identity, code=code, created_at=fields["CREATED_AT"])
         except (ValueError, SyntaxError, KeyError, IndexError, OSError):
-            return None  # повреждение кэша никогда не калечит прогон
+            return None  # cache corruption never cripples the run
 
     def save(self, step: CachedStep) -> None:
         """Store the step atomically, best-effort: no write error ever fails the run.
@@ -137,7 +137,7 @@ class StepCache:
                 tmp_file.write(body)
                 tmp_file.flush()
                 os.fsync(tmp_file.fileno())
-        except (OSError, ValueError):  # ValueError: непрокодируемый текст (напр. суррогаты)
+        except (OSError, ValueError):  # ValueError: unencodable text (e.g. surrogates)
             _remove_quietly(tmp_name)
             self._emit_skipped(step, "cache target busy")
             return
@@ -147,8 +147,8 @@ class StepCache:
                 Path(tmp_name).replace(self._target_dir() / step.identity.filename)
                 break
             except PermissionError:
-                time.sleep(_REPLACE_BACKOFF_SECONDS)  # Windows: цель занята
-            except (OSError, ValueError):  # ValueError: непрокодируемый адрес (напр. суррогаты)
+                time.sleep(_REPLACE_BACKOFF_SECONDS)  # Windows: target busy
+            except (OSError, ValueError):  # ValueError: unencodable address (e.g. surrogates)
                 _remove_quietly(tmp_name)
                 self._emit_skipped(step, "cache target busy")
                 return

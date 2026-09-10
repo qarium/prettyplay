@@ -23,7 +23,7 @@ class TestStepCacheContract:
         parameters = list(inspect.signature(StepCache.__init__).parameters.values())[1:]  # drop self
 
         assert [parameter.name for parameter in parameters] == ["config", "path", "reporter"]
-        assert parameters[1].default is None  # path опционален
+        assert parameters[1].default is None  # path is optional
 
     def test_constructs_with_config_path_and_reporter(self) -> None:
         cache = StepCache(Config(cache_root="/tmp/pp-store-contract"), "checkout", StepReporter(hooks=[]))
@@ -115,7 +115,7 @@ class TestStepCacheLogic:
 
             cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
 
-            assert not (root / "checkout").exists()  # файл не создан
+            assert not (root / "checkout").exists()  # no file created
             skipped_events = [call for call in recorder.calls if call[0] == "on_cache_skipped"]
             assert skipped_events == [("on_cache_skipped", {"step_text": "шаг", "reason": "read-only cache"})]
         finally:
@@ -140,7 +140,7 @@ class TestStepCacheLogic:
             encoding="utf-8",
         )
 
-        assert cache.load(identity) is None  # шаг будет регенерирован, прогон не падает
+        assert cache.load(identity) is None  # the step will be regenerated, the run survives
 
     def test_load_corrupt_file_treated_as_miss(self, tmp_path: Path) -> None:
         cache, _ = make_cache(tmp_path)
@@ -150,7 +150,7 @@ class TestStepCacheLogic:
         target_dir.mkdir(parents=True)
         (target_dir / identity.filename).write_text("garbage not a module", encoding="utf-8")
 
-        assert cache.load(identity) is None  # без исключений
+        assert cache.load(identity) is None  # no exceptions
 
     def test_saved_file_is_a_valid_python_module(self, tmp_path: Path) -> None:
         """Additional edge: the artifact committed to the repo imports as a module."""
@@ -176,10 +176,10 @@ class TestStepCacheLogic:
         identity = StepIdentity(cache_key="k", step_type="action", normalized_text="шаг атомарно")
 
         cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
-        cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-08"))  # перезапись
+        cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-08"))  # overwrite
 
         files = sorted(entry.name for entry in (tmp_path / "checkout").iterdir())
-        assert files == [identity.filename]  # последний писатель побеждает, temp убран
+        assert files == [identity.filename]  # last writer wins, temp removed
 
     def test_busy_target_retries_then_skips_loudly(self, tmp_path: Path) -> None:
         """Additional edge: PermissionError on replace → skip with cache target busy, run lives."""
@@ -191,7 +191,7 @@ class TestStepCacheLogic:
 
         skipped_events = [call for call in recorder.calls if call[0] == "on_cache_skipped"]
         assert skipped_events == [("on_cache_skipped", {"step_text": "занятая цель", "reason": "cache target busy"})]
-        assert cache.load(identity) is None  # частичный файл не стал видимым
+        assert cache.load(identity) is None  # the partial file never became visible
 
     def test_replace_oserror_skips_loudly(self, tmp_path: Path) -> None:
         """Additional edge: any OSError on replace (not only PermissionError) skips, never fails."""
@@ -224,7 +224,7 @@ class TestStepCacheLogic:
             cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
 
         files = sorted(entry.name for entry in (tmp_path / "checkout").iterdir())
-        assert files == []  # temp-файл убран, цели нет
+        assert files == []  # temp file removed, no target
         skipped_events = [call for call in recorder.calls if call[0] == "on_cache_skipped"]
         assert skipped_events == [("on_cache_skipped", {"step_text": "сбой записи", "reason": "cache target busy"})]
 
@@ -238,7 +238,7 @@ class TestStepCacheLogic:
         cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
 
         files = sorted(entry.name for entry in (tmp_path / "checkout").iterdir())
-        assert files == []  # temp-файл убран, цели нет
+        assert files == []  # temp file removed, no target
         skipped_events = [call for call in recorder.calls if call[0] == "on_cache_skipped"]
         assert skipped_events == [
             ("on_cache_skipped", {"step_text": "шаг с \udcff суррогатом", "reason": "cache target busy"})
@@ -290,7 +290,7 @@ class TestStepCacheLogic:
         cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
         loaded = cache.load(identity)
 
-        assert loaded is not None  # запись и чтение без AttributeError
+        assert loaded is not None  # write and read without AttributeError
 
     @pytest.mark.parametrize("bad_path", ["/etc", "../../outside"])
     def test_path_outside_cache_root_fails_loudly(self, tmp_path: Path, bad_path: str) -> None:

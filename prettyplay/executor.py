@@ -53,7 +53,7 @@ class StepExecutor:
         self._generator = generator
         self._healer = healer
         self._reporter = reporter
-        self._scenario: list[str] = []  # сценерный контекст теста
+        self._scenario: list[str] = []  # test scenario context
 
     def execute(self, step_text: str, step_type: str, page: PageFacade) -> None:
         """Run one step through the full cycle.
@@ -83,8 +83,8 @@ class StepExecutor:
             if cached is not None:
                 try:
                     run_step_code(cached.code, page)
-                except Exception as error:  # кэшированный код пал — контекст лечению
-                    self._healer.heal(cached, first_line_short(error), self._scenario, page)  # вылечен = переисполнен
+                except Exception as error:  # cached code failed — context goes to healing
+                    self._healer.heal(cached, first_line_short(error), self._scenario, page)  # healed = re-executed
             else:
                 self._generator.generate(identity, step_text, self._scenario, page)
 

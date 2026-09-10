@@ -2,21 +2,21 @@
 
 ## Topic
 
-**Prettyplay MVP — UI-тесты на человеческом языке с кэшем шагов и самолечением**
+**Prettyplay MVP — Human-Language UI Tests with Step Cache and Self-Healing**
 
-План: `.goga/history/2026/the-first-version/arch.md` (путь из `goga history path -f arch.md`).
-Проект greenfield: `goga schema` → `[]`; **все 8 клеток создаются anew** (модификаций существующих нет — их не существует).
+Plan: `.goga/history/2026/the-first-version/arch.md` (path from `goga history path -f arch.md`).
+Greenfield project: `goga schema` → `[]`; **all 8 cells are created anew** (there are no modifications of existing cells — none exist).
 
 ## Implementation Order
 
-1. **prettyplay/config** — лист — внутренних Imports нет; настройки нужны всем.
-2. **prettyplay/reporting** — лист — внутренних Imports нет; видимость нужна cache/engine/корню.
-3. **prettyplay/failures** — лист — внутренних Imports нет; таксономия нужна llm/engine/корню.
-4. **prettyplay/driver** — зависит от config (Config).
-5. **prettyplay/cache** — зависит от config (Config) и reporting (StepReporter + usage hooks).
-6. **prettyplay/llm** — зависит от config (Config) и failures (LlmUnavailableError).
-7. **prettyplay/engine** — зависит от llm, cache, driver, reporting, failures, config.
-8. **prettyplay** — корень — зависит от всех семи клеток; фасад библиотеки.
+1. **prettyplay/config** — leaf — no internal Imports; the settings are needed by everyone.
+2. **prettyplay/reporting** — leaf — no internal Imports; visibility is needed by cache/engine/root.
+3. **prettyplay/failures** — leaf — no internal Imports; the taxonomy is needed by llm/engine/root.
+4. **prettyplay/driver** — depends on config (Config).
+5. **prettyplay/cache** — depends on config (Config) and reporting (StepReporter + usage hooks).
+6. **prettyplay/llm** — depends on config (Config) and failures (LlmUnavailableError).
+7. **prettyplay/engine** — depends on llm, cache, driver, reporting, failures, config.
+8. **prettyplay** — root — depends on all seven cells; the library facade.
 
 ## Artifacts
 ### Cell: prettyplay/config — CREATED
@@ -1462,7 +1462,7 @@ Generate locally where the LLM is reachable, commit the cache directory, run CI 
 ## Dependency Map
 
 ```
-                         ЛИСТЬЯ (0 зависимостей)
+                         LEAVES (0 dependencies)
          ┌───────────────┬────────────────┬───────────────────┐
      prettyplay/config  prettyplay/reporting  prettyplay/failures
          │                   │                    │
@@ -1483,12 +1483,12 @@ Generate locally where the LLM is reachable, commit the cache directory, run CI 
               │  StepCache, StepIdentity,   │
               │  CachedStep, RunBudgets;    │
               │  PageFacade; StepReporter;  │
-              │  таксономия; Config)        │
+              │  taxonomy; Config)          │
               └──────────────┬──────────────┘
                              ▼
                     ┌─────────────────┐
-                    │ prettyplay      │  КОРЕНЬ (фасад)
-                    │ (все 7 клеток + │
+                    │ prettyplay      │  ROOT (facade)
+                    │ (all 7 cells +  │
                     │  usages: hooks, │
                     │  taxonomy,      │
                     │  generation,    │
@@ -1496,7 +1496,7 @@ Generate locally where the LLM is reachable, commit the cache directory, run CI 
                     └─────────────────┘
 ```
 
-Циклов нет; порядок реализации: config, reporting, failures → driver, cache, llm → engine → prettyplay.
+No cycles; implementation order: config, reporting, failures → driver, cache, llm → engine → prettyplay.
 
 ### Artifact List
 
@@ -1510,35 +1510,35 @@ Generate locally where the LLM is reachable, commit the cache directory, run CI 
 | CODEMANIFEST | prettyplay/cache/CODEMANIFEST |
 | CODEMANIFEST | prettyplay/llm/CODEMANIFEST |
 | CODEMANIFEST | prettyplay/engine/CODEMANIFEST |
-| Usage-файл | prettyplay/.usages/steps.md |
-| Usage-файл | prettyplay/.usages/lifecycle.md |
-| Usage-файл | prettyplay/config/.usages/configuration.md |
-| Usage-файл | prettyplay/reporting/.usages/hooks.md |
-| Usage-файл | prettyplay/failures/.usages/taxonomy.md |
-| Usage-файл | prettyplay/driver/.usages/facade.md |
-| Usage-файл | prettyplay/cache/.usages/addressing.md |
-| Usage-файл | prettyplay/cache/.usages/storage.md |
-| Usage-файл | prettyplay/cache/.usages/budgets.md |
-| Usage-файл | prettyplay/llm/.usages/providers.md |
-| Usage-файл | prettyplay/llm/.usages/classification.md |
-| Usage-файл | prettyplay/engine/.usages/generation.md |
-| Usage-файл | prettyplay/engine/.usages/healing.md |
+| Usage file | prettyplay/.usages/steps.md |
+| Usage file | prettyplay/.usages/lifecycle.md |
+| Usage file | prettyplay/config/.usages/configuration.md |
+| Usage file | prettyplay/reporting/.usages/hooks.md |
+| Usage file | prettyplay/failures/.usages/taxonomy.md |
+| Usage file | prettyplay/driver/.usages/facade.md |
+| Usage file | prettyplay/cache/.usages/addressing.md |
+| Usage file | prettyplay/cache/.usages/storage.md |
+| Usage file | prettyplay/cache/.usages/budgets.md |
+| Usage file | prettyplay/llm/.usages/providers.md |
+| Usage file | prettyplay/llm/.usages/classification.md |
+| Usage file | prettyplay/engine/.usages/generation.md |
+| Usage file | prettyplay/engine/.usages/healing.md |
 
-Итого: 8 CODEMANIFEST + 13 usage-файлов.
+Total: 8 CODEMANIFESTs + 13 usage files.
 
 ## Verification Checklist
 
-После реализации каждого артефакта:
+After implementing each artifact:
 
-- [ ] `goga lint` — синтаксис CODEMANIFEST валиден (по всем 8 клеткам)
-- [ ] `python -c "from prettyplay import PrettyTest"` — facade check корня
-- [ ] По каждой клетке: все Imports разрешаются (типы существуют в клетках-провайдерах), все usages-ключи из аннотаций объявлены в Usages/Imports
-- [ ] config: env-оверрайд для каждого поля; невалидные значения падают громко; tomli на Python 3.10
-- [ ] reporting: события хуков = имена методов StepHooks; хук с исключением не роняет прогон
-- [ ] failures: три ошибки — мутации PrettyplayError (::); LlmUnavailableError не возникает на кэш-пути
-- [ ] driver: один браузер на прогон, изолированный контекст на тест; фасад не exposes сырые объекты Playwright; auto-wait без fixed delays
-- [ ] cache: «Нажать Войти» ≡ «нажать  войти »; одинаковый тройной ключ → один файл; os.replace атомарен; Windows retry→skip громко; read-only прогон корректен
-- [ ] llm: паритет операций openai/anthropic; prompt передаётся движком verbatim; ошибки SDK → LlmUnavailableError
-- [ ] engine: бюджеты 3/2 общие на шаг на прогон (не сбрасываются между тестами); анти-маскировка (product_defect → падение); сгенерированный код только через фасад
-- [ ] prettyplay: get_runtime — процессный синглтон, ленивый provider (без ключей рантайм стартует); изоляция контекстов; порядок тестов не влияет на исходы
-- [ ] Тесты зеркалят структуру (conventions); ruff line 120 / complexity 10; зависимости с минимальными версиями в pyproject.toml
+- [ ] `goga lint` — the CODEMANIFEST syntax is valid (across all 8 cells)
+- [ ] `python -c "from prettyplay import PrettyTest"` — root facade check
+- [ ] Per cell: all Imports resolve (the types exist in the provider cells), all usage keys from annotations are declared in Usages/Imports
+- [ ] config: an env override for every field; invalid values fail loudly; tomli on Python 3.10
+- [ ] reporting: hook events = StepHooks method names; a hook raising an exception does not fail the run
+- [ ] failures: three errors — PrettyplayError (::) mutations; LlmUnavailableError never arises on the cache path
+- [ ] driver: one browser per run, an isolated context per test; the facade does not expose raw Playwright objects; auto-wait without fixed delays
+- [ ] cache: "Нажать Войти" ≡ "нажать  войти "; the identical triple key → one file; os.replace is atomic; Windows retry→skip loudly; a read-only run is correct
+- [ ] llm: openai/anthropic operation parity; the prompt is passed by the engine verbatim; SDK errors → LlmUnavailableError
+- [ ] engine: budgets 3/2 shared per step per run (not reset between tests); anti-masking (product_defect → failure); generated code only through the facade
+- [ ] prettyplay: get_runtime — a process-wide singleton, a lazy provider (the runtime starts without keys); context isolation; test order does not affect outcomes
+- [ ] Tests mirror the structure (conventions); ruff line 120 / complexity 10; dependencies with minimum versions in pyproject.toml

@@ -1,162 +1,162 @@
-# Prettyplay: UI-тесты на человеческом языке с самолечением (MVP)
+# Prettyplay: Human-Language UI Tests with Self-Healing (MVP)
 
-> PRD ветки `master`. Продуктовое определение валидировано, конфликтов не содержит.
+> PRD for the `master` branch. The product definition is validated and contains no conflicts.
 
 ## Problem
 
-Команды веб-продуктов нуждаются в регулярном автоматизированном регрессионном тестировании веб-интерфейсов, встроенном в их существующий Python-стек тестирования (pytest/unittest). Сегодня этот результат недостижим для большинства команд по двум причинам:
+Web product teams need regular automated regression testing of web interfaces, embedded in their existing Python testing stack (pytest/unittest). Today this outcome is unattainable for most teams for two reasons:
 
-1. **Доступность.** Написание UI-автотеста требует программирования и знания API браузерного драйвера. Не-программисты (ручные QA, аналитики, продакт-менеджеры) полностью исключены из автоматизации; тесты может писать только инженер.
-2. **Дороговизна сопровождения.** Автотесты, написанные руками, медленно создаются и хрупки: при каждом изменении структуры или текстов UI (селекторы, надписи, вёрстка) они ломаются, и каждая поломка требует инженерного времени на диагностику и починку загадочных ошибок селекторов.
+1. **Accessibility.** Writing a UI automated test requires programming and knowledge of the browser driver API. Non-programmers (manual QA, analysts, product managers) are entirely excluded from automation; only an engineer can write tests.
+2. **Cost of maintenance.** Hand-written automated tests are slow to create and brittle: every change to the UI structure or texts (selectors, labels, layout) breaks them, and each breakage demands engineering time to diagnose and fix cryptic selector errors.
 
-Текущие подходы смешаны и зависят от готовности компании вкладываться в персонал и инфраструктуру: часть команд держит hand-written suite на Selenium/Playwright, часть тестирует руками. Существующие AI-инструменты тестирования — коммерческие, закрытые, с вендор-локином и без интеграции в собственный стек команды.
+Current approaches are mixed and depend on a company's willingness to invest in staff and infrastructure: some teams maintain a hand-written suite on Selenium/Playwright, others test manually. Existing AI testing tools are commercial, closed, laden with vendor lock-in, and offer no integration into the team's own stack.
 
-Итог: покрытие автоматизацией остаётся низким, регрессия проверяется медленно и вручную, сопровождение тестов съедает инженерную ёмкость. Продукт создаётся как **open source**-решение без вендор-локина.
+The net result: automation coverage stays low, regression is checked slowly and manually, test maintenance eats engineering capacity. The product is built as an **open source** solution without vendor lock-in.
 
 ## Users
 
-**Основной пользователь — инженер (QA automation / разработчик), пишущий веб-UI-тесты.**
+**The primary user is an engineer (QA automation / developer) who writes web UI tests.**
 
-- Работает внутри существующего Python-стека команды (pytest/unittest); пишет и сопровождает suite веб-UI-тестов, запускает локально при разработке и в CI на каждое изменение.
-- В MVP именно он **пишет шаги** на человеческом языке — внутри обычных тестов, а также подключает библиотеку в свой фреймворк как интегратор.
-- Цель: писать шаги теста предложением, а не кодом драйвера; получать стабильный suite, который не рассыпается при изменениях UI; при падении — понятный сигнал, а не загадочная ошибка селектора.
-- Ожидания: текст шага — это и есть тест; повторные прогоны быстры и детерминированы; поломки лечатся сами либо падают громко и объяснимо; раннер, CI и отчёты команды не меняются.
-- В рамках MVP инженер **не обязан** читать или править сгенерированный код («полная магия»): доверие строится на поведении — детерминизм, скорость, громкие результаты.
+- Works inside the team's existing Python stack (pytest/unittest); writes and maintains a suite of web UI tests, runs it locally during development and in CI on every change.
+- In the MVP, this engineer **writes steps** in human language — inside ordinary tests — and also wires the library into their framework as the integrator.
+- Goal: write test steps as sentences rather than driver code; get a stable suite that does not fall apart when the UI changes; on failure — a comprehensible signal, not a cryptic selector error.
+- Expectations: the step text is the test; repeat runs are fast and deterministic; breakages heal themselves or fail loudly and explainably; the team's runner, CI and reports stay unchanged.
+- Within the MVP the engineer is **not obliged** to read or edit the generated code ("full magic"): trust is built on behavior — determinism, speed, loud outcomes.
 
-**Вторичные участники:**
+**Secondary participants:**
 
-- **Члены команды, не пишущие тесты** (ручные QA, аналитики, продакт) — читают сценарии: suite на человеческом языке удваивается как живая документация покрытия.
-- **CI** — запускает suite без человека: без интерактивного ввода, с различимыми типами отказов (баг продукта / неизлечимый шаг / недоступность LLM).
-- **Open-source сообщество** — будущие пользователи и контрибьюторы; продукт обязан работать целиком на инфраструктуре пользователя.
+- **Team members who do not write tests** (manual QA, analysts, product) — read the scenarios: a human-language suite doubles as living documentation of coverage.
+- **CI** — runs the suite without a human: no interactive input, with distinguishable failure kinds (product bug / incurable step / LLM unavailability).
+- **The open-source community** — future users and contributors; the product must run entirely on the user's infrastructure.
 
 ## Goals
 
-1. **Написание на человеческом языке.** Инженер формулирует шаг веб-UI-теста обычным предложением внутри обычного теста; для типовых действий код драйвера не пишется вовсе.
-2. **Стабильность без сопровождения.** Suite остаётся зелёным при изменениях UI: сломавшиеся шаги лечатся автоматически, инженер не сопровождает код шагов. Неизлечимые поломки и реальные дефекты падают громко и однозначно.
-3. **Бесшовная интеграция без лок-ина.** Возможность работает внутри существующего стека команды (свой раннер, CI, отчёты), целиком на инфраструктуре пользователя с его собственными LLM-ключами; open source, без обязательных облачных сервисов продукта.
-4. **Живая документация.** Suite читается как сценарий на обычном языке — вся команда видит, что покрыто, не читая код.
+1. **Writing in human language.** The engineer phrases a web UI test step as an ordinary sentence inside an ordinary test; for typical actions, no driver code is written at all.
+2. **Stability without maintenance.** The suite stays green when the UI changes: broken steps heal automatically, the engineer does not maintain step code. Incurable breakages and real defects fail loudly and unambiguously.
+3. **Seamless integration without lock-in.** The capability works inside the team's existing stack (their runner, CI, reports), entirely on the user's infrastructure with their own LLM keys; open source, with no mandatory product cloud services.
+4. **Living documentation.** The suite reads as a plain-language scenario — the whole team sees what is covered without reading code.
 
-Приоритет: цели 1 и 2 — равнопервичные (обе боли пользователя); цель 3 — структурная; цель 4 — производная.
+Priority: goals 1 and 2 are co-primary (both are user pains); goal 3 is structural; goal 4 is derivative.
 
-Модель доверия: «полная магия» — инженер не смотрит и не правит сгенерированный код; доверие обеспечивается детерминизмом кеша, видимыми результатами лечения и громкими отказами.
+Trust model: "full magic" — the engineer neither looks at nor edits the generated code; trust is ensured by cache determinism, visible healing outcomes and loud failures.
 
 ## User Experience
 
-### Вход в сценарий
+### Entering the scenario
 
-Инженер устанавливает библиотеку в существующий проект (обычный Python-пакет), один раз настраивает проект (браузерный драйвер, доступ к LLM со своими ключами) и пишет тесты как обычно — шаги формулирует предложениями на естественном языке (русский, английский, другой) через API библиотеки: шаги-действия и шаги-проверки.
+The engineer installs the library into an existing project (an ordinary Python package), configures the project once (browser driver, LLM access with their own keys) and writes tests as usual — phrasing steps as natural-language sentences (Russian, English, another) through the library API: action steps and assertion steps.
 
-### Основной сценарий
+### Main scenario
 
-1. Инженер пишет тест: шаги — обычные предложения («открыть страницу логина», «ввести логин и пароль», «нажать "Войти"», «убедиться, что появилась надпись "Добро пожаловать"»).
-2. **Первый прогон:** для каждого неизвестного шага продукт сам генерирует исполняемый код (с использованием LLM и живого состояния страницы) и исполняет его против реального приложения. Первый прогон заметно медленнее; инженер видит, какие шаги генерируются. Сгенерированный код попадает в кеш, лежащий **в репозитории рядом с тестами**.
-3. **Повторные прогоны** (локально и в CI): шаги исполняются из кеша напрямую — быстро, детерминированно, без обращения к LLM.
-4. Текст шага виден в выводе теста — сценарий читается как документация.
+1. The engineer writes a test: steps are ordinary sentences ("открыть страницу логина", "ввести логин и пароль", "нажать \"Войти\"", "убедиться, что появилась надпись \"Добро пожаловать\"").
+2. **First run:** for every unknown step the product itself generates executable code (using the LLM and the live page state) and executes it against the real application. The first run is noticeably slower; the engineer sees which steps are being generated. The generated code lands in a cache stored **in the repository next to the tests**.
+3. **Repeat runs** (locally and in CI): steps execute straight from the cache — fast, deterministic, with no calls to the LLM.
+4. The step text is visible in the test output — the scenario reads as documentation.
 
-### Сценарий самолечения (ключевой альтернативный путь)
+### Self-healing scenario (the key alternative path)
 
-Шаг из кеша упал. Продукт запускает агентный цикл классификации ошибки:
+A cached step has failed. The product starts an agentic error-classification loop:
 
-- **излечимая гниль** (UI изменился: селектор, надписи, структура) → шаг перегенерируется по текущему состоянию страницы и повторяется; при успехе кеш в репозитории обновляется, факт лечения **громко отмечается** в выводе (какой шаг, почему это гниль, что изменилось);
-- **реальный дефект продукта** (ожидаемое поведение действительно сломано) → громкое падение теста с объяснением — это и есть сигнал, ради которого существуют тесты;
-- **неизлечимо** (перегенерация не удалась в пределах бюджета попыток, текст шага больше не соответствует реальности, неоднозначность) → явное исключение: шаг, причина, рекомендованное действие.
+- **healable rot** (the UI changed: selector, labels, structure) → the step is regenerated from the current page state and retried; on success the repository cache is updated and the healing is **loudly marked** in the output (which step, why it is rot, what changed);
+- **real product defect** (the expected behavior is genuinely broken) → a loud test failure with an explanation — this is the very signal tests exist for;
+- **incurable** (regeneration failed within the attempt budget, the step text no longer matches reality, ambiguity) → an explicit exception: step, reason, recommended action.
 
-### Состояния, значимые для пользователя
+### States meaningful to the user
 
-`генерация (первый прогон)` → `в кеше (быстрый детерминированный путь)` → `лечение (классификация + перегенерация)` → `вылечено (громко отмечено, кеш обновлён)` | `падение: дефект продукта` | `падение: неизлечимый шаг`.
+`generation (first run)` → `in cache (fast deterministic path)` → `healing (classification + regeneration)` → `healed (loudly marked, cache updated)` | `failure: product defect` | `failure: incurable step`.
 
-### Отказы и восстановление
+### Failures and recovery
 
-- LLM недоступен → кешированные шаги продолжают работать; блокируются только генерация и лечение — с понятной ошибкой инфраструктуры.
-- Одинаковый текст шага переиспользуется между тестами; кеш не применяет молча код, сгенерированный для существенно другого контекста.
-- Прерванный прогон не теряет результаты: успешно сгенерированные/вылеченные шаги остаются в кеш; повторный прогон ничего не регенерирует повторно.
-- Обновления кеша (новые и вылеченные шаги) попадают в репозиторий и распространяются на все среды через обычный контроль версий.
+- The LLM is unavailable → cached steps keep working; only generation and healing are blocked — with a comprehensible infrastructure error.
+- The same step text is reused across tests; the cache never silently applies code generated for a substantially different context.
+- An interrupted run does not lose results: successfully generated/healed steps remain in the cache; a repeat run regenerates nothing again.
+- Cache updates (new and healed steps) land in the repository and spread to all environments through ordinary version control.
 
 ## Requirements
 
-### Интеграция и API
+### Integration and API
 
-- **R1.** Библиотека предоставляет framework-agnostic API шагов: отдельные методы для шагов-действий (`action`) и шагов-проверок (`assertion`), достаточные для интегратора, чтобы подключить её в любой популярный Python test framework (pytest, unittest и др.). Встроенные интеграции/плагины фреймворков в продукт не входят.
-- **R2.** Тесты с шагами запускаются стандартной командой раннера команды рядом с обычными тестами; изменения CI-конфигурации или отчётности не требуются.
-- **R3.** Настройки проекта (браузерный драйвер, доступ к LLM с ключами пользователя) задаются один раз на проект.
+- **R1.** The library provides a framework-agnostic step API: separate methods for action steps (`action`) and assertion steps (`assertion`), sufficient for an integrator to wire it into any popular Python test framework (pytest, unittest, etc.). Built-in framework integrations/plugins are not part of the product.
+- **R2.** Tests with steps run by the team's standard runner command alongside ordinary tests; no CI configuration or reporting changes are required.
+- **R3.** Project settings (browser driver, LLM access with the user's keys) are configured once per project.
 
-### Авторинг
+### Authoring
 
-- **R4.** Шаг формулируется свободным предложением на естественном языке (русский, английский, другой).
-- **R5.** Поддерживаются шаги-действия и шаги-проверки; шаги-проверки дают обычный исход pass/fail.
-- **R6.** Шаги одного теста исполняются в общем браузерном контексте в порядке следования; **каждый тест выполняется в собственном изолированном контексте**, не зависящем от других тестов.
-- **R7.** Тексты шагов видны в выводе теста/отчёте.
+- **R4.** A step is phrased as a free-form natural-language sentence (Russian, English, another).
+- **R5.** Action steps and assertion steps are supported; assertion steps yield an ordinary pass/fail outcome.
+- **R6.** Steps of one test execute in a shared browser context in order; **each test runs in its own isolated context** independent of other tests.
+- **R7.** Step texts are visible in the test output/report.
 
-### Генерация и кеш
+### Generation and cache
 
-- **R8.** При первом исполнении неизвестного шага продукт автоматически генерирует для него исполняемый код и исполняет его против реального приложения; ручное кодирование не требуется.
-- **R9.** Кеш сгенерированных шагов хранится в репозитории проекта рядом с тестами, полностью управляется продуктом; инженеру не требуется его читать или править.
-- **R10.** Повторные исполнения шага используют кеш напрямую, без обращения к LLM — быстро и детерминированно.
-- **R11.** Кеш не зависит от среды: работает везде, где есть репозиторий (локально, CI); отсутствующие шаги генерируются в том окружении, где происходит запуск.
-- **R12.** Одинаковый текст шага в одном и том же контексте разрешается в один кешированный шаг (переиспользование между тестами). Бизнес-правило: кеш не применяет молча код, сгенерированный для существенно иного контекста.
-- **R13.** Обновления кеша (новые и вылеченные шаги) попадают в репозиторий по мере выполнения прогона и распространяются на все среды через контроль версий.
+- **R8.** On first execution of an unknown step the product automatically generates executable code for it and executes it against the real application; no manual coding is required.
+- **R9.** The cache of generated steps is stored in the project repository next to the tests and is fully managed by the product; the engineer is not required to read or edit it.
+- **R10.** Repeat executions of a step use the cache directly, without calling the LLM — fast and deterministic.
+- **R11.** The cache is environment-independent: it works wherever the repository exists (locally, CI); missing steps are generated in the environment where the run happens.
+- **R12.** The same step text in the same context resolves to one cached step (reuse across tests). Business rule: the cache never silently applies code generated for a substantially different context.
+- **R13.** Cache updates (new and healed steps) land in the repository as the run proceeds and spread to all environments through version control.
 
-### Самолечение
+### Self-healing
 
-- **R14.** При падении кешированного шага (действия или проверки) продукт выполняет агентную классификацию ошибки: излечимая гниль → перегенерация по текущей странице и повтор; реальный дефект продукта → громкое падение теста; неизлечимо → явное исключение с указанием шага, причины и рекомендованного действия.
-- **R15.** Лечение ограничено: конечное число попыток перегенерации; исчерпание бюджета трактуется как неизлечимость; бесконечные циклы исключены.
-- **R16.** Вылеченный шаг обновляется в кеше репозитория.
-- **R17.** Каждое лечение громко отражается в выводе: какой шаг, почему ошибка классифицирована как гниль, что изменилось; для шагов-проверок — что изменилось в ожидании.
-- **R18.** Анти-маскировка: лечение никогда не превращает реальный дефект продукта в пройденный тест.
+- **R14.** When a cached step (action or assertion) fails, the product performs agentic error classification: healable rot → regenerate from the current page and retry; real product defect → loud test failure; incurable → explicit exception naming the step, the reason and the recommended action.
+- **R15.** Healing is bounded: a finite number of regeneration attempts; budget exhaustion is treated as incurability; infinite loops are excluded.
+- **R16.** A healed step is updated in the repository cache.
+- **R17.** Every healing is loudly reflected in the output: which step, why the error was classified as rot, what changed; for assertion steps — what changed in the expectation.
+- **R18.** Anti-masking: healing never turns a real product defect into a passed test.
 
-### Отказы и коммуникация
+### Failures and communication
 
-- **R19.** Типы отказов различимы пользователем: дефект продукта / неизлечимый шаг / инфраструктура (LLM недоступен); каждый — с-actionable сообщением.
-- **R20.** При недоступности LLM кешированные шаги продолжают исполняться; блокируются только генерация и лечение — с явным сообщением.
+- **R19.** Failure kinds are distinguishable by the user: product defect / incurable step / infrastructure (LLM unavailable); each with an actionable message.
+- **R20.** When the LLM is unavailable, cached steps keep executing; only generation and healing are blocked — with an explicit message.
 
-### Изоляция и модель исполнения
+### Isolation and execution model
 
-- **R21.** Модель исполнения (порядок, параллельность) — ответственность раннера, а не библиотеки; библиотека не даёт собственных гарантий параллельности, но обязана соблюдать по-тестовую изоляцию (R6), чтобы любая модель исполнения раннера оставалась корректной.
+- **R21.** The execution model (order, parallelism) is the runner's responsibility, not the library's; the library gives no parallelism guarantees of its own but must honor per-test isolation (R6) so that any runner execution model remains correct.
 
 ## Constraints
 
-- Python-библиотека внутри существующего проекта `prettyplay` (Python ≥ 3.10, лицензия BSD-3-Clause).
-- Решение не требует изменения раннера, CI или отчётности команды.
-- Генерация и лечение зависят от внешнего LLM-сервиса на стороне пользователя (его ключи и инфраструктура); качество и доступность этих операций ограничены выбранным LLM.
-- Полностью open source: без проприетарных облачных компонентов, без обязательного сервиса продукта, без вендор-локина.
-- Кеш — артефакт репозитория рядом с тестами, управляемый продуктом.
-- Обычная работа продукта не требует от инженера чтения или правки сгенерированного кода.
-- Кешированные прогоны не обращаются к LLM (детерминизм и скорость).
-- Лечение ограничено бюджетом попыток.
-- MVP охватывает только тестирование веб-интерфейсов в браузере; состав поддерживаемых браузеров продуктом не фиксируется (инженерное решение, определяемое выбранным драйвером).
+- Python library inside the existing `prettyplay` project (Python ≥ 3.10, BSD-3-Clause license).
+- The solution requires no changes to the team's runner, CI or reporting.
+- Generation and healing depend on an external LLM service on the user's side (their keys and infrastructure); the quality and availability of these operations are bounded by the chosen LLM.
+- Fully open source: no proprietary cloud components, no mandatory product service, no vendor lock-in.
+- The cache is a repository artifact next to the tests, managed by the product.
+- Normal product operation never requires the engineer to read or edit generated code.
+- Cached runs never call the LLM (determinism and speed).
+- Healing is bounded by an attempt budget.
+- The MVP covers only browser web-interface testing; the set of supported browsers is not fixed by the product (an engineering decision determined by the chosen driver).
 
 ## Scope
 
 ### In Scope
 
-- Framework-agnostic API шагов (`action` / `assertion`), достаточный интегратору для подключения в любой популярный Python test framework.
-- Шаг на человеческом языке → автоматически сгенерированный исполняемый код для веб-UI.
-- Персистентный кеш шагов в репозитории, полностью управляемый продуктом.
-- Переиспользование кеша без LLM в любой среде (локально и CI).
-- Агентное самолечение: классификация ошибок, ограниченная перегенерация, запись вылеченного обратно в кеш, громкая видимость лечения.
-- Различимая таксономия отказов с actionable-сообщениями.
-- Настройка на уровне проекта (браузерный драйвер, LLM-ключи пользователя).
-- Работа целиком на инфраструктуре пользователя; open source.
+- Framework-agnostic step API (`action` / `assertion`), sufficient for an integrator to wire into any popular Python test framework.
+- A human-language step → automatically generated executable code for the web UI.
+- A persistent step cache in the repository, fully managed by the product.
+- Cache reuse without the LLM in any environment (locally and CI).
+- Agentic self-healing: error classification, bounded regeneration, healed code written back to the cache, loud healing visibility.
+- A distinguishable failure taxonomy with actionable messages.
+- Project-level configuration (browser driver, the user's LLM keys).
+- Running entirely on the user's infrastructure; open source.
 
 ### Out of Scope
 
-- Встроенные интеграции/плагины фреймворков (pytest-плагин, базовые классы для unittest) — подключение делает интегратор.
-- Форматы авторинга для не-программистов (markdown/Gherkin-сценарии, no-code студии) — шаги живут внутри Python-тестов.
-- Тестирование мобильных, нативных и десктопных приложений.
-- Фиксация матрицы браузеров — инженерное решение.
-- Запись тестов (recording), IDE-плагины, авторинг-UI.
-- Собственный портал отчётности, аналитика, дашборды — вывод идёт через нативную отчётность фреймворка.
-- Управляемый облачный сервис / хостинг LLM силами продукта.
-- Visual-тестирование (диф скриншотов) и перформанс-тестирование.
-- Параллельное исполнение как функция библиотеки — ответственность раннера.
+- Built-in framework integrations/plugins (pytest plugin, unittest base classes) — the integrator does the wiring.
+- Authoring formats for non-programmers (markdown/Gherkin scenarios, no-code studios) — steps live inside Python tests.
+- Testing of mobile, native and desktop applications.
+- Fixing the browser matrix — an engineering decision.
+- Test recording, IDE plugins, authoring UI.
+- A proprietary reporting portal, analytics, dashboards — output goes through the framework's native reporting.
+- A managed cloud service / LLM hosting provided by the product.
+- Visual testing (screenshot diffing) and performance testing.
+- Parallel execution as a library feature — the runner's responsibility.
 
 ## Success Criteria
 
-1. **Авторинг без кода драйвера.** Реалистичный веб-сценарий (например: вход + основное действие + проверка), записанный целиком предложениями через API, проходит зелёным с первого прогона после генерации; инженер не написал ни строки кода драйвера.
-2. **Кеш и детерминизм.** При изъятых LLM-ключах кешированный suite проходит в свежей среде (другая машина / CI), используя только репозиторий, — подтверждает переиспользование кеша и детерминированность.
-3. **Самолечение.** После намеренного изменения UI (элемент переименован/перемещён/переструктурирован) затронутый шаг вылечивается в ходе прогона: тест проходит, лечение громко отмечено в выводе, кеш в репозитории обновлён.
-4. **Анти-маскировка.** Реальный функциональный регресс роняет suite как дефект продукта с понятным сообщением — и не «залечивается» в зелёный.
-5. **Неизлечимость.** Шаг, который невозможно перегенерировать (текст больше не соответствует реальности / исчерпан бюджет попыток), даёт отличимое исключение: шаг, причина, рекомендованное действие.
-6. **Устойчивость к недоступности LLM.** При недоступном LLM кешированные шаги исполняются; попытки генерации/лечения завершаются явной инфраструктурной ошибкой.
-7. **Интеграция.** Suite запускается стандартной командой раннера после подключения API интегратором в несколько строк; тексты шагов читаются в выводе как сценарий на обычном языке.
-8. **Изоляция.** Тесты дают одинаковые исходы независимо от порядка исполнения (меж-тестовых утечек состояния через библиотеку нет).
+1. **Authoring without driver code.** A realistic web scenario (e.g. login + main action + assertion), authored entirely in sentences through the API, runs green on the first run after generation; the engineer wrote not a single line of driver code.
+2. **Cache and determinism.** With LLM keys removed, the cached suite passes in a fresh environment (another machine / CI) using only the repository — confirming cache reuse and determinism.
+3. **Self-healing.** After an intentional UI change (an element renamed/moved/restructured) the affected step heals during the run: the test passes, the healing is loudly marked in the output, the repository cache is updated.
+4. **Anti-masking.** A real functional regression fails the suite as a product defect with a comprehensible message — and is never "healed" into green.
+5. **Incurability.** A step that cannot be regenerated (text no longer matches reality / attempt budget exhausted) yields a distinct exception: step, reason, recommended action.
+6. **Resilience to LLM unavailability.** With the LLM unavailable, cached steps execute; generation/healing attempts end with an explicit infrastructure error.
+7. **Integration.** The suite runs by the standard runner command after the integrator wires the API in a few lines; step texts read as a plain-language scenario in the output.
+8. **Isolation.** Tests yield identical outcomes regardless of execution order (no cross-test state leaks through the library).

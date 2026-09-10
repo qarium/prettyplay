@@ -1,60 +1,60 @@
-# Решения по расширению конфигурации prettyplay (ветка `additional-configuration`)
+# Prettyplay Configuration Extension Decisions (branch `additional-configuration`)
 
-> Записано по итогам интервью technical discovery 09.09.2026. Статус: **принято**.
-> Топик инициирован тремя пожеланиями пользователя, сформулированными в файловом диалоге (PRD/TODO для топика не создавались). Факты о текущей архитектуре собраны по `goga schema` и CODEMANIFEST клеток config, driver, engine, cache. Каждая запись фиксирует факт решения и его «почему».
+> Recorded from the technical discovery interview of 09.09.2026. Status: **approved**.
+> The topic was initiated by three user wishes formulated in the file-based dialog (no PRD/TODO was created for the topic). Facts about the current architecture were collected from `goga schema` and the CODEMANIFESTs of the config, driver, engine, cache cells. Each entry records the fact of the decision and its "why".
 
-## Термины
+## Terms
 
-- **Per-test рантайм** — рантайм (экземпляр конфигурации, браузерный процесс, LLM-провайдер, бюджеты попыток), принадлежащий одному `PrettyTest`, а не процессу в целом.
-- **PrettyConfig** — публичное имя единой полной модели настроек prettyplay (псевдоним `Config` клетки config); передаётся в `PrettyTest` для per-test переопределения.
-- **Многослойное слияние** — правило разрешения настроек теста: явно заданное в `PrettyConfig` значение выигрывает; незаданное/пустое падает обратно на pyproject+env.
-- **Пользовательские инструкции генерации** — строка настройки `generation_prompt`, попадающая в запросы генерации и регенерации отдельным блоком USER INSTRUCTIONS; управляет стилем генерируемого кода (пример пользователя: «отдавай приоритет data-test-id атрибутам»), а не диагностикой отказов.
-- **`browser_endpoint`** — адрес ws-эндпоинта удалённого браузера; пустое значение — локальный запуск, как сегодня.
-
----
-
-## ADR-1. Per-test рантайм: свой браузер и своя конфигурация у каждого теста
-
-Каждый `PrettyTest` строит собственный рантайм: свой экземпляр конфигурации, свой браузерный процесс, свой провайдер, свои бюджеты попыток. Процессного синглтона больше нет; `get_runtime()` уходит из публичного контракта (внутренняя деталь фасада). Бюджеты попыток становятся пер-тестовыми — задокументированный инвариант «бюджеты не сбрасываются между тестами» разворачивается. Выбор пользователя: изоляция тестов важнее экономии одного браузера на запуск — «у каждого теста свой runtime, свой экземпляр конфигурации и свой экземпляр браузера».
-
-**Рассмотренные альтернативы:** ключование рантаймов по эффективному конфигу (тесты с одинаковым конфигом делят один браузер) — отклонено пользователем: рантайм принадлежит тесту, а не конфигу; приватный рантайм только при явно переданном конфиге — отклонено: две семантики поведения в одной библиотеке.
-
-**Следствия:** запуск браузера на каждый тест (~секунда) — принятая цена; шаг, переиспользуемый N тестами, получает N×попыток за запуск — защита от бесконечных ретраев сохраняется в рамках каждого теста; каждый рантайм регистрирует свою остановку в atexit — все браузеры останавливаются к выходу процесса; ленивость сохраняется — конструирование `PrettyTest` дёшево, браузер стартует на первом шаге.
-
-## ADR-2. PrettyConfig — единая модель настроек и многослойное слияние
-
-`PrettyConfig` — публичное имя той же полной модели настроек (псевдоним `Config`), а не отдельный лёгкий объект переопределений. Переданный в `PrettyTest` конфиг задаёт только явно указанные значения; незаданные/пустые поля разрешаются многослойным слиянием против pyproject+env. Одна модель — одно место валидации и одна цепочка разрешения; «прокинуть конфиг» интуитивно означает «переопределить конкретное», при полной замене заданные в pyproject `base_url`/`model` молча терялись бы.
-
-**Рассмотренные альтернативы:** отдельный объект-подмножество для per-test переопределений — отклонён: расхождение двух моделей настроек; полная замена без слияния — отклонена: молчаливая потеря настроек файла.
-
-**Следствия:** каждая новая настройка автоматически доступна во всей цепочке pyproject → env → `PrettyConfig`; валидация значений едина для файловых и программных настроек.
-
-## ADR-3. Настройка `generation_prompt` — пользовательские инструкции в запросы генерации
-
-Появляется строковая настройка `generation_prompt` (env `PRETTYPLAY_GENERATION_PROMPT`, дефолт — пустая). Непустое значение попадает отдельным блоком **USER INSTRUCTIONS** в запросы генерации и регенерации (healing); фиксированный системный промпт не меняется; классификация отказов не затрагивается (инструкции — про стиль кода, классификация — про диагностику). В адрес кэша инструкции **не входят**: кэш — репозиторий проверенного кода, работающий кэшированный шаг не перегенерируется из-за смены стиля — выбор пользователя.
-
-**Рассмотренные альтернативы:** вклейка инструкций в системный промпт — отклонена: системный промпт — стабильный продукт, инструкции — переменные данные запроса; участие хеша инструкций в адресе шага — отклонено пользователем: смена инструкций не должна инвалидировать кэш; распространение на классификацию — отклонено.
-
-**Следствия:** смена инструкций видна только на свежей генерации — кэшированные шаги остаются как есть до ручной чистки кэша или перегенерации лечением; внутренняя практика движка с именем `generation_prompt` (фиксированный системный промпт) переименовывается в `system_prompt`, освобождая термин для публичной настройки — иначе одно имя делало бы две работы в пределах одного манифеста.
-
-## ADR-4. Фасад: универсальные локаторы — data-атрибуты, CSS, XPath
-
-Фасад страницы расширяется способностью локации по любым data-атрибутам, CSS-селекторам и XPath. Дефолтный приоритет системного промпта (role → text → label) не меняется — доступность остаётся глобальным дефолтом, приоритет подстраивается инструкциями пользователя per-project. Флагманский сценарий топика («отдавай приоритет data-test-id») требует, чтобы сгенерированный код *умел* искать по test-id: код работает только через фасад, одних инструкций без расширения поверхности недостаточно.
-
-**Рассмотренные альтернативы:** сменить дефолтный приоритет промпта на test-id-first — отклонено: глобальный дефолт консервативен, приоритет — решение проекта; ограничиться инструкциями без расширения фасада — отклонено: пример неисполним.
-
-**Следствия:** контракт обратной совместимости соблюдается — только extend, без переименований и удалений; поверхность API шлётся в запросы из facade-практики, новые локаторы модель увидит автоматически (листинг и практика меняются вместе).
-
-## ADR-5. Remote-исполнение через Playwright ws-эндпоинт
-
-Появляется строковая настройка `browser_endpoint` (env `PRETTYPLAY_BROWSER_ENDPOINT`, дефолт — пустая = локальный запуск, как сегодня). Механизм — Playwright ws-эндпоинт (connect). Эндпоинт задан → драйвер **подключается** вместо локального запуска; `headless` игнорируется (видимость окна управляется сервером); `browser` по-прежнему выбирает тип двигателя для подключения. Эндпоинт-URL допустим в конфиге — это адрес, не ключ; ротация в CI — через env-override (замечание пользователя «не забыть env» учтено общим правилом «у каждой настройки есть env-override»).
-
-**Рассмотренные альтернативы:** CDP-подключение (`connect_over_cdp` к запущенному Chrome с debugging-портом) — отложено как будущее расширение отдельным полем; оба механизма сразу — отклонены: лишняя поверхность до реальной потребности.
-
-**Следствия:** практика playwright (`.goga/usages/cooks/playwright.md`) дополняется разделом о remote-подключении — сегодня remote в ней не описан; в связке с ADR-1 каждый тест может подключаться к своему эндпоинту.
+- **Per-test runtime** — a runtime (a configuration instance, a browser process, an LLM provider, attempt budgets) owned by one `PrettyTest`, not by the whole process.
+- **PrettyConfig** — the public name of prettyplay's single full settings model (an alias of the config cell's `Config`); passed into `PrettyTest` for per-test overrides.
+- **Layered merging** — the rule for resolving a test's settings: a value explicitly set in `PrettyConfig` wins; an unset/empty one falls back to pyproject+env.
+- **Generation user instructions** — a `generation_prompt` settings string that lands in generation and regeneration requests as a separate USER INSTRUCTIONS block; it governs the style of the generated code (user's example: "prefer data-test-id attributes"), not failure diagnostics.
+- **`browser_endpoint`** — the ws endpoint address of a remote browser; an empty value means local launch, as today.
 
 ---
 
-## Сводка интервью
+## ADR-1. Per-test runtime: every test gets its own browser and its own configuration
 
-Три пожелания пользователя → решения: конфиг в `PrettyTest` → ADR-1 + ADR-2; пользовательский input в промпт генерации → ADR-3 + ADR-4 (пример с data-test-id потянул расширение фасада); playwright на remote-исполнение → ADR-5. Все решения приняты пользователем в файловом диалоге (вопросы q1–q5 в каталоге стадии pipeline): q1 — формулировка задачи, q2 — раунд из 10 вопросов фронтира, q3 — раунд из 6 (следствия per-test рантайма), q4–q5 — коллизия термина `generation_prompt` и финальное подтверждение. Дизайн контрактов (сигнатуры, изменения CODEMANIFEST) — вне скоупа discovery.
+Every `PrettyTest` builds its own runtime: its own configuration instance, its own browser process, its own provider, its own attempt budgets. The process-wide singleton is gone; `get_runtime()` leaves the public contract (an internal facade detail). Attempt budgets become per-test — the documented invariant "budgets are not reset between tests" is reversed. The user's choice: test isolation matters more than the economy of one browser per launch — "every test gets its own runtime, its own configuration instance and its own browser instance".
+
+**Alternatives considered:** keying runtimes by effective config (tests with an identical config share one browser) — rejected by the user: the runtime belongs to the test, not the config; a private runtime only when a config is explicitly passed — rejected: two behavior semantics in one library.
+
+**Consequences:** launching a browser per test (~a second) is the accepted price; a step reused by N tests gets N× attempts per launch — protection from infinite retries is preserved within each test; every runtime registers its own shutdown in atexit — all browsers stop by process exit; laziness is preserved — constructing `PrettyTest` is cheap, the browser starts on the first step.
+
+## ADR-2. PrettyConfig — a single settings model and layered merging
+
+`PrettyConfig` is the public name of the same full settings model (an alias of `Config`), not a separate lightweight override object. A config passed into `PrettyTest` sets only explicitly given values; unset/empty fields are resolved by layered merging against pyproject+env. One model — one place of validation and one resolution chain; "to pass a config" intuitively means "to override the specific", whereas with full replacement the `base_url`/`model` set in pyproject would be silently lost.
+
+**Alternatives considered:** a separate subset object for per-test overrides — rejected: divergence of two settings models; full replacement without merging — rejected: silent loss of file settings.
+
+**Consequences:** every new setting is automatically available along the whole pyproject → env → `PrettyConfig` chain; value validation is uniform for file-based and programmatic settings.
+
+## ADR-3. The `generation_prompt` setting — user instructions into generation requests
+
+A string setting `generation_prompt` appears (env `PRETTYPLAY_GENERATION_PROMPT`, default empty). A non-empty value lands as a separate **USER INSTRUCTIONS** block in generation and regeneration (healing) requests; the fixed system prompt does not change; failure classification is untouched (the instructions are about code style, classification is about diagnostics). The instructions are **not part of** the cache address: the cache is a repository of verified code — a working cached step is not regenerated because the style changed — the user's choice.
+
+**Alternatives considered:** pasting the instructions into the system prompt — rejected: the system prompt is a stable product, the instructions are variable request data; including an instructions hash in the step address — rejected by the user: changing the instructions must not invalidate the cache; extending to classification — rejected.
+
+**Consequences:** a change of instructions is visible only on fresh generation — cached steps stay as they are until a manual cache cleanup or regeneration by healing; the engine's internal usage named `generation_prompt` (the fixed system prompt) is renamed to `system_prompt`, freeing the term for the public setting — otherwise one name would be doing two jobs within one manifest.
+
+## ADR-4. Facade: universal locators — data attributes, CSS, XPath
+
+The page facade is extended with the ability to locate by any data attributes, CSS selectors and XPath. The system prompt's default priority (role → text → label) does not change — accessibility remains the global default, the priority is tuned per-project by user instructions. The topic's flagship scenario ("prefer data-test-id") requires the generated code to *be able* to search by test-id: the code works only through the facade, instructions alone without extending the surface are insufficient.
+
+**Alternatives considered:** changing the prompt's default priority to test-id-first — rejected: the global default is conservative, the priority is a project decision; limiting to instructions without extending the facade — rejected: the example is unfulfillable.
+
+**Consequences:** the backward-compatibility contract is honored — extend only, no renames or removals; the API surface is sent into requests from the facade usage, the model will see the new locators automatically (the listing and the usage change together).
+
+## ADR-5. Remote execution via the Playwright ws endpoint
+
+A string setting `browser_endpoint` appears (env `PRETTYPLAY_BROWSER_ENDPOINT`, default empty = local launch, as today). The mechanism is the Playwright ws endpoint (connect). An endpoint is set → the driver **connects** instead of launching locally; `headless` is ignored (window visibility is controlled by the server); `browser` still selects the engine type to connect to. An endpoint URL in the config is acceptable — it is an address, not a key; rotation in CI — via the env override (the user's remark "don't forget env" is covered by the general rule "every setting has an env override").
+
+**Alternatives considered:** CDP connection (`connect_over_cdp` to a running Chrome with a debugging port) — deferred as a future extension via a separate field; both mechanisms at once — rejected: extra surface before a real need.
+
+**Consequences:** the playwright usage (`.goga/usages/cooks/playwright.md`) gains a section on remote connection — remote is not described there today; combined with ADR-1, every test can connect to its own endpoint.
+
+---
+
+## Interview summary
+
+Three user wishes → solutions: a config in `PrettyTest` → ADR-1 + ADR-2; user input into the generation prompt → ADR-3 + ADR-4 (the data-test-id example pulled the facade extension along); playwright to remote execution → ADR-5. All decisions were approved by the user in the file-based dialog (questions q1–q5 in the pipeline stage directory): q1 — task formulation, q2 — a round of 10 frontier questions, q3 — a round of 6 (consequences of the per-test runtime), q4–q5 — the `generation_prompt` term collision and final confirmation. Contract design (signatures, CODEMANIFEST changes) — outside discovery scope.

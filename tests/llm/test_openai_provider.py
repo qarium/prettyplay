@@ -71,7 +71,7 @@ class TestOpenAiProviderContract:
     def test_constructor_reads_no_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
-        OpenAiProvider(Config())  # конструкция без исключений — клиент ленивый
+        OpenAiProvider(Config())  # constructs without exceptions — the client is lazy
 
 
 class TestOpenAiProviderLogic:
@@ -106,7 +106,7 @@ class TestOpenAiProviderLogic:
     def test_missing_api_key_surfaces_on_first_request(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
-        provider = OpenAiProvider(Config())  # не падает — конструктор не читает env
+        provider = OpenAiProvider(Config())  # does not fail — the constructor reads no env
 
         with pytest.raises(LlmUnavailableError) as excinfo:
             provider.classify_failure(
@@ -136,7 +136,7 @@ class TestOpenAiProviderLogic:
             )
 
         assert classification.category == "incurable"
-        assert len(requests) == 1  # один запрос на попытку
+        assert len(requests) == 1  # one request per attempt
 
     def test_generate_returns_code_with_prompt_verbatim_and_effective_model(
         self, monkeypatch: pytest.MonkeyPatch
@@ -168,7 +168,7 @@ class TestOpenAiProviderLogic:
         assert "открыть страницу" in user["content"]
         assert "шаг один" in user["content"]
         assert "page.open(...)" in user["content"]
-        assert "CODE" not in user["content"]  # регенерационные поля отсутствуют на первой попытке
+        assert "CODE" not in user["content"]  # no regeneration fields on the first attempt
 
     def test_generate_returns_code_extracted_from_markdown_fence(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
@@ -189,7 +189,7 @@ class TestOpenAiProviderLogic:
                 error=None,
             )
 
-        assert code == WORKING_CODE  # фенс снят — паритет провайдеров
+        assert code == WORKING_CODE  # fence stripped — provider parity
 
     def test_generate_regeneration_request_carries_code_and_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
@@ -454,7 +454,7 @@ class TestOpenAiProviderLogic:
         assert request["messages"][0] == {"role": "system", "content": "SYS"}
         user = request["messages"][1]["content"]
         assert f"USER INSTRUCTIONS:\n{USER_INSTRUCTIONS}" in user
-        assert user.index("PAGE API:") < user.index("USER INSTRUCTIONS:")  # после блока API страницы
+        assert user.index("PAGE API:") < user.index("USER INSTRUCTIONS:")  # after the page API block
 
     def test_classify_failure_never_carries_user_instructions(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
@@ -472,7 +472,7 @@ class TestOpenAiProviderLogic:
             )
 
         user = requests[0]["messages"][1]["content"]
-        assert "USER INSTRUCTIONS" not in user  # ADR-3: классификация без инструкций
+        assert "USER INSTRUCTIONS" not in user  # ADR-3: classification without instructions
 
     def test_empty_choices_in_classify_maps_to_llm_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")

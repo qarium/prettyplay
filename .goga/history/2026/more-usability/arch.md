@@ -2,39 +2,39 @@
 
 ## Topic
 
-**Short name:** prettyplay more-usability — единый юзабилити-выпуск (7 ADR) в существующих ячейках
+**Short name:** prettyplay more-usability — a single usability release (7 ADRs) in the existing cells
 **Plan path:** `.goga/history/2026/more-usability/arch.md`
-**Input:** ADR `.goga/history/2026/more-usability/adr.md` (принят 08.09.2026), task `.goga/history/2026/more-usability/task.md`
+**Input:** ADR `.goga/history/2026/more-usability/adr.md` (approved 08.09.2026), task `.goga/history/2026/more-usability/task.md`
 
-**Scope summary:** 6 ячеек изменяются, 2 не затрагиваются (`llm`, `cache`); новых ячеек нет. Новые типы: `FailureVerdict` (failures), `PrettyplayError::ConfigurationError` (config), `classify_step_failure` (engine). Новое ребро зависимостей: `config → failures`. Пользовательские решения сверх ADR: рекомендация живёт только в вердикте (свойство `IncurableStepError.recommendation` — производное с фолбэком); переименование env браузера чистое, без подсказки старого имени; общий Routine классификации в engine.
+**Scope summary:** 6 cells change, 2 are untouched (`llm`, `cache`); there are no new cells. New types: `FailureVerdict` (failures), `PrettyplayError::ConfigurationError` (config), `classify_step_failure` (engine). New dependency edge: `config → failures`. User decisions beyond the ADRs: the recommendation lives only in the verdict (the `IncurableStepError.recommendation` property — derived with a fallback); the browser env rename is clean, without a hint of the old name; a shared classification Routine in engine.
 
-**Contract rules applied:** CODEMANIFEST и usage-файлы описывают только текущее состояние (без формулировок-changelog); примеры в usage-файлах — на английском.
+**Contract rules applied:** CODEMANIFESTs and usage files describe only the current state (no changelog-style wording); examples in usage files are in English.
 
 ## Implementation Order
 
 | # | Cell | Rationale |
 |---|---|---|
-| 1 | `prettyplay/failures` | Лист — без Imports; поставляет FailureVerdict, вердикт-поля ошибок и базу PrettyplayError для мутации ConfigurationError |
-| 2 | `prettyplay/reporting` | Лист — без Imports; поставляет событие on_step_verdict, на которое ссылается исполнитель |
-| 3 | `prettyplay/config` | Зависит только от failures (новое ребро); поставляет headless/каналы и ConfigurationError |
-| 4 | `prettyplay/driver` | Зависит от config; поставляет запуск с headless/channel и скроллы фасада; `.usages/facade.md` — источник зеркала для engine |
-| 5 | `prettyplay/engine` | Зависит от failures, reporting, config, driver, cache, llm; поставляет classify_step_failure, ADR-3 и вердикты |
-| 6 | `prettyplay` (корень) | Зависит от всех; скриншоты автора, сворачивание трейсбека, диспетчеризация on_step_verdict |
+| 1 | `prettyplay/failures` | Leaf — no Imports; supplies FailureVerdict, the error verdict fields and the PrettyplayError base for the ConfigurationError mutation |
+| 2 | `prettyplay/reporting` | Leaf — no Imports; supplies the on_step_verdict event referenced by the executor |
+| 3 | `prettyplay/config` | Depends only on failures (the new edge); supplies headless/channels and ConfigurationError |
+| 4 | `prettyplay/driver` | Depends on config; supplies launch with headless/channel and the facade scrolls; `.usages/facade.md` — the mirror source for engine |
+| 5 | `prettyplay/engine` | Depends on failures, reporting, config, driver, cache, llm; supplies classify_step_failure, ADR-3 and the verdicts |
+| 6 | `prettyplay` (root) | Depends on all; author screenshots, traceback collapsing, on_step_verdict dispatch |
 
-`prettyplay/llm` и `prettyplay/cache` — без изменений: контракт `FailureClassification` переиспользуется как есть; кеш не затрагивается.
+`prettyplay/llm` and `prettyplay/cache` — unchanged: the `FailureClassification` contract is reused as is; the cache is untouched.
 
 ## Artifacts
 
 ### 1. Cell: prettyplay/failures — MODIFY
 
-**Diff против текущего CODEMANIFEST:**
-- ADD: тип `FailureVerdict(category, explanation, recommendation)` с методом `render()` (location errors.py)
-- CHANGE: `ProductDefectError` — сигнатура `+ verdict: FailureVerdict | None`; Requirements о двойном наследовании AssertionError, рендере с причины, сворачивании трейсбека; свойство `verdict`
-- CHANGE: `IncurableStepError` — сигнатура `- recommendation: str`, `+ verdict: FailureVerdict | None`; свойство `recommendation` становится производным (вердикт или встроенное умолчание пути); свойство `verdict`
-- CHANGE: глобальные Annotations (+3 строки) и Description
+**Diff against the current CODEMANIFEST:**
+- ADD: type `FailureVerdict(category, explanation, recommendation)` with a `render()` method (location errors.py)
+- CHANGE: `ProductDefectError` — signature `+ verdict: FailureVerdict | None`; Requirements on the double AssertionError inheritance, rendering from the reason, traceback collapsing; the `verdict` property
+- CHANGE: `IncurableStepError` — signature `- recommendation: str`, `+ verdict: FailureVerdict | None`; the `recommendation` property becomes derived (the verdict or the path's built-in default); the `verdict` property
+- CHANGE: global Annotations (+3 lines) and Description
 - UNCHANGED: `PrettyplayError`, `LlmUnavailableError`
 
-**CODEMANIFEST (полное целевое содержимое):**
+**CODEMANIFEST (full target content):**
 
 ```yaml
 Usages:
@@ -156,7 +156,7 @@ Description: |
   The failure taxonomy of prettyplay: product defect, incurable step, LLM infrastructure — mutations of one library base — and the shared verdict of a terminal failure.
 ```
 
-**.usages file: `prettyplay/failures/.usages/taxonomy.md` — MODIFY (полное содержимое):**
+**.usages file: `prettyplay/failures/.usages/taxonomy.md` — MODIFY (full content):**
 
 ```md
 # Failure taxonomy
@@ -203,9 +203,9 @@ ProductDefectError is also an AssertionError: unittest reports the failed check 
 
 ### 2. Cell: prettyplay/reporting — MODIFY
 
-**Diff:** ADD метод `on_step_verdict` у StepHooks; CHANGE одна строка глобальных Annotations (INFO-уровень шаговых событий включая вердикт); UNCHANGED StepReporter.
+**Diff:** ADD the `on_step_verdict` method on StepHooks; CHANGE one line of the global Annotations (the INFO level of step events including the verdict); UNCHANGED StepReporter.
 
-**CODEMANIFEST (полное целевое содержимое):**
+**CODEMANIFEST (full target content):**
 
 ```yaml
 Usages:
@@ -289,7 +289,7 @@ Description: |
   Visibility of prettyplay: the logger prettyplay plus the thin StepHooks callback contract.
 ```
 
-**.usages file: `prettyplay/reporting/.usages/hooks.md` — MODIFY (полное содержимое):**
+**.usages file: `prettyplay/reporting/.usages/hooks.md` — MODIFY (full content):**
 
 ```md
 # Step and healing hooks
@@ -337,9 +337,9 @@ class HealingMonitor(StepHooks):
 
 ### 3. Cell: prettyplay/config — MODIFY
 
-**Diff:** ADD Imports из `prettyplay/failures` (PrettyplayError + usage `taxonomy`); ADD тип `PrettyplayError::ConfigurationError` (location loader.py); CHANGE `Config` — поле `headless`, свойство `headless`, тексты browser (5 значений); CHANGE `load_config` — алгоритм (PRETTYPLAY_BROWSER_NAME / PRETTYPLAY_BROWSER_HEADLESS, обёртка ValidationError); CHANGE глобальные Annotations (+2 строки) и Description.
+**Diff:** ADD Imports from `prettyplay/failures` (PrettyplayError + the `taxonomy` usage); ADD the `PrettyplayError::ConfigurationError` type (location loader.py); CHANGE `Config` — the `headless` field, the `headless` property, the browser texts (5 values); CHANGE `load_config` — the algorithm (PRETTYPLAY_BROWSER_NAME / PRETTYPLAY_BROWSER_HEADLESS, ValidationError wrapping); CHANGE global Annotations (+2 lines) and Description.
 
-**CODEMANIFEST (полное целевое содержимое):**
+**CODEMANIFEST (full target content):**
 
 ```yaml
 Imports:
@@ -464,7 +464,7 @@ Description: |
   Project settings of prettyplay: the validated [tool.prettyplay] schema with the browser channels and headless mode, and the loader with environment overrides and the actionable configuration error.
 ```
 
-**.usages file: `prettyplay/config/.usages/configuration.md` — MODIFY (полное содержимое):**
+**.usages file: `prettyplay/config/.usages/configuration.md` — MODIFY (full content):**
 
 ```md
 # Project configuration
@@ -529,9 +529,9 @@ print(config.browser, config.headless, config.generation_attempts)
 
 ### 4. Cell: prettyplay/driver — MODIFY
 
-**Diff:** CHANGE `DriverSession` — аннотация config (headless/каналы), шаг 1 алгоритма open_context, требование громкого отказа при отсутствии установленного браузера; CHANGE `PageFacade` — 8 скролл-методов, строка Requirements о скроллах без задержек; CHANGE строка `playwright` в глобальных Annotations и Description; UNCHANGED `LocatorFacade` и существующая поверхность.
+**Diff:** CHANGE `DriverSession` — the config annotation (headless/channels), step 1 of the open_context algorithm, the requirement of a loud failure when the installed browser is absent; CHANGE `PageFacade` — 8 scroll methods, the Requirements line about scrolls without delays; CHANGE the `playwright` line in the global Annotations and Description; UNCHANGED `LocatorFacade` and the existing surface.
 
-**CODEMANIFEST (полное целевое содержимое):**
+**CODEMANIFEST (full target content):**
 
 ```yaml
 Imports:
@@ -683,7 +683,7 @@ Description: |
   The Playwright sync driver of prettyplay: the run-scoped session with headless and channel launches, and the narrow backward-compatible page facade with scroll abilities for generated step code.
 ```
 
-**.usages file: `prettyplay/driver/.usages/facade.md` — MODIFY (полное содержимое):**
+**.usages file: `prettyplay/driver/.usages/facade.md` — MODIFY (full content):**
 
 ```md
 # Driver facade
@@ -748,9 +748,9 @@ snapshot = page.aria_snapshot()
 
 ### 5. Cell: prettyplay/engine — MODIFY
 
-**Diff:** ADD Routine `classify_step_failure` (location classification.py); CHANGE `classification_prompt` (первая строка без «cached»); ADD строка о скролльных способностях в `generation_prompt` (Rules); CHANGE `StepGenerator.generate` — шаги 6-8 (AssertionError → стоп ретраев + классификация; вердикт на исчерпании с тихим пропуском; недоступность LLM в классификациях генерации — тихий пропуск с WARNING, отказ без вердикта) и Requirements; CHANGE `StepHealer.heal` — шаги 1, 3, 4, 6 (классификация через routine; вердикты до ошибок) и Requirements; CHANGE глобальные Annotations (+3 строки, с разграничением тихого пропуска и инфраструктурного отказа) и Description; UNCHANGED `run_step_code`, сигнатуры движков.
+**Diff:** ADD Routine `classify_step_failure` (location classification.py); CHANGE `classification_prompt` (the first line without "cached"); ADD a line about scroll abilities in `generation_prompt` (Rules); CHANGE `StepGenerator.generate` — steps 6-8 (AssertionError → stop retries + classification; the verdict on exhaustion with a silent skip; LLM unavailability in generation-path classifications — a silent skip with WARNING, the failure without a verdict) and Requirements; CHANGE `StepHealer.heal` — steps 1, 3, 4, 6 (classification through the routine; verdicts before errors) and Requirements; CHANGE global Annotations (+3 lines, distinguishing the silent skip from the infrastructure failure) and Description; UNCHANGED `run_step_code`, the engine signatures.
 
-**CODEMANIFEST (полное целевое содержимое):**
+**CODEMANIFEST (full target content):**
 
 ```yaml
 Imports:
@@ -966,9 +966,9 @@ Description: |
   The agent engine of prettyplay: step code generation with execution in the loop and failed-check classification, the fixed-form execution routine, the shared classification call, and healing with anti-masking and verdicts on terminal failures.
 ```
 
-**Примечание реализации (не контракт):** строка перечня API страницы, отправляемая провайдеру, — производная от Surface-таблицы `prettyplay/driver/.usages/facade.md`; обе копии меняются только вместе (требование зеркальности зафиксировано в глобальных Annotations).
+**Implementation note (not a contract):** the page API listing string sent to the provider is derived from the Surface table of `prettyplay/driver/.usages/facade.md`; both copies change only together (the mirroring requirement is fixed in the global Annotations).
 
-**.usages file: `prettyplay/engine/.usages/generation.md` — MODIFY (полное содержимое):**
+**.usages file: `prettyplay/engine/.usages/generation.md` — MODIFY (full content):**
 
 ```md
 # Step generation
@@ -1014,7 +1014,7 @@ The routine collects the fresh page snapshot (plus the screenshot when enabled) 
 Generated code is one function receiving exactly one argument — the page facade — and working only through the facade surface: page.find_by_role(...).click(), element.expect_visible(), page.scroll_down(600) and alike. No provider constructs, no direct driver imports, no fixed delays.
 ```
 
-**.usages file: `prettyplay/engine/.usages/healing.md` — MODIFY (полное содержимое):**
+**.usages file: `prettyplay/engine/.usages/healing.md` — MODIFY (full content):**
 
 ```md
 # Step healing
@@ -1050,11 +1050,11 @@ The classification verdict decides the path:
 Every terminal failure carries its verdict in full: the exception message starts with the primary reason and appends the verdict render; the same three fields reach on_step_verdict and the structured log record.
 ```
 
-### 6. Cell: prettyplay — MODIFY (корневой фасад)
+### 6. Cell: prettyplay — MODIFY (root facade)
 
-**Diff:** ADD методы `get_screenshot`/`save_screenshot` у PrettyTest; CHANGE `action`/`assertion` — строка о сворачивании трейсбека; CHANGE `execute` шаг 7 — on_step_verdict; CHANGE Description; UNCHANGED PrettyplayRuntime, get_runtime, сигнатуры.
+**Diff:** ADD the `get_screenshot`/`save_screenshot` methods on PrettyTest; CHANGE `action`/`assertion` — the line about traceback collapsing; CHANGE `execute` step 7 — on_step_verdict; CHANGE Description; UNCHANGED PrettyplayRuntime, get_runtime, signatures.
 
-**CODEMANIFEST (полное целевое содержимое):**
+**CODEMANIFEST (full target content):**
 
 ```yaml
 Imports:
@@ -1244,7 +1244,7 @@ Description: |
   The facade of prettyplay: the per-test scenario object with screenshot abilities, the step cycle executor with verdict reporting, and the run-scoped composition root.
 ```
 
-**.usages file: `prettyplay/.usages/steps.md` — MODIFY (полное содержимое):**
+**.usages file: `prettyplay/.usages/steps.md` — MODIFY (full content):**
 
 ```md
 # Writing steps
@@ -1305,7 +1305,7 @@ Step sentences go to the logger prettyplay at info level — the suite output re
 Step sentences land in the repository cache, the logs and the LLM requests: never put secrets or personal data into a step.
 ```
 
-**.usages file: `prettyplay/.usages/lifecycle.md` — MODIFY (полное содержимое):**
+**.usages file: `prettyplay/.usages/lifecycle.md` — MODIFY (full content):**
 
 ```md
 # Run lifecycle
@@ -1359,36 +1359,36 @@ Generation of the step cache remains a batch workflow: prefer a plain script or 
 ## Dependency Map
 
 ```
-failures (лист)
-  ├─ PrettyplayError, taxonomy ──────────> config          [ребро выпуска]
+failures (leaf)
+  ├─ PrettyplayError, taxonomy ──────────> config          [release edge]
   ├─ ProductDefectError, IncurableStepError, LlmUnavailableError ──> engine, prettyplay
-reporting (лист)
+reporting (leaf)
   └─ StepHooks, StepReporter ─────────────> cache, engine, prettyplay
 config
   └─ Config, load_config ─────────────────> llm, driver, cache, engine, prettyplay
 llm
   └─ LlmProvider, FailureClassification, classification ──> engine, prettyplay
 driver
-  └─ DriverSession, PageFacade, facade ───> engine, prettyplay        [facade — источник зеркала]
+  └─ DriverSession, PageFacade, facade ───> engine, prettyplay        [facade — mirror source]
 cache
   └─ StepCache, StepIdentity, CachedStep, RunBudgets ──> engine, prettyplay
 engine
   └─ StepGenerator, StepHealer, run_step_code, generation, healing ──> prettyplay
-prettyplay (корень)
+prettyplay (root)
 ```
 
-Порядок реализации: failures → {reporting, config} → {llm, driver, cache} → engine → prettyplay. Циклических зависимостей нет (config→failures единственное новое ребро; failures — лист).
+Implementation order: failures → {reporting, config} → {llm, driver, cache} → engine → prettyplay. There are no cyclic dependencies (config→failures is the only new edge; failures is a leaf).
 
 ## Verification Checklist
 
-После применения плана (`goga lint` + инспекция):
+After applying the plan (`goga lint` + inspection):
 
-1. **Все ячейки:** `goga lint` проходит без ошибок DSL; `goga schema` отражает новые типы (FailureVerdict в failures; ConfigurationError в config; classify_step_failure в engine) и новое ребро config→failures; кросс-импортов нет.
-2. **failures:** ProductDefectError в мутации от PrettyplayError с вердикт-полем; IncurableStepError без параметра recommendation, свойство производное; FailureVerdict с render(); taxonomy.md описывает 4 вида и вердикты; тексты без changelog-формулировок.
-3. **reporting:** on_step_verdict в StepHooks с 4 строковыми параметрами; hooks.md таблица содержит строку события; событие не зовётся при пропуске вердикта.
-4. **config:** Imports из failures с taxonomy; ConfigurationError — мутация PrettyplayError; headless в Config (default True) и в env-таблице configuration.md как PRETTYPLAY_BROWSER_HEADLESS; browser-матрица из 5 значений; load_config поднимает ConfigurationError с сцепленным ValidationError; ни одного упоминания старого env-имени.
-5. **driver:** PageFacade расширен только (8 скролл-методов, сигнатуры вариантa A); существующие 12 вызовов поверхности не тронуты; DriverSession open_context — headless/channel и громкий отказ; facade.md Surface = 21 вызов, примеры на английском.
-6. **engine:** classify_step_failure в classification.py; generate — шаги 6-8 (AssertionError → стоп ретраев + классификация; недоступность LLM в классификациях пути генерации — тихий пропуск с WARNING, отказ без вердикта; исчерпание → вердикт); heal — вердикты до ошибок, переиспользование вердикта при исчерпании после rot; classification_prompt без «cached»; строка перечня API зеркальна Surface facade.md.
-7. **prettyplay:** get_screenshot/save_screenshot с требованием открытой страницы; action/assertion — сворачивание трейсбека; execute шаг 7 — on_step_verdict после on_step_failed; steps.md раздел Screenshots; lifecycle.md — 4 вида отказа.
-8. **Незатрагиваемые:** llm и cache CODEMANIFEST и их .usages не изменены.
-9. **Критерии приёмки задачи** покрываются контрактом (см. CELL_ASSEMBLY_REPORT); отклонение: подсказка старого env-имени отсутствует по решению пользователя.
+1. **All cells:** `goga lint` passes without DSL errors; `goga schema` reflects the new types (FailureVerdict in failures; ConfigurationError in config; classify_step_failure in engine) and the new config→failures edge; there are no cross-imports.
+2. **failures:** ProductDefectError as a mutation of PrettyplayError with the verdict field; IncurableStepError without the recommendation parameter, the property derived; FailureVerdict with render(); taxonomy.md describes 4 kinds and the verdicts; the texts carry no changelog-style wording.
+3. **reporting:** on_step_verdict in StepHooks with 4 string parameters; the hooks.md table contains the event row; the event is not called when the verdict is skipped.
+4. **config:** Imports from failures with taxonomy; ConfigurationError — a PrettyplayError mutation; headless in Config (default True) and in the configuration.md env table as PRETTYPLAY_BROWSER_HEADLESS; the browser matrix of 5 values; load_config raises ConfigurationError with the chained ValidationError; not a single mention of the old env name.
+5. **driver:** PageFacade extended only (8 scroll methods, variant A signatures); the existing 12 surface calls untouched; DriverSession open_context — headless/channel and a loud failure; facade.md Surface = 21 calls, examples in English.
+6. **engine:** classify_step_failure in classification.py; generate — steps 6-8 (AssertionError → stop retries + classification; LLM unavailability in generation-path classifications — a silent skip with WARNING, the failure without a verdict; exhaustion → the verdict); heal — verdicts before errors, reuse of the verdict on exhaustion after rot; classification_prompt without "cached"; the page API listing string mirrors the facade.md Surface.
+7. **prettyplay:** get_screenshot/save_screenshot with the open-page requirement; action/assertion — traceback collapsing; execute step 7 — on_step_verdict after on_step_failed; the steps.md Screenshots section; lifecycle.md — 4 failure kinds.
+8. **Untouched:** the llm and cache CODEMANIFESTs and their .usages are unchanged.
+9. **The task's acceptance criteria** are covered by the contract (see CELL_ASSEMBLY_REPORT); deviation: the old env name hint is absent by the user's decision.

@@ -63,7 +63,7 @@ class TestLoadConfigContract:
     def test_signature_accepts_none_and_str_path(self, tmp_path, monkeypatch) -> None:
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text(PYPROJECT_WITH_SECTION, encoding="utf-8")
-        monkeypatch.chdir(tmp_path)  # авто-поиск детерминирован: cwd содержит pyproject.toml
+        monkeypatch.chdir(tmp_path)  # auto-discovery is deterministic: cwd contains pyproject.toml
 
         assert load_config(pyproject_path=None).provider == "openai"
         assert load_config(pyproject_path=str(pyproject)).browser == "chromium"
@@ -136,7 +136,7 @@ class TestLoadConfigLogic:
         ],
         ids=["headless", "send_screenshots", "provider"],
     )
-    def test_invalid_setting_renders_allowed_values(  # noqa: PLR0913, PLR0917 — параметры параметризации
+    def test_invalid_setting_renders_allowed_values(  # noqa: PLR0913, PLR0917 — parametrization parameters
         self, tmp_path, monkeypatch, env_name: str, env_value: str, setting: str, allowed: str
     ) -> None:
         """Every overridable setting fails with its own allowed-values line — no pydantic internals."""
@@ -169,8 +169,8 @@ class TestLoadConfigLogic:
         monkeypatch.chdir(sandbox)
         monkeypatch.delenv("PRETTYPLAY_CACHE_ROOT", raising=False)
 
-        # /tmp и выше не содержат pyproject.toml (проверено окружением),
-        # поэтому авто-поиск вверх от cwd детерминированно ничего не находит.
+        # /tmp and above contain no pyproject.toml (verified for this environment),
+        # so the upward auto-discovery from cwd deterministically finds nothing.
         with pytest.raises(FileNotFoundError) as excinfo:
             load_config(pyproject_path=None)
 
@@ -197,7 +197,7 @@ class TestLoadConfigEdge:
 
         config = load_config(pyproject_path=str(pyproject))
 
-        # переменная задана (пусть и пустая) — оверрайд применяется
+        # the variable is set (even if empty) — the override applies
         assert config.model == ""
         assert config.effective_generation_model == ""
 
@@ -243,7 +243,7 @@ class TestLoadConfigOverlay:
         assert load_config(path, None).provider == "anthropic"
         assert load_config(path, None).generation_attempts == 5
 
-        # пустой PrettyConfig участвует ни в одном поле — ведёт себя как None
+        # an empty PrettyConfig sets no field — behaves like None
         empty = load_config(path, PrettyConfig())
 
         assert empty.provider == "anthropic"
@@ -282,7 +282,7 @@ class TestLoadConfigOverlay:
 
         config = load_config(path, Config(browser="firefox"))
 
-        # pyproject → env → PrettyConfig наблюдаемо сквозь всю цепочку
+        # pyproject → env → PrettyConfig observable through the whole chain
         assert config.browser == "firefox"
 
 

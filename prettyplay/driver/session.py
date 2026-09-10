@@ -114,7 +114,7 @@ class PlaywrightWorker:
 
             try:
                 task.result = task.fn()
-            except BaseException as error:  # исключение пробрасывается в поток вызывавшего
+            except BaseException as error:  # exception propagates to the caller's thread
                 task.error = error
             finally:
                 task.done.set()
@@ -172,7 +172,7 @@ class DriverSession:
         page, context = worker.run(open_isolated)
 
         facade = PageFacade(page, context)
-        facade._worker = worker  # вызовы фасада уходят в поток драйвера
+        facade._worker = worker  # facade calls go to the driver thread
         return facade
 
     def close(self) -> None:
@@ -224,7 +224,7 @@ class DriverSession:
         try:
             browser = worker.run(lambda: self._launch_engine(playwright))
         except BaseException:
-            # незапустившийся браузер не оставляет процесс драйвера жить
+            # a browser that failed to start leaves no driver process alive
             worker.run(playwright.stop)
             worker.close()
             raise

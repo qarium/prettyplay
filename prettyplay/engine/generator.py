@@ -214,7 +214,7 @@ class StepGenerator:
 
         while True:
             if not spend(identity):
-                # причина кандидата — часть контракта reason: «the specific incurability cause»
+                # candidate cause is part of the reason contract: «the specific incurability cause»
                 reason = f"{pool} attempt budget exhausted"
 
                 if error:
@@ -223,13 +223,13 @@ class StepGenerator:
                     raise IncurableStepError(
                         step_text,
                         reason,
-                        None,  # вердикт присоединяет healer — без второго LLM-запроса
+                        None,  # healer attaches the verdict — no second LLM request
                     )
                 if error is None:
                     raise IncurableStepError(
                         step_text,
                         reason,
-                        None,  # классифицировать нечего: ни одного кандидата не было
+                        None,  # nothing to classify: no candidates existed
                     )
 
                 raise IncurableStepError(step_text, reason, self._classify(step_text, code, error, page))
@@ -255,13 +255,13 @@ class StepGenerator:
             try:
                 run_step_code(code, page)
             except AssertionError as check_failure:
-                # провалённая проверка: попытки не тратятся — классифицируем и останавливаемся
+                # failed check: attempts not spent — classify and stop
                 reason = f"candidate check failed: {first_line_short(check_failure)}"
                 verdict = self._classify(step_text, code, reason, page)
                 if verdict is not None and verdict.category == "product_defect":
                     raise ProductDefectError(step_text, first_line_short(check_failure), verdict) from None
                 raise IncurableStepError(step_text, reason, verdict) from None
-            except Exception as candidate_error:  # прочий сбой кандидата лечится повтором
+            except Exception as candidate_error:  # other candidate failures heal via retry
                 existing_code = code
                 error = first_line_short(candidate_error)
             else:
@@ -270,7 +270,7 @@ class StepGenerator:
         step = CachedStep(
             identity=identity,
             code=code,
-            created_at=date.today().isoformat(),  # noqa: DTZ011 — календарная дата создания шага
+            created_at=date.today().isoformat(),  # noqa: DTZ011 — calendar date of step creation
         )
         self._cache.save(step)
 

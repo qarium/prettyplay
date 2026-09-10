@@ -289,7 +289,7 @@ class TestStepHealerLogic:
             ("on_healing_started", {"step_text": "click the sign in button", "category": "rot"}),
             ("on_healed", {"step_text": "click the sign in button", "explanation": "the button was renamed"}),
         ]
-        assert fixture.cache.save_calls == []  # кэш пишет generator после успешного исполнения
+        assert fixture.cache.save_calls == []  # the cache is written by generator after successful execution
 
     def test_heal_sends_prompt_and_step_context_to_classification(self, tmp_path: Path) -> None:
         provider = FakeProvider([FailureClassification(category="rot", explanation="e", recommendation="r")])
@@ -303,7 +303,7 @@ class TestStepHealerLogic:
         assert request["code"] == FAILED_CODE
         assert request["error"] == "element not found"
         assert request["snapshot"] == "- snapshot"
-        assert request["screenshot"] is None  # send_screenshots по умолчанию False
+        assert request["screenshot"] is None  # send_screenshots defaults to False
 
     def test_heal_attaches_screenshot_when_enabled(self, tmp_path: Path) -> None:
         provider = FakeProvider([FailureClassification(category="rot", explanation="e", recommendation="r")])
@@ -347,14 +347,14 @@ class TestStepHealerLogic:
         assert isinstance(excinfo.value.verdict, FailureVerdict)
         assert excinfo.value.verdict.recommendation == "file a bug"
         assert rendered.startswith("expected the total 100, observed 90")
-        assert rendered.count("expected the total 100, observed 90") == 2  # message + вердикт-рендер explanation
+        assert rendered.count("expected the total 100, observed 90") == 2  # message + verdict-render explanation
         assert "recommendation: file a bug" in rendered
         assert fixture.recorder.events == [
             ("on_healing_started", {"step_text": "click the sign in button", "category": "product_defect"})
         ]
-        assert provider.generate_step_code_call_count == 0  # дефект продукта не регенерируется
+        assert provider.generate_step_code_call_count == 0  # a product defect is not regenerated
         assert fixture.generator.calls == []
-        assert fixture.cache.save_calls == []  # кэш не тронут
+        assert fixture.cache.save_calls == []  # cache untouched
 
     def test_heal_incurable_carries_verdict_and_skips_regeneration(self, tmp_path: Path) -> None:
         provider = FakeProvider(
@@ -372,12 +372,12 @@ class TestStepHealerLogic:
             fixture.healer.heal(fixture.failed_step, "err", [], FakePage())
 
         rendered = str(excinfo.value)
-        assert isinstance(excinfo.value, PrettyplayError)  # единый except на границе suite
+        assert isinstance(excinfo.value, PrettyplayError)  # a single except at the suite boundary
         assert excinfo.value.reason == "the step text no longer matches reality"
         assert excinfo.value.verdict.category == "incurable"
-        assert excinfo.value.recommendation == "reword the step"  # из вердикта, не fallback
+        assert excinfo.value.recommendation == "reword the step"  # from the verdict, not the fallback
         assert rendered.endswith("recommendation: reword the step")
-        assert provider.generate_step_code_call_count == 0  # лечение не запрашивает регенерацию
+        assert provider.generate_step_code_call_count == 0  # healing requests no regeneration
         assert fixture.generator.calls == []
         assert fixture.cache.save_calls == []
 
@@ -397,13 +397,13 @@ class TestStepHealerLogic:
         with pytest.raises(IncurableStepError) as excinfo:
             fixture.healer.heal(fixture.failed_step, "element not found", [], TimeoutPage())
 
-        assert excinfo.value.verdict.category == "rot"  # вердикт шага 1, без второго LLM-запроса
+        assert excinfo.value.verdict.category == "rot"  # the step 1 verdict, no second LLM request
         assert excinfo.value.reason.startswith("healing attempt budget exhausted")
         assert "last failure:" in excinfo.value.reason
         assert isinstance(excinfo.value.__cause__, IncurableStepError)  # raise … from incurable
         assert provider.classify_failure_call_count == 1
         assert provider.generate_step_code_call_count == 1
-        assert fixture.cache.save_calls == []  # доказанного кандидата нет — кэш не тронут
+        assert fixture.cache.save_calls == []  # no proven candidate — cache untouched
 
     def test_heal_classification_unavailable_is_infrastructure_failure(self, tmp_path: Path) -> None:
         provider = FakeProvider([LlmUnavailableError("anthropic down")])
@@ -441,7 +441,7 @@ class TestStepHealerLogic:
         # the fresh failed-check verdict wins; the except branch never rewrites it
         assert excinfo.value.verdict.category == "product_defect"
         assert excinfo.value.message == "banner missing"
-        assert provider.classify_failure_call_count == 2  # классификация healer + свежая в регенерации
+        assert provider.classify_failure_call_count == 2  # healer classification + a fresh one in regeneration
         assert fixture.cache.save_calls == []
 
     def test_heal_preserves_fresh_incurable_verdict_from_regenerate_failed_check(self, tmp_path: Path) -> None:
@@ -466,7 +466,7 @@ class TestStepHealerLogic:
         with pytest.raises(IncurableStepError) as excinfo:
             fixture.healer.heal(fixture.failed_step, "element not found", [], CheckFailingPage())
 
-        # вердикт свежей классификации регенерации — ветка «raise» без перезаписи вердиктом rot
+        # the fresh regeneration classification verdict — the "raise" branch, not overwritten by the rot verdict
         assert excinfo.value.verdict is not None
         assert excinfo.value.verdict.category == "incurable"
         assert excinfo.value.verdict.explanation == "the banner step is ambiguous"
@@ -479,7 +479,7 @@ class TestEngineCellFacade:
     """The engine cell facade is complete after the healer joins it."""
 
     def test_engine_facade_reexports_all_entities(self) -> None:
-        from prettyplay import engine  # noqa: PLC0415 — проверка фасада клетки
+        from prettyplay import engine  # noqa: PLC0415 — cell facade check
 
         assert sorted(engine.__all__) == ["StepGenerator", "StepHealer", "classify_step_failure", "run_step_code"]
 
@@ -500,6 +500,6 @@ def test_real_cache_spy_not_needed_for_healer(tmp_path: Path) -> None:
 
     healed = healer.heal(failed_step, "err", [], FakePage())
 
-    assert healed.code == FAILED_CODE  # заглушка генератора вернула тот же объект
-    assert healer._generator.calls[0]["existing_code"] == FAILED_CODE  # regenerate реально запрошен
-    assert cache.load(failed_step.identity) is None  # кэш напрямую healer'ом не писался
+    assert healed.code == FAILED_CODE  # the generator stub returned the same object
+    assert healer._generator.calls[0]["existing_code"] == FAILED_CODE  # regenerate actually requested
+    assert cache.load(failed_step.identity) is None  # cache not written directly by the healer

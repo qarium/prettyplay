@@ -138,7 +138,7 @@ class TestRunStepCodeLogic:
 
         assert first.calls == [("open", "first")]
 
-        with pytest.raises(NameError):  # MARKER первого кода не протёк во второй namespace
+        with pytest.raises(NameError):  # the first code's MARKER did not leak into the second namespace
             run_step_code("def step(page) -> None:\n    page.open(MARKER)\n", second)
 
     def test_step_module_not_registered_in_sys_modules(self) -> None:

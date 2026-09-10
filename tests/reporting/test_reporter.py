@@ -22,7 +22,7 @@ class TestStepReporterContract:
         reporter = StepReporter(hooks=hooks)
 
         assert isinstance(reporter.hooks, list)
-        assert reporter.hooks is hooks  # add_hooks аппендит в этот же список
+        assert reporter.hooks is hooks  # add_hooks appends to the same list
 
         hooks.append(StepHooks())
         assert len(reporter.hooks) == 1
@@ -118,14 +118,14 @@ class TestStepReporterLogic:
         with caplog.at_level(logging.WARNING, logger="prettyplay"):
             reporter.emit("on_step_passed", {"step_text": "s", "step_type": "action"})
 
-        assert calls == [("h2", "on_step_passed", ("s", "action"))]  # h2 получил событие
+        assert calls == [("h2", "on_step_passed", ("s", "action"))]  # h2 received the event
 
         warnings = [
             record
             for record in caplog.records
             if record.levelno == logging.WARNING and record.message == "hook call failed"
         ]
-        assert len(warnings) == 1  # в caplog есть WARNING от логгера prettyplay
+        assert len(warnings) == 1  # caplog holds a WARNING from the prettyplay logger
         assert warnings[0].name == "prettyplay"
 
     def test_reserved_log_key_is_sanitized_but_hook_gets_original(self, caplog) -> None:
@@ -133,13 +133,13 @@ class TestStepReporterLogic:
         reporter = StepReporter(hooks=[hook])
 
         with caplog.at_level(logging.INFO, logger="prettyplay"):
-            # ключ filename зарезервирован LogRecord — без префикса ctx_ был бы KeyError
+            # filename is reserved by LogRecord — without the ctx_ prefix it would be a KeyError
             reporter.emit("on_cache_saved", {"step_text": "s", "filename": "abc.py"})
 
         info_records = [record for record in caplog.records if record.levelno == logging.INFO]
         assert len(info_records) == 1
         assert info_records[0].ctx_filename == "abc.py"  # sanitized: ctx_filename
-        assert hook.received == {"step_text": "s", "filename": "abc.py"}  # оригинальные kwargs
+        assert hook.received == {"step_text": "s", "filename": "abc.py"}  # original kwargs
 
     def test_empty_hooks_list_logs_only(self, caplog) -> None:
         reporter = StepReporter(hooks=[])

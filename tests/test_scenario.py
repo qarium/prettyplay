@@ -203,13 +203,13 @@ class TestPrettyTestLogic:
             monkeypatch.delenv(name, raising=False)
 
         write_pyproject(model="gpt-4o", browser="firefox", generation_prompt="file instructions")
-        monkeypatch.chdir(tmp_path)  # load_config(None) ищет pyproject.toml вверх от cwd
+        monkeypatch.chdir(tmp_path)  # load_config(None) walks up from cwd for pyproject.toml
 
         test = PrettyTest(CACHE_KEY, config=PrettyConfig(generation_prompt="per-test instructions"))
 
         effective = test._runtime.config
-        assert effective.generation_prompt == "per-test instructions"  # программный слой выигрывает
-        assert effective.model == "gpt-4o"  # нетронутые поля берутся из файла
+        assert effective.generation_prompt == "per-test instructions"  # the programmatic layer wins
+        assert effective.model == "gpt-4o"  # untouched fields come from the file
         assert effective.browser == "firefox"
         assert effective.cache_root == str(tmp_path / ".prettyplay" / "cache")
 
@@ -231,8 +231,8 @@ class TestPrettyTestLogic:
                 test.close()  # idempotent: neither the page nor the driver closes twice
 
         assert page.close_count == 1
-        driver_mock.close.assert_called_once()  # план: «the driver close recorded once»
-        assert runtime._driver is None  # остановленная сессия больше не держится рантаймом
+        driver_mock.close.assert_called_once()  # plan: «the driver close recorded once»
+        assert runtime._driver is None  # stopped session no longer held by the runtime
 
     def test_scenario_close_stops_runtime_when_page_close_fails(self, tmp_path: Path) -> None:
         """A failing page close (a crashed browser) never keeps the runtime alive."""
@@ -257,8 +257,8 @@ class TestPrettyTestLogic:
                 with pytest.raises(RuntimeError, match="page close failed"):
                     test.close()
 
-                driver_mock.close.assert_called_once()  # рантайм остановлен, хоть закрытие страницы и сорвалось
-                test.close()  # сорвавшееся закрытие страницы не повторяется
+                driver_mock.close.assert_called_once()  # runtime stopped even though the page close failed
+                test.close()  # failed page close is not retried
 
         assert page.close_count == 1
         assert test._page is None
@@ -268,10 +268,10 @@ class TestPrettyTestLogic:
 
         with scenario_on_tmp_cache(tmp_path):
             test = PrettyTest(CACHE_KEY)
-            test.close()  # ничего не запускалось — close не бросает
+            test.close()  # nothing started — close does not raise
 
             with mock.patch.object(test._runtime, "open_page", return_value=FakePage()) as open_page_mock:
-                test.action(STEP_TEXT)  # страница всё ещё открывается лениво после close
+                test.action(STEP_TEXT)  # page still opens lazily after close
 
                 open_page_mock.assert_called_once()
 
@@ -323,10 +323,10 @@ class TestPrettyTestLogic:
             test = PrettyTest(CACHE_KEY)
 
             assert test.cache_key == CACHE_KEY
-            assert test._page is None  # страница открывается лениво на первом шаге
-            assert test._runtime._driver is None  # браузер не запускается при постройке
+            assert test._page is None  # page opens lazily on the first step
+            assert test._runtime._driver is None  # browser not started on construction
 
-        assert isinstance(test._runtime._provider, object)  # провайдер дёшев: клиент без ключа
+        assert isinstance(test._runtime._provider, object)  # provider is cheap: a client without a key
 
     def test_cache_path_participates_in_addressing(self, tmp_path: Path) -> None:
         seed_cache(tmp_path)
@@ -406,13 +406,13 @@ class TestPrettyTestLogic:
             test = PrettyTest(CACHE_KEY)
 
             with mock.patch.object(test._runtime, "open_page", return_value=page):
-                test._executor = FailingExecutor()  # заглушка цикла шагов
+                test._executor = FailingExecutor()  # step-loop stub
 
                 with pytest.raises(IncurableStepError) as excinfo:
                     test.assertion("s")
 
         frames = [entry.filename for entry in traceback.extract_tb(excinfo.value.__traceback__)]
-        assert frames[-1].endswith("scenario.py")  # внутренний кадр — граница библиотеки
+        assert frames[-1].endswith("scenario.py")  # inner frame — the library boundary
         assert not any(f.endswith(("generator.py", "healer.py", "executor.py")) for f in frames)
 
     def test_folded_error_keeps_identity_and_context(self, tmp_path: Path) -> None:
@@ -431,13 +431,13 @@ class TestPrettyTestLogic:
             test = PrettyTest(CACHE_KEY)
 
             with mock.patch.object(test._runtime, "open_page", return_value=page):
-                test._executor = FailingExecutor()  # заглушка цикла шагов
+                test._executor = FailingExecutor()  # step-loop stub
 
                 with pytest.raises(IncurableStepError) as excinfo:
                     test.action("s")
 
-        assert excinfo.value is error  # тот же объект — никогда копия
-        assert excinfo.value.__context__ is None  # повторный raise не вкладывает контекст
+        assert excinfo.value is error  # same object — never a copy
+        assert excinfo.value.__context__ is None  # re-raise does not nest context
 
     def test_folded_error_folds_chained_tracebacks(self, tmp_path: Path) -> None:
         """The context/cause chains survive for debugging, their internal frames do not."""
@@ -462,15 +462,15 @@ class TestPrettyTestLogic:
             test = PrettyTest(CACHE_KEY)
 
             with mock.patch.object(test._runtime, "open_page", return_value=page):
-                test._executor = ChainingExecutor()  # заглушка цикла шагов
+                test._executor = ChainingExecutor()  # step-loop stub
 
                 with pytest.raises(IncurableStepError) as excinfo:
                     test.action("s")
 
         assert excinfo.value is terminal
-        assert excinfo.value.__context__ is original  # цепочка сохранена для отладки
+        assert excinfo.value.__context__ is original  # chain preserved for debugging
         assert excinfo.value.__cause__ is inner
-        assert original.__traceback__ is None  # кадры цепочки свёрнуты — раннер их не покажет
+        assert original.__traceback__ is None  # chained frames collapsed — the runner won't show them
         assert inner.__traceback__ is None
 
     def test_non_library_exception_passes_through_untouched(self, tmp_path: Path) -> None:
@@ -488,13 +488,13 @@ class TestPrettyTestLogic:
             test = PrettyTest(CACHE_KEY)
 
             with mock.patch.object(test._runtime, "open_page", return_value=page):
-                test._executor = FailingExecutor()  # заглушка цикла шагов
+                test._executor = FailingExecutor()  # step-loop stub
 
                 with pytest.raises(RuntimeError) as excinfo:
                     test.action("s")
 
         frames = [entry.filename for entry in traceback.extract_tb(excinfo.value.__traceback__)]
-        assert any(f.endswith("test_scenario.py") for f in frames)  # кадры не свёрнуты
+        assert any(f.endswith("test_scenario.py") for f in frames)  # frames not collapsed
         assert frames[-1].endswith("test_scenario.py")
 
     def test_get_and_save_screenshot(self, tmp_path: Path) -> None:
@@ -543,7 +543,7 @@ class TestPrettyTestLogic:
 
         assert isinstance(excinfo.value.__cause__, OSError)
         assert str(excinfo.value).startswith("cannot write the screenshot to")
-        assert not filepath.exists()  # ничего не создаётся молча
+        assert not filepath.exists()  # nothing created silently
 
     def test_scenario_close_then_screenshot_raises(self, tmp_path: Path) -> None:
         seed_cache(tmp_path)
@@ -578,8 +578,8 @@ class TestInstructionsIndependentCacheAddress:
             test.action(STEP_TEXT)
             test.close()
 
-        assert page.calls == [("open", "https://example.com")]  # кэшированный код исполнен как есть
-        assert provider.generate_calls == 0  # ни одного запроса генерации — кэш не перегенерирован
+        assert page.calls == [("open", "https://example.com")]  # cached code executed as-is
+        assert provider.generate_calls == 0  # zero generation requests — cache not regenerated
 
     def test_shared_root_reuses_cached_step_across_independent_budgets(self, tmp_path: Path) -> None:
         """Two tests with one cache_key share the cached step while their budgets stay per-test."""
@@ -603,7 +603,7 @@ class TestInstructionsIndependentCacheAddress:
 
         # per-test budget registries: one test's attempts never spend the other's budget
         assert first._runtime.budgets is not second._runtime.budgets
-        assert first._runtime.budgets._generation_used == {}  # кэш-хит не тратит попытки
+        assert first._runtime.budgets._generation_used == {}  # cache hit spends no attempts
         assert second._runtime.budgets._generation_used == {}
         assert first._runtime.budgets.try_generation(
             StepIdentity(cache_key=CACHE_KEY, step_type="action", normalized_text=normalize_step_text(STEP_TEXT))

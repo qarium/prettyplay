@@ -75,7 +75,7 @@ class TestSkeletonImplementationsContract:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
 
-        OpenAiProvider(Config())  # конструкция без исключений
+        OpenAiProvider(Config())  # constructs without exceptions
         AnthropicProvider(Config())
 
 
@@ -87,9 +87,9 @@ class TestCreateProviderLogic:
         openai = create_provider(Config(provider="openai", model="gpt-5"))
 
         assert isinstance(anthropic, AnthropicProvider)
-        assert isinstance(anthropic, LlmProvider)  # контракт порта
+        assert isinstance(anthropic, LlmProvider)  # port contract
 
-        assert isinstance(openai, OpenAiProvider)  # симметричный случай
+        assert isinstance(openai, OpenAiProvider)  # symmetric case
         assert isinstance(openai, LlmProvider)
 
     def test_create_provider_returns_fresh_instance(self) -> None:
@@ -99,8 +99,8 @@ class TestCreateProviderLogic:
         assert first is not second
 
     def test_create_provider_unknown_fails_loudly(self) -> None:
-        config = Config.model_construct(provider="groq")  # валидация обойдена намеренно:
-        # Literal иначе не пропустит значение
+        config = Config.model_construct(provider="groq")  # validation bypassed intentionally:
+        # Literal would otherwise reject the value
 
         with pytest.raises(ValueError, match="unsupported provider") as excinfo:
             create_provider(config)

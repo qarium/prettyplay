@@ -386,13 +386,13 @@ class TestPageFacadeLogic:
         assert page.context.close_calls == 1
 
     def test_close_leaves_page_usable_for_other_tests(self) -> None:
-        # close() закрывает только контекст; browser остаётся жив (контракт фасада)
+        # close() closes only the context; the browser stays alive (facade contract)
         page = FakePage()
         facade = make_page_facade(page)
         facade.close()
 
         assert page.context.close_calls == 1
-        assert page.calls == []  # браузерных вызовов не было — только context.close()
+        assert page.calls == []  # no browser calls — only context.close()
 
 
 class TestUniversalLocatorLogic:
@@ -590,7 +590,7 @@ class TestLocatorFacadeLogic:
         assert assertions.calls[0][1] is locator
 
     def test_failed_expectation_raises_assertion_error(self) -> None:
-        # неуспешное ожидание бросает AssertionError (идёт в классификацию), не глотается
+        # a failed wait raises AssertionError (goes to classification), not swallowed
         element = make_locator_facade(FakeLocator())
 
         class ExplodingExpectation:
@@ -634,4 +634,4 @@ class TestFacadeThreadingBoundary:
 
         facade.open("https://example.com")
 
-        assert seen_threads == [threading.get_ident()]  # прямой путь: тот же поток
+        assert seen_threads == [threading.get_ident()]  # direct path: the same thread

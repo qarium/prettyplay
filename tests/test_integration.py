@@ -119,7 +119,7 @@ class StubProvider(LlmProvider):
                 "prompt": prompt,
                 "user_instructions": user_instructions,
                 "step_text": step_text,
-                "previous_steps": list(previous_steps),  # копия: сценарный контекст живёт дальше
+                "previous_steps": list(previous_steps),  # copy: the scenario context lives on
                 "snapshot": snapshot,
                 "screenshot": screenshot,
                 "page_api": page_api,
@@ -337,7 +337,7 @@ def test_per_test_generation_prompt_reaches_the_provider_request(tmp_path: Path,
     page = FakePage()
 
     with mock.patch("prettyplay.runtime.create_provider", return_value=provider):
-        # реальный load_config: программный слой идёт через настоящее слияние, не через заглушку
+        # real load_config: the programmatic layer goes through the real merge, not a stub
         test = PrettyTest(
             "login-flow",
             config=Config(cache_root=str(tmp_path), generation_prompt="prefer data-test-id"),
@@ -347,7 +347,7 @@ def test_per_test_generation_prompt_reaches_the_provider_request(tmp_path: Path,
             test.close()
 
     assert provider.generation_requests[0]["user_instructions"] == "prefer data-test-id"
-    assert page.calls == [("open", "https://app.example.com")]  # сгенерированный код исполнен
+    assert page.calls == [("open", "https://app.example.com")]  # generated code executed
 
 
 def test_rot_healing_regenerates_rewrites_cache_and_passes(tmp_path: Path) -> None:
@@ -434,13 +434,13 @@ def test_generated_failed_check_verdict_fails_the_test_loudly(tmp_path: Path) ->
 
     assert excinfo.value.verdict is not None
     assert excinfo.value.verdict.category == "product_defect"
-    assert len(provider.generation_requests) == 1  # стоп ретраев: бюджет не тратится на проваленную проверку
+    assert len(provider.generation_requests) == 1  # retries stopped: budget not spent on a failed check
     assert len(provider.classification_requests) == 1
     assert provider.classification_requests[0]["error"] == "candidate check failed: element not found"
     identity = StepIdentity(
         cache_key="login-flow", step_type="assertion", normalized_text=normalize_step_text(step_text)
     )
-    assert not (tmp_path / identity.filename).exists()  # проваленный кандидат не кэшируется
+    assert not (tmp_path / identity.filename).exists()  # failed candidate not cached
     assert [event for event, _payload in hook.events] == [
         "on_step_started",
         "on_generation_started",
@@ -448,7 +448,7 @@ def test_generated_failed_check_verdict_fails_the_test_loudly(tmp_path: Path) ->
         "on_step_verdict",
     ]
     frames = [entry.filename for entry in traceback.extract_tb(excinfo.value.__traceback__)]
-    assert frames[-1].endswith("scenario.py")  # трейсбек сложен до границы фасада
+    assert frames[-1].endswith("scenario.py")  # traceback folded to the facade boundary
     assert not any(entry.endswith(("generator.py", "executor.py", "classification.py")) for entry in frames)
 
 
@@ -473,9 +473,9 @@ def test_product_defect_verdict_fails_the_test_loudly(tmp_path: Path) -> None:
 
     assert excinfo.value.step_text == normalize_step_text(step_text)
     assert excinfo.value.message == "ожидание не оправдалось"
-    assert provider.generation_requests == []  # дефект продукта не регенерируется
+    assert provider.generation_requests == []  # product defect is not regenerated
     rewritten = (tmp_path / identity.filename).read_text(encoding="utf-8")
-    assert "find_by_role" in rewritten  # кэш не тронут
+    assert "find_by_role" in rewritten  # cache untouched
     assert hook.events == [
         ("on_step_started", {"step_text": "нажать Войти", "step_type": "action"}),
         ("on_healing_started", {"step_text": "нажать войти", "category": "product_defect"}),
@@ -493,7 +493,7 @@ def test_product_defect_verdict_fails_the_test_loudly(tmp_path: Path) -> None:
             },
         ),
     ]
-    # полный цикл срыва: трейсбак сложен до границы фасада, сообщение кончается рендером вердикта
+    # full failure cycle: traceback folded to the facade boundary, message ends with the verdict render
     frames = [entry.filename for entry in traceback.extract_tb(excinfo.value.__traceback__)]
     assert frames[-1].endswith("scenario.py")
     assert not any(entry.endswith(("healer.py", "executor.py", "classification.py")) for entry in frames)
@@ -524,11 +524,11 @@ def test_incurable_verdict_fails_with_verdict_fields(tmp_path: Path) -> None:
         test.close()
 
     assert excinfo.value.reason == "текст шага не соответствует реальности"
-    # вердикт healer'а, не fallback  # noqa: RUF003 — кириллица намерена
+    # healer's verdict, not fallback
     assert excinfo.value.recommendation == "переформулируйте шаг"
-    assert provider.generation_requests == []  # лечение не запрашивает регенерацию
+    assert provider.generation_requests == []  # healing requests no regeneration
     rewritten = (tmp_path / identity.filename).read_text(encoding="utf-8")
-    assert "find_by_role" in rewritten  # кэш не тронут
+    assert "find_by_role" in rewritten  # cache untouched
     assert hook.events == [
         ("on_step_started", {"step_text": "нажать Войти", "step_type": "action"}),
         ("on_healing_started", {"step_text": "нажать войти", "category": "incurable"}),
@@ -546,7 +546,7 @@ def test_incurable_verdict_fails_with_verdict_fields(tmp_path: Path) -> None:
             },
         ),
     ]
-    # полный цикл срыва: трейсбак сложен до границы фасада, сообщение кончается рендером вердикта
+    # full failure cycle: traceback folded to the facade boundary, message ends with the verdict render
     frames = [entry.filename for entry in traceback.extract_tb(excinfo.value.__traceback__)]
     assert frames[-1].endswith("scenario.py")
     assert not any(entry.endswith(("healer.py", "executor.py", "classification.py")) for entry in frames)

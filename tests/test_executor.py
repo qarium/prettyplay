@@ -48,7 +48,7 @@ class RecordingGenerator:
             {
                 "identity": identity,
                 "step_text": step_text,
-                "previous_steps": list(previous_steps),  # снимок: живой список растёт после вызова
+                "previous_steps": list(previous_steps),  # snapshot: the live list grows after the call
                 "page": page,
             }
         )
@@ -85,7 +85,7 @@ class RecordingHealer:
             {
                 "step": step,
                 "error": error,
-                "previous_steps": list(previous_steps),  # снимок: живой список растёт после вызова
+                "previous_steps": list(previous_steps),  # snapshot: the live list grows after the call
                 "page": page,
             }
         )
@@ -232,7 +232,7 @@ class TestStepExecutorLogic:
         fixture.cache.save(CachedStep(identity=identity, code=CACHED_CODE, created_at="2026-09-07"))
         page = FakePage()
 
-        # шаг с другим регистром и пробелами нормализуется в тот же адрес  # noqa: RUF003 — кириллица намерена
+        # step with different case and spacing normalizes to the same address
         fixture.executor.execute("  Открыть   страницу ", "action", page)
 
         assert page.calls == [("open", "https://example.com")]
@@ -322,12 +322,12 @@ class TestStepExecutorLogic:
             {
                 "step_text": "шаг",
                 "step_type": "action",
-                # только первая строка рендера, хвост вердикта не попадает в событие
+                # only the render's first line; the verdict tail stays out of the event
                 "error": first_line_short(failure),
             }
         ]
         assert not events_named(fixture.recorder, "on_step_passed")
-        assert fixture.executor._scenario == []  # сбой не пополняет сценарный контекст
+        assert fixture.executor._scenario == []  # failure does not grow the scenario context
 
     def test_failed_step_error_is_first_line_cut_to_200(self, tmp_path: Path) -> None:
         generator = RaisingGenerator(ValueError(f"first {'x' * 300}\nsecond line"))
@@ -349,15 +349,15 @@ class TestStepExecutorLogic:
         healer = RecordingHealer()
         fixture = ExecutorFixture(tmp_path, generator, healer)
         identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="проверить")
-        bare_assert_code = "def step(page) -> None:\n    assert 1 == 2\n"  # assert без текста
+        bare_assert_code = "def step(page) -> None:\n    assert 1 == 2\n"  # assert with no message
         fixture.cache.save(CachedStep(identity=identity, code=bare_assert_code, created_at="2026-09-08"))
         page = FakePage()
 
         fixture.executor.execute("проверить", "action", page)
 
         assert len(healer.calls) == 1
-        assert healer.calls[0]["error"] == ""  # пустое описание сбоя, не IndexError
-        assert not events_named(fixture.recorder, "on_step_failed")  # вылечен — шаг прошёл
+        assert healer.calls[0]["error"] == ""  # empty failure description, not an IndexError
+        assert not events_named(fixture.recorder, "on_step_failed")  # healed — step passed
 
     def test_messageless_generator_failure_reports_empty_error(self, tmp_path: Path) -> None:
         generator = RaisingGenerator(AssertionError())  # bare assert: str(exc) == ''
@@ -387,11 +387,11 @@ class TestStepExecutorLogic:
         fixture.executor.execute("нажать Войти", "action", page)
 
         assert len(healer.calls) == 1
-        assert healer.calls[0]["step"].code.rstrip("\n") == BROKEN_CODE.rstrip("\n")  # сериализатор добавляет \n
+        assert healer.calls[0]["step"].code.rstrip("\n") == BROKEN_CODE.rstrip("\n")  # serializer appends \n
         assert "element not found" in healer.calls[0]["error"]
         assert healer.calls[0]["previous_steps"] == ["шаг один"]
         assert healer.calls[0]["page"] is page
-        assert len(generator.calls) == 1  # генерация только для первого шага, лечение — для второго
+        assert len(generator.calls) == 1  # generation for the first step only, healing for the second
         assert len(events_named(fixture.recorder, "on_step_passed")) == 2
         assert not events_named(fixture.recorder, "on_step_failed")
         assert fixture.executor._scenario == ["шаг один", "нажать Войти"]
@@ -405,7 +405,7 @@ class TestStepExecutorLogic:
         ],
     )
     def test_healer_failure_propagates_by_kind_with_event(self, tmp_path: Path, failure: Exception) -> None:
-        # без вердикта — только on_step_failed, событие вердикта не возникает
+        # no verdict — only on_step_failed; no verdict event
         healer = RaisingHealer(failure)
         fixture = ExecutorFixture(tmp_path, RecordingGenerator(), healer)
         identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="нажать войти")
@@ -415,7 +415,7 @@ class TestStepExecutorLogic:
         with pytest.raises(type(failure)) as excinfo:
             fixture.executor.execute("нажать Войти", "action", page)
 
-        assert excinfo.value is failure  # проброс тем же объектом, без оборачивания
+        assert excinfo.value is failure  # re-raised as the same object, unwrapped
         assert [event for event, _payload in fixture.recorder.events] == ["on_step_started", "on_step_failed"]
         assert not events_named(fixture.recorder, "on_step_passed")
-        assert fixture.executor._scenario == []  # сбой не пополняет сценарный контекст
+        assert fixture.executor._scenario == []  # failure does not grow the scenario context

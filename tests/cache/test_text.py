@@ -41,5 +41,5 @@ class TestNormalizeStepTextLogic:
         assert result == "шаг с разными пробелами"
 
     def test_distinct_sentences_stay_distinct(self) -> None:
-        # другая тип шага/язык — другой адрес: «открыть» и «нажать» не сливаются
+        # a different step kind/language — a different address: "open" and "click" do not merge
         assert normalize_step_text("Открыть страницу") != normalize_step_text("нажать войти")
