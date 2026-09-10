@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "prettyplay"
 dynamic = ["version"]
-description = "Tools for UI tests "
+description = "AI-powered UI test generation tool"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "BSD-3-Clause"}
