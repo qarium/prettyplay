@@ -498,7 +498,8 @@ def test_product_defect_verdict_fails_the_test_loudly(tmp_path: Path) -> None:
     assert frames[-1].endswith("scenario.py")
     assert not any(entry.endswith(("healer.py", "executor.py", "classification.py")) for entry in frames)
     rendered = str(excinfo.value)
-    assert rendered.index("ожидание не оправдалось") < rendered.index("category:")
+    assert rendered.index("ожидание не оправдалось") < rendered.index("explanation:")
+    assert "category:" not in rendered  # the category travels in structured fields, never in the render
     assert rendered.endswith("recommendation: чинить продукт")
 
 
@@ -551,5 +552,6 @@ def test_incurable_verdict_fails_with_verdict_fields(tmp_path: Path) -> None:
     assert frames[-1].endswith("scenario.py")
     assert not any(entry.endswith(("healer.py", "executor.py", "classification.py")) for entry in frames)
     rendered = str(excinfo.value)
-    assert rendered.index("текст шага не соответствует реальности") < rendered.index("category:")
+    assert rendered.index("текст шага не соответствует реальности") < rendered.index("explanation:")
+    assert "category:" not in rendered  # the category travels in structured fields, never in the render
     assert rendered.endswith("recommendation: переформулируйте шаг")

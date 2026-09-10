@@ -223,9 +223,9 @@ recommendation: <recommendation>
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Declaration**: state that Task 2 (failures structured render) is being executed
-- [ ] **Contract tests**: add to `tests/failures/test_errors.py` — facade accessibility (`from prettyplay.failures import render_terminal_message`) and API shape: `render_terminal_message(reason, step_text, error, verdict) -> str`; `ProductDefectError`/`IncurableStepError` accept the four-argument form (`step_text, message|reason, error, verdict`); `FailureVerdict.render()` takes no arguments (expected to fail at this stage)
-- [ ] **Code**: implement `render_terminal_message(reason, step_text, error, verdict)` in `prettyplay/failures/errors.py`:
+- [x] **Declaration**: state that Task 2 (failures structured render) is being executed
+- [x] **Contract tests**: add to `tests/failures/test_errors.py` — facade accessibility (`from prettyplay.failures import render_terminal_message`) and API shape: `render_terminal_message(reason, step_text, error, verdict) -> str`; `ProductDefectError`/`IncurableStepError` accept the four-argument form (`step_text, message|reason, error, verdict`); `FailureVerdict.render()` takes no arguments (expected to fail at this stage)
+- [x] **Code**: implement `render_terminal_message(reason, step_text, error, verdict)` in `prettyplay/failures/errors.py`:
 
 ```
 1. lines = [reason]
@@ -239,7 +239,7 @@ recommendation: <recommendation>
 4. RETURN "\n".join(lines)
 ```
 
-- [ ] **Code**: redefine `FailureVerdict.render()` — verdict block only, category dropped, column-aligned:
+- [x] **Code**: redefine `FailureVerdict.render()` — verdict block only, category dropped, column-aligned:
 
 ```
 1. width = 15 (len("recommendation:") — the longest label; fixed regardless of which fields are present)
@@ -251,22 +251,22 @@ recommendation: <recommendation>
 3. RETURN "\n".join(lines)      # "" when both empty
 ```
 
-- [ ] **Code**: rework `ProductDefectError.__init__(step_text, message, error="", verdict=None)` — store `step_text/message/error/verdict`; set the exception text via `Exception.__init__(self, render_terminal_message(message, step_text, error, verdict))` — do NOT route through `PrettyplayError.__init__` (it would overwrite the public `message` attribute with the full render); keep deriving `PrettyplayError` + `AssertionError`; drop the old `__str__` override
-- [ ] **Code**: rework `IncurableStepError.__init__(step_text, reason, error="", verdict=None)` — same routing with `render_verdict = verdict if verdict is not None else FailureVerdict("incurable", "", "reword the step or refresh the cache")`; the `verdict` attribute stays `None` for the fallback (render-only — `on_step_verdict` never fires for it); keep the `recommendation` property (verdict recommendation when present, else the built-in guidance); keep deriving `PrettyplayError` only
-- [ ] **Code**: export `render_terminal_message` from `prettyplay/failures/__init__.py` (beside `LLMUnavailableError`)
-- [ ] **Code**: adapt the engine raise sites mechanically — `prettyplay/engine/generator.py` (`_loop`: the three budget-exhaustion raises and the two failed-check raises — five terminal constructions) and `prettyplay/engine/healer.py` (`heal`: the product_defect, incurable and exhaustion-re-raise sites) insert `""` as the `error` argument, keeping current behavior
-- [ ] **Code**: update the module docstring of `prettyplay/failures/errors.py` to the one-render rule
-- [ ] **Interface verification**: run `pytest tests/failures/ -v` — the contract tests pass
-- [ ] **Logic tests**: add to `tests/failures/test_errors.py` (scenarios from the design, verbatim):
+- [x] **Code**: rework `ProductDefectError.__init__(step_text, message, error="", verdict=None)` — store `step_text/message/error/verdict`; set the exception text via `Exception.__init__(self, render_terminal_message(message, step_text, error, verdict))` — do NOT route through `PrettyplayError.__init__` (it would overwrite the public `message` attribute with the full render); keep deriving `PrettyplayError` + `AssertionError`; drop the old `__str__` override
+- [x] **Code**: rework `IncurableStepError.__init__(step_text, reason, error="", verdict=None)` — same routing with `render_verdict = verdict if verdict is not None else FailureVerdict("incurable", "", "reword the step or refresh the cache")`; the `verdict` attribute stays `None` for the fallback (render-only — `on_step_verdict` never fires for it); keep the `recommendation` property (verdict recommendation when present, else the built-in guidance); keep deriving `PrettyplayError` only
+- [x] **Code**: export `render_terminal_message` from `prettyplay/failures/__init__.py` (beside `LLMUnavailableError`)
+- [x] **Code**: adapt the engine raise sites mechanically — `prettyplay/engine/generator.py` (`_loop`: the three budget-exhaustion raises and the two failed-check raises — five terminal constructions) and `prettyplay/engine/healer.py` (`heal`: the product_defect, incurable and exhaustion-re-raise sites) insert `""` as the `error` argument, keeping current behavior
+- [x] **Code**: update the module docstring of `prettyplay/failures/errors.py` to the one-render rule
+- [x] **Interface verification**: run `pytest tests/failures/ -v` — the contract tests pass
+- [x] **Logic tests**: add to `tests/failures/test_errors.py` (scenarios from the design, verbatim):
   - `test_render_terminal_message_full_template` — `render_terminal_message("кнопка осталась невидимой", "Проверить кнопку", "Locator expected to be visible", FailureVerdict("product_defect", "на странице нет элемента", "проверить селектор"))` equals exactly `"кнопка осталась невидимой\n---\nstep: Проверить кнопку\nerror: Locator expected to be visible\n---\nexplanation:    на странице нет элемента\nrecommendation: проверить селектор"`; `"explanation:"` followed by exactly 4 spaces (value column = `len("recommendation:") + 1`); the first line has no `":"` of its own
   - `test_verdict_render_alignment_and_multiline` — `FailureVerdict("rot", "line one\nline two", "fix it").render()` equals `"explanation:    line one\n                line two\nrecommendation: fix it"` (continuation indented to the value column, 16 spaces; no `category` line anywhere); `FailureVerdict("rot", "", "").render() == ""`; `FailureVerdict("rot", "only", "").render() == "explanation:    only"` (padded to the fixed column)
   - `test_terminal_errors_carry_render_error_field_and_types` — `str(pde) == render_terminal_message(...)` identical text; `pde.error == "Locator expected to be visible"`; `pde.verdict is verdict`; `pde.message == "the button stayed invisible"`; `isinstance(pde, AssertionError)` and `isinstance(pde, PrettyplayError)`; `IncurableStepError("step", "strict mode forbids generation — the step is missing from the cache")`: `ise.reason` set, `ise.error == ""`, `ise.verdict is None`, `"recommendation: reword the step or refresh the cache" in str(ise)`, `ise.recommendation == "reword the step or refresh the cache"`, `not isinstance(ise, AssertionError)`; `LLMUnavailableError("llm unavailable: openai")`: `str == message`, `issubclass PrettyplayError`
   - `test_render_terminal_message_block_omission` — `render_terminal_message("reason", "", "", None)` → `"reason"` alone, no `"---"` at all; `("reason", "step", "", None)` → `"reason\n---\nstep: step"`; `("reason", "", "err", None)` → `"reason\n---\nerror: err"`; `FailureVerdict("rot", "", "rec")` block renders `recommendation` only; the text never ends with `"---"`
-- [ ] **Code**: update the existing render/message assertions across the suite to the new template (engine, healer, executor, integration tests that pin old `str(exc)` bytes — with the mechanical `error=""` the renders carry no error line)
-- [ ] **Debugging**: run `pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code beyond updating the pinned render bytes)
-- [ ] **Contract re-verification**: facade exports `render_terminal_message`, `LLMUnavailableError`; one-render invariant — `str(exc)` is composed only at construction
-- [ ] **Lint**: `ruff check prettyplay/` — fix formatting, apply decomposition if necessary
-- [ ] **Completion**: mark the checkboxes of this task as completed
+- [x] **Code**: update the existing render/message assertions across the suite to the new template (engine, healer, executor, integration tests that pin old `str(exc)` bytes — with the mechanical `error=""` the renders carry no error line)
+- [x] **Debugging**: run `pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code beyond updating the pinned render bytes)
+- [x] **Contract re-verification**: facade exports `render_terminal_message`, `LLMUnavailableError`; one-render invariant — `str(exc)` is composed only at construction
+- [x] **Lint**: `ruff check prettyplay/` — fix formatting, apply decomposition if necessary
+- [x] **Completion**: mark the checkboxes of this task as completed
 
 ### Task 3: `prettyplay/config` — nested browser group, strict switch and the layered loader (TDD)
 

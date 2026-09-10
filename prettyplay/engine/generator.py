@@ -223,16 +223,18 @@ class StepGenerator:
                     raise IncurableStepError(
                         step_text,
                         reason,
-                        None,  # healer attaches the verdict — no second LLM request
+                        "",  # healer attaches the verdict — no second LLM request
+                        None,
                     )
                 if error is None:
                     raise IncurableStepError(
                         step_text,
                         reason,
-                        None,  # nothing to classify: no candidates existed
+                        "",  # nothing to classify: no candidates existed
+                        None,
                     )
 
-                raise IncurableStepError(step_text, reason, self._classify(step_text, code, error, page))
+                raise IncurableStepError(step_text, reason, "", self._classify(step_text, code, error, page))
 
             attempt += 1
             self._reporter.emit("on_generation_started", {"step_text": step_text, "attempt": attempt})
@@ -259,8 +261,8 @@ class StepGenerator:
                 reason = f"candidate check failed: {first_line_short(check_failure)}"
                 verdict = self._classify(step_text, code, reason, page)
                 if verdict is not None and verdict.category == "product_defect":
-                    raise ProductDefectError(step_text, first_line_short(check_failure), verdict) from None
-                raise IncurableStepError(step_text, reason, verdict) from None
+                    raise ProductDefectError(step_text, first_line_short(check_failure), "", verdict) from None
+                raise IncurableStepError(step_text, reason, "", verdict) from None
             except Exception as candidate_error:  # other candidate failures heal via retry
                 existing_code = code
                 error = first_line_short(candidate_error)

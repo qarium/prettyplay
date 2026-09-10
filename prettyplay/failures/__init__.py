@@ -6,6 +6,7 @@ from .errors import (
     LLMUnavailableError,
     PrettyplayError,
     ProductDefectError,
+    render_terminal_message,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "LLMUnavailableError",
     "PrettyplayError",
     "ProductDefectError",
+    "render_terminal_message",
 ]
