@@ -15,7 +15,7 @@ if budgets.try_generation(identity):
 
 ## Semantics
 
-- Budgets are per step per run (process) and shared across tests: a step reused in several tests has one budget
+- Budgets are per step per test: every test owns its registry and starts with full limits — a step reused across tests gets a fresh budget in each test (N tests running one step in a process spend N × attempts in total)
 - Defaults: 3 generation attempts, 2 healing attempts — configurable in the project settings
 - An exhausted budget is the incurable failure, never an infinite loop
 - Budgets exist only in the memory of the running process — nothing is persisted

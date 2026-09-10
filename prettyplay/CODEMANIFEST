@@ -1,6 +1,6 @@
 Imports:
   - Types:
-      - Config
+      - Config AS PrettyConfig
       - load_config
     From: prettyplay/config
   - Types:
@@ -52,30 +52,34 @@ Annotations: |
   The facade of the library: one main object per test; the engineer writes steps as plain sentences and reads the suite as a scenario.
   Framework-agnostic: no plugin machinery, no runner integration — the integrator wires the library in a few lines.
   Step sentences are visible in the test output through the standard logger prettyplay; step texts land in the cache and in LLM requests — never put secrets or personal data into a step sentence.
+  `PrettyConfig` — the public name of the settings model — is re-exported by this facade (see the embedding).
 
 ---
 
-"PrettyTest(cache_key: str, cache_path: str | None)":
+->PrettyConfig: {}
+
+"PrettyTest(cache_key: str, cache_path: str | None, config: PrettyConfig | None)":
   location: scenario.py
   annotations: |
     The main integrator object — one instance per test. Owns the cache addressing and the isolated browser context of the test; the step cycle is delegated to `StepExecutor`.
 
     `cache_key`: the mandatory explicit context key — part of the step address; equal keys in the shared root reuse steps across tests.
     `cache_path`: the optional cache subdirectory — part of the address; steps never leak across subdirectories.
+    `config`: per-test overrides — the same full model; explicitly set values win, unset/empty fields resolve from pyproject+env; None — everything resolves from pyproject+env, as before.
 
-    Supports the context manager protocol: exit closes the test context.
+    Supports the context manager protocol: exit closes the test.
 
     Algorithm:
-    1. Resolve the shared runtime via `get_runtime`
-    2. Construct the per-test reporter: `StepReporter` with an empty hooks list; add_hooks appends to it
-    3. Construct the per-test `StepCache` from the runtime config, `cache_path` and the reporter
-    4. Construct `StepGenerator` and `StepHealer` from the runtime config, provider and budgets, the step cache and the reporter
-    5. Construct `StepExecutor` with `cache_key`, the cache, the engines, the runtime budgets and the reporter
-    6. The test page opens lazily on the first step via the runtime open_page
-    7. close (and the context manager exit) closes the test page context; the run-scoped runtime stays alive
+    1. Resolve the effective config: `load_config` with overrides = config
+    2. Build the own `PrettyplayRuntime` with the effective config — no process-wide singleton exists
+    3. Construct the per-test reporter: `StepReporter` with an empty hooks list; add_hooks appends to it
+    4. Construct the per-test `StepCache` from the runtime config, `cache_path` and the reporter
+    5. Construct `StepGenerator` and `StepHealer` from the runtime config, provider and budgets, the step cache and the reporter
+    6. Construct `StepExecutor` with `cache_key`, the cache, the engines, the runtime budgets and the reporter
+    7. The test page opens lazily on the first step via the runtime open_page
 
     Requirements:
-    - Construction is cheap: the browser context opens lazily on the first step
+    - Construction is cheap: the browser starts lazily on the first step; no LLM credentials are required to construct
     - The instance holds no cross-test state: identical outcomes regardless of execution order
   properties:
     "cache_key -> str": |
@@ -110,7 +114,7 @@ Annotations: |
     "add_hooks(hooks: StepHooks)": |
       Register a callback implementation (see `hooks`); applies to the steps of this test.
     "close()": |
-      Close the isolated context of the test; the run-scoped runtime stays alive.
+      Close the test page context and stop the whole runtime of this test — the browser process, the Playwright driver and the driver thread; idempotent; the context manager exit does the same.
 
 "StepExecutor(cache_key: str, cache: StepCache, generator: StepGenerator, healer: StepHealer, budgets: RunBudgets, reporter: StepReporter)":
   location: executor.py
@@ -120,7 +124,7 @@ Annotations: |
     `cache_key`: the context key of the owning test object.
     `cache`: the step cache of the test.
     `generator` and `healer`: the engines (see `generation` and `healing` from Imports).
-    `budgets`: the run-scoped attempt registry.
+    `budgets`: the per-test attempt registry.
     `reporter`: the visibility point.
   methods:
     "execute(step_text: str, step_type: str, page: PageFacade)": |
@@ -140,22 +144,22 @@ Annotations: |
       - A cached step executes with no LLM involvement whatsoever
       - An assertion step surfaces a legitimately failed expectation as the product defect failure
 
-"PrettyplayRuntime(config: Config)":
+"PrettyplayRuntime(config: PrettyConfig)":
   location: runtime.py
   annotations: |
-    The run-scoped composition root: one instance per process run, owning everything shared across tests.
+    The per-test composition root: one instance per test, owning everything the steps of that test share.
 
-    `config`: the project settings, loaded once.
+    `config`: the effective settings of the test.
 
     Requirements:
-    - Everything expensive is created once per run and shared; nothing test-specific lives here
+    - One instance serves exactly one test: construction starts nothing expensive — the browser, the provider and the budgets belong to this test alone
   properties:
-    "config -> Config": |
-      The project settings loaded once per run.
+    "config -> PrettyConfig": |
+      The effective settings of the test.
     "driver -> DriverSession": |
-      The browser session — one browser process for the run, created lazily.
+      The browser process of this test, created lazily.
     "budgets -> RunBudgets": |
-      The attempt registry — one budget per step for the whole run.
+      The attempt registry of the test — one budget per step within the test.
     "provider -> LlmProvider": |
       The LLM provider instance, created lazily on first access via `create_provider`.
 
@@ -165,26 +169,14 @@ Annotations: |
     "open_page() -> page: PageFacade": |
       Open a fresh isolated browser context and return its page facade — one per test.
     "close()": |
-      Stop the browser and the driver; safe when nothing was started.
+      Stop the browser, the Playwright driver and the driver thread of this test; safe when nothing was started.
 
       Requirements:
-      - The singleton built by `get_runtime` registers this close with atexit, so the driver stops synchronously before the process exits even when no test closes the runtime explicitly; manual calls stay valid and idempotent
-
-"get_runtime() -> runtime: PrettyplayRuntime":
-  location: runtime.py
-  annotations: |
-    Return the process-wide runtime: the first call loads the configuration via `load_config` and constructs `PrettyplayRuntime`; every later call returns the same instance.
-
-    `runtime`: the shared runtime.
-
-    Requirements:
-    - One instance per process for the whole run
-    - Repeated calls are cheap
-    - The first call registers the runtime close with atexit: the browser and the Playwright driver stop synchronously before the process exits — the driver processes never outlive the script into the caller's terminal
+      - Every instance registers its own close with atexit, so the driver stops synchronously before the process exits even when no test closes the runtime explicitly; manual calls stay valid and idempotent
 
 ---
 
 Author: Goga
 CreatedAt: 07/09/26
 Description: |
-  The facade of prettyplay: the per-test scenario object with screenshot abilities, the step cycle executor with verdict reporting, and the run-scoped composition root.
+  The facade of prettyplay: the per-test scenario object with screenshot abilities, the step cycle executor with verdict reporting, and the per-test composition root.

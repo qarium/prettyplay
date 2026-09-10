@@ -1,8 +1,9 @@
 """Tests for the shared request-field helpers of the prettyplay.llm cell."""
 
-from prettyplay.llm._request import extract_code_block
+from prettyplay.llm._request import build_fields_text, extract_code_block
 
 FENCED_CODE = "def step(page) -> None:\n    page.open('https://example.com')\n"
+USER_INSTRUCTIONS = "prefer data-test-id"
 
 
 class TestExtractCodeBlock:
@@ -30,3 +31,35 @@ class TestExtractCodeBlock:
         answer = f"```python\n{FENCED_CODE}"
 
         assert extract_code_block(answer) == answer
+
+
+class TestBuildFieldsTextUserInstructions:
+    """Logic tests: the USER INSTRUCTIONS block placement and omission."""
+
+    def test_build_fields_text_places_user_instructions_after_page_api(self) -> None:
+        text = build_fields_text(
+            USER_INSTRUCTIONS,
+            "нажать Войти",
+            ["открыть страницу"],
+            "- button 'Войти'",
+            "page.find_by_role(role, name)",
+            "def step(page) -> None:\n    pass\n",
+            "AssertionError: boom",
+        )
+
+        assert text.index("PAGE API:") < text.index("USER INSTRUCTIONS:") < text.index("CODE:")
+        assert f"USER INSTRUCTIONS:\n{USER_INSTRUCTIONS}" in text
+
+    def test_build_fields_text_omits_block_when_instructions_empty(self) -> None:
+        text = build_fields_text(
+            "",
+            "нажать Войти",
+            [],
+            "- button 'Войти'",
+            "page.find_by_role(role, name)",
+            "def step(page) -> None:\n    pass\n",
+            "AssertionError: boom",
+        )
+
+        assert "USER INSTRUCTIONS" not in text
+        assert text.index("PAGE API:") < text.index("CODE:")

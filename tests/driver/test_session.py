@@ -24,6 +24,7 @@ class FakePlaywrightFactory:
         self.stop_calls = 0
         self.launches: list[str] = []
         self.launch_kwargs: list[dict] = []
+        self.engine_starts: list[str] = []  # каждый запуск движка: launch или connect
         self.contexts: list[FakeContext] = []
         self.threads: list[int] = []  # идентификаторы потока каждого граничного вызова
         self.chromium = FakeEngine("chromium", self)
@@ -44,19 +45,33 @@ class FakePlaywrightFactory:
 
 
 class FakeEngine:
-    """Fake Playwright browser engine: records every launch into the factory."""
+    """Fake Playwright browser engine: records every launch and connect into the factory."""
 
     def __init__(self, name: str, factory: FakePlaywrightFactory) -> None:
         self.name = name
         self._factory = factory
         self.launch_calls: list[mock.Mock] = []
+        self.connect_calls: list[str] = []
+        self.connect_kwargs: list[dict] = []
         self._browser: FakeBrowser | None = None
 
     def launch(self, **kwargs: object) -> "FakeBrowser":
         self._factory.threads.append(threading.get_ident())
         self._factory.launches.append(self.name)
         self._factory.launch_kwargs.append(kwargs)
+        self._factory.engine_starts.append(self.name)
         self.launch_calls.append(mock.Mock(kwargs=kwargs))
+
+        if self._browser is None:
+            self._browser = FakeBrowser(self._factory)
+
+        return self._browser
+
+    def connect(self, endpoint: str, **kwargs: object) -> "FakeBrowser":
+        self._factory.threads.append(threading.get_ident())
+        self.connect_calls.append(endpoint)
+        self.connect_kwargs.append(kwargs)
+        self._factory.engine_starts.append(self.name)
 
         if self._browser is None:
             self._browser = FakeBrowser(self._factory)
@@ -80,6 +95,15 @@ class FakeBrowser:
     def close(self) -> None:
         self._factory.threads.append(threading.get_ident())
         self.close_calls += 1
+
+
+class CrashingBrowser(FakeBrowser):
+    """Fake browser whose close fails, as after a crash of the browser process."""
+
+    def close(self) -> None:
+        self._factory.threads.append(threading.get_ident())
+        self.close_calls += 1
+        raise Error("Target page, context or browser has been closed")
 
 
 class FakeContext:
@@ -324,6 +348,21 @@ class TestDriverSessionLogic:
         assert browser.close_calls == 1
         assert factory.stop_calls == 1
 
+    def test_close_stops_driver_even_when_browser_close_fails(self) -> None:
+        factory = FakePlaywrightFactory()
+        factory.chromium._browser = CrashingBrowser(factory)  # крахнутый процесс браузера
+
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(Config(browser="chromium"))
+            session.open_context()
+
+            with pytest.raises(Error, match="has been closed"):
+                session.close()  # сорвавшийся browser.close не прячет ошибку
+
+        assert factory.stop_calls == 1  # playwright.stop не пропущен — процесс драйвера не течёт
+        worker = session._worker
+        assert worker is None or worker._thread is None  # поток воркера присоединён
+
     def test_close_before_launch_is_noop(self) -> None:
         factory = FakePlaywrightFactory()
 
@@ -383,6 +422,73 @@ class FailingEngine:
         self._factory.threads.append(threading.get_ident())
         self._factory.launches.append(self.name)
         raise self._error
+
+    def connect(self, endpoint: str, **kwargs: object) -> "FakeBrowser":
+        self._factory.threads.append(threading.get_ident())
+        self._factory.engine_starts.append(self.name)
+        raise self._error
+
+
+class TestDriverSessionConnect:
+    """Logic tests: the remote ws endpoint branch of the engine start."""
+
+    def test_session_connects_over_ws_endpoint_when_set(self) -> None:
+        factory = FakePlaywrightFactory()
+        endpoint = "ws://ci-grid:3000/playwright/firefox"
+
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(Config(browser="firefox", browser_endpoint=endpoint))
+            page = session.open_context()
+            session.close()
+
+        assert factory.firefox.connect_calls == [endpoint]
+        assert factory.launches == []  # локальный запуск не выполнялся
+        assert factory.firefox.connect_kwargs == [{}]  # headless не передаётся
+        assert isinstance(page, PageFacade)
+
+    def test_session_connect_maps_channels_to_chromium(self) -> None:
+        factory = FakePlaywrightFactory()
+        endpoint = "ws://ci-grid:3000/playwright/chromium"
+
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(Config(browser="chrome", browser_endpoint=endpoint))
+            session.open_context()
+            session.close()
+
+        assert factory.chromium.connect_calls == [endpoint]
+        assert factory.launches == []
+        assert factory.launch_kwargs == []  # channel= нигде не появился
+        assert factory.firefox.connect_calls == []  # подключён именно chromium
+
+    def test_session_failed_connect_cleans_up_for_retry(self) -> None:
+        factory = FakePlaywrightFactory()
+        # сырая ошибка Playwright несёт только OS-причину — без URL, как в реальном драйвере
+        factory.firefox = FailingEngine("firefox", factory, Error("websocket connect timeout"))
+        session = DriverSession(Config(browser="firefox", browser_endpoint="ws://dead:1"))
+
+        with (
+            mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory),
+            pytest.raises(Error, match="ws://dead:1") as excinfo,
+        ):
+            session.open_context()
+
+        assert "websocket connect timeout" in str(excinfo.value)  # причина видна в сообщении
+        assert isinstance(excinfo.value.__cause__, Error)  # исходная ошибка сцеплена
+        assert excinfo.value.__cause__.args[0] == "websocket connect timeout"
+
+        worker = session._worker
+        assert worker is None or worker._thread is None  # поток воркера присоединён
+
+        assert factory.stop_calls == 1  # драйвер остановлен — процесс не течёт
+
+        factory.firefox = FakeEngine("firefox", factory)  # повторная попытка запускается чисто
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            page = session.open_context()
+            session.close()
+
+        assert factory.start_calls == 2
+        assert len(factory.engine_starts) == 2  # вторая попытка считает новый старт движка
+        assert isinstance(page, PageFacade)
 
 
 class TestDriverSessionWorkerThread:

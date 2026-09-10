@@ -200,6 +200,9 @@ class TestPageFacadeContract:
             "find_by_role",
             "find_by_label",
             "find_by_text",
+            "find_by_attribute",
+            "find_by_css",
+            "find_by_xpath",
             "aria_snapshot",
             "screenshot",
             "url",
@@ -217,6 +220,13 @@ class TestPageFacadeContract:
         for name in surface:
             assert hasattr(PageFacade, name), name
 
+    def test_universal_locators_declared_after_find_by_text(self) -> None:
+        declared = [name for name in vars(PageFacade) if not name.startswith("_")]
+
+        assert declared.index("find_by_text") < declared.index("find_by_attribute")
+        assert declared.index("find_by_attribute") < declared.index("find_by_css")
+        assert declared.index("find_by_css") < declared.index("find_by_xpath")
+
     def test_locator_facade_surface_matches_contract(self) -> None:
         surface = ["click", "fill", "select_option", "expect_visible", "expect_text", "expect_enabled"]
 
@@ -228,6 +238,9 @@ class TestPageFacadeContract:
         assert list(inspect.signature(PageFacade.find_by_role).parameters) == ["self", "role", "name"]
         assert list(inspect.signature(PageFacade.find_by_label).parameters) == ["self", "label"]
         assert list(inspect.signature(PageFacade.find_by_text).parameters) == ["self", "text"]
+        assert list(inspect.signature(PageFacade.find_by_attribute).parameters) == ["self", "name", "value"]
+        assert list(inspect.signature(PageFacade.find_by_css).parameters) == ["self", "selector"]
+        assert list(inspect.signature(PageFacade.find_by_xpath).parameters) == ["self", "xpath"]
         assert list(inspect.signature(PageFacade.aria_snapshot).parameters) == ["self"]
         assert list(inspect.signature(PageFacade.screenshot).parameters) == ["self"]
         assert list(inspect.signature(PageFacade.close).parameters) == ["self"]
@@ -259,6 +272,19 @@ class TestPageFacadeContract:
         assert role_hints["name"] is str
         assert role_hints["return"] is LocatorFacade
 
+        attribute_hints = get_type_hints(PageFacade.find_by_attribute)
+        assert attribute_hints["name"] is str
+        assert attribute_hints["value"] is str
+        assert attribute_hints["return"] is LocatorFacade
+
+        css_hints = get_type_hints(PageFacade.find_by_css)
+        assert css_hints["selector"] is str
+        assert css_hints["return"] is LocatorFacade
+
+        xpath_hints = get_type_hints(PageFacade.find_by_xpath)
+        assert xpath_hints["xpath"] is str
+        assert xpath_hints["return"] is LocatorFacade
+
     def test_scroll_method_annotations_match_contract(self) -> None:
         to_element = get_type_hints(PageFacade.scroll_to_element)
         assert to_element["element"] is LocatorFacade
@@ -286,6 +312,9 @@ class TestPageFacadeContract:
         assert isinstance(facade.find_by_role("button", name="Войти"), LocatorFacade)
         assert isinstance(facade.find_by_label("Логин"), LocatorFacade)
         assert isinstance(facade.find_by_text("Добро пожаловать"), LocatorFacade)
+        assert isinstance(facade.find_by_attribute("data-test-id", "submit"), LocatorFacade)
+        assert isinstance(facade.find_by_css("form > button.primary"), LocatorFacade)
+        assert isinstance(facade.find_by_xpath("//button[@type='submit']"), LocatorFacade)
         assert isinstance(facade.aria_snapshot(), str)
         assert isinstance(facade.screenshot(), bytes)
         assert isinstance(facade.url, str)
@@ -364,6 +393,57 @@ class TestPageFacadeLogic:
 
         assert page.context.close_calls == 1
         assert page.calls == []  # браузерных вызовов не было — только context.close()
+
+
+class TestUniversalLocatorLogic:
+    """Logic tests: the attribute, CSS and XPath locating methods of the page facade."""
+
+    def test_find_by_attribute_builds_css_attribute_selector(self) -> None:
+        page = FakePage()
+        facade = make_page_facade(page)
+
+        element = facade.find_by_attribute("data-test-id", "submit-button")
+
+        assert page.calls == [("locator", '[data-test-id="submit-button"]')]
+        assert isinstance(element, LocatorFacade)
+
+    def test_find_by_css_passes_selector_verbatim(self) -> None:
+        page = FakePage()
+        facade = make_page_facade(page)
+
+        element = facade.find_by_css("form > button.primary")
+
+        assert page.calls == [("locator", "form > button.primary")]
+        assert isinstance(element, LocatorFacade)
+
+    def test_find_by_xpath_applies_xpath_engine_prefix(self) -> None:
+        page = FakePage()
+        facade = make_page_facade(page)
+
+        element = facade.find_by_xpath("*[@id='main']")
+
+        assert page.calls == [("locator", "xpath=*[@id='main']")]
+        assert isinstance(element, LocatorFacade)
+
+    def test_find_by_attribute_escapes_quotes_and_backslashes(self) -> None:
+        page = FakePage()
+        facade = make_page_facade(page)
+
+        element = facade.find_by_attribute("data-test-id", 'a"b\\c')
+
+        assert page.calls == [('locator', '[data-test-id="a\\"b\\\\c"]')]
+        assert isinstance(element, LocatorFacade)
+
+    def test_universal_locators_never_raise_eagerly(self) -> None:
+        page = FakePage()
+        facade = make_page_facade(page)
+
+        for element in (
+            facade.find_by_attribute("data-qa", "login"),
+            facade.find_by_css("#missing"),
+            facade.find_by_xpath("//never-resolves"),
+        ):
+            assert isinstance(element, LocatorFacade)
 
 
 class TestPageFacadeScrollLogic:

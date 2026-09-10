@@ -3,7 +3,7 @@
 import inspect
 
 import pytest
-from prettyplay.config import Config, ConfigurationError, load_config
+from prettyplay.config import Config, ConfigurationError, PrettyConfig, load_config
 from prettyplay.failures import PrettyplayError
 from pydantic import ValidationError
 
@@ -20,6 +20,8 @@ _ALL_ENV_FIELDS = (
     "GENERATION_ATTEMPTS",
     "HEALING_ATTEMPTS",
     "SEND_SCREENSHOTS",
+    "GENERATION_PROMPT",
+    "BROWSER_ENDPOINT",
     "BROWSER",
 )
 
@@ -65,6 +67,14 @@ class TestLoadConfigContract:
 
         assert load_config(pyproject_path=None).provider == "openai"
         assert load_config(pyproject_path=str(pyproject)).browser == "chromium"
+
+    def test_signature_parameters_are_path_and_overrides(self) -> None:
+        """Both parameters are optional; single-argument calls keep working."""
+        parameters = inspect.signature(load_config).parameters
+
+        assert list(parameters) == ["pyproject_path", "overrides"]
+        assert parameters["pyproject_path"].default is None
+        assert parameters["overrides"].default is None
 
 
 class TestLoadConfigLogic:
@@ -209,3 +219,100 @@ class TestLoadConfigEdge:
         config = load_config(pyproject_path=str(pyproject))
 
         assert config.cache_root == "/custom/cache"
+
+
+class TestLoadConfigOverlay:
+    """Logic tests: the programmatic layer over pyproject → env (explicit values win)."""
+
+    def test_load_config_overrides_explicit_values_win(self, write_pyproject) -> None:
+        path = write_pyproject(browser="chromium", model="gpt-5", base_url="https://file.example/v1")
+
+        config = load_config(
+            path,
+            Config(browser="firefox", browser_endpoint="ws://ci-grid:3000/playwright/firefox"),
+        )
+
+        assert config.browser == "firefox"
+        assert config.browser_endpoint == "ws://ci-grid:3000/playwright/firefox"
+        assert config.model == "gpt-5"  # untouched file values survive
+        assert config.base_url == "https://file.example/v1"
+
+    def test_load_config_without_overrides_returns_file_layer(self, write_pyproject) -> None:
+        path = write_pyproject(provider="anthropic", generation_attempts=5)
+
+        assert load_config(path, None).provider == "anthropic"
+        assert load_config(path, None).generation_attempts == 5
+
+        # пустой PrettyConfig участвует ни в одном поле — ведёт себя как None
+        empty = load_config(path, PrettyConfig())
+
+        assert empty.provider == "anthropic"
+        assert empty.generation_attempts == 5
+        assert empty.generation_prompt == ""
+        assert empty.browser_endpoint == ""
+
+    def test_load_config_renders_actionable_line_for_endpoint(self, write_pyproject) -> None:
+        path = write_pyproject(browser_endpoint="http://bad")
+
+        with pytest.raises(ConfigurationError) as excinfo:
+            load_config(path)
+
+        assert "browser_endpoint" in str(excinfo.value)
+        assert "ws/wss" in str(excinfo.value)
+        assert isinstance(excinfo.value.__cause__, ValidationError)
+
+    def test_load_config_empty_string_override_does_not_win(self, write_pyproject) -> None:
+        path = write_pyproject(cache_root="/custom/cache", model="gpt-5")
+
+        config = load_config(path, Config(model="", cache_root=""))
+
+        assert config.model == "gpt-5"
+        assert config.cache_root == "/custom/cache"
+
+    def test_load_config_explicit_false_overrides_file_true(self, write_pyproject) -> None:
+        path = write_pyproject(headless=True)
+
+        config = load_config(path, Config(headless=False))
+
+        assert config.headless is False
+
+    def test_load_config_env_value_loses_to_explicit_override(self, write_pyproject, monkeypatch) -> None:
+        path = write_pyproject(browser="chromium")
+        monkeypatch.setenv("PRETTYPLAY_BROWSER_NAME", "webkit")
+
+        config = load_config(path, Config(browser="firefox"))
+
+        # pyproject → env → PrettyConfig наблюдаемо сквозь всю цепочку
+        assert config.browser == "firefox"
+
+
+class TestLoadConfigNewEnvNames:
+    """The two new settings carry env overrides like every other setting."""
+
+    @pytest.mark.parametrize(
+        ("env_name", "env_value", "setting"),
+        [
+            ("PRETTYPLAY_GENERATION_PROMPT", "prefer data-test-id", "generation_prompt"),
+            ("PRETTYPLAY_BROWSER_ENDPOINT", "ws://ci-grid:3000/playwright", "browser_endpoint"),
+        ],
+        ids=["generation_prompt", "browser_endpoint"],
+    )
+    def test_env_override_exists_for_every_new_setting(
+        self, write_pyproject, monkeypatch, env_name: str, env_value: str, setting: str
+    ) -> None:
+        path = write_pyproject(model="gpt-5")
+        monkeypatch.setenv(env_name, env_value)
+
+        config = load_config(path)
+
+        assert getattr(config, setting) == env_value
+
+    def test_invalid_endpoint_env_renders_allowed_values(self, write_pyproject, monkeypatch) -> None:
+        path = write_pyproject(model="gpt-5")
+        monkeypatch.setenv("PRETTYPLAY_BROWSER_ENDPOINT", "http://ci-grid:3000")
+
+        with pytest.raises(ConfigurationError) as excinfo:
+            load_config(path)
+
+        line = next(line for line in str(excinfo.value).splitlines() if line.startswith("browser_endpoint:"))
+        assert line.endswith("allowed: a valid ws/wss URL")

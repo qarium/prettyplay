@@ -38,7 +38,7 @@ class TestRunBudgetsContract:
 
 
 class TestRunBudgetsLogic:
-    """Logic tests: separate pools, per-identity accounting, default limits."""
+    """Logic tests: separate pools, per-identity accounting, per-test ownership, default limits."""
 
     def test_budgets_separate_pools_shared_per_identity(self) -> None:
         budgets = RunBudgets(generation_limit=1, healing_limit=1)
@@ -68,17 +68,17 @@ class TestRunBudgetsLogic:
         assert budgets.try_generation(IDENTITY) is False
         assert budgets.try_healing(IDENTITY) is True  # healing pool intact
 
-    def test_budgets_are_not_reset_between_tests(self) -> None:
-        budgets = RunBudgets(generation_limit=1, healing_limit=1)
+    def test_reused_step_gets_fresh_budget_in_each_test(self) -> None:
+        """Each test owns its own registry: a step reused across tests starts with full limits."""
+        first_test = RunBudgets(generation_limit=1, healing_limit=1)
+        second_test = RunBudgets(generation_limit=1, healing_limit=1)
 
-        assert budgets.try_generation(IDENTITY) is True
-
-        # «Другой тест» в том же процессе: тот же реестр, попытки не вернулись.
-        budgets2 = budgets
-        assert budgets2.try_generation(IDENTITY) is False
+        assert first_test.try_generation(IDENTITY) is True
+        assert first_test.try_generation(IDENTITY) is False  # исчерпан внутри первого теста
+        assert second_test.try_generation(IDENTITY) is True  # свежий бюджет нового теста
 
     def test_budgets_shared_between_two_consumers_of_one_registry(self) -> None:
-        """The registry is handed to several consumers; spending is shared, not per-consumer."""
+        """The registry of one test is handed to several consumers; spending is shared, not per-consumer."""
         budgets = RunBudgets(generation_limit=1, healing_limit=1)
 
         class Consumer:

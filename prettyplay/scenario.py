@@ -7,12 +7,13 @@ from pathlib import Path
 from types import TracebackType
 
 from .cache import StepCache
+from .config import PrettyConfig, load_config
 from .driver import PageFacade
 from .engine import StepGenerator, StepHealer
 from .executor import StepExecutor
 from .failures.errors import PrettyplayError
 from .reporting import StepHooks, StepReporter
-from .runtime import get_runtime
+from .runtime import PrettyplayRuntime
 
 
 def _raise_folded(error: PrettyplayError) -> types.NoReturn:
@@ -78,11 +79,12 @@ class PrettyTest:
     cached steps by the context key, the isolated page of the test, and the
     full step cycle delegated to the executor. Construction is cheap: the
     page opens lazily on the first step and no LLM credential is needed.
-    Per-test objects compose here over the process-wide runtime; no state
-    leaks between tests.
+    Every test composes its own runtime here — no process-wide state, no
+    state leaks between tests; two tests in one process hold two runtimes,
+    two attempt registries and two browser sessions.
 
     Attributes:
-        _runtime: the process-wide composition root.
+        _runtime: the composition root owned by this one test.
         _reporter: the visibility point of this test.
         _cache: the step cache of this test.
         _generator: the generation engine of this test.
@@ -91,8 +93,8 @@ class PrettyTest:
         _page: the isolated page of this test; ``None`` until the first step.
     """
 
-    def __init__(self, cache_key: str, cache_path: str | None = None) -> None:
-        """Compose the per-test objects over the process-wide runtime.
+    def __init__(self, cache_key: str, cache_path: str | None = None, config: PrettyConfig | None = None) -> None:
+        """Compose the per-test objects over the runtime this test owns.
 
         Args:
             cache_key: the context key of the test; the addressing part of
@@ -100,8 +102,13 @@ class PrettyTest:
             cache_path: the optional subdirectory inside the cache; part of
                 the address, so steps of different subdirectories never
                 collide.
+            config: the programmatic settings layer; explicitly set values
+                win over the pyproject+env file layer, unset and empty
+                fields resolve from it. ``None`` resolves everything from
+                the file layer, as before.
         """
-        self._runtime = get_runtime()
+        effective = load_config(None, config)
+        self._runtime = PrettyplayRuntime(effective)
         self._reporter = StepReporter(hooks=[])
         self._cache = StepCache(self._runtime.config, cache_path, self._reporter)
 
@@ -236,14 +243,26 @@ class PrettyTest:
         self._reporter.hooks.append(hooks)
 
     def close(self) -> None:
-        """Close the page of this test; the browser of the run stays alive.
+        """Close the page and the whole runtime of this test.
+
+        The isolated page context closes first, then the runtime stops
+        unconditionally — a failing page close (e.g. after a browser crash)
+        never keeps the browser of the test alive; its error still propagates.
+        The browser of this test does not outlive the test.
 
         Idempotent and safe before the first step: nothing was opened —
-        nothing is closed.
+        nothing is closed beyond the no-op runtime close. The page reference
+        drops before its close runs, so even a failing page close never
+        repeats on a retried ``close``.
         """
-        if self._page:
-            self._page.close()
-            self._page = None
+        page = self._page
+        self._page = None
+
+        try:
+            if page is not None:
+                page.close()
+        finally:
+            self._runtime.close()
 
     def __enter__(self) -> PrettyTest:
         """Enter the scenario block of one test.
@@ -259,7 +278,7 @@ class PrettyTest:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Leave the scenario block: close the page and never suppress.
+        """Leave the scenario block: close the test and never suppress.
 
         Args:
             exc_type: the type of the block exception, if any.

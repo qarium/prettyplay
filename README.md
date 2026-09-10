@@ -35,10 +35,28 @@ with PrettyTest("login-flow") as t:
     t.action("открыть страницу логина")
 ```
 
+Each `PrettyTest` is fully self-contained: it owns its settings, its attempt
+budgets and its own browser session. `close()` (or leaving the `with` block)
+closes the page and stops the whole browser of that test, and every test
+starts with fresh attempt budgets. The old process-wide
+`prettyplay.get_runtime()` singleton was removed — build
+`prettyplay.PrettyplayRuntime(config)` directly if you composed objects over
+it.
+
 The constructor arguments form the cache address: `cache_key` (mandatory) and
 `cache_path` (optional subdirectory). Equal keys in the shared root reuse one
 cached step across tests; a different language, step type or key is a
 different step.
+
+The third argument overrides settings per test — only the fields you pass
+count: explicitly set values win over pyproject.toml and the environment,
+everything else resolves from the file layer as before:
+
+```python
+from prettyplay import PrettyConfig
+
+t = PrettyTest("login-flow", config=PrettyConfig(browser="firefox"))
+```
 
 Screenshots belong to the author — nothing is captured automatically. Both
 methods need a step to have run (the page opens lazily):
@@ -89,6 +107,8 @@ generation_model = ""            # optional: empty -> model
 classification_model = ""        # optional: empty -> model
 base_url = ""
 cache_root = ""                  # empty -> <repo>/.prettyplay/cache/
+generation_prompt = ""           # user instructions for generation; empty -> no instructions block
+browser_endpoint = ""            # ws:// endpoint of a remote browser; empty -> local launch
 generation_attempts = 3
 healing_attempts = 2
 send_screenshots = false
@@ -97,6 +117,20 @@ headless = true                  # false -> run with a visible browser window
 
 `chrome` and `msedge` launch the locally installed browser through the
 chromium engine; the browser must be installed on the machine.
+
+A non-empty `generation_prompt` is sent verbatim as a `USER INSTRUCTIONS`
+block with every generation and regeneration request — it steers the style of
+the generated code (e.g. `prefer data-test-id attributes`), never the failure
+classification. The instructions are not part of the cache address: changing
+them never invalidates cached steps — a cached step runs unchanged.
+
+A non-empty `browser_endpoint` (e.g. `ws://ci-grid:3000/playwright/chromium`)
+connects to a remote Playwright Server or browser grid instead of launching
+locally: `headless` does not apply to a connect (window visibility belongs to
+the endpoint server) and `chrome`/`msedge` map to the chromium engine —
+channels are a local-launch concept. A non-empty endpoint must be a valid
+ws/wss URL (otherwise `ConfigurationError` names the setting), and a failed
+connect fails loudly with the endpoint in the message.
 
 Every setting has a `PRETTYPLAY_<SETTING_UPPER>` environment override for CI,
 except the browser (`PRETTYPLAY_BROWSER_NAME`) and headless

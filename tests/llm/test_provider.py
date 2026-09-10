@@ -9,6 +9,7 @@ from prettyplay.llm import AnthropicProvider, LlmProvider, OpenAiProvider, creat
 GENERATE_STEP_CODE_PARAMS = [
     "self",
     "prompt",
+    "user_instructions",
     "step_text",
     "previous_steps",
     "snapshot",
@@ -47,6 +48,7 @@ class TestLlmProviderContract:
         with pytest.raises(NotImplementedError):
             port.generate_step_code(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 previous_steps=[],
                 snapshot="- snap",

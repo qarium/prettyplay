@@ -2,6 +2,7 @@
 
 import inspect
 
+import prettyplay.config
 import pydantic
 import pytest
 from prettyplay.config import Config
@@ -20,7 +21,7 @@ class TestConfigContract:
         with pytest.raises(TypeError):
             Config("openai")  # type: ignore[misc]
 
-    def test_all_thirteen_properties_accessible(self) -> None:
+    def test_all_fifteen_properties_accessible(self) -> None:
         config = Config()
         expected = [
             "provider",
@@ -30,6 +31,8 @@ class TestConfigContract:
             "classification_model",
             "base_url",
             "cache_root",
+            "generation_prompt",
+            "browser_endpoint",
             "generation_attempts",
             "healing_attempts",
             "send_screenshots",
@@ -40,9 +43,9 @@ class TestConfigContract:
         for name in expected:
             assert hasattr(config, name), f"missing property: {name}"
 
-    def test_signature_declares_eleven_fields(self) -> None:
+    def test_signature_declares_thirteen_fields_in_contract_order(self) -> None:
         fields = Config.model_fields
-        expected = {
+        assert list(fields.keys()) == [
             "provider",
             "browser",
             "model",
@@ -50,12 +53,26 @@ class TestConfigContract:
             "classification_model",
             "base_url",
             "cache_root",
+            "generation_prompt",
+            "browser_endpoint",
             "generation_attempts",
             "healing_attempts",
             "send_screenshots",
             "headless",
-        }
-        assert expected == set(fields.keys())
+        ]
+
+    def test_new_settings_are_empty_strings_by_default(self) -> None:
+        generation_prompt = Config.model_fields["generation_prompt"]
+        browser_endpoint = Config.model_fields["browser_endpoint"]
+
+        assert generation_prompt.annotation is str
+        assert browser_endpoint.annotation is str
+        assert generation_prompt.default == ""
+        assert browser_endpoint.default == ""
+
+    def test_pretty_config_is_config_alias_on_facade(self) -> None:
+        assert prettyplay.config.PrettyConfig is Config
+        assert "PrettyConfig" in prettyplay.config.__all__
 
     def test_headless_default_and_browser_default(self) -> None:
         config = Config()
@@ -115,3 +132,35 @@ class TestConfigLogic:
         message = str(excinfo.value)
         assert "browser" in message
         assert "chromium" in message
+
+    @pytest.mark.parametrize(
+        "endpoint",
+        [
+            "ws://host:3000/x",
+            "wss://grid.example/playwright/chromium",
+            "ws://127.0.0.1:9000",
+            "WS://host:3000",
+        ],
+    )
+    def test_models_browser_endpoint_accepts_ws_and_wss(self, endpoint: str) -> None:
+        assert Config(browser_endpoint=endpoint).browser_endpoint == endpoint
+
+    @pytest.mark.parametrize(
+        "endpoint",
+        [
+            "http://ci-grid:3000",
+            "ftp://x",
+            "ci-grid:3000",
+            "wss://",
+        ],
+    )
+    def test_models_rejects_non_ws_browser_endpoint(self, endpoint: str) -> None:
+        with pytest.raises(pydantic.ValidationError) as excinfo:
+            Config(browser_endpoint=endpoint)
+
+        locations = [entry["loc"] for entry in excinfo.value.errors()]
+        assert ("browser_endpoint",) in locations
+
+    def test_models_empty_browser_endpoint_means_local_launch(self) -> None:
+        assert Config().browser_endpoint == ""
+        assert Config(browser_endpoint="").browser_endpoint == ""

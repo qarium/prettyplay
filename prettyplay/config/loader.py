@@ -1,4 +1,4 @@
-"""Loading of the ``[tool.prettyplay]`` section of pyproject.toml with env overrides.
+"""Loading of the ``[tool.prettyplay]`` section of pyproject.toml with layered overrides.
 
 The pyproject.toml path is either given explicitly or auto-searched upward from
 the current working directory. Environment overrides win over the file
@@ -6,6 +6,8 @@ whenever the variable is set — including when it is set to an empty string:
 ``PRETTYPLAY_<SETTING_UPPER>`` for every setting except the browser
 (``PRETTYPLAY_BROWSER_NAME``) and headless (``PRETTYPLAY_BROWSER_HEADLESS``).
 The removed legacy name ``PRETTYPLAY_BROWSER`` fails loudly before merging.
+Explicitly set programmatic values (``PrettyConfig`` fields passed at
+construction, non-empty for strings) win over the pyproject+env layer.
 LLM API keys are never read here: they come only from the provider clients
 themselves.
 """
@@ -38,6 +40,8 @@ _ENV_NAMES: dict[str, str] = {
         "classification_model",
         "base_url",
         "cache_root",
+        "generation_prompt",
+        "browser_endpoint",
         "generation_attempts",
         "healing_attempts",
         "send_screenshots",
@@ -59,6 +63,8 @@ _ALLOWED_TEXT: dict[str, str] = {
     "classification_model": "a non-empty string",
     "base_url": "a non-empty string",
     "cache_root": "a non-empty string",
+    "generation_prompt": "a non-empty string",
+    "browser_endpoint": "a valid ws/wss URL",
 }
 
 
@@ -126,8 +132,8 @@ def _render_validation(error: ValidationError) -> str:
     return "\n".join(lines)
 
 
-def load_config(pyproject_path: str | None) -> Config:
-    """Load validated settings from ``[tool.prettyplay]`` with env overrides.
+def load_config(pyproject_path: str | None = None, overrides: Config | None = None) -> Config:
+    """Load validated settings layered pyproject → env → explicit programmatic values.
 
     The section is optional: a missing ``[tool.prettyplay]`` yields defaults.
     Environment variables override the file value whenever they are set, empty
@@ -136,9 +142,17 @@ def load_config(pyproject_path: str | None) -> Config:
     ``PRETTYPLAY_<SETTING_UPPER>`` for every other setting. An empty
     ``cache_root`` resolves to ``<pyproject_dir>/.prettyplay/cache``.
 
+    The programmatic layer wins last: a field of ``overrides`` participates
+    when it was passed at construction (``model_fields_set``) and is non-empty
+    for strings — explicitly set values win, untouched model defaults and
+    empty strings never overwrite the pyproject+env values.
+
     Args:
         pyproject_path: explicit pyproject.toml path; ``None`` auto-searches
             upward from the current working directory.
+        overrides: the programmatic layer, typically a ``PrettyConfig`` built
+            by the integrator; ``None`` (or an instance with no explicitly set
+            fields) returns the validated file layer as is.
 
     Returns:
         Validated configuration.
@@ -165,6 +179,16 @@ def load_config(pyproject_path: str | None) -> Config:
         merged["cache_root"] = str(path.parent / ".prettyplay" / "cache")
 
     try:
-        return Config(**merged)
+        file_config = Config(**merged)
     except ValidationError as error:
         raise ConfigurationError(_render_validation(error)) from error
+
+    if overrides is None:
+        return file_config
+
+    explicit = overrides.model_fields_set
+    update = {
+        name: value for name, value in overrides if name in explicit and (value or not isinstance(value, str))
+    }
+
+    return file_config.model_copy(update=update)

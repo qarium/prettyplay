@@ -1,0 +1,47 @@
+"""Shared fixtures of the prettyplay test suite."""
+
+from types import SimpleNamespace
+from unittest import mock
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _no_runtime_atexit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep every test-built runtime out of the real process ``atexit`` registry.
+
+    Each ``PrettyplayRuntime`` registers its close with ``atexit``; without
+    this isolation the suite would accumulate live exit hooks — and the
+    runtimes they pin — for every test-built object until interpreter exit.
+    """
+    monkeypatch.setattr(
+        "prettyplay.runtime.atexit",
+        SimpleNamespace(register=mock.Mock(name="atexit_register"), unregister=mock.Mock(name="atexit_unregister")),
+    )
+
+
+def _toml_value(value) -> str:
+    """Render a setting value as a TOML literal (str, bool, int supported)."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+
+    return repr(value)
+
+
+@pytest.fixture
+def write_pyproject(tmp_path):
+    """Return a helper writing a ``[tool.prettyplay]`` pyproject.toml into tmp_path.
+
+    The helper serializes the given settings as TOML key = value lines inside
+    the ``[tool.prettyplay]`` section and returns the written file path.
+    """
+
+    def _write(**settings) -> str:
+        lines = ["[tool.prettyplay]"]
+        lines.extend(f"{name} = {_toml_value(value)}" for name, value in settings.items())
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        return str(pyproject)
+
+    return _write

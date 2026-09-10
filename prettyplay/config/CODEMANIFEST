@@ -18,6 +18,7 @@ Annotations: |
   Naming: PascalCase for classes; snake_case for functions, methods, properties.
   Type hints mandatory; no *args/**kwargs; generics parameterized.
   A validation failure never surfaces as a raw pydantic error: the loader wraps it into the loud actionable `ConfigurationError`.
+  Layered resolution: a value passed programmatically wins over the pyproject+env layer only when explicitly set; empty string means unset for string fields. One model — one place of validation — file and programmatic values validate identically. `Config` is publicly known as PrettyConfig.
 
 ---
 
@@ -36,7 +37,7 @@ Annotations: |
     "message -> str": |
       The rendered actionable validation text.
 
-"Config(provider: str, browser: str, model: str, generation_model: str, classification_model: str, base_url: str, cache_root: str, generation_attempts: int, healing_attempts: int, send_screenshots: bool, headless: bool)":
+"Config(provider: str, browser: str, model: str, generation_model: str, classification_model: str, base_url: str, cache_root: str, generation_prompt: str, browser_endpoint: str, generation_attempts: int, healing_attempts: int, send_screenshots: bool, headless: bool)":
   location: models.py
   annotations: |
     Validated project settings — the single source of the immutable configuration part.
@@ -48,15 +49,18 @@ Annotations: |
     `classification_model`: optional classification override; empty — fallback to `model`.
     `base_url`: optional custom LLM API endpoint.
     `cache_root`: cache root; empty — default <repo root>/.prettyplay/cache/ resolved by `load_config`.
-    `generation_attempts`: generation attempt budget per step per run; default 3.
-    `healing_attempts`: healing attempt budget per step per run; default 2.
+    `generation_prompt`: user instructions for generation requests; non-empty — a separate USER INSTRUCTIONS block in generation and regeneration requests; empty — no block; default empty.
+    `browser_endpoint`: ws endpoint of a remote browser; empty — local launch; default empty.
+    `generation_attempts`: generation attempt budget per step per test; default 3.
+    `healing_attempts`: healing attempt budget per step per test; default 2.
     `send_screenshots`: optional screenshot input to the LLM; default False.
-    `headless`: run the browser without a visible window; default True.
+    `headless`: run the browser without a visible window of a local launch; default True.
 
     Requirements:
     - kw_only construction; every field has an empty default
     - provider validated against {openai, anthropic}; browser against the five-value set; invalid value — loud actionable error
     - attempts are positive integers
+    - a non-empty browser_endpoint is a valid ws/wss URL — otherwise a loud actionable error
 
     Constraints:
     - No secret values in fields: LLM API keys are never stored in the config; keys come only from environment variables
@@ -75,25 +79,30 @@ Annotations: |
       The optional custom LLM API endpoint.
     "cache_root -> str": |
       The cache root; empty means the default resolved at load.
+    "generation_prompt -> str": |
+      The user instructions for generation requests; empty means no instructions block.
+    "browser_endpoint -> str": |
+      The ws endpoint of a remote browser; empty means the local launch.
     "generation_attempts -> int": |
-      The generation attempt budget per step per run.
+      The generation attempt budget per step per test.
     "healing_attempts -> int": |
-      The healing attempt budget per step per run.
+      The healing attempt budget per step per test.
     "send_screenshots -> bool": |
       Whether screenshots are attached to LLM requests.
     "headless -> bool": |
-      Whether the browser runs without a visible window.
+      Whether the browser runs without a visible window of a local launch; ignored on a remote connect.
     "effective_generation_model -> str": |
       generation_model when non-empty, otherwise model.
     "effective_classification_model -> str": |
       classification_model when non-empty, otherwise model.
 
-"load_config(pyproject_path: str | None) -> config: Config":
+"load_config(pyproject_path: str | None, overrides: Config | None) -> config: Config":
   location: loader.py
   annotations: |
-    Load project configuration from pyproject.toml with environment overrides.
+    Load project configuration from pyproject.toml with environment overrides and explicit per-test values.
 
     `pyproject_path`: optional explicit path to pyproject.toml; empty — the first pyproject.toml found upwards from the current directory.
+    `overrides`: the programmatically passed values — the same full model; None — no programmatic layer, the file layer resolves everything.
     `config`: fully resolved and validated `Config`.
 
     Algorithm:
@@ -102,9 +111,12 @@ Annotations: |
     3. Extract the tool.prettyplay section; a missing section is an empty section
     4. Apply environment overrides: each setting is overridden by PRETTYPLAY_<SETTING_UPPERCASE> when the variable is set; the browser override is PRETTYPLAY_BROWSER_NAME, the headless override is PRETTYPLAY_BROWSER_HEADLESS
     5. Construct `Config`; on a validation failure render the actionable text — one line per invalid setting: the setting name, the received value, the allowed values — and raise `ConfigurationError` with the original ValidationError chained
+    6. `overrides` is None — return the file layer as is
+    7. Overlay the explicitly set fields of `overrides` onto the file layer (the model with empty defaults, model_copy — see `pydantic`): a field participates when it was passed at construction and is non-empty for strings; untouched model defaults never overwrite file values
+    8. Return the effective `Config`
 
     Requirements:
-    - An env override exists for every setting of `Config`
+    - An env override exists for every setting of `Config` (including PRETTYPLAY_GENERATION_PROMPT and PRETTYPLAY_BROWSER_ENDPOINT)
     - A raw pydantic.ValidationError never leaves the loader
     - The empty cache_root setting is resolved to the absolute default <repo root>/.prettyplay/cache/ at load
 
@@ -117,4 +129,4 @@ Annotations: |
 Author: Goga
 CreatedAt: 07/09/26
 Description: |
-  Project settings of prettyplay: the validated [tool.prettyplay] schema with the browser channels and headless mode, and the loader with environment overrides and the actionable configuration error.
+  Project settings of prettyplay: the validated [tool.prettyplay] schema with the browser channels, the headless mode, the generation instructions and the remote browser endpoint, and the loader with environment overrides, explicit per-test merging and the actionable configuration error.

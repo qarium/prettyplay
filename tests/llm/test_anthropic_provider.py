@@ -14,6 +14,7 @@ from prettyplay.llm import AnthropicProvider, LlmProvider
 GENERATE_STEP_CODE_PARAMS = [
     "self",
     "prompt",
+    "user_instructions",
     "step_text",
     "previous_steps",
     "snapshot",
@@ -25,6 +26,7 @@ GENERATE_STEP_CODE_PARAMS = [
 CLASSIFY_FAILURE_PARAMS = ["self", "prompt", "step_text", "code", "error", "snapshot", "screenshot"]
 
 WORKING_CODE = "def step(page) -> None:\n    page.open('https://example.com')\n"
+USER_INSTRUCTIONS = "prefer data-test-id"
 
 
 def make_client_create(answer: str = WORKING_CODE) -> tuple[object, list[dict]]:
@@ -92,6 +94,7 @@ class TestAnthropicProviderLogic:
         ):
             provider.generate_step_code(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 previous_steps=[],
                 snapshot="- snap",
@@ -115,6 +118,7 @@ class TestAnthropicProviderLogic:
         ):
             provider.generate_step_code(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 previous_steps=[],
                 snapshot="- snap",
@@ -136,6 +140,7 @@ class TestAnthropicProviderLogic:
         with mock.patch.object(provider, "_get_client", return_value=client):
             code = provider.generate_step_code(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 previous_steps=[],
                 snapshot="- snap",
@@ -213,6 +218,7 @@ class TestAnthropicProviderLogic:
         with mock.patch.object(provider, "_get_client", return_value=client):
             code = provider.generate_step_code(
                 prompt="system prompt text",
+                user_instructions="",
                 step_text="открыть страницу",
                 previous_steps=["шаг один"],
                 snapshot="- snap",
@@ -244,6 +250,7 @@ class TestAnthropicProviderLogic:
         with mock.patch.object(provider, "_get_client", return_value=client):
             code = provider.generate_step_code(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 previous_steps=[],
                 snapshot="- snap",
@@ -263,6 +270,7 @@ class TestAnthropicProviderLogic:
         with mock.patch.object(provider, "_get_client", return_value=client):
             provider.generate_step_code(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 previous_steps=[],
                 snapshot="- snap",
@@ -318,6 +326,7 @@ class TestAnthropicProviderLogic:
         with mock.patch.object(provider, "_get_client", return_value=client):
             provider.generate_step_code(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 previous_steps=[],
                 snapshot="- snap",
@@ -344,6 +353,7 @@ class TestAnthropicProviderLogic:
         with mock.patch("prettyplay.llm.anthropic_provider.Anthropic", return_value=client) as sdk:
             provider.generate_step_code(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 previous_steps=[],
                 snapshot="- snap",
@@ -365,6 +375,7 @@ class TestAnthropicProviderLogic:
         with mock.patch("prettyplay.llm.anthropic_provider.Anthropic", return_value=client) as sdk:
             provider.generate_step_code(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 previous_steps=[],
                 snapshot="- snap",
@@ -436,3 +447,26 @@ class TestAnthropicProviderLogic:
 
         assert "anthropic" in str(excinfo.value)
         assert isinstance(excinfo.value.__cause__, AnthropicError)
+
+    def test_anthropic_user_instructions_parity(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+        client, requests = make_client_create(answer=WORKING_CODE)
+        provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+
+        with mock.patch.object(provider, "_get_client", return_value=client):
+            provider.generate_step_code(
+                prompt="SYS",
+                user_instructions=USER_INSTRUCTIONS,
+                step_text="s",
+                previous_steps=[],
+                snapshot="- snap",
+                screenshot=None,
+                page_api="page.open(...)",
+                existing_code=None,
+                error=None,
+            )
+
+        user = requests[0]["messages"][0]["content"]
+        # parity: the same block at the same relative position as the openai implementation
+        assert f"USER INSTRUCTIONS:\n{USER_INSTRUCTIONS}" in user
+        assert user.index("PAGE API:") < user.index("USER INSTRUCTIONS:")

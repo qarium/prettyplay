@@ -79,6 +79,7 @@ class OpenAiProvider(LlmProvider):
     def generate_step_code(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
         prompt: str,
+        user_instructions: str,
         step_text: str,
         previous_steps: list[str],
         snapshot: str,
@@ -92,6 +93,11 @@ class OpenAiProvider(LlmProvider):
         Args:
             prompt: the system prompt text supplied by the calling engine;
                 applied verbatim as the system message.
+            user_instructions: the project's code style instructions from the
+                generation_prompt setting; empty — the request carries no
+                instructions block, non-empty — rendered verbatim as a
+                separate USER INSTRUCTIONS block of the user content,
+                identically to the anthropic implementation.
             step_text: the sentence of the step to generate.
             previous_steps: the sentences of the previous steps of the test,
                 in execution order — scenario context.
@@ -112,7 +118,9 @@ class OpenAiProvider(LlmProvider):
             LlmUnavailableError: the SDK client is unavailable or the
                 service request failed.
         """
-        text = build_fields_text(step_text, previous_steps, snapshot, page_api, existing_code, error)
+        text = build_fields_text(
+            user_instructions, step_text, previous_steps, snapshot, page_api, existing_code, error
+        )
         messages = [
             {"role": "system", "content": prompt},
             {"role": "user", "content": openai_user_content(text, screenshot)},

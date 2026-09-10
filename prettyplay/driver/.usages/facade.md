@@ -12,6 +12,9 @@ The facade wraps the Playwright sync API. Step code receives a `PageFacade` and 
 | page.find_by_role(role, name) | element by aria role and accessible name |
 | page.find_by_label(label) | element by associated label |
 | page.find_by_text(text) | element by visible text |
+| page.find_by_attribute(name, value) | element by attribute value — data-* attributes |
+| page.find_by_css(selector) | element by CSS selector |
+| page.find_by_xpath(xpath) | element by XPath expression |
 | page.aria_snapshot() | accessibility-tree page state |
 | page.screenshot() | full-page PNG bytes |
 | page.url | current URL |
@@ -39,6 +42,11 @@ page.find_by_label("Password").fill("secret")
 page.find_by_role("button", name="Sign in").click()
 page.find_by_text("Welcome back").expect_visible()
 
+# locating by data attributes, CSS and XPath
+page.find_by_attribute("data-test-id", "submit-button").click()
+page.find_by_css("form > button.primary").expect_enabled()
+page.find_by_xpath("//button[@type='submit']").expect_visible()
+
 # scroll scenarios
 page.scroll_down(600)
 page.find_by_text("Footer").expect_visible()
@@ -52,7 +60,7 @@ snapshot = page.aria_snapshot()
 
 ## Rules
 
-- Contexts are isolated per test; the browser process is shared per run
+- One browser process per test: each test owns its browser through its runtime; contexts stay isolated
 - Every call executes in the library's driver thread and returns when done: driving is strictly sequential, and the calling thread never adopts the Playwright event loop — hand-written step code stays safe in interactive hosts (IPython, Jupyter)
 - Auto-wait everywhere: no time.sleep, no fixed delays in step code — including around scrolls: the scrolled state is awaited through locators and expectations
 - Never put secrets into step actions — step texts and code land in the repository cache

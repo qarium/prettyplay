@@ -16,7 +16,7 @@ from .text import first_line_short
 logger = logging.getLogger("prettyplay")
 
 #: System prompt of every generation request; applied verbatim by the provider.
-GENERATION_PROMPT = """You generate executable Python code for one step of a web UI test.
+SYSTEM_PROMPT = """You generate executable Python code for one step of a web UI test.
 
 Input you receive:
 - STEP: the step sentence in a natural language
@@ -24,6 +24,7 @@ Input you receive:
 - PAGE SNAPSHOT: the accessibility snapshot of the current page
 - SCREENSHOT: an image of the page, when attached
 - PAGE API: the exact surface listing of the page facade — call nothing outside it
+- USER INSTRUCTIONS: the project's code style guidance, when configured
 - CODE: the existing step code that failed (regeneration requests only)
 - ERROR: the failure description of the existing code (regeneration requests only)
 
@@ -37,6 +38,7 @@ Rules:
 - Work only through the page API: the request carries the exact surface listing of the page facade — call nothing outside it
 - For an assertion sentence end with an expectation call; for an action sentence perform the actions
 - Locating by role and accessible name is preferred; by visible text next; by label for form fields
+- Attribute, CSS and XPath locating exist for elements without accessible names — the accessibility-first priority stands unless USER INSTRUCTIONS say otherwise
 - Scroll abilities exist for scenario scrolling: bring an element into view, scroll by an amount, to the page end or start, inside a scrollable container
 - No fixed delays, no sleeps, no explicit waits — the facade waits itself
 - The step must complete exactly what STEP says — nothing more, nothing less
@@ -50,6 +52,9 @@ PAGE_API_SURFACE = """page.open(url)                    — navigate and wait fo
 page.find_by_role(role, name)     — element by aria role and accessible name
 page.find_by_label(label)         — element by associated label
 page.find_by_text(text)           — element by visible text
+page.find_by_attribute(name, value) — element by attribute value — data-* attributes
+page.find_by_css(selector)        — element by CSS selector
+page.find_by_xpath(xpath)         — element by XPath expression
 page.aria_snapshot()              — accessibility-tree page state
 page.screenshot()                 — full-page PNG bytes
 page.url                          — current URL
@@ -82,7 +87,7 @@ class StepGenerator:
         _config: project settings; the screenshot flag feeds the requests.
         _provider: the LLM port implementation doing the requests.
         _cache: the store where working steps are saved.
-        _budgets: the per-run attempt registry of the engine.
+        _budgets: the per-test attempt registry of the engine.
         _reporter: the visibility point for generation and cache events.
     """
 
@@ -100,7 +105,7 @@ class StepGenerator:
             config: project settings; ``send_screenshots`` attaches page images.
             provider: the LLM port implementation.
             cache: the store of working steps.
-            budgets: the per-run attempt registry.
+            budgets: the per-test attempt registry.
             reporter: the visibility point for engine events.
         """
         self._config = config
@@ -236,7 +241,8 @@ class StepGenerator:
             screenshot = page.screenshot() if self._config.send_screenshots else None
 
             code = self._provider.generate_step_code(
-                prompt=GENERATION_PROMPT,
+                prompt=SYSTEM_PROMPT,
+                user_instructions=self._config.generation_prompt,
                 step_text=step_text,
                 previous_steps=previous_steps,
                 snapshot=snapshot,

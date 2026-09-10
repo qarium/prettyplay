@@ -31,7 +31,7 @@ Imports:
 
 Usages:
   conventions: .goga/usages/conventions.md
-  generation_prompt: |
+  system_prompt: |
     You generate executable Python code for one step of a web UI test.
 
     Input you receive:
@@ -40,6 +40,7 @@ Usages:
     - PAGE SNAPSHOT: the accessibility snapshot of the current page
     - SCREENSHOT: an image of the page, when attached
     - PAGE API: the exact surface listing of the page facade — call nothing outside it
+    - USER INSTRUCTIONS: the project's code style guidance, when configured
     - CODE: the existing step code that failed (regeneration requests only)
     - ERROR: the failure description of the existing code (regeneration requests only)
 
@@ -53,6 +54,7 @@ Usages:
     - Work only through the page API: the request carries the exact surface listing of the page facade — call nothing outside it
     - For an assertion sentence end with an expectation call; for an action sentence perform the actions
     - Locating by role and accessible name is preferred; by visible text next; by label for form fields
+    - Attribute, CSS and XPath locating exist for elements without accessible names — the accessibility-first priority stands unless USER INSTRUCTIONS say otherwise
     - Scroll abilities exist for scenario scrolling: bring an element into view, scroll by an amount, to the page end or start, inside a scrollable container
     - No fixed delays, no sleeps, no explicit waits — the facade waits itself
     - The step must complete exactly what STEP says — nothing more, nothing less
@@ -82,18 +84,56 @@ Annotations: |
   Use `conventions` for code writing rules and testing.
   Use `facade` from Imports for the page API the generated code works through.
   Use `classification` from Imports for the healing decision categories.
-  Use `generation_prompt` as the system prompt of every code generation request.
+  Use `system_prompt` as the system prompt of every code generation request.
   Use `classification_prompt` as the system prompt of every failure classification request.
   Use `facade` from Imports as the single source of the page API surface for generation requests.
 
   The fixed form of step code: one function receiving exactly one argument — the `PageFacade` of the test; the function body works only through `PageFacade` and the LocatorFacade element API.
-  Every attempt — generation or healing — consumes the shared per-step budget of the run; exhaustion is the incurable failure, never an infinite loop.
+  Every attempt — generation or healing — consumes the shared per-step budget of the test; exhaustion is the incurable failure, never an infinite loop.
   Healing never masks a product defect: a classified product_defect fails the test loudly; a healed step is reported loudly and written back to the cache.
   Every terminal failure carries a verdict — a `FailureVerdict` of category, explanation, recommendation — fully present in the exception message, the verdict hook event and the log; an unavailable LLM skips the verdict quietly with a WARNING, the failure itself is never delayed or distorted — the quiet skip applies to verdicts enriching an already-decided failure; the classification driving the healing decision surfaces as the infrastructure failure.
   A failed check of a candidate stops the generation retries: a check that executed and did not hold is classified, not regenerated.
   The page API surface listing sent to the provider mirrors `facade` from Imports exactly — the listing and the practice change together.
+  The user instructions of the project settings — the generation_prompt field of `Config` — reach generation and regeneration requests only; classification requests never carry them; the instructions take no part in the step address: a cached step never regenerates because the instructions changed.
 
 ---
+
+"StepGenerator(config: Config, provider: LlmProvider, cache: StepCache, budgets: RunBudgets, reporter: StepReporter)":
+  location: generator.py
+  annotations: |
+    The generation engine: produce working step code for an unknown step, executing candidates against the live page.
+
+    `config`: project settings — the screenshot flag and the generation instructions.
+    `provider`: the LLM port.
+    `cache`: the step cache — a generated step is stored on success.
+    `budgets`: the per-test attempt registry.
+    `reporter`: the visibility point.
+  methods:
+    "generate(identity: StepIdentity, step_text: str, previous_steps: list[str], page: PageFacade) -> step: CachedStep": |
+      Generate and store a new step.
+
+      Algorithm:
+      1. Ask the budgets registry try_generation for the step identity; a refused attempt is the incurable failure
+      2. Collect the request inputs: the page accessibility snapshot, the step sentence, `previous_steps`, and the page API surface from `facade`; add the page screenshot when the project settings enable screenshots
+      3. Request step code from the provider port generate_step_code passing `system_prompt` as the system prompt, the page API surface listing taken from `facade`, and the user instructions — the effective config generation_prompt — when non-empty
+      4. Execute the candidate with `run_step_code` against `page`
+      5. On success: build `CachedStep`, save it to the cache, return it
+      6. On a candidate failure that is an AssertionError — a check that executed and did not hold: stop the retries immediately and classify via `classify_step_failure`; a product_defect verdict raises `ProductDefectError` carrying the verdict, any other verdict raises `IncurableStepError` carrying it — the reason names the failed candidate check; provider unavailability at this classification is skipped quietly with a WARNING — `IncurableStepError` is raised without a verdict, the reason naming the failed candidate check (the failed check is the primary signal, the verdict is enrichment)
+      7. On any other candidate failure: repeat from step 1 with the fresh failure description and the fresh snapshot, while attempts remain
+      8. On budget exhaustion: classify the last candidate via `classify_step_failure` and raise `IncurableStepError` carrying the verdict — the reason names the exhausted pool and the last candidate failure; provider unavailability at this classification is skipped quietly with a WARNING, the failure raises without a verdict
+      9. Report on_generation_started for every attempt
+
+      Requirements:
+      - Every generation request carries the exact page API surface taken from `facade` from Imports: the model always sees the precise list of calls it may use
+      - Provider unavailability of a generation request surfaces as `LlmUnavailableError` immediately — no retry on it
+      - Provider unavailability of a failed-check classification is skipped quietly with a WARNING: the failure raises without a verdict — the failed check itself is the primary signal
+      - Exactly one failed check stops the retries: the attempt budget is never spent on a legitimately failing assertion
+      - A verdict requested on this path fully reaches the raised error
+    "regenerate(identity: StepIdentity, step_text: str, previous_steps: list[str], page: PageFacade, existing_code: str, error: str) -> step: CachedStep": |
+      Regenerate a failed step for healing.
+
+      Algorithm:
+      1. The same loop as the generate method with three additions: every provider request carries `existing_code` and `error` and the user instructions — the effective config generation_prompt — when non-empty; attempts consume the healing budget via try_healing; a budget exhaustion raises `IncurableStepError` without classification — the healer attaches the verdict of its own classification, no extra LLM request is made (the failed-check classification of the generate loop applies on both pools)
 
 "run_step_code(code: str, page: PageFacade)":
   location: execution.py
@@ -136,43 +176,6 @@ Annotations: |
     Constraints:
     - Provider unavailability propagates to the caller: this routine never swallows it — the calling path decides whether it is a terminal infrastructure failure or a quiet verdict skip
 
-"StepGenerator(config: Config, provider: LlmProvider, cache: StepCache, budgets: RunBudgets, reporter: StepReporter)":
-  location: generator.py
-  annotations: |
-    The generation engine: produce working step code for an unknown step, executing candidates against the live page.
-
-    `config`: project settings — the screenshot flag.
-    `provider`: the LLM port.
-    `cache`: the step cache — a generated step is stored on success.
-    `budgets`: the per-run attempt registry.
-    `reporter`: the visibility point.
-  methods:
-    "generate(identity: StepIdentity, step_text: str, previous_steps: list[str], page: PageFacade) -> step: CachedStep": |
-      Generate and store a new step.
-
-      Algorithm:
-      1. Ask the budgets registry try_generation for the step identity; a refused attempt is the incurable failure
-      2. Collect the request inputs: the page accessibility snapshot, the step sentence, `previous_steps`, and the page API surface from `facade`; add the page screenshot when the project settings enable screenshots
-      3. Request step code from the provider port passing `generation_prompt` as the system prompt and the page API surface listing taken from `facade`
-      4. Execute the candidate with `run_step_code` against `page`
-      5. On success: build `CachedStep`, save it to the cache, return it
-      6. On a candidate failure that is an AssertionError — a check that executed and did not hold: stop the retries immediately and classify via `classify_step_failure`; a product_defect verdict raises `ProductDefectError` carrying the verdict, any other verdict raises `IncurableStepError` carrying it — the reason names the failed candidate check; provider unavailability at this classification is skipped quietly with a WARNING — `IncurableStepError` is raised without a verdict, the reason naming the failed candidate check (the failed check is the primary signal, the verdict is enrichment)
-      7. On any other candidate failure: repeat from step 1 with the fresh failure description and the fresh snapshot, while attempts remain
-      8. On budget exhaustion: classify the last candidate via `classify_step_failure` and raise `IncurableStepError` carrying the verdict — the reason names the exhausted pool and the last candidate failure; provider unavailability at this classification is skipped quietly with a WARNING, the failure raises without a verdict
-      9. Report on_generation_started for every attempt
-
-      Requirements:
-      - Every generation request carries the exact page API surface taken from `facade` from Imports: the model always sees the precise list of calls it may use
-      - Provider unavailability of a generation request surfaces as `LlmUnavailableError` immediately — no retry on it
-      - Provider unavailability of a failed-check classification is skipped quietly with a WARNING: the failure raises without a verdict — the failed check itself is the primary signal
-      - Exactly one failed check stops the retries: the attempt budget is never spent on a legitimately failing assertion
-      - A verdict requested on this path fully reaches the raised error
-    "regenerate(identity: StepIdentity, step_text: str, previous_steps: list[str], page: PageFacade, existing_code: str, error: str) -> step: CachedStep": |
-      Regenerate a failed step for healing.
-
-      Algorithm:
-      1. The same loop as the generate method with three additions: every provider request carries `existing_code` and `error`; attempts consume the healing budget via try_healing; a budget exhaustion raises `IncurableStepError` without classification — the healer attaches the verdict of its own classification, no extra LLM request is made (the failed-check classification of the generate loop applies on both pools)
-
 "StepHealer(config: Config, provider: LlmProvider, generator: StepGenerator, cache: StepCache, budgets: RunBudgets, reporter: StepReporter)":
   location: healer.py
   annotations: |
@@ -182,7 +185,7 @@ Annotations: |
     `provider`: the LLM port for classification.
     `generator`: the regeneration engine.
     `cache`: the step cache for the healed write-back.
-    `budgets`: the per-run attempt registry.
+    `budgets`: the per-test attempt registry.
     `reporter`: the visibility point.
   methods:
     "heal(step: CachedStep, error: str, previous_steps: list[str], page: PageFacade) -> step: CachedStep": |
