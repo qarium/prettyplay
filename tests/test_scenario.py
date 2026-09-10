@@ -197,12 +197,22 @@ class TestPrettyTestLogic:
         for name in (
             "PRETTYPLAY_MODEL",
             "PRETTYPLAY_BROWSER_NAME",
+            "PRETTYPLAY_BROWSER_SCREEN",
+            "PRETTYPLAY_BROWSER_HEADLESS",
+            "PRETTYPLAY_BROWSER_ENDPOINT",
+            "PRETTYPLAY_STRICT",
+            "PRETTYPLAY_CLASSIFICATION_PROMPT",
             "PRETTYPLAY_CACHE_ROOT",
             "PRETTYPLAY_GENERATION_PROMPT",
         ):
             monkeypatch.delenv(name, raising=False)
 
-        write_pyproject(model="gpt-4o", browser="firefox", generation_prompt="file instructions")
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(
+            '[tool.prettyplay]\nmodel = "gpt-4o"\ngeneration_prompt = "file instructions"\n'
+            '\n[tool.prettyplay.browser]\nname = "firefox"\n',
+            encoding="utf-8",
+        )
         monkeypatch.chdir(tmp_path)  # load_config(None) walks up from cwd for pyproject.toml
 
         test = PrettyTest(CACHE_KEY, config=PrettyConfig(generation_prompt="per-test instructions"))
@@ -210,7 +220,7 @@ class TestPrettyTestLogic:
         effective = test._runtime.config
         assert effective.generation_prompt == "per-test instructions"  # the programmatic layer wins
         assert effective.model == "gpt-4o"  # untouched fields come from the file
-        assert effective.browser == "firefox"
+        assert effective.browser.name == "firefox"
         assert effective.cache_root == str(tmp_path / ".prettyplay" / "cache")
 
     def test_scenario_close_stops_page_and_runtime(self, tmp_path: Path) -> None:

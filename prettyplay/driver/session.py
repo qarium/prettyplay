@@ -132,8 +132,9 @@ class DriverSession:
     running asyncio loop.
 
     Attributes:
-        _config: project settings; ``browser`` selects the engine of the matrix,
-            ``browser_endpoint`` switches the start to a remote ws connect.
+        _config: project settings; the ``browser`` group selects the engine of
+            the matrix and its ``endpoint`` switches the start to a remote ws
+            connect.
         _playwright: the started Playwright driver; ``None`` until first start.
         _browser: the connected or launched browser process; ``None`` until first start.
         _worker: the thread owning the Playwright session; ``None`` until first start.
@@ -143,7 +144,7 @@ class DriverSession:
         """Keep the config; nothing is started yet.
 
         Args:
-            config: project settings; the browser setting selects the engine.
+            config: project settings; the ``browser`` group selects the engine.
         """
         self._config = config
         self._playwright: Playwright | None = None
@@ -234,17 +235,17 @@ class DriverSession:
         self._browser = browser
 
     def _launch_engine(self, playwright: Playwright) -> Browser:
-        """Start the browser engine selected by the configuration.
+        """Start the browser engine selected by the browser group of the configuration.
 
-        A set ``browser_endpoint`` connects over the Playwright ws endpoint of
-        the selected engine instead of launching locally: the browser setting
+        A set group ``endpoint`` connects over the Playwright ws endpoint of
+        the selected engine instead of launching locally: the group ``name``
         selects the engine type (``chrome``/``msedge`` map to chromium —
         channels do not apply to a connect) and ``headless`` is ignored, because
         window visibility belongs to the endpoint server. Playwright's raw
         connect error carries only the OS-level cause and never the endpoint
         URL, so a failed connect is re-raised wrapped, chained to the original.
 
-        Otherwise every engine launches with the ``headless`` setting;
+        Otherwise every engine launches with the group ``headless`` setting;
         ``chrome``/``msedge`` name a locally installed browser launched through
         the chromium engine with the matching channel. A channel launch without
         the installed browser fails with Playwright's own actionable error,
@@ -259,7 +260,8 @@ class DriverSession:
         Raises:
             Error: a connect failure, wrapped with the endpoint in the message.
         """
-        name = self._config.browser
+        group = self._config.browser
+        name = group.name
 
         engines: dict[str, object] = {
             "chromium": playwright.chromium,
@@ -267,8 +269,8 @@ class DriverSession:
             "webkit": playwright.webkit,
         }
 
-        if self._config.browser_endpoint:
-            endpoint = self._config.browser_endpoint
+        if group.endpoint:
+            endpoint = group.endpoint
             engine = playwright.chromium if name in ("chrome", "msedge") else engines[name]
             try:
                 return cast(Browser, engine.connect(endpoint))
@@ -284,5 +286,5 @@ class DriverSession:
             channel = None
 
         if channel:
-            return cast(Browser, engine.launch(headless=self._config.headless, channel=channel))
-        return cast(Browser, engine.launch(headless=self._config.headless))
+            return cast(Browser, engine.launch(headless=group.headless, channel=channel))
+        return cast(Browser, engine.launch(headless=group.headless))

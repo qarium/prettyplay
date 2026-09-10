@@ -279,9 +279,9 @@ Implements the `BrowserConfig` group and the restructured `Config` in `prettypla
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Declaration**: state that Task 3 (config cell) is being executed
-- [ ] **Contract tests**: add to `tests/config/test_models.py` and `tests/config/test_loader.py` — facade accessibility (`from prettyplay.config import BrowserConfig, PrettyConfig, Config, ConfigurationError, load_config`); `BrowserConfig` kw_only construction with the four fields; `Config` carries `browser: BrowserConfig`, `strict: bool = False`, `classification_prompt: str = ""` and no flat browser fields; `load_config(pyproject_path, overrides)` signature unchanged (expected to fail at this stage)
-- [ ] **Code**: implement `BrowserConfig` in `prettyplay/config/models.py`:
+- [x] **Declaration**: state that Task 3 (config cell) is being executed
+- [x] **Contract tests**: add to `tests/config/test_models.py` and `tests/config/test_loader.py` — facade accessibility (`from prettyplay.config import BrowserConfig, PrettyConfig, Config, ConfigurationError, load_config`); `BrowserConfig` kw_only construction with the four fields; `Config` carries `browser: BrowserConfig`, `strict: bool = False`, `classification_prompt: str = ""` and no flat browser fields; `load_config(pyproject_path, overrides)` signature unchanged (expected to fail at this stage)
+- [x] **Code**: implement `BrowserConfig` in `prettyplay/config/models.py`:
 
 ```
 1. pydantic BaseModel, kw_only=True
@@ -296,7 +296,7 @@ Implements the `BrowserConfig` group and the restructured `Config` in `prettypla
      ValueError("must be positive integers in WxH form"); no match → keep verbatim (fullscreen, device names)
 ```
 
-- [ ] **Code**: restructure `Config` in `prettyplay/config/models.py`:
+- [x] **Code**: restructure `Config` in `prettyplay/config/models.py`:
 
 ```
 1. FIELDS (kw_only, empty defaults):
@@ -313,7 +313,7 @@ Implements the `BrowserConfig` group and the restructured `Config` in `prettypla
 3. PrettyConfig = Config alias (unchanged)
 ```
 
-- [ ] **Code**: implement the layered `load_config` in `prettyplay/config/loader.py`:
+- [x] **Code**: implement the layered `load_config` in `prettyplay/config/loader.py`:
 
 ```
 1. resolve pyproject path (given / searched upward)
@@ -368,10 +368,10 @@ str settings: verbatim
 
 The env name map: `PRETTYPLAY_<SETTING_UPPER>` for scalars; `PRETTYPLAY_STRICT`; `PRETTYPLAY_CLASSIFICATION_PROMPT`; group `PRETTYPLAY_BROWSER_{NAME|SCREEN|HEADLESS|ENDPOINT}`.
 
-- [ ] **Code**: export `BrowserConfig` from `prettyplay/config/__init__.py` (beside `PrettyConfig`)
-- [ ] **Code**: minimal driver adaptation in `prettyplay/driver/session.py` — `_launch_engine` reads `self._config.browser.name`, `self._config.browser.headless`, `self._config.browser.endpoint` (semantics unchanged; no screen logic yet); update the constructor/attribute docstrings accordingly
-- [ ] **Interface verification**: run `pytest tests/config/ tests/driver/ -v` — the contract tests pass
-- [ ] **Logic tests** (scenarios from the design, verbatim; every test touching `load_config` pins/clears the six greedily-read env vars — `PRETTYPLAY_BROWSER_{NAME,SCREEN,HEADLESS,ENDPOINT}`, `PRETTYPLAY_STRICT`, `PRETTYPLAY_CLASSIFICATION_PROMPT`):
+- [x] **Code**: export `BrowserConfig` from `prettyplay/config/__init__.py` (beside `PrettyConfig`)
+- [x] **Code**: minimal driver adaptation in `prettyplay/driver/session.py` — `_launch_engine` reads `self._config.browser.name`, `self._config.browser.headless`, `self._config.browser.endpoint` (semantics unchanged; no screen logic yet); update the constructor/attribute docstrings accordingly
+- [x] **Interface verification**: run `pytest tests/config/ tests/driver/ -v` — the contract tests pass
+- [x] **Logic tests** (scenarios from the design, verbatim; every test touching `load_config` pins/clears the six greedily-read env vars — `PRETTYPLAY_BROWSER_{NAME,SCREEN,HEADLESS,ENDPOINT}`, `PRETTYPLAY_STRICT`, `PRETTYPLAY_CLASSIFICATION_PROMPT`):
   - `test_browser_config_defaults_and_kw_only` (positive) — `BrowserConfig()` defaults `name="chromium"`, `screen=""`, `headless is True`, `endpoint=""`; `pytest.raises(TypeError)` on `BrowserConfig("chromium")` (positional rejected — kw_only)
   - `test_config_uses_nested_browser_group_and_new_switches` (positive) — `Config(browser={"name": "firefox", "screen": "1280x720"}, strict=True, classification_prompt="answer in Russian")`: the dict validates into `BrowserConfig` (nested validators run); `config.browser.name == "firefox"`; `config.browser.screen == "1280x720"`; `config.browser.headless is True`; `config.browser.endpoint == ""`; `config.strict is True`; `config.classification_prompt == "answer in Russian"`; `Config().strict is False`; `Config().classification_prompt == ""`
   - `test_load_config_reads_browser_group_and_rejects_flat_keys` (positive) — pyproject with `[tool.prettyplay] provider = "openai"` and `[tool.prettyplay.browser] name = "firefox"`, `screen = "fullscreen"`, `headless = false`, `endpoint = ""` → `config.browser.name == "firefox"`, `config.browser.screen == "fullscreen"`, `config.browser.headless is False`, `config.provider == "openai"`
@@ -380,11 +380,11 @@ The env name map: `PRETTYPLAY_<SETTING_UPPER>` for scalars; `PRETTYPLAY_STRICT`;
   - `test_load_config_env_scalar_parse_failures` (negative) — `PRETTYPLAY_STRICT=maybe`, `PRETTYPLAY_BROWSER_HEADLESS=yes`, `PRETTYPLAY_GENERATION_ATTEMPTS=three` (separate cases): `pytest.raises(ConfigurationError)`; the message names the setting, the received value and the accepted form, e.g. `"strict: received 'maybe' — allowed: a boolean (true/false/1/0)"`; a yes-variant for a browser bool is rejected (pydantic's wider lax set is bypassed)
   - `test_browser_config_validation_failures` (negative) — `BrowserConfig(name="opera")`; `BrowserConfig(endpoint="http://x")`; `Config(browser={"screen": "0x720"})`: `ValidationError` locs `("browser", "name")` / `("browser", "endpoint")` / `("browser", "screen")`; through `load_config` the rendered line starts `"browser.name: received 'opera' — allowed: chromium, firefox, webkit, chrome, msedge"`; `"0x720"` rejected ("must be positive"); `"fullscreen"` and `"iPhone 13"` accepted verbatim
   - `test_load_config_nested_group_merge_matrix` (edge) — file group `{"name": "firefox", "headless": false}`; cases: (a) `overrides=PrettyConfig(browser=BrowserConfig(screen="fullscreen"))` → browser stays firefox, `screen == "fullscreen"`, `headless is False` (file values survive, set fields win); (b) `overrides=PrettyConfig(browser=BrowserConfig())` → the file group unchanged (untouched defaults never overwrite); (c) `overrides=PrettyConfig(strict=False)` over file `strict=true` → `strict is False` (explicit False overrides too); (d) `overrides=PrettyConfig(browser=BrowserConfig(name=""))` → `name` stays `"firefox"` (empty string means unset inside the group too)
-- [ ] **Code**: update existing tests constructing `Config` with flat fields (`tests/config/test_models.py`, `tests/config/test_loader.py`, `tests/driver/test_session.py`, `tests/test_scenario.py`) to the group shape and the new env hygiene
-- [ ] **Debugging**: run `pytest tests/ -x` — fix implementation code until all tests pass
-- [ ] **Contract re-verification**: nested loc rendering (`browser.name`, `browser.endpoint`, `strict`, …) via `_ALLOWED_TEXT`; `ConfigurationError` still derives from `PrettyplayError`; no raw `ValidationError` escapes
-- [ ] **Lint**: `ruff check prettyplay/` — fix formatting, apply decomposition if necessary
-- [ ] **Completion**: mark the checkboxes of this task as completed
+- [x] **Code**: update existing tests constructing `Config` with flat fields (`tests/config/test_models.py`, `tests/config/test_loader.py`, `tests/driver/test_session.py`, `tests/test_scenario.py`) to the group shape and the new env hygiene
+- [x] **Debugging**: run `pytest tests/ -x` — fix implementation code until all tests pass
+- [x] **Contract re-verification**: nested loc rendering (`browser.name`, `browser.endpoint`, `strict`, …) via `_ALLOWED_TEXT`; `ConfigurationError` still derives from `PrettyplayError`; no raw `ValidationError` escapes
+- [x] **Lint**: `ruff check prettyplay/` — fix formatting, apply decomposition if necessary
+- [x] **Completion**: mark the checkboxes of this task as completed
 
 ### Task 4: `prettyplay/llm` — classification user instructions with provider parity (TDD)
 
