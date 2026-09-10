@@ -22,7 +22,16 @@ GENERATE_STEP_CODE_PARAMS = [
     "existing_code",
     "error",
 ]
-CLASSIFY_FAILURE_PARAMS = ["self", "prompt", "step_text", "code", "error", "snapshot", "screenshot"]
+CLASSIFY_FAILURE_PARAMS = [
+    "self",
+    "prompt",
+    "user_instructions",
+    "step_text",
+    "code",
+    "error",
+    "snapshot",
+    "screenshot",
+]
 
 WORKING_CODE = "def step(page) -> None:\n    page.open('https://example.com')\n"
 USER_INSTRUCTIONS = "prefer data-test-id"
@@ -111,6 +120,7 @@ class TestOpenAIProviderLogic:
         with pytest.raises(LLMUnavailableError) as excinfo:
             provider.classify_failure(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 code="c",
                 error="e",
@@ -128,6 +138,7 @@ class TestOpenAIProviderLogic:
         with mock.patch.object(provider, "_get_client", return_value=client):
             classification = provider.classify_failure(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 code="c",
                 error="e",
@@ -246,6 +257,7 @@ class TestOpenAIProviderLogic:
         with mock.patch.object(provider, "_get_client", return_value=client):
             provider.classify_failure(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 code="c",
                 error="e",
@@ -290,6 +302,7 @@ class TestOpenAIProviderLogic:
         with mock.patch.object(provider, "_get_client", return_value=client):
             classification = provider.classify_failure(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 code="c",
                 error="e",
@@ -310,6 +323,7 @@ class TestOpenAIProviderLogic:
         with mock.patch.object(provider, "_get_client", return_value=client):
             classification = provider.classify_failure(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 code="c",
                 error="e",
@@ -330,6 +344,7 @@ class TestOpenAIProviderLogic:
         ):
             provider.classify_failure(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 code="c",
                 error="e",
@@ -347,6 +362,7 @@ class TestOpenAIProviderLogic:
         with mock.patch.object(provider, "_get_client", return_value=client):
             classification = provider.classify_failure(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 code="c",
                 error="e",
@@ -369,6 +385,7 @@ class TestOpenAIProviderLogic:
         ):
             provider.classify_failure(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 code="c",
                 error="e",
@@ -456,7 +473,7 @@ class TestOpenAIProviderLogic:
         assert f"USER INSTRUCTIONS:\n{USER_INSTRUCTIONS}" in user
         assert user.index("PAGE API:") < user.index("USER INSTRUCTIONS:")  # after the page API block
 
-    def test_classify_failure_never_carries_user_instructions(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_classify_failure_never_carries_generation_instructions(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, requests = make_client_create(answer="rot | e | r")
         provider = OpenAIProvider(Config(model="gpt-5", generation_prompt=USER_INSTRUCTIONS))
@@ -464,6 +481,7 @@ class TestOpenAIProviderLogic:
         with mock.patch.object(provider, "_get_client", return_value=client):
             provider.classify_failure(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 code="c",
                 error="e",
@@ -472,7 +490,27 @@ class TestOpenAIProviderLogic:
             )
 
         user = requests[0]["messages"][1]["content"]
-        assert "USER INSTRUCTIONS" not in user  # ADR-3: classification without instructions
+        assert "USER INSTRUCTIONS" not in user  # the generation_prompt setting never reaches classifications
+
+    def test_classification_carries_the_instructions_block_last(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "test")
+        client, requests = make_client_create(answer="rot | e | r")
+        provider = OpenAIProvider(Config(model="gpt-5", classification_prompt=USER_INSTRUCTIONS))
+
+        with mock.patch.object(provider, "_get_client", return_value=client):
+            provider.classify_failure(
+                prompt="p",
+                user_instructions=USER_INSTRUCTIONS,
+                step_text="s",
+                code="c",
+                error="e",
+                snapshot="- snap",
+                screenshot=None,
+            )
+
+        user = requests[0]["messages"][1]["content"]
+        assert user.endswith(f"USER INSTRUCTIONS:\n{USER_INSTRUCTIONS}")  # the block is appended last
+        assert user.index("PAGE SNAPSHOT:") < user.index("USER INSTRUCTIONS:")
 
     def test_empty_choices_in_classify_maps_to_llm_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
@@ -488,6 +526,7 @@ class TestOpenAIProviderLogic:
         ):
             provider.classify_failure(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 code="c",
                 error="e",

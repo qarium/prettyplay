@@ -68,6 +68,7 @@ class RecordingProvider(LLMProvider):
     def classify_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
         prompt: str,
+        user_instructions: str,
         step_text: str,
         code: str,
         error: str,

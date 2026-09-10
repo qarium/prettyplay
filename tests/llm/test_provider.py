@@ -1,6 +1,8 @@
 """Tests for the LLMProvider port and the create_provider factory of the prettyplay.llm cell."""
 
 import inspect
+from types import SimpleNamespace
+from unittest import mock
 
 import pytest
 from prettyplay.config import Config
@@ -18,7 +20,16 @@ GENERATE_STEP_CODE_PARAMS = [
     "existing_code",
     "error",
 ]
-CLASSIFY_FAILURE_PARAMS = ["self", "prompt", "step_text", "code", "error", "snapshot", "screenshot"]
+CLASSIFY_FAILURE_PARAMS = [
+    "self",
+    "prompt",
+    "user_instructions",
+    "step_text",
+    "code",
+    "error",
+    "snapshot",
+    "screenshot",
+]
 
 
 class TestLLMProviderContract:
@@ -42,6 +53,14 @@ class TestLLMProviderContract:
         assert list(signature.parameters) == CLASSIFY_FAILURE_PARAMS
         assert signature.return_annotation is not inspect.Signature.empty
 
+    def test_classify_failure_signature_carries_user_instructions(self) -> None:
+        for owner in (LLMProvider, OpenAIProvider, AnthropicProvider):
+            parameters = inspect.signature(owner.classify_failure).parameters
+            names = list(parameters)
+
+            assert names[names.index("prompt") + 1] == "user_instructions", owner.__name__
+            assert parameters["user_instructions"].annotation is str, owner.__name__
+
     def test_base_methods_raise_not_implemented(self) -> None:
         port = LLMProvider()
 
@@ -59,7 +78,15 @@ class TestLLMProviderContract:
             )
 
         with pytest.raises(NotImplementedError):
-            port.classify_failure(prompt="p", step_text="s", code="c", error="e", snapshot="- snap", screenshot=None)
+            port.classify_failure(
+                prompt="p",
+                user_instructions="",
+                step_text="s",
+                code="c",
+                error="e",
+                snapshot="- snap",
+                screenshot=None,
+            )
 
 
 class TestSkeletonImplementationsContract:
@@ -131,3 +158,100 @@ class TestInitialismRenames:
         provider = create_provider(Config(provider="openai"))
         assert isinstance(provider, prettyplay.llm.OpenAIProvider)
         assert isinstance(provider, prettyplay.llm.LLMProvider)
+
+
+CLASSIFICATION_ANSWER = "rot | explanation | recommendation"
+GENERATION_ANSWER = "def step(page) -> None:\n    pass\n"
+
+
+def _openai_client(answer: str) -> tuple[object, list[dict]]:
+    """Build a fake openai SDK client capturing every request payload.
+
+    Returns:
+        The fake client and the list the request payloads get appended to.
+    """
+    requests: list[dict] = []
+    message = SimpleNamespace(content=answer)
+    response = SimpleNamespace(choices=[SimpleNamespace(message=message)])
+    create = mock.MagicMock(return_value=response, side_effect=lambda **kwargs: requests.append(kwargs) or response)
+    return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create))), requests
+
+
+def _anthropic_client(answer: str) -> tuple[object, list[dict]]:
+    """Build a fake anthropic SDK client capturing every request payload.
+
+    Returns:
+        The fake client and the list the request payloads get appended to.
+    """
+    requests: list[dict] = []
+    response = SimpleNamespace(content=[SimpleNamespace(type="text", text=answer)])
+    create = mock.MagicMock(return_value=response, side_effect=lambda **kwargs: requests.append(kwargs) or response)
+    return SimpleNamespace(messages=SimpleNamespace(create=create)), requests
+
+
+class TestClassificationInstructionsPlacement:
+    """Logic tests: the USER INSTRUCTIONS block reaches classification requests identically."""
+
+    def test_provider_classification_instructions_placement_parity(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "test")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+
+        cases = (
+            (OpenAIProvider(Config(model="gpt-5")), _openai_client),
+            (AnthropicProvider(Config(model="claude-sonnet-4-5")), _anthropic_client),
+        )
+
+        for provider, make_client in cases:
+            # classification with instructions: the block is the last section of the user content
+            client, requests = make_client(CLASSIFICATION_ANSWER)
+
+            with mock.patch.object(provider, "_get_client", return_value=client):
+                classification = provider.classify_failure(
+                    prompt="sys",
+                    user_instructions="be terse",
+                    step_text="s",
+                    code="c",
+                    error="e",
+                    snapshot="snap",
+                    screenshot=None,
+                )
+
+            assert classification.category == "rot"
+            user_content = requests[0]["messages"][-1]["content"]
+            assert user_content.endswith("USER INSTRUCTIONS:\nbe terse")
+            assert user_content.index("PAGE SNAPSHOT:") < user_content.index("USER INSTRUCTIONS:")
+
+            # classification without instructions: byte-identical to the old request form
+            empty_client, empty_requests = make_client(CLASSIFICATION_ANSWER)
+
+            with mock.patch.object(provider, "_get_client", return_value=empty_client):
+                provider.classify_failure(
+                    prompt="sys",
+                    user_instructions="",
+                    step_text="s",
+                    code="c",
+                    error="e",
+                    snapshot="snap",
+                    screenshot=None,
+                )
+
+            assert "USER INSTRUCTIONS" not in empty_requests[0]["messages"][-1]["content"]
+
+            # generation placement is unchanged: after PAGE API, before CODE/ERROR
+            gen_client, gen_requests = make_client(GENERATION_ANSWER)
+
+            with mock.patch.object(provider, "_get_client", return_value=gen_client):
+                provider.generate_step_code(
+                    prompt="sys",
+                    user_instructions="be terse",
+                    step_text="s",
+                    previous_steps=[],
+                    snapshot="snap",
+                    screenshot=None,
+                    page_api="page.open(...)",
+                    existing_code="def step(page) -> None:\n    pass\n",
+                    error="err",
+                )
+
+            gen_user = gen_requests[0]["messages"][-1]["content"]
+            assert gen_user.index("PAGE API:") < gen_user.index("USER INSTRUCTIONS:") < gen_user.index("CODE:")

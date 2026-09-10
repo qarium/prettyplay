@@ -23,7 +23,16 @@ GENERATE_STEP_CODE_PARAMS = [
     "existing_code",
     "error",
 ]
-CLASSIFY_FAILURE_PARAMS = ["self", "prompt", "step_text", "code", "error", "snapshot", "screenshot"]
+CLASSIFY_FAILURE_PARAMS = [
+    "self",
+    "prompt",
+    "user_instructions",
+    "step_text",
+    "code",
+    "error",
+    "snapshot",
+    "screenshot",
+]
 
 WORKING_CODE = "def step(page) -> None:\n    page.open('https://example.com')\n"
 USER_INSTRUCTIONS = "prefer data-test-id"
@@ -164,6 +173,7 @@ class TestAnthropicProviderLogic:
         ):
             provider.classify_failure(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 code="c",
                 error="e",
@@ -181,6 +191,7 @@ class TestAnthropicProviderLogic:
         with pytest.raises(LLMUnavailableError) as excinfo:
             provider.classify_failure(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 code="c",
                 error="e",
@@ -198,6 +209,7 @@ class TestAnthropicProviderLogic:
         with mock.patch.object(provider, "_get_client", return_value=client):
             classification = provider.classify_failure(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 code="c",
                 error="e",
@@ -292,6 +304,7 @@ class TestAnthropicProviderLogic:
         with mock.patch.object(provider, "_get_client", return_value=client):
             classification = provider.classify_failure(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 code="c",
                 error="e",
@@ -309,6 +322,7 @@ class TestAnthropicProviderLogic:
         with mock.patch.object(provider, "_get_client", return_value=client):
             classification = provider.classify_failure(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 code="c",
                 error="e",
@@ -396,6 +410,7 @@ class TestAnthropicProviderLogic:
         with mock.patch.object(provider, "_get_client", return_value=client):
             classification = provider.classify_failure(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 code="c",
                 error="e",
@@ -416,6 +431,7 @@ class TestAnthropicProviderLogic:
         with mock.patch.object(provider, "_get_client", return_value=client):
             provider.classify_failure(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 code="c",
                 error="e",
@@ -438,6 +454,7 @@ class TestAnthropicProviderLogic:
         ):
             provider.classify_failure(
                 prompt="p",
+                user_instructions="",
                 step_text="s",
                 code="c",
                 error="e",
@@ -470,3 +487,42 @@ class TestAnthropicProviderLogic:
         # parity: the same block at the same relative position as the openai implementation
         assert f"USER INSTRUCTIONS:\n{USER_INSTRUCTIONS}" in user
         assert user.index("PAGE API:") < user.index("USER INSTRUCTIONS:")
+
+    def test_classification_carries_the_instructions_block_last(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+        client, requests = make_client_create(answer="rot | e | r")
+        provider = AnthropicProvider(Config(model="claude-sonnet-4-5", classification_prompt=USER_INSTRUCTIONS))
+
+        with mock.patch.object(provider, "_get_client", return_value=client):
+            provider.classify_failure(
+                prompt="p",
+                user_instructions=USER_INSTRUCTIONS,
+                step_text="s",
+                code="c",
+                error="e",
+                snapshot="- snap",
+                screenshot=None,
+            )
+
+        user = requests[0]["messages"][0]["content"]
+        # parity: the same block appended last, exactly as in the openai implementation
+        assert user.endswith(f"USER INSTRUCTIONS:\n{USER_INSTRUCTIONS}")
+        assert user.index("PAGE SNAPSHOT:") < user.index("USER INSTRUCTIONS:")
+
+    def test_classification_without_instructions_matches_the_old_form(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+        client, requests = make_client_create(answer="rot | e | r")
+        provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+
+        with mock.patch.object(provider, "_get_client", return_value=client):
+            provider.classify_failure(
+                prompt="p",
+                user_instructions="",
+                step_text="s",
+                code="c",
+                error="e",
+                snapshot="- snap",
+                screenshot=None,
+            )
+
+        assert "USER INSTRUCTIONS" not in requests[0]["messages"][0]["content"]

@@ -42,7 +42,8 @@ def classify_step_failure(  # noqa: PLR0913, PLR0917 — the parameter list is f
     whether it is a terminal infrastructure failure or a quiet verdict skip.
 
     Args:
-        config: project settings; ``send_screenshots`` attaches page images.
+        config: project settings; ``send_screenshots`` attaches page images
+            and ``classification_prompt`` supplies the user instructions.
         provider: the LLM port implementation classifying the failure.
         step_text: the sentence of the failed step.
         code: the step code that failed.
@@ -61,6 +62,7 @@ def classify_step_failure(  # noqa: PLR0913, PLR0917 — the parameter list is f
 
     return provider.classify_failure(
         prompt=CLASSIFICATION_PROMPT,
+        user_instructions=config.classification_prompt,
         step_text=step_text,
         code=code,
         error=error,

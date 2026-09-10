@@ -79,6 +79,7 @@ class FakeProvider:
     def classify_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
         prompt: str,
+        user_instructions: str,
         step_text: str,
         code: str,
         error: str,
@@ -88,6 +89,7 @@ class FakeProvider:
         self.classify_failure_calls.append(
             {
                 "prompt": prompt,
+                "user_instructions": user_instructions,
                 "step_text": step_text,
                 "code": code,
                 "error": error,

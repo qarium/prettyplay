@@ -113,10 +113,15 @@ def build_fields_text(  # noqa: PLR0913, PLR0917 — the parameters mirror the f
     return "\n\n".join(sections)
 
 
-def build_classification_fields(step_text: str, code: str, error: str, snapshot: str) -> str:
+def build_classification_fields(user_instructions: str, step_text: str, code: str, error: str, snapshot: str) -> str:
     """Build the plain-text classification request fields shared by both providers.
 
     Args:
+        user_instructions: the project's classification guidance from the
+            classification_prompt setting; empty — the request carries no
+            instructions block, non-empty — rendered verbatim as a separate
+            USER INSTRUCTIONS block placed last of the user content,
+            identically in both implementations.
         step_text: the sentence of the failed step.
         code: the existing step code that failed.
         error: the human-readable description of the failure.
@@ -124,16 +129,19 @@ def build_classification_fields(step_text: str, code: str, error: str, snapshot:
 
     Returns:
         The request fields as one text with STEP / CODE / ERROR / PAGE
-        SNAPSHOT sections.
+        SNAPSHOT sections and the optional USER INSTRUCTIONS section last.
     """
-    return "\n\n".join(
-        [
-            f"STEP:\n{step_text}",
-            f"CODE:\n{code}",
-            f"ERROR:\n{error}",
-            f"PAGE SNAPSHOT:\n{snapshot}",
-        ]
-    )
+    sections = [
+        f"STEP:\n{step_text}",
+        f"CODE:\n{code}",
+        f"ERROR:\n{error}",
+        f"PAGE SNAPSHOT:\n{snapshot}",
+    ]
+
+    if user_instructions:
+        sections.append(f"USER INSTRUCTIONS:\n{user_instructions}")  # last
+
+    return "\n\n".join(sections)
 
 
 def encode_screenshot(screenshot: bytes) -> str:

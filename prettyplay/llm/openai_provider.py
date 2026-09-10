@@ -137,6 +137,7 @@ class OpenAIProvider(LLMProvider):
     def classify_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
         prompt: str,
+        user_instructions: str,
         step_text: str,
         code: str,
         error: str,
@@ -148,6 +149,11 @@ class OpenAIProvider(LLMProvider):
         Args:
             prompt: the system prompt text supplied by the calling engine;
                 applied verbatim as the system message.
+            user_instructions: the project's classification guidance from the
+                classification_prompt setting; empty — the request carries no
+                instructions block, non-empty — rendered verbatim as a
+                separate USER INSTRUCTIONS block placed last of the user
+                content, identically to the anthropic implementation.
             step_text: the sentence of the failed step.
             code: the existing step code that failed.
             error: the human-readable description of the failure.
@@ -163,7 +169,7 @@ class OpenAIProvider(LLMProvider):
             LLMUnavailableError: the SDK client is unavailable or the
                 service request failed.
         """
-        text = build_classification_fields(step_text, code, error, snapshot)
+        text = build_classification_fields(user_instructions, step_text, code, error, snapshot)
         messages = [
             {"role": "system", "content": prompt},
             {"role": "user", "content": openai_user_content(text, screenshot)},

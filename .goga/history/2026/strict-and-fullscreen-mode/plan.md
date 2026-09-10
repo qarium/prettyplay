@@ -397,9 +397,9 @@ Implements the `user_instructions` parameter of `classify_failure` across the po
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Declaration**: state that Task 4 (llm cell) is being executed
-- [ ] **Contract tests**: add to `tests/llm/test_provider.py` — `LLMProvider.classify_failure` signature carries `user_instructions: str` after `prompt` (inspect the port and both implementations); update the port-subclassing fakes to the new signature (expected to fail at this stage)
-- [ ] **Code**: extend `build_classification_fields` in `prettyplay/llm/_request.py`:
+- [x] **Declaration**: state that Task 4 (llm cell) is being executed
+- [x] **Contract tests**: add to `tests/llm/test_provider.py` — `LLMProvider.classify_failure` signature carries `user_instructions: str` after `prompt` (inspect the port and both implementations); update the port-subclassing fakes to the new signature (expected to fail at this stage)
+- [x] **Code**: extend `build_classification_fields` in `prettyplay/llm/_request.py`:
 
 ```
 build_classification_fields(user_instructions, step_text, code, error, snapshot):
@@ -408,16 +408,16 @@ build_classification_fields(user_instructions, step_text, code, error, snapshot)
   RETURN "\n\n".join(sections)
 ```
 
-- [ ] **Code**: add `user_instructions: str` to `LLMProvider.classify_failure` (port, `NotImplementedError` unchanged) and to both provider implementations — `text = build_classification_fields(user_instructions, …)`; the request keeps `effective_classification_model` and `system=prompt`; parse and error mapping unchanged
-- [ ] **Code**: update the engine call site in `prettyplay/engine/classification.py` — pass `user_instructions=config.classification_prompt` (mechanical; the prompt-text line and tests land in Task 6)
-- [ ] **Interface verification**: run `pytest tests/llm/ -v` — the contract tests pass
-- [ ] **Logic tests** (scenario from the design, verbatim):
+- [x] **Code**: add `user_instructions: str` to `LLMProvider.classify_failure` (port, `NotImplementedError` unchanged) and to both provider implementations — `text = build_classification_fields(user_instructions, …)`; the request keeps `effective_classification_model` and `system=prompt`; parse and error mapping unchanged
+- [x] **Code**: update the engine call site in `prettyplay/engine/classification.py` — pass `user_instructions=config.classification_prompt` (mechanical; the prompt-text line and tests land in Task 6)
+- [x] **Interface verification**: run `pytest tests/llm/ -v` — the contract tests pass
+- [x] **Logic tests** (scenario from the design, verbatim):
   - `test_provider_classification_instructions_placement_parity` — fakes for the openai/anthropic SDK clients capturing messages (existing provider test style); `provider.classify_failure(prompt="sys", user_instructions="be terse", step_text="s", code="c", error="e", snapshot="snap", screenshot=None)` on both providers: the user content of both providers ends with `"USER INSTRUCTIONS:\nbe terse"`; no `"USER INSTRUCTIONS"` block when `user_instructions=""`; the generation request (`generate_step_code`) placement is unchanged — after PAGE API, before CODE/ERROR
-- [ ] **Code**: update the existing classification field tests (`tests/llm/test_request.py`, `tests/llm/test_openai_provider.py`, `tests/llm/test_anthropic_provider.py`, `tests/llm/test_provider.py`) to the new builder signature and placement
-- [ ] **Debugging**: run `pytest tests/ -x` — fix implementation code until all tests pass
-- [ ] **Contract re-verification**: parity — both providers call the same field builder with the same placement rule; generation requests never receive classification instructions and vice versa
-- [ ] **Lint**: `ruff check prettyplay/` — fix formatting, apply decomposition if necessary
-- [ ] **Completion**: mark the checkboxes of this task as completed
+- [x] **Code**: update the existing classification field tests (`tests/llm/test_request.py`, `tests/llm/test_openai_provider.py`, `tests/llm/test_anthropic_provider.py`, `tests/llm/test_provider.py`) to the new builder signature and placement
+- [x] **Debugging**: run `pytest tests/ -x` — fix implementation code until all tests pass
+- [x] **Contract re-verification**: parity — both providers call the same field builder with the same placement rule; generation requests never receive classification instructions and vice versa
+- [x] **Lint**: `ruff check prettyplay/` — fix formatting, apply decomposition if necessary
+- [x] **Completion**: mark the checkboxes of this task as completed
 
 ### Task 5: `prettyplay/driver` — screen modes at context creation (TDD)
 
