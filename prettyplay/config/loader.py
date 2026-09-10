@@ -187,6 +187,9 @@ def _render_validation(error: ValidationError) -> str:
     for entry in error.errors():
         field = ".".join(str(part) for part in entry["loc"])
         received = entry.get("input")
+        if entry.get("type") == "extra_forbidden":
+            lines.append(f"{field}: received {received!r} — not a prettyplay setting")
+            continue
         allowed = _ALLOWED_TEXT.get(field, entry["msg"])
         lines.append(f"{field}: received {received!r} — allowed: {allowed}")
 
@@ -312,6 +315,12 @@ def load_config(pyproject_path: str | None = None, overrides: Config | None = No
     group_env = {setting.split(".", 1)[1]: value for setting, value in env.items() if "." in setting}
     if group_env:
         merged["browser"] = {**(merged.get("browser") or {}), **group_env}
+
+    browser_section = merged.get("browser")
+    if isinstance(browser_section, dict) and browser_section.get("name") == "":
+        # empty means unset only in the programmatic overlay; from the file or
+        # env layer an empty name is an invalid value, not an omission
+        raise ConfigurationError(f"browser.name: received '' — allowed: {_ALLOWED_TEXT['browser.name']}")
 
     if not merged.get("cache_root"):
         merged["cache_root"] = str(path.parent / ".prettyplay" / "cache")

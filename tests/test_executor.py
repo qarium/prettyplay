@@ -179,6 +179,42 @@ class UnavailableProvider(LLMProvider):
         raise LLMUnavailableError("llm unavailable: openai request failed")
 
 
+class CrashingProvider(LLMProvider):
+    """Stub LLM boundary whose classification fails with a non-infrastructure error."""
+
+    def __init__(self) -> None:
+        self.generation_calls = 0
+        self.classification_calls = 0
+
+    def generate_step_code(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
+        self,
+        prompt: str = "",
+        user_instructions: str = "",
+        step_text: str = "",
+        previous_steps: list[str] | None = None,
+        snapshot: str = "",
+        screenshot: bytes | None = None,
+        page_api: str = "",
+        existing_code: str | None = None,
+        error: str | None = None,
+    ) -> str:
+        self.generation_calls += 1
+        raise AssertionError("provider must not generate: strict mode replays cached code only")
+
+    def classify_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
+        self,
+        prompt: str = "",
+        user_instructions: str = "",
+        step_text: str = "",
+        code: str = "",
+        error: str = "",
+        snapshot: str = "",
+        screenshot: bytes | None = None,
+    ) -> FailureClassification:
+        self.classification_calls += 1
+        raise RuntimeError("classification crashed")
+
+
 class RecorderHook(StepHooks):
     """Hook recording step cycle events into a shared ``events`` list for assertions."""
 
@@ -698,3 +734,20 @@ class TestStepExecutorStrictMode:
         assert "recommendation: reword the step or refresh the cache" in failed[0]["error"]
         assert not events_named(fixture.recorder, "on_step_verdict")
         assert excinfo.value.verdict is None  # render-only fallback: no verdict event for it
+
+    def test_executor_strict_classification_crash_propagates_raw(self, tmp_path: Path) -> None:
+        """A non-infrastructure classification crash escapes raw — never masked as a step verdict."""
+        provider = CrashingProvider()
+        fixture = strict_fixture(tmp_path, RecordingGenerator(), RecordingHealer(), provider)
+        seed_cached_step(fixture, "нажать войти", step_type="action")
+        page = FakePage()
+
+        with pytest.raises(RuntimeError, match="classification crashed"):
+            fixture.executor.execute("нажать Войти", "action", page)
+
+        assert provider.classification_calls == 1
+        assert provider.generation_calls == 0
+        assert events_named(fixture.recorder, "on_step_failed") == [
+            {"step_text": "нажать Войти", "step_type": "action", "error": "classification crashed"}
+        ]
+        assert not events_named(fixture.recorder, "on_step_verdict")  # no verdict for a crashed classification

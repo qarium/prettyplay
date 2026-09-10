@@ -172,6 +172,9 @@ class IncurableStepError(PrettyplayError):
     ) -> None:
         self.step_text = step_text
         self.reason = reason
+        # Exception.__init__ directly (as in ProductDefectError); message keeps
+        # the base-class attribute contract — the primary reason, not the render.
+        self.message = reason
         self.error = error
         self.verdict = verdict
 

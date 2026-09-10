@@ -1,6 +1,7 @@
 """Tests for the load_config routine of the prettyplay.config cell."""
 
 import inspect
+from pathlib import Path
 
 import pytest
 from prettyplay.config import BrowserConfig, Config, ConfigurationError, PrettyConfig, load_config
@@ -183,6 +184,47 @@ class TestLoadConfigLogic:
 
         assert config.browser.name == "firefox"
 
+    def test_load_config_rejects_empty_browser_name_from_file_and_env(self, tmp_path, monkeypatch) -> None:
+        """Negative: an empty name is an invalid value in the file/env layer, not an unset."""
+        with pytest.raises(ConfigurationError) as excinfo:
+            load_config(pyproject_path=write_section(tmp_path, '[tool.prettyplay.browser]\nname = ""\n'))
+
+        assert str(excinfo.value).splitlines() == [
+            "browser.name: received '' — allowed: chromium, firefox, webkit, chrome, msedge"
+        ]
+
+        # an empty env override of a valid file name fails identically
+        path = write_section(tmp_path, '[tool.prettyplay.browser]\nname = "firefox"\n')
+        monkeypatch.setenv("PRETTYPLAY_BROWSER_NAME", "")
+
+        with pytest.raises(ConfigurationError) as excinfo:
+            load_config(pyproject_path=path)
+
+        assert str(excinfo.value).startswith("browser.name: received '' — allowed: chromium")
+
+    def test_load_config_rejects_unknown_keys(self, tmp_path) -> None:
+        """Negative: a key outside the schema fails loudly — no silent drop, no pydantic internals."""
+        with pytest.raises(ConfigurationError) as excinfo:
+            load_config(pyproject_path=write_section(tmp_path, '[tool.prettyplay]\nmodle = "gpt-5"\n'))
+
+        assert str(excinfo.value).splitlines() == ["modle: received 'gpt-5' — not a prettyplay setting"]
+
+        with pytest.raises(ConfigurationError) as excinfo:
+            load_config(pyproject_path=write_section(tmp_path, '[tool.prettyplay.browser]\nnmae = "firefox"\n'))
+
+        assert str(excinfo.value).splitlines() == ["browser.nmae: received 'firefox' — not a prettyplay setting"]
+
+    def test_pretty_config_rejects_removed_flat_fields_loudly(self) -> None:
+        """Negative: the removed 0.0.x flat names fail at construction — never a silent no-op."""
+        with pytest.raises(ValidationError):
+            Config(headless=False)
+
+        with pytest.raises(ValidationError):
+            Config(browser_endpoint="ws://x")
+
+        with pytest.raises(ValidationError):
+            BrowserConfig(engine="chromium")
+
     def test_load_config_env_scalar_parse_failures(self, tmp_path, monkeypatch) -> None:
         """Negative: unparseable env values fail loudly naming setting, value and form."""
         cases = [
@@ -250,13 +292,22 @@ class TestLoadConfigLogic:
 
         assert "PRETTYPLAY_BROWSER_NAME" in str(excinfo.value)
 
-    def test_load_config_no_pyproject_fails_loudly(self, tmp_path, monkeypatch) -> None:
-        sandbox = tmp_path / "sandbox"
-        sandbox.mkdir()
-        monkeypatch.chdir(sandbox)
+    def test_load_config_no_pyproject_fails_loudly(self, monkeypatch) -> None:
+        class EmptyTreeRoot:
+            """Path stand-in whose directory tree contains no pyproject.toml."""
 
-        # /tmp and above contain no pyproject.toml (verified for this environment),
-        # so the upward auto-discovery from cwd deterministically finds nothing.
+            parents: tuple[object, ...] = ()
+
+            def __truediv__(self, name: str) -> "EmptyTreeRoot":
+                return self
+
+            def is_file(self) -> bool:
+                return False
+
+        # deterministic: the upward search sees an empty tree regardless of the
+        # host layout around the pytest tmp directory — Path.cwd() constructs it
+        monkeypatch.setattr(Path, "cwd", EmptyTreeRoot)
+
         with pytest.raises(FileNotFoundError) as excinfo:
             load_config(pyproject_path=None)
 

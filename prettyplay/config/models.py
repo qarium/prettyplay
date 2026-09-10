@@ -24,7 +24,8 @@ class BrowserConfig(BaseModel):
         name: browser of the {chromium, firefox, webkit, chrome, msedge} set;
             chrome and msedge launch the locally installed browser through the
             driver channel mechanism; default chromium; empty means unset in
-            the layered merge.
+            the programmatic overlay — ``load_config`` rejects an empty name
+            arriving from the file or env layer.
         screen: the single size setting; empty — the Playwright default; WxH —
             a fixed viewport; fullscreen — the maximized window of a local
             headed launch, a fixed 1920x1080 elsewhere; any other value — a
@@ -39,7 +40,7 @@ class BrowserConfig(BaseModel):
             launch.
     """
 
-    model_config = ConfigDict(kw_only=True)
+    model_config = ConfigDict(kw_only=True, extra="forbid")
 
     name: str = "chromium"
     screen: str = ""
@@ -52,8 +53,9 @@ class BrowserConfig(BaseModel):
         """Check that a non-empty name belongs to the browser matrix.
 
         Args:
-            value: the raw name setting; empty means unset in the layered
-                merge and passes through.
+            value: the raw name setting; empty means unset in the programmatic
+                overlay and passes through — ``load_config`` rejects an empty
+                name arriving from the file or env layer.
 
         Returns:
             The unchanged name when empty or inside the matrix.
@@ -150,7 +152,7 @@ class Config(BaseModel):
         send_screenshots: whether screenshots are attached to LLM requests.
     """
 
-    model_config = ConfigDict(kw_only=True)
+    model_config = ConfigDict(kw_only=True, extra="forbid")
 
     provider: Literal["openai", "anthropic"] = "openai"
     browser: BrowserConfig = BrowserConfig()

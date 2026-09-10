@@ -196,6 +196,7 @@ class TestRenderTerminalMessageLogic:
         ise = IncurableStepError("step", "strict mode forbids generation — the step is missing from the cache")
 
         assert ise.reason == "strict mode forbids generation — the step is missing from the cache"
+        assert ise.message == ise.reason  # the base-class message attribute stays the primary reason
         assert ise.error == ""
         assert ise.verdict is None
         assert "recommendation: reword the step or refresh the cache" in str(ise)

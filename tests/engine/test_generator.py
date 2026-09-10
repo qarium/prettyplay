@@ -20,7 +20,7 @@ from prettyplay.reporting import StepHooks, StepReporter
 WORKING_CODE = "def step(page) -> None:\n    page.open('https://example.com')\n"
 BROKEN_CODE = "def step(page) -> None:\n    page.find_by_role('button', name='Войти').click()\n"
 
-FACADE_PRACTICE = Path("prettyplay") / "driver" / ".usages" / "facade.md"
+FACADE_PRACTICE = Path(__file__).resolve().parents[2] / "prettyplay" / "driver" / ".usages" / "facade.md"
 
 
 class FakeLocator:
