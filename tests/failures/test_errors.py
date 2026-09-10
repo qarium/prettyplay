@@ -6,7 +6,7 @@ import pytest
 from prettyplay.failures import (
     FailureVerdict,
     IncurableStepError,
-    LlmUnavailableError,
+    LLMUnavailableError,
     PrettyplayError,
     ProductDefectError,
     __all__,
@@ -17,13 +17,13 @@ class TestFailuresContract:
     """Contract tests: facade import, subclassing, constructor signatures, fields."""
 
     def test_all_five_names_importable_from_facade(self) -> None:
-        for name in (PrettyplayError, ProductDefectError, IncurableStepError, LlmUnavailableError, FailureVerdict):
+        for name in (PrettyplayError, ProductDefectError, IncurableStepError, LLMUnavailableError, FailureVerdict):
             assert isinstance(name, type)
 
     def test_every_mutation_is_subclass_of_prettyplay_error(self) -> None:
         assert issubclass(ProductDefectError, PrettyplayError)
         assert issubclass(IncurableStepError, PrettyplayError)
-        assert issubclass(LlmUnavailableError, PrettyplayError)
+        assert issubclass(LLMUnavailableError, PrettyplayError)
 
     def test_base_is_an_exception(self) -> None:
         assert issubclass(PrettyplayError, Exception)
@@ -54,7 +54,7 @@ class TestFailuresContract:
         assert parameters[2].default is None
 
     def test_llm_unavailable_signature_is_single_message(self) -> None:
-        parameters = list(inspect.signature(LlmUnavailableError.__init__).parameters.values())[1:]
+        parameters = list(inspect.signature(LLMUnavailableError.__init__).parameters.values())[1:]
 
         assert [parameter.name for parameter in parameters] == ["message"]
 
@@ -77,7 +77,7 @@ class TestFailuresContract:
         assert error.verdict is None
 
     def test_llm_unavailable_property(self) -> None:
-        error = LlmUnavailableError("llm unavailable: openai: OPENAI_API_KEY is not set")
+        error = LLMUnavailableError("llm unavailable: openai: OPENAI_API_KEY is not set")
 
         assert error.message == "llm unavailable: openai: OPENAI_API_KEY is not set"
 
@@ -85,7 +85,7 @@ class TestFailuresContract:
         assert __all__ == [
             "FailureVerdict",
             "IncurableStepError",
-            "LlmUnavailableError",
+            "LLMUnavailableError",
             "PrettyplayError",
             "ProductDefectError",
         ]
@@ -172,7 +172,7 @@ class TestFailuresLogic:
         mutations = [
             ProductDefectError("click Sign in", "expected the banner, observed none"),
             IncurableStepError("click Sign in", "budget exhausted"),
-            LlmUnavailableError("llm unavailable: openai: OPENAI_API_KEY is not set"),
+            LLMUnavailableError("llm unavailable: openai: OPENAI_API_KEY is not set"),
         ]
 
         for error in mutations:
@@ -184,8 +184,8 @@ class TestFailuresLogic:
     def test_llm_unavailable_message_names_provider(self) -> None:
         message = "llm unavailable: openai: OPENAI_API_KEY is not set"
 
-        assert LlmUnavailableError(message).message == message
-        assert "openai" in str(LlmUnavailableError(message))
+        assert LLMUnavailableError(message).message == message
+        assert "openai" in str(LLMUnavailableError(message))
 
     def test_base_message_stored_as_attribute(self) -> None:
         error = PrettyplayError("something broke")

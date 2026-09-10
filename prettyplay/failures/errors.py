@@ -131,7 +131,7 @@ class IncurableStepError(PrettyplayError):
         return self.reason + "\nrecommendation: reword the step or refresh the cache"
 
 
-class LlmUnavailableError(PrettyplayError):
+class LLMUnavailableError(PrettyplayError):
     """LLM infrastructure failure: the provider service is unreachable or rejects the request.
 
     Blocks only code generation and healing; cached steps keep running. No

@@ -8,8 +8,8 @@ from unittest import mock
 import pytest
 from anthropic import AnthropicError
 from prettyplay.config import Config
-from prettyplay.failures import LlmUnavailableError, PrettyplayError
-from prettyplay.llm import AnthropicProvider, LlmProvider
+from prettyplay.failures import LLMUnavailableError, PrettyplayError
+from prettyplay.llm import AnthropicProvider, LLMProvider
 
 GENERATE_STEP_CODE_PARAMS = [
     "self",
@@ -60,7 +60,7 @@ class TestAnthropicProviderContract:
         assert isinstance(AnthropicProvider, type)
 
     def test_is_an_llm_provider(self) -> None:
-        assert issubclass(AnthropicProvider, LlmProvider)
+        assert issubclass(AnthropicProvider, LLMProvider)
 
     def test_generate_step_code_signature_matches_port(self) -> None:
         signature = inspect.signature(AnthropicProvider.generate_step_code)
@@ -90,7 +90,7 @@ class TestAnthropicProviderLogic:
 
         with (
             mock.patch.object(provider, "_get_client", return_value=client),
-            pytest.raises(LlmUnavailableError) as excinfo,
+            pytest.raises(LLMUnavailableError) as excinfo,
         ):
             provider.generate_step_code(
                 prompt="p",
@@ -114,7 +114,7 @@ class TestAnthropicProviderLogic:
 
         with (
             mock.patch.object(provider, "_get_client", return_value=client),
-            pytest.raises(LlmUnavailableError) as excinfo,
+            pytest.raises(LLMUnavailableError) as excinfo,
         ):
             provider.generate_step_code(
                 prompt="p",
@@ -160,7 +160,7 @@ class TestAnthropicProviderLogic:
 
         with (
             mock.patch.object(provider, "_get_client", return_value=client),
-            pytest.raises(LlmUnavailableError) as excinfo,
+            pytest.raises(LLMUnavailableError) as excinfo,
         ):
             provider.classify_failure(
                 prompt="p",
@@ -178,7 +178,7 @@ class TestAnthropicProviderLogic:
 
         provider = AnthropicProvider(Config())  # does not fail — the constructor reads no env
 
-        with pytest.raises(LlmUnavailableError) as excinfo:
+        with pytest.raises(LLMUnavailableError) as excinfo:
             provider.classify_failure(
                 prompt="p",
                 step_text="s",
@@ -434,7 +434,7 @@ class TestAnthropicProviderLogic:
 
         with (
             mock.patch.object(provider, "_get_client", return_value=client),
-            pytest.raises(LlmUnavailableError) as excinfo,
+            pytest.raises(LLMUnavailableError) as excinfo,
         ):
             provider.classify_failure(
                 prompt="p",

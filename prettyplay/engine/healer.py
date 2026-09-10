@@ -4,7 +4,7 @@ from ..cache import CachedStep, RunBudgets, StepCache
 from ..config import Config
 from ..driver import PageFacade
 from ..failures import FailureVerdict, IncurableStepError, ProductDefectError
-from ..llm import LlmProvider
+from ..llm import LLMProvider
 from ..reporting import StepReporter
 from .classification import classify_step_failure
 from .generator import StepGenerator
@@ -31,7 +31,7 @@ class StepHealer:
     def __init__(  # noqa: PLR0913, PLR0917 — the signature is fixed by the engine contract
         self,
         config: Config,
-        provider: LlmProvider,
+        provider: LLMProvider,
         generator: StepGenerator,
         cache: StepCache,  # noqa: ARG002 — written by the generator only; kept for contract symmetry
         budgets: RunBudgets,  # noqa: ARG002 — spent by the generator only; kept for contract symmetry
@@ -79,7 +79,7 @@ class StepHealer:
                 or the regeneration attempt budget is exhausted — the
                 exhaustion reuses the verdict of this classification, no
                 second LLM request is made.
-            LlmUnavailableError: the provider service failed; no retry.
+            LLMUnavailableError: the provider service failed; no retry.
         """
         step_text = step.identity.normalized_text
         classification = classify_step_failure(self._config, self._provider, step_text, step.code, error, page)

@@ -1,10 +1,10 @@
-"""Tests for the LlmProvider port and the create_provider factory of the prettyplay.llm cell."""
+"""Tests for the LLMProvider port and the create_provider factory of the prettyplay.llm cell."""
 
 import inspect
 
 import pytest
 from prettyplay.config import Config
-from prettyplay.llm import AnthropicProvider, LlmProvider, OpenAiProvider, create_provider
+from prettyplay.llm import AnthropicProvider, LLMProvider, OpenAIProvider, create_provider
 
 GENERATE_STEP_CODE_PARAMS = [
     "self",
@@ -21,29 +21,29 @@ GENERATE_STEP_CODE_PARAMS = [
 CLASSIFY_FAILURE_PARAMS = ["self", "prompt", "step_text", "code", "error", "snapshot", "screenshot"]
 
 
-class TestLlmProviderContract:
+class TestLLMProviderContract:
     """Contract tests: facade import, exact port signatures, base bodies raise."""
 
     def test_port_importable_from_facade(self) -> None:
-        assert isinstance(LlmProvider, type)
+        assert isinstance(LLMProvider, type)
 
     def test_factory_importable_from_facade(self) -> None:
         assert callable(create_provider)
 
     def test_generate_step_code_signature(self) -> None:
-        signature = inspect.signature(LlmProvider.generate_step_code)
+        signature = inspect.signature(LLMProvider.generate_step_code)
 
         assert list(signature.parameters) == GENERATE_STEP_CODE_PARAMS
         assert signature.return_annotation is str
 
     def test_classify_failure_signature(self) -> None:
-        signature = inspect.signature(LlmProvider.classify_failure)
+        signature = inspect.signature(LLMProvider.classify_failure)
 
         assert list(signature.parameters) == CLASSIFY_FAILURE_PARAMS
         assert signature.return_annotation is not inspect.Signature.empty
 
     def test_base_methods_raise_not_implemented(self) -> None:
-        port = LlmProvider()
+        port = LLMProvider()
 
         with pytest.raises(NotImplementedError):
             port.generate_step_code(
@@ -66,16 +66,16 @@ class TestSkeletonImplementationsContract:
     """Contract tests: both skeletons subclass the port and store the config."""
 
     def test_openai_provider_is_an_llm_provider(self) -> None:
-        assert issubclass(OpenAiProvider, LlmProvider)
+        assert issubclass(OpenAIProvider, LLMProvider)
 
     def test_anthropic_provider_is_an_llm_provider(self) -> None:
-        assert issubclass(AnthropicProvider, LlmProvider)
+        assert issubclass(AnthropicProvider, LLMProvider)
 
     def test_constructors_take_config_without_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
 
-        OpenAiProvider(Config())  # constructs without exceptions
+        OpenAIProvider(Config())  # constructs without exceptions
         AnthropicProvider(Config())
 
 
@@ -87,10 +87,10 @@ class TestCreateProviderLogic:
         openai = create_provider(Config(provider="openai", model="gpt-5"))
 
         assert isinstance(anthropic, AnthropicProvider)
-        assert isinstance(anthropic, LlmProvider)  # port contract
+        assert isinstance(anthropic, LLMProvider)  # port contract
 
-        assert isinstance(openai, OpenAiProvider)  # symmetric case
-        assert isinstance(openai, LlmProvider)
+        assert isinstance(openai, OpenAIProvider)  # symmetric case
+        assert isinstance(openai, LLMProvider)
 
     def test_create_provider_returns_fresh_instance(self) -> None:
         first = create_provider(Config(provider="openai"))
@@ -107,3 +107,27 @@ class TestCreateProviderLogic:
 
         assert "openai" in str(excinfo.value)
         assert "anthropic" in str(excinfo.value)
+
+
+class TestInitialismRenames:
+    """Contract tests: the initialism renames are total — no old spellings survive."""
+
+    def test_provider_renames_are_total(self) -> None:
+        import prettyplay.failures
+        import prettyplay.llm
+
+        assert hasattr(prettyplay.failures, "LLMUnavailableError")
+        with pytest.raises(AttributeError):
+            getattr(prettyplay.failures, "Llm" + "UnavailableError")
+
+        assert hasattr(prettyplay.llm, "LLMProvider")
+        assert hasattr(prettyplay.llm, "OpenAIProvider")
+        assert hasattr(prettyplay.llm, "create_provider")
+        with pytest.raises(AttributeError):
+            getattr(prettyplay.llm, "Llm" + "Provider")
+        with pytest.raises(AttributeError):
+            getattr(prettyplay.llm, "OpenAi" + "Provider")
+
+        provider = create_provider(Config(provider="openai"))
+        assert isinstance(provider, prettyplay.llm.OpenAIProvider)
+        assert isinstance(provider, prettyplay.llm.LLMProvider)

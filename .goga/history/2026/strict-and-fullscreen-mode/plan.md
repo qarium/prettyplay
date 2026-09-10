@@ -185,23 +185,23 @@ A pre-1.0 hard rename applied totally across source and tests — no class alias
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Declaration**: state that Task 1 (rename sweep) is being executed
-- [ ] **Contract tests**: add `test_provider_renames_are_total` to `tests/llm/test_provider.py` — assert `prettyplay.failures.LLMUnavailableError` exists while `LlmUnavailableError` raises `AttributeError`; `prettyplay.llm.{LLMProvider, OpenAIProvider, create_provider}` exist while the old spellings are gone; `create_provider(Config(provider="openai"))` returns an `OpenAIProvider` instance that `isinstance`-checks against `LLMProvider` (expected to fail at this stage)
-- [ ] **Code**: rename in `prettyplay/failures/errors.py` — class `LlmUnavailableError` → `LLMUnavailableError` (class definition, docstring cross-references)
-- [ ] **Code**: rename in `prettyplay/failures/__init__.py` — import list and `__all__`
-- [ ] **Code**: rename in `prettyplay/llm/provider.py` — `LlmProvider` → `LLMProvider` (class, docstrings, `NotImplementedError` messages naming the port, `create_provider` return annotation and body references to `OpenAiProvider` → `OpenAIProvider`)
-- [ ] **Code**: rename in `prettyplay/llm/openai_provider.py` — class `OpenAiProvider` → `OpenAIProvider` (module docstring, base class, parity cross-references)
-- [ ] **Code**: rename in `prettyplay/llm/anthropic_provider.py` and `prettyplay/llm/_request.py` — `LlmUnavailableError` → `LLMUnavailableError`, `OpenAiProvider` → `OpenAIProvider` references
-- [ ] **Code**: rename in `prettyplay/llm/__init__.py` — imports and `__all__`
-- [ ] **Code**: update references in `prettyplay/engine/generator.py`, `prettyplay/engine/healer.py`, `prettyplay/engine/classification.py`, `prettyplay/runtime.py` — imports, type hints, `Raises:` docstring sections
-- [ ] **Code**: update docstring references in `prettyplay/executor.py` and `prettyplay/scenario.py` (`Raises:` sections name `LLMUnavailableError`)
-- [ ] **Code**: sweep the test suite — `tests/failures/test_errors.py`, `tests/llm/test_provider.py`, `tests/llm/test_openai_provider.py`, `tests/llm/test_anthropic_provider.py`, `tests/engine/test_classification.py`, `tests/engine/test_generator.py`, `tests/engine/test_healer.py`, `tests/test_executor.py`, `tests/test_integration.py`, `tests/test_scenario.py` (imports, fake subclasses of the port, `pytest.raises` targets)
-- [ ] **Interface verification**: run `pytest tests/llm/ tests/failures/ -v` — the rename contract test passes
-- [ ] **Logic tests**: none beyond the contract test — the refactor is behavior-preserving; the existing suite is the behavioral pin
-- [ ] **Debugging**: run `pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code except the renamed spellings)
-- [ ] **Contract re-verification**: `python -c "from prettyplay.failures import LLMUnavailableError; from prettyplay.llm import LLMProvider, OpenAIProvider, create_provider"` and no `Llm`/`OpenAi` spelling remains: `grep -rn "LlmUnavailableError\|LlmProvider\|OpenAiProvider" prettyplay/ tests/` returns nothing
-- [ ] **Lint**: `ruff check prettyplay/` — fix formatting if necessary
-- [ ] **Completion**: mark the checkboxes of this task as completed
+- [x] **Declaration**: state that Task 1 (rename sweep) is being executed
+- [x] **Contract tests**: add `test_provider_renames_are_total` to `tests/llm/test_provider.py` — assert `prettyplay.failures.LLMUnavailableError` exists while `LlmUnavailableError` raises `AttributeError`; `prettyplay.llm.{LLMProvider, OpenAIProvider, create_provider}` exist while the old spellings are gone; `create_provider(Config(provider="openai"))` returns an `OpenAIProvider` instance that `isinstance`-checks against `LLMProvider` (expected to fail at this stage)
+- [x] **Code**: rename in `prettyplay/failures/errors.py` — class `LlmUnavailableError` → `LLMUnavailableError` (class definition, docstring cross-references)
+- [x] **Code**: rename in `prettyplay/failures/__init__.py` — import list and `__all__`
+- [x] **Code**: rename in `prettyplay/llm/provider.py` — `LlmProvider` → `LLMProvider` (class, docstrings, `NotImplementedError` messages naming the port, `create_provider` return annotation and body references to `OpenAiProvider` → `OpenAIProvider`)
+- [x] **Code**: rename in `prettyplay/llm/openai_provider.py` — class `OpenAiProvider` → `OpenAIProvider` (module docstring, base class, parity cross-references)
+- [x] **Code**: rename in `prettyplay/llm/anthropic_provider.py` and `prettyplay/llm/_request.py` — `LlmUnavailableError` → `LLMUnavailableError`, `OpenAiProvider` → `OpenAIProvider` references
+- [x] **Code**: rename in `prettyplay/llm/__init__.py` — imports and `__all__`
+- [x] **Code**: update references in `prettyplay/engine/generator.py`, `prettyplay/engine/healer.py`, `prettyplay/engine/classification.py`, `prettyplay/runtime.py` — imports, type hints, `Raises:` docstring sections
+- [x] **Code**: update docstring references in `prettyplay/executor.py` and `prettyplay/scenario.py` (`Raises:` sections name `LLMUnavailableError`)
+- [x] **Code**: sweep the test suite — `tests/failures/test_errors.py`, `tests/llm/test_provider.py`, `tests/llm/test_openai_provider.py`, `tests/llm/test_anthropic_provider.py`, `tests/engine/test_classification.py`, `tests/engine/test_generator.py`, `tests/engine/test_healer.py`, `tests/test_executor.py`, `tests/test_integration.py`, `tests/test_scenario.py` (imports, fake subclasses of the port, `pytest.raises` targets)
+- [x] **Interface verification**: run `pytest tests/llm/ tests/failures/ -v` — the rename contract test passes
+- [x] **Logic tests**: none beyond the contract test — the refactor is behavior-preserving; the existing suite is the behavioral pin
+- [x] **Debugging**: run `pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code except the renamed spellings)
+- [x] **Contract re-verification**: `python -c "from prettyplay.failures import LLMUnavailableError; from prettyplay.llm import LLMProvider, OpenAIProvider, create_provider"` and no `Llm`/`OpenAi` spelling remains: `grep -rn "LlmUnavailableError\|LlmProvider\|OpenAiProvider" prettyplay/ tests/` returns nothing
+- [x] **Lint**: `ruff check prettyplay/` — fix formatting if necessary
+- [x] **Completion**: mark the checkboxes of this task as completed
 
 ### Task 2: `prettyplay/failures` — structured terminal render and the `error` field (TDD)
 

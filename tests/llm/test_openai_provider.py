@@ -1,4 +1,4 @@
-"""Tests for the OpenAiProvider implementation of the prettyplay.llm cell."""
+"""Tests for the OpenAIProvider implementation of the prettyplay.llm cell."""
 
 import inspect
 from types import SimpleNamespace
@@ -7,8 +7,8 @@ from unittest import mock
 import pytest
 from openai import OpenAIError
 from prettyplay.config import Config
-from prettyplay.failures import LlmUnavailableError, PrettyplayError
-from prettyplay.llm import LlmProvider, OpenAiProvider
+from prettyplay.failures import LLMUnavailableError, PrettyplayError
+from prettyplay.llm import LLMProvider, OpenAIProvider
 
 GENERATE_STEP_CODE_PARAMS = [
     "self",
@@ -47,23 +47,23 @@ def completion_answer(answer: str) -> object:
     return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=answer))])
 
 
-class TestOpenAiProviderContract:
+class TestOpenAIProviderContract:
     """Contract tests: facade import, port membership, exact signatures, lazy env."""
 
     def test_importable_from_facade(self) -> None:
-        assert isinstance(OpenAiProvider, type)
+        assert isinstance(OpenAIProvider, type)
 
     def test_is_an_llm_provider(self) -> None:
-        assert issubclass(OpenAiProvider, LlmProvider)
+        assert issubclass(OpenAIProvider, LLMProvider)
 
     def test_generate_step_code_signature_matches_port(self) -> None:
-        signature = inspect.signature(OpenAiProvider.generate_step_code)
+        signature = inspect.signature(OpenAIProvider.generate_step_code)
 
         assert list(signature.parameters) == GENERATE_STEP_CODE_PARAMS
         assert signature.return_annotation is str
 
     def test_classify_failure_signature_matches_port(self) -> None:
-        signature = inspect.signature(OpenAiProvider.classify_failure)
+        signature = inspect.signature(OpenAIProvider.classify_failure)
 
         assert list(signature.parameters) == CLASSIFY_FAILURE_PARAMS
         assert signature.return_annotation is not inspect.Signature.empty
@@ -71,10 +71,10 @@ class TestOpenAiProviderContract:
     def test_constructor_reads_no_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
-        OpenAiProvider(Config())  # constructs without exceptions — the client is lazy
+        OpenAIProvider(Config())  # constructs without exceptions — the client is lazy
 
 
-class TestOpenAiProviderLogic:
+class TestOpenAIProviderLogic:
     """Logic tests: SDK mapping, lazy key, classification parsing, request shape."""
 
     def test_openai_provider_error_maps_to_llm_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -82,11 +82,11 @@ class TestOpenAiProviderLogic:
         client = SimpleNamespace(
             chat=SimpleNamespace(completions=SimpleNamespace(create=mock.MagicMock(side_effect=OpenAIError("timeout"))))
         )
-        provider = OpenAiProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(Config(model="gpt-5"))
 
         with (
             mock.patch.object(provider, "_get_client", return_value=client),
-            pytest.raises(LlmUnavailableError) as excinfo,
+            pytest.raises(LLMUnavailableError) as excinfo,
         ):
             provider.generate_step_code(
                 prompt="p",
@@ -106,9 +106,9 @@ class TestOpenAiProviderLogic:
     def test_missing_api_key_surfaces_on_first_request(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
-        provider = OpenAiProvider(Config())  # does not fail — the constructor reads no env
+        provider = OpenAIProvider(Config())  # does not fail — the constructor reads no env
 
-        with pytest.raises(LlmUnavailableError) as excinfo:
+        with pytest.raises(LLMUnavailableError) as excinfo:
             provider.classify_failure(
                 prompt="p",
                 step_text="s",
@@ -123,7 +123,7 @@ class TestOpenAiProviderLogic:
     def test_classification_unparsable_defaults_to_incurable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, requests = make_client_create(answer="sorry cannot answer")
-        provider = OpenAiProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(Config(model="gpt-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             classification = provider.classify_failure(
@@ -143,7 +143,7 @@ class TestOpenAiProviderLogic:
     ) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, requests = make_client_create(answer=WORKING_CODE)
-        provider = OpenAiProvider(Config(model="gpt-5", generation_model="gpt-5-mini"))
+        provider = OpenAIProvider(Config(model="gpt-5", generation_model="gpt-5-mini"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             code = provider.generate_step_code(
@@ -174,7 +174,7 @@ class TestOpenAiProviderLogic:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         fenced = f"```python\n{WORKING_CODE}```"
         client = make_client_create(answer=fenced)[0]
-        provider = OpenAiProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(Config(model="gpt-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             code = provider.generate_step_code(
@@ -194,7 +194,7 @@ class TestOpenAiProviderLogic:
     def test_generate_regeneration_request_carries_code_and_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, requests = make_client_create(answer=WORKING_CODE)
-        provider = OpenAiProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(Config(model="gpt-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             provider.generate_step_code(
@@ -216,7 +216,7 @@ class TestOpenAiProviderLogic:
     def test_generate_with_screenshot_attaches_image_block(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, requests = make_client_create(answer=WORKING_CODE)
-        provider = OpenAiProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(Config(model="gpt-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             provider.generate_step_code(
@@ -241,7 +241,7 @@ class TestOpenAiProviderLogic:
     def test_classification_with_screenshot_uses_openai_image_block(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, requests = make_client_create(answer="rot | почему | что делать")
-        provider = OpenAiProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(Config(model="gpt-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             provider.classify_failure(
@@ -262,7 +262,7 @@ class TestOpenAiProviderLogic:
 
     def test_client_constructed_with_base_url_when_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
-        provider = OpenAiProvider(Config(model="gpt-5", base_url="https://proxy.internal/v1"))
+        provider = OpenAIProvider(Config(model="gpt-5", base_url="https://proxy.internal/v1"))
         client, _requests = make_client_create()
 
         with mock.patch("prettyplay.llm.openai_provider.OpenAI", return_value=client) as sdk:
@@ -285,7 +285,7 @@ class TestOpenAiProviderLogic:
     def test_classification_parses_verdict_line(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, requests = make_client_create(answer="rot | кнопка переименована | проверить шаг")
-        provider = OpenAiProvider(Config(model="gpt-5", classification_model="gpt-5-mini"))
+        provider = OpenAIProvider(Config(model="gpt-5", classification_model="gpt-5-mini"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             classification = provider.classify_failure(
@@ -305,7 +305,7 @@ class TestOpenAiProviderLogic:
     def test_classification_unknown_category_defaults_to_incurable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, _requests = make_client_create(answer="mystery | why | do something")
-        provider = OpenAiProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(Config(model="gpt-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             classification = provider.classify_failure(
@@ -322,11 +322,11 @@ class TestOpenAiProviderLogic:
     def test_classification_null_content_maps_to_llm_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, _requests = make_client_create(answer=None)  # type: ignore[arg-type]
-        provider = OpenAiProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(Config(model="gpt-5"))
 
         with (
             mock.patch.object(provider, "_get_client", return_value=client),
-            pytest.raises(LlmUnavailableError) as excinfo,
+            pytest.raises(LLMUnavailableError) as excinfo,
         ):
             provider.classify_failure(
                 prompt="p",
@@ -342,7 +342,7 @@ class TestOpenAiProviderLogic:
     def test_classification_empty_answer_defaults_to_incurable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, _requests = make_client_create(answer="   ")
-        provider = OpenAiProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(Config(model="gpt-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             classification = provider.classify_failure(
@@ -361,11 +361,11 @@ class TestOpenAiProviderLogic:
         client = SimpleNamespace(
             chat=SimpleNamespace(completions=SimpleNamespace(create=mock.MagicMock(side_effect=OpenAIError("boom"))))
         )
-        provider = OpenAiProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(Config(model="gpt-5"))
 
         with (
             mock.patch.object(provider, "_get_client", return_value=client),
-            pytest.raises(LlmUnavailableError) as excinfo,
+            pytest.raises(LLMUnavailableError) as excinfo,
         ):
             provider.classify_failure(
                 prompt="p",
@@ -382,11 +382,11 @@ class TestOpenAiProviderLogic:
     def test_null_completion_content_maps_to_llm_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, _requests = make_client_create(answer=None)  # type: ignore[arg-type]
-        provider = OpenAiProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(Config(model="gpt-5"))
 
         with (
             mock.patch.object(provider, "_get_client", return_value=client),
-            pytest.raises(LlmUnavailableError) as excinfo,
+            pytest.raises(LLMUnavailableError) as excinfo,
         ):
             provider.generate_step_code(
                 prompt="p",
@@ -409,11 +409,11 @@ class TestOpenAiProviderLogic:
         client = SimpleNamespace(
             chat=SimpleNamespace(completions=SimpleNamespace(create=mock.MagicMock(return_value=response)))
         )
-        provider = OpenAiProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(Config(model="gpt-5"))
 
         with (
             mock.patch.object(provider, "_get_client", return_value=client),
-            pytest.raises(LlmUnavailableError) as excinfo,
+            pytest.raises(LLMUnavailableError) as excinfo,
         ):
             provider.generate_step_code(
                 prompt="p",
@@ -434,7 +434,7 @@ class TestOpenAiProviderLogic:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         fenced = f"```python\n{WORKING_CODE}```"
         client, requests = make_client_create(answer=fenced)
-        provider = OpenAiProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(Config(model="gpt-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             code = provider.generate_step_code(
@@ -459,7 +459,7 @@ class TestOpenAiProviderLogic:
     def test_classify_failure_never_carries_user_instructions(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, requests = make_client_create(answer="rot | e | r")
-        provider = OpenAiProvider(Config(model="gpt-5", generation_prompt=USER_INSTRUCTIONS))
+        provider = OpenAIProvider(Config(model="gpt-5", generation_prompt=USER_INSTRUCTIONS))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             provider.classify_failure(
@@ -480,11 +480,11 @@ class TestOpenAiProviderLogic:
         client = SimpleNamespace(
             chat=SimpleNamespace(completions=SimpleNamespace(create=mock.MagicMock(return_value=response)))
         )
-        provider = OpenAiProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(Config(model="gpt-5"))
 
         with (
             mock.patch.object(provider, "_get_client", return_value=client),
-            pytest.raises(LlmUnavailableError) as excinfo,
+            pytest.raises(LLMUnavailableError) as excinfo,
         ):
             provider.classify_failure(
                 prompt="p",

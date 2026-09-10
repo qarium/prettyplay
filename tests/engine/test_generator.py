@@ -13,7 +13,7 @@ from prettyplay.config import Config
 from prettyplay.engine import StepGenerator
 from prettyplay.engine import generator as generator_module  # to verify the CLASSIFICATION_PROMPT move
 from prettyplay.engine.generator import PAGE_API_SURFACE, SYSTEM_PROMPT
-from prettyplay.failures import IncurableStepError, LlmUnavailableError, ProductDefectError
+from prettyplay.failures import IncurableStepError, LLMUnavailableError, ProductDefectError
 from prettyplay.llm import FailureClassification
 from prettyplay.reporting import StepHooks, StepReporter
 
@@ -110,17 +110,17 @@ class StubProvider:
 
 
 class UnavailableProvider:
-    """Stub provider whose service is down: every request raises LlmUnavailableError."""
+    """Stub provider whose service is down: every request raises LLMUnavailableError."""
 
     def __init__(self) -> None:
         self.calls = 0
 
     def generate_step_code(self, **_kwargs: object) -> str:
         self.calls += 1
-        raise LlmUnavailableError("llm unavailable: openai request failed")
+        raise LLMUnavailableError("llm unavailable: openai request failed")
 
     def classify_failure(self, **_kwargs: object) -> FailureClassification:
-        raise LlmUnavailableError("llm unavailable: openai request failed")
+        raise LLMUnavailableError("llm unavailable: openai request failed")
 
 
 class TimeoutPage(FakePage):
@@ -380,7 +380,7 @@ class TestStepGeneratorLogic:
         identity = make_identity()
         page = FakePage()
 
-        with pytest.raises(LlmUnavailableError):
+        with pytest.raises(LLMUnavailableError):
             fixture.generator.generate(identity, "шаг", [], page)
 
         assert provider.calls == 1  # no retries on an infrastructure failure
@@ -546,7 +546,7 @@ class TestStepGeneratorLogic:
     ) -> None:
         provider = StubProvider(
             ["def step(page) -> None:\n    page.find_by_text('Welcome back').expect_visible()\n"],
-            verdict=LlmUnavailableError("openai down"),
+            verdict=LLMUnavailableError("openai down"),
         )
         fixture = GeneratorFixture(tmp_path, provider)
         page = FakePage(assertion_message="banner missing")
@@ -563,7 +563,7 @@ class TestStepGeneratorLogic:
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         """Exhaustion classification quiet-skips too: the budget failure is never masked."""
-        provider = StubProvider([BROKEN_CODE], verdict=LlmUnavailableError("openai down"))
+        provider = StubProvider([BROKEN_CODE], verdict=LLMUnavailableError("openai down"))
         fixture = GeneratorFixture(tmp_path, provider, limits=(1, 2))
         page = TimeoutPage()
 

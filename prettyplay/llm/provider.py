@@ -4,7 +4,7 @@ from ..config import Config
 from .models import FailureClassification
 
 
-class LlmProvider:
+class LLMProvider:
     """The single LLM port: step code generation and failure classification.
 
     One contract, two interchangeable SDK implementations selected by
@@ -12,7 +12,7 @@ class LlmProvider:
     The port itself is never instantiated at runtime; implementations own
     one completion request per attempt (attempt budgets live in the calling
     engine) and map every service failure to
-    :class:`~prettyplay.failures.LlmUnavailableError` naming the provider.
+    :class:`~prettyplay.failures.LLMUnavailableError` naming the provider.
     """
 
     def generate_step_code(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
@@ -56,7 +56,7 @@ class LlmProvider:
         Raises:
             NotImplementedError: the port itself carries no implementation.
         """
-        raise NotImplementedError("LlmProvider is a port; use create_provider() to select an implementation")
+        raise NotImplementedError("LLMProvider is a port; use create_provider() to select an implementation")
 
     def classify_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
@@ -85,10 +85,10 @@ class LlmProvider:
         Raises:
             NotImplementedError: the port itself carries no implementation.
         """
-        raise NotImplementedError("LlmProvider is a port; use create_provider() to select an implementation")
+        raise NotImplementedError("LLMProvider is a port; use create_provider() to select an implementation")
 
 
-def create_provider(config: Config) -> LlmProvider:
+def create_provider(config: Config) -> LLMProvider:
     """Select and construct the LLM provider from configuration.
 
     Args:
@@ -104,10 +104,10 @@ def create_provider(config: Config) -> LlmProvider:
     # deferred: the implementations subclass the port defined in this module,
     # so a top-level import here would be circular
     from .anthropic_provider import AnthropicProvider  # noqa: PLC0415
-    from .openai_provider import OpenAiProvider  # noqa: PLC0415
+    from .openai_provider import OpenAIProvider  # noqa: PLC0415
 
     if config.provider == "openai":
-        return OpenAiProvider(config)
+        return OpenAIProvider(config)
 
     if config.provider == "anthropic":
         return AnthropicProvider(config)

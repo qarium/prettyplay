@@ -2,7 +2,7 @@
 
 from ..config import Config
 from ..driver import PageFacade
-from ..llm import FailureClassification, LlmProvider
+from ..llm import FailureClassification, LLMProvider
 
 #: System prompt of every classification request; used by both engines, applied verbatim.
 CLASSIFICATION_PROMPT = """You classify a failure of a web UI test step.
@@ -28,7 +28,7 @@ Output only that single line — no code, no extra text."""
 
 def classify_step_failure(  # noqa: PLR0913, PLR0917 — the parameter list is fixed by the engine contract
     config: Config,
-    provider: LlmProvider,
+    provider: LLMProvider,
     step_text: str,
     code: str,
     error: str,
@@ -53,7 +53,7 @@ def classify_step_failure(  # noqa: PLR0913, PLR0917 — the parameter list is f
         The classification verdict.
 
     Raises:
-        LlmUnavailableError: the provider service failed; the calling path
+        LLMUnavailableError: the provider service failed; the calling path
             decides the handling.
     """
     snapshot = page.aria_snapshot()

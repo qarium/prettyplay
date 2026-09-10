@@ -6,8 +6,8 @@ from datetime import date
 from ..cache import CachedStep, RunBudgets, StepCache, StepIdentity
 from ..config import Config
 from ..driver import PageFacade
-from ..failures import FailureVerdict, IncurableStepError, LlmUnavailableError, ProductDefectError
-from ..llm import FailureClassification, LlmProvider
+from ..failures import FailureVerdict, IncurableStepError, LLMUnavailableError, ProductDefectError
+from ..llm import FailureClassification, LLMProvider
 from ..reporting import StepReporter
 from .classification import classify_step_failure
 from .execution import run_step_code
@@ -94,7 +94,7 @@ class StepGenerator:
     def __init__(
         self,
         config: Config,
-        provider: LlmProvider,
+        provider: LLMProvider,
         cache: StepCache,
         budgets: RunBudgets,
         reporter: StepReporter,
@@ -134,7 +134,7 @@ class StepGenerator:
 
         Raises:
             IncurableStepError: the generation attempt budget is exhausted.
-            LlmUnavailableError: the provider service failed; no retry.
+            LLMUnavailableError: the provider service failed; no retry.
         """
         return self._loop(identity, step_text, previous_steps, page, "generation", None, None)
 
@@ -165,7 +165,7 @@ class StepGenerator:
 
         Raises:
             IncurableStepError: the healing attempt budget is exhausted.
-            LlmUnavailableError: the provider service failed; no retry.
+            LLMUnavailableError: the provider service failed; no retry.
         """
         return self._loop(identity, step_text, previous_steps, page, "healing", existing_code, error)
 
@@ -206,7 +206,7 @@ class StepGenerator:
                 genuine product defect.
             IncurableStepError: the attempt budget of the step is exhausted,
                 or a failure classified as incurable.
-            LlmUnavailableError: the provider service failed; no retry.
+            LLMUnavailableError: the provider service failed; no retry.
         """
         attempt = 0
         code = None
@@ -295,7 +295,7 @@ class StepGenerator:
         """
         try:
             classification = classify_step_failure(self._config, self._provider, step_text, code, error, page)
-        except LlmUnavailableError:
+        except LLMUnavailableError:
             logger.warning("verdict skipped: llm unavailable")
             return None
 

@@ -3,7 +3,7 @@
 import base64
 import re
 
-from ..failures import LlmUnavailableError
+from ..failures import LLMUnavailableError
 
 #: The labels a classification category may take.
 CATEGORY_ROT = "rot"
@@ -55,12 +55,12 @@ def require_completion_text(text: str | None, provider: str) -> str:
         The non-empty completion text.
 
     Raises:
-        LlmUnavailableError: the completion body is missing — a null/empty
+        LLMUnavailableError: the completion body is missing — a null/empty
             content is an infrastructure shape, not a step verdict, so it maps
             to the same taxonomy as any other service failure.
     """
     if not text:
-        raise LlmUnavailableError(f"llm unavailable: {provider} returned empty completion")
+        raise LLMUnavailableError(f"llm unavailable: {provider} returned empty completion")
 
     return text
 

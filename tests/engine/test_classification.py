@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from prettyplay.config import Config
 from prettyplay.engine import classify_step_failure
-from prettyplay.failures import LlmUnavailableError
+from prettyplay.failures import LLMUnavailableError
 from prettyplay.llm import FailureClassification
 
 STEP_CODE = "def step(page) -> None:\n    page.find_by_role('button', name='Sign in').click()\n"
@@ -39,10 +39,10 @@ class ClassificationProvider:
 
 
 class UnavailableProvider:
-    """Stub provider whose service is down: classification raises LlmUnavailableError."""
+    """Stub provider whose service is down: classification raises LLMUnavailableError."""
 
     def classify_failure(self, **_kwargs: object) -> FailureClassification:
-        raise LlmUnavailableError("openai down")
+        raise LLMUnavailableError("openai down")
 
 
 class TestClassifyStepFailureContract:
@@ -116,7 +116,7 @@ class TestClassifyStepFailureLogic:
     def test_provider_unavailability_propagates_untouched(self, tmp_path: Path) -> None:
         config = Config(cache_root=str(tmp_path))
 
-        with pytest.raises(LlmUnavailableError) as excinfo:
+        with pytest.raises(LLMUnavailableError) as excinfo:
             classify_step_failure(config, UnavailableProvider(), "s", STEP_CODE, "err", FakePage())
 
         assert "openai down" in str(excinfo.value)

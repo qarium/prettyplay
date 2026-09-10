@@ -9,7 +9,7 @@ from prettyplay import StepExecutor
 from prettyplay.cache import CachedStep, RunBudgets, StepCache, StepIdentity, normalize_step_text
 from prettyplay.config import Config
 from prettyplay.engine.text import first_line_short
-from prettyplay.failures import FailureVerdict, IncurableStepError, LlmUnavailableError, ProductDefectError
+from prettyplay.failures import FailureVerdict, IncurableStepError, LLMUnavailableError, ProductDefectError
 from prettyplay.reporting import StepHooks, StepReporter
 
 CACHED_CODE = "def step(page) -> None:\n    page.open('https://example.com')\n"
@@ -210,12 +210,12 @@ class TestStepExecutorContract:
         }
 
     def test_execute_emits_no_verdict_event_for_llm_unavailable(self, tmp_path: Path) -> None:
-        healer = RaisingHealer(LlmUnavailableError("llm unavailable: openai request failed"))
+        healer = RaisingHealer(LLMUnavailableError("llm unavailable: openai request failed"))
         fixture = ExecutorFixture(tmp_path, RecordingGenerator(), healer)
         identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="open the dashboard")
         fixture.cache.save(CachedStep(identity=identity, code=BROKEN_CODE, created_at="2026-09-08"))
 
-        with pytest.raises(LlmUnavailableError):
+        with pytest.raises(LLMUnavailableError):
             fixture.executor.execute("open the dashboard", "action", FakePage())
 
         assert not events_named(fixture.recorder, "on_step_verdict")
@@ -282,12 +282,12 @@ class TestStepExecutorLogic:
         ]
 
     def test_verdict_event_absent_without_verdict(self, tmp_path: Path) -> None:
-        healer = RaisingHealer(LlmUnavailableError("down"))
+        healer = RaisingHealer(LLMUnavailableError("down"))
         fixture = ExecutorFixture(tmp_path, RecordingGenerator(), healer)
         identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="s")
         fixture.cache.save(CachedStep(identity=identity, code=BROKEN_CODE, created_at="2026-09-08"))
 
-        with pytest.raises(LlmUnavailableError):
+        with pytest.raises(LLMUnavailableError):
             fixture.executor.execute("s", "action", FakePage())
 
         assert "on_step_verdict" not in [event for event, _ in fixture.recorder.events]
@@ -401,7 +401,7 @@ class TestStepExecutorLogic:
         [
             ProductDefectError("нажать войти", "ожидание не оправдалось"),
             IncurableStepError("нажать войти", "текст шага не соответствует реальности"),
-            LlmUnavailableError("llm unavailable: openai request failed"),
+            LLMUnavailableError("llm unavailable: openai request failed"),
         ],
     )
     def test_healer_failure_propagates_by_kind_with_event(self, tmp_path: Path, failure: Exception) -> None:

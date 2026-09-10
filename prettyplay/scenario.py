@@ -166,7 +166,7 @@ class PrettyTest:
             ProductDefectError: the step expectation is genuinely broken in the product.
             IncurableStepError: the step never generated successfully, or the verdict
                 says regeneration cannot help.
-            LlmUnavailableError: the provider service failed; no retry.
+            LLMUnavailableError: the provider service failed; no retry.
         """
         try:
             self._executor.execute(text, "action", self._ensure_page())
@@ -186,7 +186,7 @@ class PrettyTest:
             ProductDefectError: the step expectation is genuinely broken in the product.
             IncurableStepError: the step never generated successfully, or the verdict
                 says regeneration cannot help.
-            LlmUnavailableError: the provider service failed; no retry.
+            LLMUnavailableError: the provider service failed; no retry.
         """
         try:
             self._executor.execute(text, "assertion", self._ensure_page())

@@ -11,7 +11,7 @@ from prettyplay.engine.classification import CLASSIFICATION_PROMPT
 from prettyplay.failures import (
     FailureVerdict,
     IncurableStepError,
-    LlmUnavailableError,
+    LLMUnavailableError,
     PrettyplayError,
     ProductDefectError,
 )
@@ -406,10 +406,10 @@ class TestStepHealerLogic:
         assert fixture.cache.save_calls == []  # no proven candidate — cache untouched
 
     def test_heal_classification_unavailable_is_infrastructure_failure(self, tmp_path: Path) -> None:
-        provider = FakeProvider([LlmUnavailableError("anthropic down")])
+        provider = FakeProvider([LLMUnavailableError("anthropic down")])
         fixture = HealerFixture(provider, tmp_path)
 
-        with pytest.raises(LlmUnavailableError) as excinfo:
+        with pytest.raises(LLMUnavailableError) as excinfo:
             fixture.healer.heal(fixture.failed_step, "err", [], FakePage())
 
         assert "anthropic" in str(excinfo.value)

@@ -3,7 +3,7 @@
 from .errors import (
     FailureVerdict,
     IncurableStepError,
-    LlmUnavailableError,
+    LLMUnavailableError,
     PrettyplayError,
     ProductDefectError,
 )
@@ -11,7 +11,7 @@ from .errors import (
 __all__ = [
     "FailureVerdict",
     "IncurableStepError",
-    "LlmUnavailableError",
+    "LLMUnavailableError",
     "PrettyplayError",
     "ProductDefectError",
 ]

@@ -12,7 +12,7 @@ from prettyplay import PrettyTest
 from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step_text
 from prettyplay.config import Config
 from prettyplay.failures import IncurableStepError, ProductDefectError
-from prettyplay.llm import FailureClassification, LlmProvider
+from prettyplay.llm import FailureClassification, LLMProvider
 from prettyplay.reporting import StepHooks, StepReporter
 
 OPEN_LOGIN_CODE = "def step(page) -> None:\n    page.open('https://login.example.com')\n"
@@ -89,7 +89,7 @@ class FakePage:
         return FakeLocator(self.calls)
 
 
-class StubProvider(LlmProvider):
+class StubProvider(LLMProvider):
     """Stub LLM boundary: scripted generation answers, a fixed verdict, recorded requests."""
 
     def __init__(
@@ -153,7 +153,7 @@ class StubProvider(LlmProvider):
         return self.verdict
 
 
-class ForbiddenProvider(LlmProvider):
+class ForbiddenProvider(LLMProvider):
     """Stub provider failing the run the moment a cached path touches the LLM boundary."""
 
     def __init__(self) -> None:
@@ -248,7 +248,7 @@ def test_pretty_config_exported_and_get_runtime_removed() -> None:
 @contextlib.contextmanager
 def installed_test(
     cache_root: Path,
-    provider: LlmProvider,
+    provider: LLMProvider,
     page: FakePage,
     cache_key: str,
     cache_path: str | None = None,

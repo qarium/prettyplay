@@ -68,7 +68,7 @@ class StepExecutor:
                 of the step is genuinely broken in the product.
             IncurableStepError: the step never generated successfully, or the
                 verdict says regeneration cannot help.
-            LlmUnavailableError: the provider service failed; no retry.
+            LLMUnavailableError: the provider service failed; no retry.
         """
         try:
             self._reporter.emit("on_step_started", {"step_text": step_text, "step_type": step_type})

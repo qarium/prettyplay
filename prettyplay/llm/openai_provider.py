@@ -1,11 +1,11 @@
-"""The openai SDK implementation of the LlmProvider port."""
+"""The openai SDK implementation of the LLMProvider port."""
 
 import os
 
 from openai import OpenAI, OpenAIError
 
 from ..config import Config
-from ..failures import LlmUnavailableError
+from ..failures import LLMUnavailableError
 from ._request import (
     build_classification_fields,
     build_fields_text,
@@ -16,7 +16,7 @@ from ._request import (
     unparsable_classification,
 )
 from .models import FailureClassification
-from .provider import LlmProvider
+from .provider import LLMProvider
 
 
 def _first_choice_text(response: object) -> str | None:
@@ -35,15 +35,15 @@ def _first_choice_text(response: object) -> str | None:
     return getattr(message, "content", None)
 
 
-class OpenAiProvider(LlmProvider):
-    """The LlmProvider implementation served by the openai SDK.
+class OpenAIProvider(LLMProvider):
+    """The LLMProvider implementation served by the openai SDK.
 
     Full parity with :class:`AnthropicProvider`: the same operations, the
     same inputs, the same output shapes. The constructor reads no
     environment and constructs no client; the SDK client is created lazily
     on the first request, so the library starts without LLM credentials.
     Every service failure maps to
-    :class:`~prettyplay.failures.LlmUnavailableError` naming the provider;
+    :class:`~prettyplay.failures.LLMUnavailableError` naming the provider;
     the API key is read from the environment only and never logged.
     """
 
@@ -64,14 +64,14 @@ class OpenAiProvider(LlmProvider):
             The lazily constructed openai SDK client.
 
         Raises:
-            LlmUnavailableError: the OPENAI_API_KEY environment variable is
+            LLMUnavailableError: the OPENAI_API_KEY environment variable is
                 missing or empty — generation and healing are blocked.
         """
         if self._client is None:
             api_key = os.environ.get("OPENAI_API_KEY")
 
             if not api_key:
-                raise LlmUnavailableError("llm unavailable: openai: OPENAI_API_KEY is not set")
+                raise LLMUnavailableError("llm unavailable: openai: OPENAI_API_KEY is not set")
 
             self._client = OpenAI(api_key=api_key, base_url=self._config.base_url or None)
         return self._client
@@ -115,7 +115,7 @@ class OpenAiProvider(LlmProvider):
             The generated step code of the fixed form.
 
         Raises:
-            LlmUnavailableError: the SDK client is unavailable or the
+            LLMUnavailableError: the SDK client is unavailable or the
                 service request failed.
         """
         text = build_fields_text(user_instructions, step_text, previous_steps, snapshot, page_api, existing_code, error)
@@ -130,7 +130,7 @@ class OpenAiProvider(LlmProvider):
                 messages=messages,
             )
         except OpenAIError as sdk_error:
-            raise LlmUnavailableError("llm unavailable: openai request failed") from sdk_error
+            raise LLMUnavailableError("llm unavailable: openai request failed") from sdk_error
 
         return extract_code_block(require_completion_text(_first_choice_text(response), "openai"))
 
@@ -160,7 +160,7 @@ class OpenAiProvider(LlmProvider):
             protectively to the incurable category.
 
         Raises:
-            LlmUnavailableError: the SDK client is unavailable or the
+            LLMUnavailableError: the SDK client is unavailable or the
                 service request failed.
         """
         text = build_classification_fields(step_text, code, error, snapshot)
@@ -175,7 +175,7 @@ class OpenAiProvider(LlmProvider):
                 messages=messages,
             )
         except OpenAIError as sdk_error:
-            raise LlmUnavailableError("llm unavailable: openai request failed") from sdk_error
+            raise LLMUnavailableError("llm unavailable: openai request failed") from sdk_error
 
         answer = require_completion_text(_first_choice_text(response), "openai")
         parsed = parse_classification_line(answer)

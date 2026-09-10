@@ -12,7 +12,7 @@ from prettyplay import PrettyTest
 from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step_text
 from prettyplay.config import Config, PrettyConfig
 from prettyplay.failures import FailureVerdict, IncurableStepError, PrettyplayError
-from prettyplay.llm import FailureClassification, LlmProvider
+from prettyplay.llm import FailureClassification, LLMProvider
 from prettyplay.reporting import StepHooks, StepReporter
 
 CACHE_KEY = "k"
@@ -44,7 +44,7 @@ class FakePage:
         return self.close_count > 0
 
 
-class RecordingProvider(LlmProvider):
+class RecordingProvider(LLMProvider):
     """Stub LLM boundary recording generation requests; any call fails the acceptance run."""
 
     def __init__(self) -> None:
@@ -117,7 +117,7 @@ def seed_cache(
 def scenario_with_differing_instructions(
     tmp_path: Path,
     page: FakePage,
-    provider: LlmProvider,
+    provider: LLMProvider,
 ) -> Iterator[PrettyTest]:
     """Build one PrettyTest whose instructions differ from whatever generated the cached code.
 

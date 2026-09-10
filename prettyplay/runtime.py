@@ -16,7 +16,7 @@ import atexit
 from .cache import RunBudgets
 from .config import Config
 from .driver import DriverSession, PageFacade
-from .llm import LlmProvider, create_provider
+from .llm import LLMProvider, create_provider
 
 
 class PrettyplayRuntime:
@@ -48,7 +48,7 @@ class PrettyplayRuntime:
         self._config = config
         self._budgets = RunBudgets(config.generation_attempts, config.healing_attempts)
         self._driver: DriverSession | None = None
-        self._provider: LlmProvider | None = None
+        self._provider: LLMProvider | None = None
         atexit.register(self.close)
 
     @property
@@ -75,7 +75,7 @@ class PrettyplayRuntime:
         return self._driver
 
     @property
-    def provider(self) -> LlmProvider:
+    def provider(self) -> LLMProvider:
         """The LLM provider of the test, constructed lazily exactly once."""
         if self._provider is None:
             self._provider = create_provider(self._config)

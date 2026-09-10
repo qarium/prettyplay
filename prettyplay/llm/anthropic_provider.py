@@ -1,11 +1,11 @@
-"""The anthropic SDK implementation of the LlmProvider port."""
+"""The anthropic SDK implementation of the LLMProvider port."""
 
 import os
 
 from anthropic import Anthropic, AnthropicError
 
 from ..config import Config
-from ..failures import LlmUnavailableError
+from ..failures import LLMUnavailableError
 from ._request import (
     build_classification_fields,
     build_fields_text,
@@ -16,7 +16,7 @@ from ._request import (
     unparsable_classification,
 )
 from .models import FailureClassification
-from .provider import LlmProvider
+from .provider import LLMProvider
 
 REQUEST_MAX_TOKENS = 1024
 
@@ -38,14 +38,14 @@ def _first_text_block(response: object) -> str | None:
     return None
 
 
-class AnthropicProvider(LlmProvider):
-    """The LlmProvider implementation served by the anthropic SDK.
+class AnthropicProvider(LLMProvider):
+    """The LLMProvider implementation served by the anthropic SDK.
 
-    Full parity with :class:`OpenAiProvider`: the same operations, the same
+    Full parity with :class:`OpenAIProvider`: the same operations, the same
     inputs, the same output shapes. The constructor reads no environment
     and constructs no client; the SDK client is created lazily on the first
     request, so the library starts without LLM credentials. Every service
-    failure maps to :class:`~prettyplay.failures.LlmUnavailableError`
+    failure maps to :class:`~prettyplay.failures.LLMUnavailableError`
     naming the provider; the API key is read from the environment only and
     never logged.
     """
@@ -67,14 +67,14 @@ class AnthropicProvider(LlmProvider):
             The lazily constructed anthropic SDK client.
 
         Raises:
-            LlmUnavailableError: the ANTHROPIC_API_KEY environment variable
+            LLMUnavailableError: the ANTHROPIC_API_KEY environment variable
                 is missing or empty — generation and healing are blocked.
         """
         if self._client is None:
             api_key = os.environ.get("ANTHROPIC_API_KEY")
 
             if not api_key:
-                raise LlmUnavailableError("llm unavailable: anthropic: ANTHROPIC_API_KEY is not set")
+                raise LLMUnavailableError("llm unavailable: anthropic: ANTHROPIC_API_KEY is not set")
 
             self._client = Anthropic(api_key=api_key, base_url=self._config.base_url or None)
         return self._client
@@ -145,7 +145,7 @@ class AnthropicProvider(LlmProvider):
             The generated step code of the fixed form.
 
         Raises:
-            LlmUnavailableError: the SDK client is unavailable or the
+            LLMUnavailableError: the SDK client is unavailable or the
                 service request failed.
         """
         text = build_fields_text(user_instructions, step_text, previous_steps, snapshot, page_api, existing_code, error)
@@ -158,7 +158,7 @@ class AnthropicProvider(LlmProvider):
                 messages=[{"role": "user", "content": self._user_content(text, screenshot)}],
             )
         except AnthropicError as sdk_error:
-            raise LlmUnavailableError("llm unavailable: anthropic request failed") from sdk_error
+            raise LLMUnavailableError("llm unavailable: anthropic request failed") from sdk_error
 
         return extract_code_block(require_completion_text(_first_text_block(response), "anthropic"))
 
@@ -188,7 +188,7 @@ class AnthropicProvider(LlmProvider):
             protectively to the incurable category.
 
         Raises:
-            LlmUnavailableError: the SDK client is unavailable or the
+            LLMUnavailableError: the SDK client is unavailable or the
                 service request failed.
         """
         text = build_classification_fields(step_text, code, error, snapshot)
@@ -201,7 +201,7 @@ class AnthropicProvider(LlmProvider):
                 messages=[{"role": "user", "content": self._user_content(text, screenshot)}],
             )
         except AnthropicError as sdk_error:
-            raise LlmUnavailableError("llm unavailable: anthropic request failed") from sdk_error
+            raise LLMUnavailableError("llm unavailable: anthropic request failed") from sdk_error
 
         answer = require_completion_text(_first_text_block(response), "anthropic")
         parsed = parse_classification_line(answer)
