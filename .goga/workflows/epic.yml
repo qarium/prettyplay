@@ -1,5 +1,6 @@
 prompt: |
   Answer (feedbacks, proposes, questions and etc) in Russian language.
+  Any content written to the files is in English.
 
 stages:
   define:

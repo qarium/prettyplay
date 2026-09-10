@@ -1,5 +1,6 @@
 prompt: |
   Answer (feedbacks, proposes, questions and etc) in Russian language.
+  Any content written to the files is in English.
 
 memory:
   max_rules: 15
@@ -19,6 +20,9 @@ stages:
   code-design:
     approve: auto
     agent: architector
+    reflect:
+      file: code-design.md
+      mode: r
   design-review:
     approve: auto
     agent: reviewer
