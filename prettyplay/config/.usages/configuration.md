@@ -87,7 +87,7 @@ The `screen` field of the browser group is the single size setting:
 |---|---|
 | "" | Playwright default — the current behavior |
 | 1280x720 | fixed viewport WxH — pinned in every launch mode |
-| fullscreen | a maximized window with the viewport following it on a local headed launch; a fixed 1920x1080 viewport under headless and remote connects (no window exists there) |
+| fullscreen | the viewport follows the window on a local headed launch — the chromium-family engines (chromium, chrome, msedge) start maximized via `--start-maximized`; firefox and webkit keep the plain window; a fixed 1920x1080 viewport under headless and remote connects (no window exists there) |
 | iPhone 13 | a Playwright device name — mobile emulation via the full descriptor: viewport, user agent, touch, is_mobile, device scale factor |
 
 - WxH and device descriptors apply in every launch mode: local headed, local headless, remote connect

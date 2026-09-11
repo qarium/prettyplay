@@ -16,7 +16,7 @@ class StepHooks:
         """The step finished successfully."""
 
     def on_step_failed(self, step_text: str, step_type: str, error: str) -> None:
-        """The step failed; ``error`` is a short human-readable failure description."""
+        """The step failed; ``error`` is the full structured render of the terminal failure."""
 
     def on_step_verdict(self, step_text: str, category: str, explanation: str, recommendation: str) -> None:
         """The terminal failure of the step carried a verdict; fires after on_step_failed."""
