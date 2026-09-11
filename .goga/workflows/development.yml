@@ -11,9 +11,6 @@ stages:
     agent: architector
     reflect:
       file: architecture.md
-    prompt: |
-      Requirements:
-      - Read only the explicitly specified files in .goga/memory. Do not read any other or adjacent files.
   architecture-review:
     approve: auto
     agent: reviewer
