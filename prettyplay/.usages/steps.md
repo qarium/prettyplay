@@ -5,37 +5,37 @@ Domain: authoring UI tests as plain sentences. Audience: engineers writing tests
 ## A test as a scenario
 
 ```python
-from prettyplay import PrettyTest
+from prettyplay import PrettyPlay
 
 
 def test_login():
-    t = PrettyTest("login-flow")
-    t.action("open the login page")
-    t.action("enter the login and password")
-    t.action("click the «Sign in» button")
-    t.assertion("the «Welcome back» message appears")
+    t = PrettyPlay("login-flow")
+    t.step("open the login page")
+    t.step("enter the login and password")
+    t.step("click the «Sign in» button")
+    t.expect("the «Welcome back» message appears")
     t.close()
 ```
 
 Or with the context manager:
 
 ```python
-with PrettyTest("login-flow") as t:
-    t.action("open the login page")
+with PrettyPlay("login-flow") as t:
+    t.step("open the login page")
 ```
 
 ## Step kinds
 
-- action(text) — performs what the sentence says
-- assertion(text) — verifies what the sentence says; a legitimately failed expectation fails the test as a product defect
+- step(text) — performs what the sentence says
+- expect(text) — verifies what the sentence says; a legitimately failed expectation fails the test as a product defect
 
 ## Screenshots
 
 Two author-facing abilities on the test object:
 
 ```python
-with PrettyTest("login-flow") as t:
-    t.action("open the login page")
+with PrettyPlay("login-flow") as t:
+    t.step("open the login page")
     png = t.get_screenshot()  # full-page PNG bytes of the current state
     t.save_screenshot("artifacts/home.png")  # write full-page PNG to an explicit path
 ```

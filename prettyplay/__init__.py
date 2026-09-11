@@ -2,11 +2,13 @@
 
 from .config import BrowserConfig, PrettyConfig
 from .executor import StepExecutor
+from .reporting import StepHooks
 from .runtime import PrettyplayRuntime
-from .scenario import PrettyTest
+from .scenario import PrettyPlay
 
 __all__ = [  # noqa: RUF022 — the facade listing order is fixed by the root cell contract
-    "PrettyTest",
+    "PrettyPlay",
+    "StepHooks",
     "PrettyConfig",
     "BrowserConfig",
     "PrettyplayRuntime",

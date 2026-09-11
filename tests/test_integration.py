@@ -1,4 +1,4 @@
-"""Integration tests of the full step cycle through the public ``PrettyTest`` facade."""
+"""Integration tests of the full step cycle through the public ``PrettyPlay`` facade."""
 
 import contextlib
 import logging
@@ -10,7 +10,7 @@ from unittest import mock
 
 import prettyplay
 import pytest
-from prettyplay import BrowserConfig, PrettyTest
+from prettyplay import BrowserConfig, PrettyPlay
 from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step_text
 from prettyplay.config import Config, load_config
 from prettyplay.failures import IncurableStepError, ProductDefectError
@@ -252,10 +252,18 @@ def clean_prettyplay_env(monkeypatch):
 
 
 def test_pretty_config_exported_and_get_runtime_removed() -> None:
-    """The embedding contract: PrettyConfig and BrowserConfig re-exported, the singleton gone."""
+    """The embedding contract: PrettyConfig, BrowserConfig and StepHooks re-exported, the singleton gone."""
     assert prettyplay.PrettyConfig is Config
     assert prettyplay.BrowserConfig is BrowserConfig
-    assert prettyplay.__all__ == ["PrettyTest", "PrettyConfig", "BrowserConfig", "PrettyplayRuntime", "StepExecutor"]
+    assert prettyplay.StepHooks is StepHooks
+    assert prettyplay.__all__ == [
+        "PrettyPlay",
+        "StepHooks",
+        "PrettyConfig",
+        "BrowserConfig",
+        "PrettyplayRuntime",
+        "StepExecutor",
+    ]
     assert not hasattr(prettyplay, "get_runtime")
 
 
@@ -266,8 +274,8 @@ def installed_test(
     page: FakePage,
     cache_key: str,
     cache_path: str | None = None,
-) -> Iterator[PrettyTest]:
-    """Build one PrettyTest on a tmp cache with stubbed provider and page boundaries.
+) -> Iterator[PrettyPlay]:
+    """Build one PrettyPlay on a tmp cache with stubbed provider and page boundaries.
 
     Per-test construction: the test resolves its config from the patched loader
     (never the real repo pyproject), owns its runtime, and both external
@@ -278,7 +286,7 @@ def installed_test(
         mock.patch("prettyplay.scenario.load_config", return_value=Config(cache_root=str(cache_root))),
         mock.patch("prettyplay.runtime.create_provider", return_value=provider),
     ):
-        test = PrettyTest(cache_key, cache_path=cache_path)
+        test = PrettyPlay(cache_key, cache_path=cache_path)
         with mock.patch.object(test._runtime, "open_page", return_value=page):
             yield test
 
@@ -305,21 +313,21 @@ def seed_step(  # noqa: PLR0913 — the address fields mirror the identity tripl
 
 
 @contextlib.contextmanager
-def configured_test(config: Config, provider: LLMProvider, page: FakePage) -> Iterator[PrettyTest]:
-    """Build one PrettyTest through the real layered loader carrying the given config.
+def configured_test(config: Config, provider: LLMProvider, page: FakePage) -> Iterator[PrettyPlay]:
+    """Build one PrettyPlay through the real layered loader carrying the given config.
 
     Unlike :func:`installed_test` the settings resolve through the real
     ``load_config`` merge — the programmatic layer wins over the file layer,
-    exactly as an integrator's ``PrettyTest(..., config=PrettyConfig(...))``
+    exactly as an integrator's ``PrettyPlay(..., config=PrettyConfig(...))``
     does; the provider factory and the page stay stubbed boundaries.
     """
     with mock.patch("prettyplay.runtime.create_provider", return_value=provider):
-        test = PrettyTest("login-flow", config=config)
+        test = PrettyPlay("login-flow", config=config)
         with mock.patch.object(test._runtime, "open_page", return_value=page):
             yield test
 
 
-def test_action_cached_step_runs_without_llm(tmp_path: Path) -> None:
+def test_cached_step_runs_without_llm(tmp_path: Path) -> None:
     """Flow B: a cached step executes through the whole cycle with no LLM involvement."""
     provider = ForbiddenProvider()
     page = FakePage()
@@ -328,7 +336,7 @@ def test_action_cached_step_runs_without_llm(tmp_path: Path) -> None:
 
     with installed_test(tmp_path, provider, page, "login-flow") as test:
         test.add_hooks(hook)
-        test.action("открыть страницу логина")
+        test.step("открыть страницу логина")
         test.close()
 
     assert page.calls == [("open", "https://login.example.com")]
@@ -347,8 +355,8 @@ def test_scenario_context_feeds_next_generation(tmp_path: Path) -> None:
 
     with installed_test(tmp_path, provider, page, "k") as test:
         test.add_hooks(hook)
-        test.action("шаг один")
-        test.action("шаг два")
+        test.step("шаг один")
+        test.step("шаг два")
         test.close()
 
     assert [request["previous_steps"] for request in provider.generation_requests] == [[], ["шаг один"]]
@@ -367,12 +375,12 @@ def test_per_test_generation_prompt_reaches_the_provider_request(tmp_path: Path,
 
     with mock.patch("prettyplay.runtime.create_provider", return_value=provider):
         # real load_config: the programmatic layer goes through the real merge, not a stub
-        test = PrettyTest(
+        test = PrettyPlay(
             "login-flow",
             config=Config(cache_root=str(tmp_path), generation_prompt="prefer data-test-id"),
         )
         with mock.patch.object(test._runtime, "open_page", return_value=page):
-            test.action("open the app page")
+            test.step("open the app page")
             test.close()
 
     assert provider.generation_requests[0]["user_instructions"] == "prefer data-test-id"
@@ -396,7 +404,7 @@ def test_rot_healing_regenerates_rewrites_cache_and_passes(tmp_path: Path) -> No
 
     with installed_test(tmp_path, provider, page, "login-flow") as test:
         test.add_hooks(hook)
-        test.action(step_text)
+        test.step(step_text)
         test.close()
 
     assert page.calls == [("find_by_role", "button", "Войти"), ("find_by_text", "Войти"), ("click",)]
@@ -428,11 +436,11 @@ def test_cache_path_subdirectories_do_not_collide(tmp_path: Path) -> None:
     seed_step(tmp_path, "открыть страницу", marketing_code, cache_key="k", cache_path="marketing")
 
     with installed_test(tmp_path, provider, checkout_page, "k", cache_path="checkout") as test:
-        test.action("открыть страницу")
+        test.step("открыть страницу")
         test.close()
 
     with installed_test(tmp_path, provider, marketing_page, "k", cache_path="marketing") as test:
-        test.action("открыть страницу")
+        test.step("открыть страницу")
         test.close()
 
     assert checkout_page.calls == [("open", "https://checkout.example.com")]
@@ -458,7 +466,7 @@ def test_generated_failed_check_verdict_fails_the_test_loudly(tmp_path: Path) ->
     with installed_test(tmp_path, provider, page, "login-flow") as test:
         test.add_hooks(hook)
         with pytest.raises(ProductDefectError) as excinfo:
-            test.assertion(step_text)
+            test.expect(step_text)
         test.close()
 
     assert excinfo.value.verdict is not None
@@ -482,7 +490,7 @@ def test_generated_failed_check_verdict_fails_the_test_loudly(tmp_path: Path) ->
 
 
 def test_product_defect_verdict_fails_the_test_loudly(tmp_path: Path) -> None:
-    """A classified product defect surfaces through PrettyTest.action with an intact cache."""
+    """A classified product defect surfaces through PrettyPlay.step with an intact cache."""
     step_text = "нажать Войти"
     broken_code = "def step(page) -> None:\n    page.find_by_role('button', name='Войти').click()\n"
     identity = seed_step(tmp_path, step_text, broken_code, cache_key="login-flow")
@@ -497,7 +505,7 @@ def test_product_defect_verdict_fails_the_test_loudly(tmp_path: Path) -> None:
     with installed_test(tmp_path, provider, page, "login-flow") as test:
         test.add_hooks(hook)
         with pytest.raises(ProductDefectError) as excinfo:
-            test.action(step_text)
+            test.step(step_text)
         test.close()
 
     assert excinfo.value.step_text == normalize_step_text(step_text)
@@ -551,7 +559,7 @@ def test_incurable_verdict_fails_with_verdict_fields(tmp_path: Path) -> None:
     with installed_test(tmp_path, provider, page, "login-flow") as test:
         test.add_hooks(hook)
         with pytest.raises(IncurableStepError) as excinfo:
-            test.action(step_text)
+            test.step(step_text)
         test.close()
 
     assert excinfo.value.reason == "текст шага не соответствует реальности"
@@ -597,7 +605,7 @@ def test_strict_cache_miss_raises_incurable_without_generation(tmp_path: Path) -
     with configured_test(Config(strict=True, cache_root=str(tmp_path)), provider, page) as test:
         test.add_hooks(hook)
         with pytest.raises(IncurableStepError) as excinfo:
-            test.action("Нажать «Войти»")
+            test.step("Нажать «Войти»")
         test.close()
 
     assert excinfo.value.reason == "strict mode forbids generation — the step is missing from the cache"
@@ -628,7 +636,7 @@ def test_strict_failed_cached_step_classifies_without_healing(tmp_path: Path, ca
     with configured_test(Config(strict=True, cache_root=str(tmp_path)), provider, page) as test:
         test.add_hooks(hook)
         with pytest.raises(ProductDefectError) as excinfo:
-            test.assertion(step_text)
+            test.expect(step_text)
         test.close()
 
     assert excinfo.value.verdict is not None
@@ -671,7 +679,7 @@ def test_nonstrict_unhealable_failure_carries_full_error_text(tmp_path: Path) ->
     with configured_test(Config(cache_root=str(tmp_path)), provider, page) as test:
         test.add_hooks(hook)
         with pytest.raises(IncurableStepError) as excinfo:
-            test.action("нажать Войти")
+            test.step("нажать Войти")
         test.close()
 
     assert excinfo.value.error == f"RuntimeError: {long_error}"  # full typed text, well past the old 200-char cut
@@ -698,7 +706,7 @@ def test_classification_instructions_reach_only_classification_requests(tmp_path
         provider,
         FakePage(),
     ) as test:
-        test.action("open the app page")
+        test.step("open the app page")
         test.close()
 
     # strict pass: one classification request of a failed cached step — the classification instructions ride along
@@ -714,7 +722,7 @@ def test_classification_instructions_reach_only_classification_requests(tmp_path
         FakePage(broken_lookups=frozenset({"find_by_role"})),
     ) as test:
         with pytest.raises(IncurableStepError):  # strict: rot is still incurable — the healer never runs
-            test.action("нажать Войти")
+            test.step("нажать Войти")
         test.close()
 
     assert [request["user_instructions"] for request in provider.generation_requests] == ["prefer data-test-id"]
@@ -749,7 +757,7 @@ def test_pyproject_settings_reach_the_executor_config(tmp_path: Path) -> None:
         ),
         mock.patch("prettyplay.runtime.create_provider", return_value=ForbiddenProvider()),
     ):
-        test = PrettyTest("login-flow")
+        test = PrettyPlay("login-flow")
 
     wired = test._executor._config
     assert wired.strict is True
@@ -770,7 +778,7 @@ def test_strict_failure_never_writes_the_cache(tmp_path: Path) -> None:
     # cache miss: generation is forbidden — the empty cache stays empty
     with configured_test(Config(strict=True, cache_root=str(miss_root)), ForbiddenProvider(), FakePage()) as test:
         with pytest.raises(IncurableStepError):
-            test.action("шаг, которого нет в кэше")
+            test.step("шаг, которого нет в кэше")
         test.close()
 
     assert [path for path in miss_root.rglob("*") if path.is_file()] == []
@@ -786,7 +794,7 @@ def test_strict_failure_never_writes_the_cache(tmp_path: Path) -> None:
 
     with configured_test(Config(strict=True, cache_root=str(failed_root)), provider, page) as test:
         with pytest.raises(IncurableStepError):
-            test.action(step_text)
+            test.step(step_text)
         test.close()
 
     assert [path.name for path in failed_root.iterdir()] == [identity.filename]

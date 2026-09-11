@@ -47,7 +47,7 @@ Rules:
 #: Frozen surface listing of the driver facade — the only calls step code may make.
 #: Mirrors ``prettyplay/driver/.usages/facade.md`` verbatim; the driver facade is a
 #: backward-compatibility contract, so this constant changes only together with it.
-#: ``close()`` stays out: it is a runtime method of PrettyTest, not of step code.
+#: ``close()`` stays out: it is a runtime method of PrettyPlay, not of step code.
 PAGE_API_SURFACE = """page.open(url)                    — navigate and wait for load
 page.find_by_role(role, name)     — element by aria role and accessible name
 page.find_by_label(label)         — element by associated label

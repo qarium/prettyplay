@@ -49,7 +49,7 @@ Usages:
 Annotations: |
   Use `conventions` for code writing rules and testing.
   Use `taxonomy` from Imports for the failure kinds the step methods propagate.
-  Use `hooks` from Imports for the callback contract accepted by add_hooks.
+  Use `hooks` from Imports for the callback contract accepted by the constructor hooks parameter and add_hooks.
   Use `generation` and `healing` from Imports for the engine cycles the executor delegates to.
 
   The facade of the library: one main object per test; the engineer writes steps as plain sentences and reads the suite as a scenario.
@@ -57,6 +57,7 @@ Annotations: |
   Step sentences are visible in the test output through the standard logger prettyplay; step texts land in the cache and in LLM requests — never put secrets or personal data into a step sentence.
   `PrettyConfig` — the public name of the settings model — is re-exported by this facade (see the embedding).
   `BrowserConfig` — the public name of the browser settings group — is re-exported by this facade (see the embedding), uniform with `PrettyConfig`.
+  `StepHooks` — the callback contract the facade accepts — is re-exported by this facade (see the embedding), uniform with `PrettyConfig` and `BrowserConfig`.
   Strict mode — the strict field of the effective config — makes the step cycle replay-only: cached code executes honestly, nothing is ever (re)generated. A cache miss is the incurable failure stating that strict forbids generation; a failed cached step is at most classified — never regenerated; without LLM access the failure raises immediately by step type. Classifications are the only LLM calls of a strict run; the generation and healing budgets are never consumed.
 
 ---
@@ -65,21 +66,24 @@ Annotations: |
 
 ->BrowserConfig: {}
 
-"PrettyTest(cache_key: str, cache_path: str | None, config: PrettyConfig | None)":
+->StepHooks: {}
+
+"PrettyPlay(cache_key: str, cache_path: str | None, hooks: list[StepHooks] | None, config: PrettyConfig | None)":
   location: scenario.py
   annotations: |
     The main integrator object — one instance per test. Owns the cache addressing and the isolated browser context of the test; the step cycle is delegated to `StepExecutor`.
 
     `cache_key`: the mandatory explicit context key — part of the step address; equal keys in the shared root reuse steps across tests.
     `cache_path`: the optional cache subdirectory — part of the address; steps never leak across subdirectories.
-    `config`: per-test overrides — the same full model, the nested `BrowserConfig` group and the strict switch included; explicitly set values win, unset/empty fields resolve from pyproject+env; None — everything resolves from pyproject+env, as before.
+    `hooks`: the optional integrator callbacks of this test, keyword-only together with `config` — the reporter is seeded with them at construction, so every event of every step reaches them; None — an empty hooks list, add_hooks appends later.
+    `config`: per-test overrides, keyword-only — the same full model, the nested `BrowserConfig` group and the strict switch included; explicitly set values win, unset/empty fields resolve from pyproject+env; None — everything resolves from pyproject+env, as before.
 
     Supports the context manager protocol: exit closes the test.
 
     Algorithm:
     1. Resolve the effective config: `load_config` with overrides = config
     2. Build the own `PrettyplayRuntime` with the effective config — no process-wide singleton exists
-    3. Construct the per-test reporter: `StepReporter` with an empty hooks list; add_hooks appends to it
+    3. Construct the per-test reporter: `StepReporter` seeded with hooks — the given list or an empty one; add_hooks appends to it
     4. Construct the per-test `StepCache` from the runtime config, `cache_path` and the reporter
     5. Construct `StepGenerator` and `StepHealer` from the runtime config, provider and budgets, the step cache and the reporter
     6. Construct `StepExecutor` with `cache_key`, the cache, the engines, the runtime budgets, the reporter, the runtime config and the runtime provider
@@ -92,12 +96,12 @@ Annotations: |
     "cache_key -> str": |
       The explicit context key, exposed for diagnostics.
   methods:
-    "action(text: str)": |
+    "step(text: str)": |
       Execute the action step `text`.
 
       Delegates to the executor execute with the step type action, the sentence and the test page; failures propagate by kind — `ProductDefectError`, `IncurableStepError`, `LLMUnavailableError` (see `taxonomy`).
       A `PrettyplayError` leaving this method carries its traceback folded to the library boundary: internal library frames — engine, healing, provider — do not appear in what the runner shows.
-    "assertion(text: str)": |
+    "expect(text: str)": |
       Execute the assertion step `text` — a legitimately failed expectation surfaces as the product defect failure.
 
       Delegates to the executor execute with the step type assertion; failures propagate by kind — `ProductDefectError`, `IncurableStepError`, `LLMUnavailableError` (see `taxonomy`).

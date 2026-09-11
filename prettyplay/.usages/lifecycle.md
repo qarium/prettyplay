@@ -4,13 +4,13 @@ Domain: how a run is composed — runtimes, contexts, hooks, failures, strict mo
 
 ## Composition
 
-One runtime per test: each PrettyTest builds its own runtime — its own configuration, browser process, LLM provider and attempt budgets. Tests never share browser state or budgets through the library; outcomes do not depend on the execution order. Constructing a test is cheap and requires no LLM credentials: the browser starts lazily on the first step. A config passed to the test overrides only the explicitly set values — everything else resolves from pyproject+env; the override reaches inside the nested browser group. When the process exits, every runtime stops its browser and driver synchronously before returning control to the terminal — scripts never leave browser processes behind.
+One runtime per test: each PrettyPlay builds its own runtime — its own configuration, browser process, LLM provider and attempt budgets. Tests never share browser state or budgets through the library; outcomes do not depend on the execution order. Constructing a test is cheap and requires no LLM credentials: the browser starts lazily on the first step. A config passed to the test overrides only the explicitly set values — everything else resolves from pyproject+env; the override reaches inside the nested browser group. When the process exits, every runtime stops its browser and driver synchronously before returning control to the terminal — scripts never leave browser processes behind.
 
 ```python
-from prettyplay import BrowserConfig, PrettyConfig, PrettyTest
+from prettyplay import BrowserConfig, PrettyConfig, PrettyPlay
 
 # a strict run with a fullscreen browser
-test = PrettyTest(
+test = PrettyPlay(
     cache_key="login",
     config=PrettyConfig(
         strict=True,
@@ -36,7 +36,7 @@ Team workflow: generate locally where the LLM is reachable, commit the cache dir
 
 ## Hooks
 
-Implement the StepHooks callback contract and register the implementation with add_hooks before the first step — step, generation, healing, cache and verdict events reach the handler synchronously. on_step_failed carries the full rendered failure message; on_step_verdict fires after it whenever the terminal failure carries an LLM verdict. In strict mode generation and healing events never fire.
+Implement the StepHooks callback contract and register the implementation — either pass the list to the keyword-only constructor parameter `hooks` (events are captured from the very construction) or call add_hooks before the first step. Step, generation, healing, cache and verdict events reach the handler synchronously. on_step_failed carries the full rendered failure message; on_step_verdict fires after it whenever the terminal failure carries an LLM verdict. In strict mode generation and healing events never fire.
 
 ## Failures
 
@@ -58,12 +58,12 @@ The Playwright session lives in a background driver thread owned by the library:
 Each test owns its browser process: it starts on the first step of the test and stops when the test closes. In scripts every runtime stops automatically at process exit through its atexit hook. In an interactive session the process keeps living between cells, so close the test object explicitly when the interactive exploration is over:
 
 ```python
-from prettyplay import PrettyTest
+from prettyplay import PrettyPlay
 
-test = PrettyTest("login-flow")
-test.action("open the login page")
-test.action("enter the login and password")
-test.assertion("the «Welcome back» message appears")
+test = PrettyPlay("login-flow")
+test.step("open the login page")
+test.step("enter the login and password")
+test.expect("the «Welcome back» message appears")
 test.close()  # stops this test's browser and driver thread
 ```
 

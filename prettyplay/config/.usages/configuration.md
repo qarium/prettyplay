@@ -58,9 +58,9 @@ Every setting has an override for CI — env variable PRETTYPLAY_<SETTING> in up
 PrettyConfig is the public name of the full settings model. A config passed to the test object carries only the explicitly set values; everything else resolves from pyproject+env:
 
 ```python
-from prettyplay import PrettyTest, PrettyConfig, BrowserConfig
+from prettyplay import PrettyPlay, PrettyConfig, BrowserConfig
 
-test = PrettyTest(
+test = PrettyPlay(
     cache_key="login-flow",
     config=PrettyConfig(
         strict=True,

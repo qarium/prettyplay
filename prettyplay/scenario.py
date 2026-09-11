@@ -1,4 +1,4 @@
-"""The integrator-facing object: one PrettyTest per test owns the addressing and the page."""
+"""The integrator-facing object: one PrettyPlay per test owns the addressing and the page."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ def _raise_folded(error: PrettyplayError) -> types.NoReturn:
     shows no internal frames either.
 
     Args:
-        error: the library failure leaving ``action``/``assertion``.
+        error: the library failure leaving ``step``/``expect``.
 
     Raises:
         Always: the given error with the folded traceback attached.
@@ -71,11 +71,11 @@ def _fold_chain_tracebacks(error: BaseException) -> None:
                 pending.append(link)
 
 
-class PrettyTest:
+class PrettyPlay:
     """The main object of the integrator: one instance per UI test.
 
-    The test writes its scenario in plain sentences — :meth:`action` and
-    :meth:`assertion` — and this object does the rest: addressing of the
+    The test writes its scenario in plain sentences — :meth:`step` and
+    :meth:`expect` — and this object does the rest: addressing of the
     cached steps by the context key, the isolated page of the test, and the
     full step cycle delegated to the executor (in strict replay-only mode:
     cached code only, classification at most). Construction is cheap: the
@@ -96,7 +96,12 @@ class PrettyTest:
         _page: the isolated page of this test; ``None`` until the first step.
     """
 
-    def __init__(self, cache_key: str, cache_path: str | None = None, config: PrettyConfig | None = None) -> None:
+    def __init__(self,
+                 cache_key: str,
+                 cache_path: str | None = None,
+                 *,
+                 hooks: list[StepHooks] | None = None,
+                 config: PrettyConfig | None = None) -> None:
         """Compose the per-test objects over the runtime this test owns.
 
         Args:
@@ -105,6 +110,11 @@ class PrettyTest:
             cache_path: the optional subdirectory inside the cache; part of
                 the address, so steps of different subdirectories never
                 collide.
+            hooks: the optional integrator callbacks of this test,
+                keyword-only; the reporter is seeded with them at
+                construction, so every event of every step reaches them.
+                ``None`` — an empty hooks list; :meth:`add_hooks` appends
+                later.
             config: the programmatic settings layer; explicitly set values
                 win over the pyproject+env file layer, unset and empty
                 fields resolve from it. ``None`` resolves everything from
@@ -112,7 +122,7 @@ class PrettyTest:
         """
         effective = load_config(None, config)
         self._runtime = PrettyplayRuntime(effective)
-        self._reporter = StepReporter(hooks=[])
+        self._reporter = StepReporter(hooks=hooks or [])
         self._cache = StepCache(self._runtime.config, cache_path, self._reporter)
 
         self._generator = StepGenerator(
@@ -157,7 +167,7 @@ class PrettyTest:
             self._page = self._runtime.open_page()
         return self._page
 
-    def action(self, text: str) -> None:
+    def step(self, text: str) -> None:
         """Execute one action step sentence through the step cycle.
 
         A library failure leaving this method carries its traceback folded to
@@ -178,11 +188,11 @@ class PrettyTest:
         except PrettyplayError as error:
             _raise_folded(error)
 
-    def assertion(self, text: str) -> None:
+    def expect(self, text: str) -> None:
         """Execute one assertion step sentence through the step cycle.
 
         A library failure leaving this method carries its traceback folded to
-        this boundary, exactly as :meth:`action` does.
+        this boundary, exactly as :meth:`step` does.
 
         Args:
             text: the sentence of the assertion as written by the engineer.
@@ -269,7 +279,7 @@ class PrettyTest:
         finally:
             self._runtime.close()
 
-    def __enter__(self) -> PrettyTest:
+    def __enter__(self) -> PrettyPlay:
         """Enter the scenario block of one test.
 
         Returns:

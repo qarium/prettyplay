@@ -1,4 +1,4 @@
-"""Tests for the PrettyTest scenario object of the prettyplay root cell."""
+"""Tests for the PrettyPlay scenario object of the prettyplay root cell."""
 
 import contextlib
 import inspect
@@ -9,7 +9,7 @@ from unittest import mock
 
 import prettyplay
 import pytest
-from prettyplay import BrowserConfig, PrettyTest
+from prettyplay import BrowserConfig, PrettyPlay
 from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step_text
 from prettyplay.config import Config, PrettyConfig
 from prettyplay.failures import FailureVerdict, IncurableStepError, PrettyplayError
@@ -120,8 +120,8 @@ def scenario_with_differing_instructions(
     tmp_path: Path,
     page: FakePage,
     provider: LLMProvider,
-) -> Iterator[PrettyTest]:
-    """Build one PrettyTest whose instructions differ from whatever generated the cached code.
+) -> Iterator[PrettyPlay]:
+    """Build one PrettyPlay whose instructions differ from whatever generated the cached code.
 
     The effective config carries a tmp cache root and a non-empty
     ``generation_prompt`` passed through the ``config`` parameter; the provider
@@ -133,34 +133,42 @@ def scenario_with_differing_instructions(
         mock.patch("prettyplay.scenario.load_config", return_value=config),
         mock.patch("prettyplay.runtime.create_provider", return_value=provider),
     ):
-        test = PrettyTest(CACHE_KEY, config=config)
+        test = PrettyPlay(CACHE_KEY, config=config)
         with mock.patch.object(test._runtime, "open_page", return_value=page):
             yield test
 
 
-class TestPrettyTestContract:
+class TestPrettyPlayContract:
     """Contract tests: facade import, constructor, surface and the context-manager protocol."""
 
-    def test_pretty_test_is_importable_from_facade(self) -> None:
-        assert isinstance(PrettyTest, type)
+    def test_pretty_play_is_importable_from_facade(self) -> None:
+        assert isinstance(PrettyPlay, type)
 
     def test_facade_reexports_browser_config(self) -> None:
         assert BrowserConfig is prettyplay.config.models.BrowserConfig
         assert "BrowserConfig" in prettyplay.__all__
 
-    def test_constructor_signature_matches_contract(self) -> None:
-        parameters = list(inspect.signature(PrettyTest.__init__).parameters.values())[1:]
+    def test_facade_reexports_step_hooks(self) -> None:
+        assert prettyplay.StepHooks is StepHooks
+        assert "StepHooks" in prettyplay.__all__
 
-        assert [parameter.name for parameter in parameters] == ["cache_key", "cache_path", "config"]
+    def test_constructor_signature_matches_contract(self) -> None:
+        parameters = list(inspect.signature(PrettyPlay.__init__).parameters.values())[1:]
+
+        assert [parameter.name for parameter in parameters] == ["cache_key", "cache_path", "hooks", "config"]
+        assert parameters[0].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD  # cache_key stays positional
         assert parameters[1].default is None
         assert parameters[2].default is None
+        assert parameters[2].kind is inspect.Parameter.KEYWORD_ONLY  # hooks — keyword-only
+        assert parameters[3].default is None
+        assert parameters[3].kind is inspect.Parameter.KEYWORD_ONLY  # config — keyword-only, as before
 
     def test_surface_matches_contract(self) -> None:
-        assert isinstance(PrettyTest.cache_key, property)
+        assert isinstance(PrettyPlay.cache_key, property)
 
         for name in (
-            "action",
-            "assertion",
+            "step",
+            "expect",
             "get_screenshot",
             "save_screenshot",
             "add_hooks",
@@ -168,29 +176,71 @@ class TestPrettyTestContract:
             "__enter__",
             "__exit__",
         ):
-            assert callable(getattr(PrettyTest, name)), name
+            assert callable(getattr(PrettyPlay, name)), name
 
     def test_step_method_signatures_match_contract(self) -> None:
-        assert list(inspect.signature(PrettyTest.action).parameters) == ["self", "text"]
-        assert list(inspect.signature(PrettyTest.assertion).parameters) == ["self", "text"]
+        assert list(inspect.signature(PrettyPlay.step).parameters) == ["self", "text"]
+        assert list(inspect.signature(PrettyPlay.expect).parameters) == ["self", "text"]
 
     def test_add_hooks_and_close_signatures_match_contract(self) -> None:
-        assert list(inspect.signature(PrettyTest.add_hooks).parameters) == ["self", "hooks"]
-        assert list(inspect.signature(PrettyTest.close).parameters) == ["self"]
+        assert list(inspect.signature(PrettyPlay.add_hooks).parameters) == ["self", "hooks"]
+        assert list(inspect.signature(PrettyPlay.close).parameters) == ["self"]
 
     def test_screenshot_method_signatures_match_contract(self) -> None:
-        assert list(inspect.signature(PrettyTest.get_screenshot).parameters) == ["self"]
-        assert list(inspect.signature(PrettyTest.save_screenshot).parameters) == ["self", "filepath"]
+        assert list(inspect.signature(PrettyPlay.get_screenshot).parameters) == ["self"]
+        assert list(inspect.signature(PrettyPlay.save_screenshot).parameters) == ["self", "filepath"]
 
 
-class TestPrettyTestLogic:
+class TestPrettyPlayLogic:
     """Logic tests: page lifecycle, laziness, hooks registration and error pass-through."""
+
+    def test_step_and_expect_delegate_step_types(self, tmp_path: Path) -> None:
+        seed_cache(tmp_path, step_type="action")
+        seed_cache(tmp_path, step_type="assertion")
+        page = FakePage()
+        hook = RecorderHook()
+
+        with scenario_on_tmp_cache(tmp_path):
+            test = PrettyPlay(CACHE_KEY)
+
+            with mock.patch.object(test._runtime, "open_page", return_value=page):
+                test.add_hooks(hook)
+                test.step(STEP_TEXT)
+                test.expect(STEP_TEXT)
+                test.close()
+
+        assert ("on_step_started", {"step_text": STEP_TEXT, "step_type": "action"}) in hook.events
+        assert ("on_step_passed", {"step_text": STEP_TEXT, "step_type": "assertion"}) in hook.events
+        assert not [payload for event, payload in hook.events if event == "on_step_failed"]
+
+    def test_constructor_hooks_seed_the_reporter(self, tmp_path: Path) -> None:
+        """The keyword-only hooks parameter seeds the reporter — no add_hooks needed."""
+        seed_cache(tmp_path)
+        page = FakePage()
+        hook = RecorderHook()
+
+        with scenario_on_tmp_cache(tmp_path):
+            test = PrettyPlay(CACHE_KEY, hooks=[hook])
+
+            with mock.patch.object(test._runtime, "open_page", return_value=page):
+                test.step(STEP_TEXT)
+                test.close()
+
+        assert ("on_step_started", {"step_text": STEP_TEXT, "step_type": "action"}) in hook.events
+        assert ("on_step_passed", {"step_text": STEP_TEXT, "step_type": "action"}) in hook.events
+
+        with scenario_on_tmp_cache(tmp_path):
+            silent = PrettyPlay(CACHE_KEY, hooks=None)  # None — an empty hooks list, steps still run
+
+            with mock.patch.object(silent._runtime, "open_page", return_value=page):
+                silent.step(STEP_TEXT)
+                silent.close()
 
     def test_scenario_builds_own_runtime_per_test(self, tmp_path: Path) -> None:
         """ADR-1 core acceptance: two tests hold two runtimes with two registries, no singleton."""
         with mock.patch("prettyplay.scenario.load_config", return_value=Config(model="gpt-5")) as load_config_mock:
-            t1 = PrettyTest("k1")
-            t2 = PrettyTest("k2")
+            t1 = PrettyPlay("k1")
+            t2 = PrettyPlay("k2")
 
             assert t1._runtime is not t2._runtime
             assert t1._runtime.budgets is not t2._runtime.budgets
@@ -221,7 +271,7 @@ class TestPrettyTestLogic:
         )
         monkeypatch.chdir(tmp_path)  # load_config(None) walks up from cwd for pyproject.toml
 
-        test = PrettyTest(CACHE_KEY, config=PrettyConfig(generation_prompt="per-test instructions"))
+        test = PrettyPlay(CACHE_KEY, config=PrettyConfig(generation_prompt="per-test instructions"))
 
         effective = test._runtime.config
         assert effective.generation_prompt == "per-test instructions"  # the programmatic layer wins
@@ -238,7 +288,7 @@ class TestPrettyTestLogic:
         )
 
         with mock.patch("prettyplay.scenario.load_config", return_value=config):
-            test = PrettyTest(CACHE_KEY)
+            test = PrettyPlay(CACHE_KEY)
 
         executor = test._executor
         assert executor._config is test._runtime.config  # the wired executor reads the runtime settings
@@ -253,13 +303,13 @@ class TestPrettyTestLogic:
         page = FakePage()
 
         with scenario_on_tmp_cache(tmp_path):
-            test = PrettyTest(CACHE_KEY)
+            test = PrettyPlay(CACHE_KEY)
             runtime = test._runtime
             driver_mock = mock.Mock(name="driver")
             runtime._driver = driver_mock  # a started driver: the test close must stop it
 
             with mock.patch.object(runtime, "open_page", return_value=page) as open_page_mock:
-                test.action(STEP_TEXT)
+                test.step(STEP_TEXT)
                 open_page_mock.assert_called_once()
 
                 test.close()
@@ -281,13 +331,13 @@ class TestPrettyTestLogic:
         page = CrashingPage()
 
         with scenario_on_tmp_cache(tmp_path):
-            test = PrettyTest(CACHE_KEY)
+            test = PrettyPlay(CACHE_KEY)
             runtime = test._runtime
             driver_mock = mock.Mock(name="driver")
             runtime._driver = driver_mock
 
             with mock.patch.object(runtime, "open_page", return_value=page):
-                test.action(STEP_TEXT)
+                test.step(STEP_TEXT)
 
                 with pytest.raises(RuntimeError, match="page close failed"):
                     test.close()
@@ -302,11 +352,11 @@ class TestPrettyTestLogic:
         seed_cache(tmp_path)
 
         with scenario_on_tmp_cache(tmp_path):
-            test = PrettyTest(CACHE_KEY)
+            test = PrettyPlay(CACHE_KEY)
             test.close()  # nothing started — close does not raise
 
             with mock.patch.object(test._runtime, "open_page", return_value=FakePage()) as open_page_mock:
-                test.action(STEP_TEXT)  # page still opens lazily after close
+                test.step(STEP_TEXT)  # page still opens lazily after close
 
                 open_page_mock.assert_called_once()
 
@@ -320,42 +370,24 @@ class TestPrettyTestLogic:
             return page
 
         with scenario_on_tmp_cache(tmp_path):
-            test = PrettyTest(CACHE_KEY)
+            test = PrettyPlay(CACHE_KEY)
 
             with mock.patch.object(test._runtime, "open_page", side_effect=fresh_page):
                 with test as running:
-                    running.action(STEP_TEXT)
+                    running.step(STEP_TEXT)
 
                 assert len(pages) == 1
                 assert pages[0].closed is True
 
-            with PrettyTest(CACHE_KEY):
+            with PrettyPlay(CACHE_KEY):
                 pass
 
         assert len(pages) == 1  # page two opens on the first step, not on construction
 
-    def test_action_and_assertion_delegate_step_types(self, tmp_path: Path) -> None:
-        seed_cache(tmp_path, step_type="action")
-        seed_cache(tmp_path, step_type="assertion")
-        page = FakePage()
-        hook = RecorderHook()
-
-        with scenario_on_tmp_cache(tmp_path):
-            test = PrettyTest(CACHE_KEY)
-
-            with mock.patch.object(test._runtime, "open_page", return_value=page):
-                test.add_hooks(hook)
-                test.action(STEP_TEXT)
-                test.assertion(STEP_TEXT)
-                test.close()
-
-        assert ("on_step_started", {"step_text": STEP_TEXT, "step_type": "action"}) in hook.events
-        assert ("on_step_passed", {"step_text": STEP_TEXT, "step_type": "assertion"}) in hook.events
-        assert not [payload for event, payload in hook.events if event == "on_step_failed"]
 
     def test_construction_is_lazy_and_returns_cache_key(self, tmp_path: Path) -> None:
         with scenario_on_tmp_cache(tmp_path):
-            test = PrettyTest(CACHE_KEY)
+            test = PrettyPlay(CACHE_KEY)
 
             assert test.cache_key == CACHE_KEY
             assert test._page is None  # page opens lazily on the first step
@@ -374,10 +406,10 @@ class TestPrettyTestLogic:
         page = FakePage()
 
         with scenario_on_tmp_cache(tmp_path):
-            test = PrettyTest(CACHE_KEY, cache_path="checkout")
+            test = PrettyPlay(CACHE_KEY, cache_path="checkout")
 
             with mock.patch.object(test._runtime, "open_page", return_value=page):
-                test.action(STEP_TEXT)
+                test.step(STEP_TEXT)
                 test.close()
 
             # the same identity triple resolves to different addresses: the subdirectory
@@ -393,9 +425,9 @@ class TestPrettyTestLogic:
 
         def failing_scenario() -> None:
             """Open the page through a step, then fail the scenario block."""
-            with scenario_on_tmp_cache(tmp_path), PrettyTest(CACHE_KEY) as test:
+            with scenario_on_tmp_cache(tmp_path), PrettyPlay(CACHE_KEY) as test:
                 with mock.patch.object(test._runtime, "open_page", return_value=page):
-                    test.action(STEP_TEXT)
+                    test.step(STEP_TEXT)
                 raise RuntimeError("scenario failure")
 
         with pytest.raises(RuntimeError, match="scenario failure"):
@@ -408,16 +440,16 @@ class TestPrettyTestLogic:
         page = FakePage()
 
         with scenario_on_tmp_cache(tmp_path):
-            test = PrettyTest(CACHE_KEY)
+            test = PrettyPlay(CACHE_KEY)
 
             with mock.patch.object(test._runtime, "open_page", return_value=page):
-                test.action(STEP_TEXT)
+                test.step(STEP_TEXT)
                 test.close()
                 test.close()
 
         assert page.close_count == 1
 
-    def test_action_folds_traceback_to_boundary(self, tmp_path: Path) -> None:
+    def test_expect_folds_traceback_to_boundary(self, tmp_path: Path) -> None:
         page = FakePage()
         error = IncurableStepError("s", "r", "", FailureVerdict("incurable", "e", "rec"))
 
@@ -438,13 +470,13 @@ class TestPrettyTestLogic:
                 engine_depth_two()
 
         with scenario_on_tmp_cache(tmp_path):
-            test = PrettyTest(CACHE_KEY)
+            test = PrettyPlay(CACHE_KEY)
 
             with mock.patch.object(test._runtime, "open_page", return_value=page):
                 test._executor = FailingExecutor()  # step-loop stub
 
                 with pytest.raises(IncurableStepError) as excinfo:
-                    test.assertion("s")
+                    test.expect("s")
 
         frames = [entry.filename for entry in traceback.extract_tb(excinfo.value.__traceback__)]
         assert frames[-1].endswith("scenario.py")  # inner frame — the library boundary
@@ -463,13 +495,13 @@ class TestPrettyTestLogic:
                 raise error
 
         with scenario_on_tmp_cache(tmp_path):
-            test = PrettyTest(CACHE_KEY)
+            test = PrettyPlay(CACHE_KEY)
 
             with mock.patch.object(test._runtime, "open_page", return_value=page):
                 test._executor = FailingExecutor()  # step-loop stub
 
                 with pytest.raises(IncurableStepError) as excinfo:
-                    test.action("s")
+                    test.step("s")
 
         assert excinfo.value is error  # same object — never a copy
         assert excinfo.value.__context__ is None  # re-raise does not nest context
@@ -494,13 +526,13 @@ class TestPrettyTestLogic:
                     raise terminal from inner
 
         with scenario_on_tmp_cache(tmp_path):
-            test = PrettyTest(CACHE_KEY)
+            test = PrettyPlay(CACHE_KEY)
 
             with mock.patch.object(test._runtime, "open_page", return_value=page):
                 test._executor = ChainingExecutor()  # step-loop stub
 
                 with pytest.raises(IncurableStepError) as excinfo:
-                    test.action("s")
+                    test.step("s")
 
         assert excinfo.value is terminal
         assert excinfo.value.__context__ is original  # chain preserved for debugging
@@ -520,13 +552,13 @@ class TestPrettyTestLogic:
                 raise RuntimeError("hook bug")
 
         with scenario_on_tmp_cache(tmp_path):
-            test = PrettyTest(CACHE_KEY)
+            test = PrettyPlay(CACHE_KEY)
 
             with mock.patch.object(test._runtime, "open_page", return_value=page):
                 test._executor = FailingExecutor()  # step-loop stub
 
                 with pytest.raises(RuntimeError) as excinfo:
-                    test.action("s")
+                    test.step("s")
 
         frames = [entry.filename for entry in traceback.extract_tb(excinfo.value.__traceback__)]
         assert any(f.endswith("test_scenario.py") for f in frames)  # frames not collapsed
@@ -538,10 +570,10 @@ class TestPrettyTestLogic:
         (tmp_path / "artifacts").mkdir()
 
         with scenario_on_tmp_cache(tmp_path):
-            test = PrettyTest(CACHE_KEY)
+            test = PrettyPlay(CACHE_KEY)
 
             with mock.patch.object(test._runtime, "open_page", return_value=page):
-                test.action(STEP_TEXT)
+                test.step(STEP_TEXT)
 
                 assert test.get_screenshot() == b"png-bytes"
                 test.save_screenshot(str(tmp_path / "artifacts" / "home.png"))
@@ -550,7 +582,7 @@ class TestPrettyTestLogic:
 
     def test_screenshot_before_first_step_raises_library_failure(self, tmp_path: Path) -> None:
         with scenario_on_tmp_cache(tmp_path):
-            test = PrettyTest(CACHE_KEY)
+            test = PrettyPlay(CACHE_KEY)
 
             with mock.patch.object(test._runtime, "open_page") as open_page_mock:
                 with pytest.raises(PrettyplayError) as excinfo:
@@ -568,10 +600,10 @@ class TestPrettyTestLogic:
         filepath = tmp_path / "missing-dir" / "x.png"
 
         with scenario_on_tmp_cache(tmp_path):
-            test = PrettyTest(CACHE_KEY)
+            test = PrettyPlay(CACHE_KEY)
 
             with mock.patch.object(test._runtime, "open_page", return_value=page):
-                test.action(STEP_TEXT)
+                test.step(STEP_TEXT)
 
                 with pytest.raises(PrettyplayError) as excinfo:
                     test.save_screenshot(str(filepath))
@@ -585,10 +617,10 @@ class TestPrettyTestLogic:
         page = FakePage()
 
         with scenario_on_tmp_cache(tmp_path):
-            test = PrettyTest(CACHE_KEY)
+            test = PrettyPlay(CACHE_KEY)
 
             with mock.patch.object(test._runtime, "open_page", return_value=page):
-                test.action(STEP_TEXT)
+                test.step(STEP_TEXT)
                 test.close()
 
                 with pytest.raises(PrettyplayError):
@@ -610,7 +642,7 @@ class TestInstructionsIndependentCacheAddress:
         provider = RecordingProvider()
 
         with scenario_with_differing_instructions(tmp_path, page, provider) as test:
-            test.action(STEP_TEXT)
+            test.step(STEP_TEXT)
             test.close()
 
         assert page.calls == [("open", "https://example.com")]  # cached code executed as-is
@@ -624,11 +656,11 @@ class TestInstructionsIndependentCacheAddress:
         provider = RecordingProvider()
 
         with scenario_with_differing_instructions(tmp_path, first_page, provider) as first:
-            first.action(STEP_TEXT)
+            first.step(STEP_TEXT)
             first.close()
 
         with scenario_with_differing_instructions(tmp_path, second_page, provider) as second:
-            second.action(STEP_TEXT)
+            second.step(STEP_TEXT)
             second.close()
 
         # both tests execute the same cached step from the shared root

@@ -16,26 +16,26 @@ Requires Python 3.10+.
 ## Quick start
 
 ```python
-from prettyplay import PrettyTest
+from prettyplay import PrettyPlay
 
 
 def test_login():
-    t = PrettyTest("login-flow")
-    t.action("open the login page")
-    t.action("enter the login and password")
-    t.action("click the Sign in button")
-    t.assertion("the Welcome message appears")
+    t = PrettyPlay("login-flow")
+    t.step("open the login page")
+    t.step("enter the login and password")
+    t.step("click the Sign in button")
+    t.expect("the Welcome message appears")
     t.close()
 ```
 
 Or with the context manager:
 
 ```python
-with PrettyTest("login-flow") as t:
-    t.action("open the login page")
+with PrettyPlay("login-flow") as t:
+    t.step("open the login page")
 ```
 
-Each `PrettyTest` is fully self-contained: it owns its settings, its attempt
+Each `PrettyPlay` is fully self-contained: it owns its settings, its attempt
 budgets and its own browser session. `close()` (or leaving the `with` block)
 closes the page and stops the whole browser of that test, and every test
 starts with fresh attempt budgets. The old process-wide
@@ -57,7 +57,7 @@ untouched group defaults never overwrite the file values:
 ```python
 from prettyplay import BrowserConfig, PrettyConfig
 
-t = PrettyTest("login-flow", config=PrettyConfig(browser=BrowserConfig(name="firefox")))
+t = PrettyPlay("login-flow", config=PrettyConfig(browser=BrowserConfig(name="firefox")))
 ```
 
 Screenshots belong to the author — nothing is captured automatically. Both
@@ -217,7 +217,7 @@ same single text feeds the exception message, the log record and the
 fields also arrive through the `on_step_verdict` hook.
 `ProductDefectError` also derives from `AssertionError`, so any runner counts
 it as a failed test, never an error. Tracebacks of library failures are folded
-at the `t.action(...)` / `t.assertion(...)` call site: internal engine frames
+at the `t.step(...)` / `t.expect(...)` call site: internal engine frames
 never appear in what the runner shows.
 
 A healed run never turns a `ProductDefectError` into a green test.
@@ -240,9 +240,14 @@ class Reporter(StepHooks):
     def on_cache_skipped(self, step_text: str, reason: str) -> None: ...
 
 
-t = PrettyTest("login-flow")
+t = PrettyPlay("login-flow")
 t.add_hooks(Reporter())
 ```
+
+Hooks can also be wired at construction — pass the list to the keyword-only
+`hooks` parameter (`PrettyPlay("login-flow", hooks=[Reporter()])`) and every
+event of every step reaches them. `StepHooks` is re-exported from the package
+root, so `from prettyplay import StepHooks` works too.
 
 A raising hook never fails the run; the failure is logged. The `error` payload
 of `on_step_failed` is the full structured render of the failure — multi-line,
