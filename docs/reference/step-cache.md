@@ -35,10 +35,11 @@ identity = StepIdentity(
 
 ### Layout
 
-The cache root defaults to `<repo root>/.prettyplay/cache/` and is set by
-`cache_root`. The optional `cache_path` subdirectory argument is part of the
-address: steps never leak across subdirectories; without a subdirectory, equal
-cache keys are reused across tests. One `.py` file per step.
+The cache root defaults to `<cwd>/.prettyplay/cache/` — the working directory
+of the run — and is set by `cache_root`. The optional `cache_path` subdirectory
+argument is part of the address: steps never leak across subdirectories;
+without a subdirectory, equal cache keys are reused across tests. One `.py`
+file per step.
 
 ## Storage
 

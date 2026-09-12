@@ -278,7 +278,8 @@ def load_config(pyproject_path: str | None = None, overrides: Config | None = No
     and an unparseable value fails loudly. The removed legacy name
     ``PRETTYPLAY_BROWSER`` and the removed flat keys of the
     ``[tool.prettyplay]`` level fail loudly before merging. An empty
-    ``cache_root`` resolves to ``<pyproject_dir>/.prettyplay/cache``.
+    ``cache_root`` resolves to ``<cwd>/.prettyplay/cache`` — the working
+    directory of the run, wherever the pyproject.toml was found.
 
     The programmatic layer wins last: a field of ``overrides`` participates
     when it was passed at construction (``model_fields_set``) and is non-empty
@@ -333,7 +334,7 @@ def load_config(pyproject_path: str | None = None, overrides: Config | None = No
         raise ConfigurationError(f"browser.name: received '' — allowed: {_ALLOWED_TEXT['browser.name']}")
 
     if not merged.get("cache_root"):
-        merged["cache_root"] = str(path.parent / ".prettyplay" / "cache")
+        merged["cache_root"] = str(Path.cwd() / ".prettyplay" / "cache")
 
     try:
         file_config = Config(**merged)

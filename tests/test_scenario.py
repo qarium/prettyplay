@@ -279,6 +279,24 @@ class TestPrettyPlayLogic:
         assert effective.browser.name == "firefox"
         assert effective.cache_root == str(tmp_path / ".prettyplay" / "cache")
 
+    def test_default_cache_root_anchors_at_run_cwd_below_pyproject(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Launched from a directory below the pyproject, the cache roots at the run's directory."""
+        for name in ("PRETTYPLAY_CACHE_ROOT", "PRETTYPLAY_MODEL"):
+            monkeypatch.delenv(name, raising=False)
+
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('[tool.prettyplay]\nmodel = "gpt-4o"\n', encoding="utf-8")
+        run_dir = tmp_path / "example"
+        run_dir.mkdir()
+        monkeypatch.chdir(run_dir)  # the suite runs below the pyproject, as from example/
+
+        test = PrettyPlay(CACHE_KEY)
+
+        assert test._runtime.config.model == "gpt-4o"  # settings still load from the pyproject above
+        assert test._runtime.config.cache_root == str(run_dir / ".prettyplay" / "cache")
+
     def test_pretty_test_wires_config_and_provider_into_executor(self, tmp_path: Path) -> None:
         """The runtime config and the runtime provider reach the executor; no browser launched."""
         config = PrettyConfig(

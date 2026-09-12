@@ -82,7 +82,7 @@ Annotations: |
     `generation_model`: optional generation override; empty — fallback to `model`.
     `classification_model`: optional classification override; empty — fallback to `model`.
     `base_url`: optional custom LLM API endpoint.
-    `cache_root`: cache root; empty — default <repo root>/.prettyplay/cache/ resolved by `load_config`.
+    `cache_root`: cache root; empty — default <cwd>/.prettyplay/cache/ — the working directory of the run — resolved by `load_config`.
     `generation_prompt`: user instructions for generation requests; non-empty — a separate USER INSTRUCTIONS block in generation and regeneration requests; classification requests never see it; empty — no block; default empty.
     `classification_prompt`: user instructions for classification requests; non-empty — a separate USER INSTRUCTIONS block in classification requests only; generation requests never see it; takes no part in the step address; empty — no block; default empty.
     `strict`: replay-only mode; True — cached code executes honestly and nothing is ever (re)generated: a cache miss fails as incurable, a failed cached step is at most classified; default False.
@@ -157,7 +157,7 @@ Annotations: |
     - The removed legacy env name PRETTYPLAY_BROWSER fails loudly before merging: it belongs to the same pre-1.0 hard break as the old flat keys
     - Scalar env overrides parse by the field type: booleans accept true/false/1/0 case-insensitively, integers parse as decimal integers; an unparseable value raises the loud actionable `ConfigurationError` naming the setting, the received value and the accepted form — never a silent ignore
     - A raw pydantic.ValidationError never leaves the loader
-    - The empty cache_root setting is resolved to the absolute default <repo root>/.prettyplay/cache/ at load
+    - The empty cache_root setting is resolved to the absolute default <cwd>/.prettyplay/cache/ at load — anchored at the working directory of the run, wherever the pyproject.toml was found
 
     Constraints:
     - Never read or store LLM API keys from any file; keys come only from environment variables

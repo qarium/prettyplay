@@ -11,7 +11,7 @@ model = "gpt-5"
 generation_model = ""      # optional: empty -> model
 classification_model = ""  # optional: empty -> model
 base_url = ""
-cache_root = ""            # empty -> <repo>/.prettyplay/cache/
+cache_root = ""            # empty -> <cwd>/.prettyplay/cache/
 generation_attempts = 3
 healing_attempts = 2
 send_screenshots = false
@@ -118,7 +118,7 @@ A non-empty browser.endpoint switches the test to connecting over the Playwright
 - Invalid configuration fails loudly: ConfigurationError names the setting, the received value and the allowed values; the raw pydantic error stays chained for debugging
 - The provider set: openai, anthropic; the browser name set: chromium, firefox, webkit, chrome, msedge
 - A non-empty browser.endpoint must be a valid ws/wss URL
-- The cache root default: <repo root>/.prettyplay/cache/ — resolved from the located pyproject.toml
+- The cache root default: <cwd>/.prettyplay/cache/ — anchored at the working directory of the run, wherever the pyproject.toml was found
 - generation_prompt reaches generation and regeneration requests only; classification_prompt reaches classification requests only — neither ever invalidates the cache
 
 ## Loading

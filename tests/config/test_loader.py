@@ -135,6 +135,7 @@ class TestLoadConfigLogic:
     def test_load_config_reads_section_and_env_overrides(self, tmp_path, monkeypatch) -> None:
         path = write_section(tmp_path, PYPROJECT_WITH_SECTION)
 
+        monkeypatch.chdir(tmp_path)  # the empty cache_root anchors at the run's working directory
         monkeypatch.setenv("PRETTYPLAY_BROWSER_NAME", "firefox")
         monkeypatch.setenv("PRETTYPLAY_GENERATION_ATTEMPTS", "5")
 
@@ -438,6 +439,30 @@ class TestLoadConfigEdge:
         config = load_config(pyproject_path=write_section(tmp_path, PYPROJECT_WITH_SECTION))
 
         assert config.cache_root == "/custom/cache"
+
+    def test_default_cache_root_anchors_at_cwd_below_pyproject(self, tmp_path, monkeypatch) -> None:
+        """The default anchors at the run's cwd even when the pyproject sits above it."""
+        write_section(tmp_path, PYPROJECT_WITH_SECTION)
+        run_dir = tmp_path / "run"
+        run_dir.mkdir()
+        monkeypatch.chdir(run_dir)  # auto-search walks up from here and finds tmp_path/
+
+        config = load_config(pyproject_path=None)
+
+        assert config.model == "gpt-5"  # the settings still come from the found pyproject
+        assert config.cache_root == str(run_dir / ".prettyplay" / "cache")
+
+    def test_default_cache_root_anchors_at_cwd_with_explicit_pyproject_path(self, tmp_path, monkeypatch) -> None:
+        """The default anchors at the run's cwd even when the pyproject is passed explicitly."""
+        path = write_section(tmp_path, PYPROJECT_WITH_SECTION)
+        run_dir = tmp_path / "run"
+        run_dir.mkdir()
+        monkeypatch.chdir(run_dir)
+
+        config = load_config(pyproject_path=path)
+
+        assert config.model == "gpt-5"
+        assert config.cache_root == str(run_dir / ".prettyplay" / "cache")
 
 
 class TestLoadConfigOverlay:

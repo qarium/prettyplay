@@ -13,7 +13,7 @@ model = "gpt-5"
 generation_model = ""            # optional: empty -> model
 classification_model = ""        # optional: empty -> model
 base_url = ""
-cache_root = ""                  # empty -> <repo>/.prettyplay/cache/
+cache_root = ""                  # empty -> <cwd>/.prettyplay/cache/
 generation_prompt = ""           # user instructions for generation; empty -> no instructions block
 classification_prompt = ""       # user instructions for classification; empty -> no instructions block
 strict = false                   # true -> replay-only mode (no generation, no healing)
@@ -127,7 +127,7 @@ fields, which is what makes the layered merge above possible.
 | `generation_model` | str | `""` | generation-only override; empty → `model` |
 | `classification_model` | str | `""` | classification-only override; empty → `model` |
 | `base_url` | str | `""` | custom LLM API endpoint |
-| `cache_root` | str | `""` | empty → `<repo root>/.prettyplay/cache/` resolved at load |
+| `cache_root` | str | `""` | empty → `<cwd>/.prettyplay/cache/` resolved at load |
 | `generation_prompt` | str | `""` | user instructions for generation requests; empty → no block |
 | `classification_prompt` | str | `""` | user instructions for classification requests; empty → no block |
 | `strict` | bool | `False` | replay-only mode: no generation, no healing |
@@ -273,5 +273,5 @@ type — see [Failure taxonomy](reference/failure-taxonomy.md) and
 - The provider set: `openai`, `anthropic`; the browser name set: `chromium`,
   `firefox`, `webkit`, `chrome`, `msedge`
 - A non-empty `browser.endpoint` must be a valid ws/wss URL
-- The cache root default: `<repo root>/.prettyplay/cache/` — resolved from the
-  located pyproject.toml
+- The cache root default: `<cwd>/.prettyplay/cache/` — anchored at the working
+  directory of the run, wherever the pyproject.toml was found

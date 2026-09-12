@@ -96,7 +96,7 @@ Annotations: |
     `reporter`: the visibility point — cache events (saved, skipped) go through it; omitted — the hook-less default reporter, so a missing visibility point never fails a save.
   properties:
     "root -> str": |
-      The effective cache root; the default is <repo root>/.prettyplay/cache/.
+      The effective cache root; the default is <cwd>/.prettyplay/cache/ — the working directory of the run.
     "writable -> bool": |
       Whether the cache directory accepts writes.
   methods:
