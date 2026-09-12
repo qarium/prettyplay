@@ -526,16 +526,16 @@ exports the function via `__all__` (the polling cell imports it from this facade
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: create `tests/driver/test_errors.py` — `is_pollable_failure` is
+- [x] **Contract tests**: create `tests/driver/test_errors.py` — `is_pollable_failure` is
   importable from `prettyplay.driver` (the facade export) and callable with one exception
   argument returning a bool (expected to fail at this stage)
-- [ ] **Code**: create `prettyplay/driver/errors.py` implementing the algorithm above
+- [x] **Code**: create `prettyplay/driver/errors.py` implementing the algorithm above
   (ambiguity substring first, AssertionError second, `PlaywrightError` type + lowercased pattern
   set third, conservative False)
-- [ ] **Code**: extend `prettyplay/driver/__init__.py` — import `is_pollable_failure` and add it
+- [x] **Code**: extend `prettyplay/driver/__init__.py` — import `is_pollable_failure` and add it
   to `__all__`
-- [ ] **Interface verification**: `pytest tests/driver/test_errors.py -x` — all pass
-- [ ] **Logic tests**: in `tests/driver/test_errors.py` add `test_is_pollable_failure_map`
+- [x] **Interface verification**: `pytest tests/driver/test_errors.py -x` — all pass
+- [x] **Logic tests**: in `tests/driver/test_errors.py` add `test_is_pollable_failure_map`
   (parametrized table — the exact messages):
   `PlaywrightError("Locator.click: Timeout 10000ms exceeded.")` → True;
   `PlaywrightError("element is not visible")` → True;
@@ -549,11 +549,11 @@ exports the function via `__all__` (the polling cell imports it from this facade
   `AssertionError("strict mode violation: locator resolved to 2 elements")` → False;
   `NameError("name 'paeg' is not defined")` → False;
   `PlaywrightError("something never seen before")` → False
-- [ ] **Debugging**: `pytest tests/driver/ -x` — fix implementation code until all tests pass
-- [ ] **Contract re-verification**: facade accessibility
+- [x] **Debugging**: `pytest tests/driver/ -x` — fix implementation code until all tests pass
+- [x] **Contract re-verification**: facade accessibility
   `python -c "from prettyplay.driver import is_pollable_failure"`; a non-playwright exception
   with a timeout-looking message stays False (type + pattern, never pattern alone)
-- [ ] **Lint**: `ruff check prettyplay/ tests/` — fix formatting if necessary
+- [x] **Lint**: `ruff check prettyplay/ tests/` — fix formatting if necessary
 
 ### Task 6: the LLM port grows `recommendation`/`guidance`/`guidance_history` and the `fixable` label (llm)
 

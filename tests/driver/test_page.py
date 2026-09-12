@@ -487,6 +487,7 @@ class TestPageFacadeContract:
             "FrameFacade",
             "LocatorFacade",
             "PageFacade",
+            "is_pollable_failure",
         }
 
     def test_dialog_facade_surface_matches_contract(self) -> None:
