@@ -32,7 +32,20 @@ theme:
     - search.highlight
     - content.code.copy
 
-nav: []
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Guides:
+      - Writing steps: guides/writing-steps.md
+      - Browser setup: guides/browser-setup.md
+  - Configuration: configuration.md
+  - Reference:
+      - Failure taxonomy: reference/failure-taxonomy.md
+      - Hooks and logging: reference/hooks.md
+      - Step cache: reference/step-cache.md
+      - LLM providers: reference/llm-providers.md
+      - Self-healing: reference/self-healing.md
+      - Driver facade: reference/driver-facade.md
 
 plugins:
   - search

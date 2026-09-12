@@ -1,0 +1,25 @@
+docs/index.md:
+  - prettyplay
+docs/getting-started.md:
+  - prettyplay
+docs/guides/writing-steps.md:
+  - prettyplay
+  - prettyplay/engine
+docs/configuration.md:
+  - prettyplay/config
+docs/guides/browser-setup.md:
+  - prettyplay/config
+  - prettyplay/driver
+docs/reference/failure-taxonomy.md:
+  - prettyplay/failures
+docs/reference/hooks.md:
+  - prettyplay/reporting
+docs/reference/step-cache.md:
+  - prettyplay/cache
+docs/reference/llm-providers.md:
+  - prettyplay/llm
+docs/reference/self-healing.md:
+  - prettyplay/engine
+  - prettyplay/llm
+docs/reference/driver-facade.md:
+  - prettyplay/driver

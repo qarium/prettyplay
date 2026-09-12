@@ -1,6 +1,8 @@
 Imports:
   - Types:
       - Config
+    Usages:
+      - configuration
     From: prettyplay/config
 
 Usages:
@@ -9,7 +11,8 @@ Usages:
 
 Annotations: |
   Use `conventions` for code writing rules and testing.
-  Use `playwright` for the sync API lifecycle, locators, auto-wait, the accessibility snapshot, browser channels, remote connects, the screen modes and the scroll primitives.
+  Use `playwright` for the sync API lifecycle, locators, auto-wait, the accessibility snapshot, browser channels, remote connects, the screen modes, the scroll primitives, the interaction set, dialogs, popups and tabs, frames, the expectation set and the waits.
+  Use `configuration` from Imports for the browser-group settings the session reads, accept_dialogs included.
 
   The driver is Playwright sync-only: the async API is out of scope.
   The whole Playwright session — start, browser, contexts, pages — lives in one dedicated driver thread owned by the library: the sync API parks its private event loop on its starting thread, so the thread executing the steps never holds a running asyncio loop (interactive hosts such as IPython and Jupyter keep working between steps).
@@ -18,7 +21,9 @@ Annotations: |
   The start mode branches on the endpoint setting of the browser group of `Config`: empty — local launch with headless and the channel for chrome/msedge; set — connect over the Playwright ws endpoint: headless is ignored, channels do not apply, the name setting selects the engine (see `playwright`).
   The screen setting of the browser group resolves at context creation (see `playwright`): the empty value keeps the Playwright default; WxH and device descriptors apply in every launch mode; fullscreen follows the window on a local headed launch and pins to a fixed 1920x1080 viewport where no window exists. Device names resolve against the devices registry of the running Playwright — the package never hard-codes a device list.
   All waits go through locators and expectations; fixed delays (time.sleep and similar) are forbidden.
-  The facade surface is a backward-compatibility contract: generated step code works only through `PageFacade` and LocatorFacade, so the existing method set must not break across library releases — extend, never rename or remove.
+  The facade surface mirrors the Playwright sync API at page/locator level under the parity principle: within the step-driving contour — locating, interactions, navigation, waits, expectations, dialogs, popups and frames — a covered capability lands under its Playwright mirror name, and a mirror member is renamed or removed only together with a Playwright-level re-mapping. Declared non-mirror families: the prettyplay scroll extras under their own names, the method-style expect_* expectation names replacing the chained to_be_* model, and the expect_dialog capture constructor over Playwright's expect_event("dialog") waiter (the Python client ships no expect_dialog). Future Playwright capabilities land as mirror extensions.
+  The excluded capabilities stay absent from the surface: no route/request interception, no evaluate, no CDP, no clock, no HAR, no tracing, no raw input devices (keyboard/mouse) — the page-state model behind failure classification and healing must stay honest.
+  The thread-marshaling boundary covers every facade kind — pages, popup pages, frame-scoped locators, dialogs: no raw Playwright object crosses the facade boundary.
 
 ---
 
@@ -27,7 +32,7 @@ Annotations: |
   annotations: |
     Lifecycle owner of the Playwright sync driver and the browser process of one test.
 
-    `config`: project settings; the browser group carries the engine — the name of the {chromium, firefox, webkit, chrome, msedge} set, chrome and msedge launch the locally installed browser through the channel mechanism — the screen size mode, the headless window visibility of a local launch and the endpoint switching the start to a remote connect (see `playwright`).
+    `config`: project settings; the browser group carries the engine — the name of the {chromium, firefox, webkit, chrome, msedge} set, chrome and msedge launch the locally installed browser through the channel mechanism — the screen size mode, the headless window visibility of a local launch, the endpoint switching the start to a remote connect and the dialog auto-accept switch (see `playwright` and `configuration` from Imports).
 
     Requirements:
     - The Playwright session lives in a dedicated driver thread owned by the session: every Playwright-touching operation of this type runs there, and the calling thread never holds a running asyncio loop after any call
@@ -39,7 +44,8 @@ Annotations: |
       1. Start lazily on the first call: constructing the session starts nothing — start the dedicated driver thread, then start Playwright inside it; an empty endpoint — launch the selected engine locally with headless from the browser group and the channel for the chrome/msedge values; a set endpoint — connect over the Playwright ws endpoint of the selected engine: headless is ignored and channels do not apply; a failed launch or connect stops the started driver and closes the thread, so a retry begins from a clean state
       2. Resolve the screen setting of the browser group into the context parameters, by precedence: the literal fullscreen value — a local headed launch (headless false, endpoint empty) opens the context without a fixed viewport, so the viewport follows the window: the chromium-family engines (chromium, chrome, msedge) start the window maximized through the --start-maximized launch argument; firefox and webkit keep their plain launch — the window opens at its default size (see `playwright`); headless or a remote connect — a fixed 1920x1080 viewport, no window exists there; a WxH-shaped value — the viewport dictionary of the parsed width and height, in every launch mode; any other value — a device name: present in the devices registry of the running Playwright — the full descriptor applies to the context (viewport, user_agent, touch, is_mobile, device_scale_factor) in every launch mode; absent — a loud actionable error suggesting close device names from the registry
       3. Create a fresh isolated browser context and its page inside the driver thread with the resolved parameters (see `playwright`)
-      4. Wrap the page into `PageFacade` bound to the driver thread and return it
+      4. Register the single dialog routing handler for every page of the context before any step code runs — the open_context page included: the wiring goes through the context page event inside the same driver-thread call (every new page of the context fires it, so each page registers exactly once, never twice). An active expect_dialog capture claims the dialog on its own page — the step's `DialogFacade` controls accept and dismiss; otherwise accept when accept_dialogs of the browser group (see `configuration` from Imports) is true, else an explicit dismiss restoring the Playwright dismiss default (registering a dialog listener disables the implicit auto-dismiss)
+      5. Wrap the page into `PageFacade` bound to the driver thread and return it
 
       Requirements:
       - Each result is isolated from every other context
@@ -49,14 +55,14 @@ Annotations: |
       - fullscreen is not pixel-identical across environments — a headed run follows the actual screen, headless and remote runs are pinned to 1920x1080
 
       Constraints:
-      - `PageFacade` and `LocatorFacade` stay untouched by the screen modes — the changes live in context creation only
+      - `PageFacade`, `LocatorFacade`, `DialogFacade` and `FrameFacade` stay untouched by the screen modes — the changes live in context creation and dialog wiring only
     "close()": |
       Stop the browser, the Playwright driver and the driver thread; safe to call when nothing was started.
 
 "PageFacade(page: Page, context: BrowserContext)":
   location: page.py
   annotations: |
-    The narrow, stable facade of a single test page — the only page API the generated step code may use.
+    The full-parity mirror facade of a single test page — the only page API the generated step code may use.
     Wraps one isolated browser context created by `DriverSession`.
 
     `page`: the wrapped Playwright page object; never exposed through the facade.
@@ -64,37 +70,73 @@ Annotations: |
 
     Requirements:
     - Every Playwright call runs in the driver thread of the owning session: the call blocks until it finishes, strictly one at a time, and the calling thread never adopts the Playwright event loop
+    - The context-manager constructs resolve at block exit: the block performs the triggering action, the wrapped object — dialog or popup page — is usable right after it
+    - A popup page is a full `PageFacade` bound to the same driver thread as its opener
+    - The pages property lists every open page of the context wrapped as facades
     - Locating methods never sleep: waiting is the locator's own auto-wait behavior
     - Scroll methods never sleep: the scrolled state is awaited through locators and expectations
     - aria_snapshot and screenshot reflect the state at call time
 
     Constraints:
-    - No method exposes raw Playwright objects: the facade is the boundary generated code works against
+    - No method exposes raw Playwright objects — pages, dialogs and frame scopes included: the facade is the boundary generated code works against
+    - The excluded capabilities of the parity principle are absent here (see the global annotations)
   properties:
     "url -> str": |
       The current page URL.
+    "pages -> list[PageFacade]": |
+      The open pages of this page's context, each a full `PageFacade` — popups and new tabs included.
   methods:
-    "open(url: str)": |
+    "goto(url: str)": |
       Navigate to `url` and wait for the load state (see `playwright`).
-    "find_by_role(role: str, name: str) -> element: LocatorFacade": |
+    "go_back()": |
+      Navigate the browser history back and wait for the load state.
+    "go_forward()": |
+      Navigate the browser history forward and wait for the load state.
+    "reload()": |
+      Reload the page and wait for the load state.
+    "wait_for_url(url: str)": |
+      Wait until the page URL matches the glob pattern `url` (see `playwright`).
+    "wait_for_load_state(state: str)": |
+      Wait for the navigation state — load, domcontentloaded or networkidle (see `playwright`).
+
+      `state`: one of load, domcontentloaded, networkidle.
+    "expect_url(url: str)": |
+      Assert the page URL matches the glob pattern `url` — auto-waiting.
+    "expect_title(title: str)": |
+      Assert the page title contains `title` — auto-waiting.
+    "get_by_role(role: str, name: str) -> element: LocatorFacade": |
       Locate one element by its aria role and accessible name; returns a `LocatorFacade`.
-    "find_by_label(label: str) -> element: LocatorFacade": |
+
+      `name`: the accessible name; empty — match by role alone.
+    "get_by_label(label: str) -> element: LocatorFacade": |
       Locate one element by its associated label; returns a `LocatorFacade`.
-    "find_by_text(text: str) -> element: LocatorFacade": |
+    "get_by_text(text: str) -> element: LocatorFacade": |
       Locate one element by its visible text; returns a `LocatorFacade`.
-    "find_by_attribute(name: str, value: str) -> element: LocatorFacade": |
-      Locate one element by the value of the attribute `name` — the intended use is data-* attributes (data-test-id, data-qa and any other data attribute). Auto-waits exactly like the other locating methods.
+    "get_by_placeholder(placeholder: str) -> element: LocatorFacade": |
+      Locate one input by its placeholder text; returns a `LocatorFacade`.
+    "get_by_alt_text(alt: str) -> element: LocatorFacade": |
+      Locate one image by its alt text; returns a `LocatorFacade`.
+    "get_by_title(title: str) -> element: LocatorFacade": |
+      Locate one element by its title attribute; returns a `LocatorFacade`.
+    "get_by_test_id(test_id: str) -> element: LocatorFacade": |
+      Locate one element by its data-testid value; returns a `LocatorFacade`.
+    "locator(selector: str) -> element: LocatorFacade": |
+      Locate one element by any selector — CSS, XPath (incl. the xpath= form) and attribute selectors such as [data-test-id=value]; returns a `LocatorFacade`.
+    "expect_dialog() -> dialog: DialogFacade": |
+      Capture the dialog of the action performed inside the with-block; the block's variable is the `DialogFacade` of the captured dialog.
 
-      `name`: the full attribute name, e.g. data-test-id.
-      `value`: the attribute value to match.
-    "find_by_css(selector: str) -> element: LocatorFacade": |
-      Locate one element by a CSS selector.
+      Requirements:
+      - The capture claims the dialog: the step controls accept or dismiss, the accept_dialogs setting does not apply to a captured dialog
+      - The block's action firing no dialog fails loudly with an actionable timeout error naming the awaited event
+    "expect_popup() -> popup: PageFacade": |
+      Capture the popup or new tab opened by the action performed inside the with-block; the block's variable is the opened page as a full `PageFacade`.
 
-      `selector`: a valid CSS selector expression, e.g. form > button.primary.
-    "find_by_xpath(xpath: str) -> element: LocatorFacade": |
-      Locate one element by an XPath expression.
-
-      `xpath`: a valid XPath expression, e.g. //button[@type='submit'].
+      Requirements:
+      - The block's action firing no popup fails loudly with an actionable timeout error naming the awaited event
+    "bring_to_front()": |
+      Bring this page to the front above the other pages of the context — the mirror switching primitive.
+    "frame_locator(selector: str) -> frame: FrameFacade": |
+      The locating scope of the iframe addressed by `selector`; returns a `FrameFacade`.
     "aria_snapshot() -> snapshot: str": |
       The structured accessibility-tree representation of the page — the primary machine-readable page state (see `playwright`).
     "screenshot() -> image: bytes": |
@@ -148,22 +190,116 @@ Annotations: |
     Constraints:
     - No fixed delays; no raw Playwright objects exposed
   methods:
-    "click()": |
+    "click(button: str)": |
       Click the element, waiting for actionability.
+
+      `button`: the mouse button — empty for the left button, right for the right button, middle for the middle button.
+    "dblclick()": |
+      Double-click the element, waiting for actionability.
     "fill(value: str)": |
       Set the text input value of the element to `value`.
+    "clear()": |
+      Clear the text input value of the element.
+    "press(key: str)": |
+      Press a single key or a key combination on the element, waiting for actionability.
+
+      `key`: the key name or combination, e.g. Enter or Control+A.
+    "check()": |
+      Check the checkbox or radio button, waiting for actionability.
+    "uncheck()": |
+      Uncheck the checkbox or radio button, waiting for actionability.
+    "hover()": |
+      Hover the element, waiting for actionability.
     "select_option(value: str)": |
       Select the option with `value` in a list or combo box.
+    "drag_to(target: LocatorFacade)": |
+      Drag this element onto the `target` element, auto-waiting both endpoints.
+
+      `target`: the located drop target element.
+    "set_input_files(path: str)": |
+      Upload one file to the file input.
+
+      `path`: the filesystem path of the file to upload.
     "expect_visible()": |
       Assert the element is visible.
+    "expect_hidden()": |
+      Assert the element is hidden.
     "expect_text(text: str)": |
-      Assert the element text equals or contains `text`.
+      Assert the element text contains `text` (substring, whitespace-normalized).
     "expect_enabled()": |
       Assert the element is enabled.
+    "expect_value(value: str)": |
+      Assert the element input value equals `value`.
+    "expect_checked()": |
+      Assert the checkbox or radio is checked.
+    "expect_count(count: int)": |
+      Assert the locator resolves to exactly `count` elements.
+    "expect_attribute(name: str, value: str)": |
+      Assert the attribute `name` of the element equals `value`.
+
+"DialogFacade(dialog: Dialog)":
+  location: page.py
+  annotations: |
+    The wrapped dialog captured by expect_dialog — step-controlled handling.
+
+    `dialog`: the wrapped Playwright dialog object; never exposed through the facade.
+
+    Requirements:
+    - Every call runs in the driver thread inherited from the page facade that captured the dialog
+    - accept and dismiss resolve the dialog exactly once
+
+    Constraints:
+    - No raw Playwright objects exposed
+  properties:
+    "type -> str": |
+      The dialog kind: alert, confirm, prompt or beforeunload.
+    "message -> str": |
+      The message text of the dialog.
+    "default_value -> str": |
+      The pre-filled answer of a prompt dialog; empty for the other kinds.
+  methods:
+    "accept(prompt_text: str)": |
+      Accept the dialog.
+
+      `prompt_text`: the answer to send for a prompt dialog; empty — accept without an answer.
+    "dismiss()": |
+      Dismiss the dialog.
+
+"FrameFacade(frame_locator: FrameLocator)":
+  location: page.py
+  annotations: |
+    The frame-scoped locator factory — locating inside one iframe; nested frames chain.
+
+    `frame_locator`: the wrapped Playwright frame locator object; never exposed through the facade.
+
+    Requirements:
+    - Every action of a located element runs in the driver thread inherited from the page facade that created the scope
+
+    Constraints:
+    - No raw Playwright objects exposed
+  methods:
+    "get_by_role(role: str, name: str) -> element: LocatorFacade": |
+      Locate one element inside the frame by its aria role and accessible name; empty name matches by role alone.
+    "get_by_label(label: str) -> element: LocatorFacade": |
+      Locate one element inside the frame by its associated label.
+    "get_by_text(text: str) -> element: LocatorFacade": |
+      Locate one element inside the frame by its visible text.
+    "get_by_placeholder(placeholder: str) -> element: LocatorFacade": |
+      Locate one input inside the frame by its placeholder text.
+    "get_by_alt_text(alt: str) -> element: LocatorFacade": |
+      Locate one image inside the frame by its alt text.
+    "get_by_title(title: str) -> element: LocatorFacade": |
+      Locate one element inside the frame by its title attribute.
+    "get_by_test_id(test_id: str) -> element: LocatorFacade": |
+      Locate one element inside the frame by its data-testid value.
+    "locator(selector: str) -> element: LocatorFacade": |
+      Locate one element inside the frame by any selector — CSS, XPath and attribute selectors.
+    "frame_locator(selector: str) -> frame: FrameFacade": |
+      The locating scope of a nested iframe inside this frame.
 
 ---
 
 Author: Goga
 CreatedAt: 10/09/26
 Description: |
-  The Playwright sync driver of prettyplay: the per-test session with local launches, remote ws connects and the screen modes — fixed viewport, device emulation, fullscreen — and the narrow backward-compatible page facade with universal locators and scroll abilities for generated step code.
+  The Playwright sync driver of prettyplay: the per-test session with local launches, remote ws connects, the screen modes and the dialog routing — and the full Playwright-parity page facade: mirror locators, interactions, expectations, waits, dialogs, popups and tabs, frames, with the prettyplay scroll extras, for generated step code.

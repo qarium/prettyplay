@@ -44,4 +44,4 @@ The routine collects the fresh page snapshot (plus the screenshot when enabled) 
 
 ## The fixed form
 
-Generated code is one function receiving exactly one argument — the page facade — and working only through the facade surface: page.find_by_role(...).click(), page.find_by_attribute("data-test-id", "submit").click(), page.find_by_css("form > button.primary"), page.find_by_xpath("//button[@type='submit']"), element.expect_visible(), page.scroll_down(600) and alike. No provider constructs, no direct driver imports, no fixed delays.
+Generated code is one function receiving exactly one argument — the page facade — and working only through the facade surface: `page.get_by_role(...).click()`, `page.get_by_test_id("submit").click()`, `page.locator("form > button.primary")`, `page.locator("//button[@type='submit']")`, `element.expect_visible()`, `element.press("Enter")`, `with page.expect_dialog() as dialog: ...`, `with page.expect_popup() as popup: ...`, `page.frame_locator("#checkout").get_by_role("button", name="Pay").click()`, `page.scroll_down(600)` and alike. No provider constructs, no direct driver imports, no fixed delays.

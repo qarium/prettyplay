@@ -24,6 +24,7 @@ name = "chromium"          # chromium | firefox | webkit | chrome | msedge
 screen = ""                # "" | WxH | fullscreen | Playwright device name
 headless = true            # false — run with a visible window
 endpoint = ""              # ws endpoint of a remote browser; empty -> local launch
+accept_dialogs = false     # true — automatically accept dialogs outside step-captured dialogs
 ```
 
 ## Environment overrides
@@ -37,6 +38,7 @@ Every setting has an override for CI — env variable PRETTYPLAY_<SETTING> in up
 | browser.screen | PRETTYPLAY_BROWSER_SCREEN |
 | browser.headless | PRETTYPLAY_BROWSER_HEADLESS |
 | browser.endpoint | PRETTYPLAY_BROWSER_ENDPOINT |
+| browser.accept_dialogs | PRETTYPLAY_BROWSER_ACCEPT_DIALOGS |
 | model | PRETTYPLAY_MODEL |
 | generation_model | PRETTYPLAY_GENERATION_MODEL |
 | classification_model | PRETTYPLAY_CLASSIFICATION_MODEL |
@@ -51,7 +53,7 @@ Every setting has an override for CI — env variable PRETTYPLAY_<SETTING> in up
 
 ## Old flat keys are gone — hard break
 
-`browser`, `headless` and `browser_endpoint` at the `[tool.prettyplay]` level no longer exist (pre-1.0 break). A config carrying them fails loudly at load: the error names each old key and its new home — `browser` → `[tool.prettyplay.browser] name`, `headless` → `[tool.prettyplay.browser] headless`, `browser_endpoint` → `[tool.prettyplay.browser] endpoint`. Migrate before upgrading.
+`browser`, `headless` and `browser_endpoint` at the [tool.prettyplay] level no longer exist (pre-1.0 break). A config carrying them fails loudly at load: the error names each old key and its new home — `browser` → `[tool.prettyplay.browser] name`, `headless` → `[tool.prettyplay.browser] headless`, `browser_endpoint` → `[tool.prettyplay.browser] endpoint`. Migrate before upgrading.
 
 ## Per-test overrides — layered merge
 
@@ -70,7 +72,7 @@ test = PrettyPlay(
 ```
 
 - An explicitly set field wins over pyproject+env; a field left at its default falls back to the file layer
-- The merge reaches inside the nested group: explicitly set fields of a passed BrowserConfig win over the file layer; untouched group defaults never overwrite file values — set only `screen` and the file's `name`, `headless`, `endpoint` keep working
+- The merge reaches inside the nested group: explicitly set fields of a passed BrowserConfig win over the file layer; untouched group defaults never overwrite file values — set only `screen` and the file's `name`, `headless`, `endpoint`, `accept_dialogs` keep working
 - `strict` participates when passed explicitly — an explicit False overrides the file value too
 - File values you did not touch survive: base_url and model set only in pyproject.toml keep working when a config is passed
 - One model — one place of validation: file and programmatic values validate identically
@@ -94,9 +96,17 @@ The `screen` field of the browser group is the single size setting:
 - An unknown device name fails loudly with an actionable message suggesting close device names; device names resolve against the devices registry of the running Playwright — the package never hard-codes a device list
 - A WxH-shaped value with non-positive numbers fails validation at load; any other string passes through as a device name
 
+## Dialogs
+
+`accept_dialogs` of the browser group controls the automatic dialog handling of the driver:
+
+- `true` — every dialog that no step-captured `expect_dialog` block claims is accepted automatically
+- `false` (default) — unclaimed dialogs are dismissed (the Playwright default; nothing blocks)
+- A dialog captured by a step's `expect_dialog` block is accepted or dismissed by the step itself — the setting does not apply to captured dialogs
+
 ## Strict mode
 
-`strict = true` (env PRETTYPLAY_STRICT, per-test override) switches the run to replay-only: cached code executes honestly and nothing is ever (re)generated. A cache miss fails as an incurable step; a failed cached step is at most classified — never regenerated. Classification is the only LLM call strict mode makes; without LLM access the failure raises immediately by step type (see the failures taxonomy).
+`strict = true` (env PRETTYPLAY_STRICT, per-test override) switches the run to replay-only: cached code executes honestly and nothing is ever (re)generated. A cache miss fails as an incurable step; a failed cached step is at most classified — never regenerated. Classification is the only LLM call strict mode makes; without LLM access the failure raises immediately by step type.
 
 ## Remote execution
 
@@ -117,5 +127,5 @@ A non-empty browser.endpoint switches the test to connecting over the Playwright
 from prettyplay.config import load_config
 
 config = load_config(pyproject_path=None)  # locates pyproject.toml upwards from the current directory
-print(config.browser.name, config.browser.screen, config.strict, config.classification_prompt)
+print(config.browser.name, config.browser.accept_dialogs, config.strict, config.classification_prompt)
 ```

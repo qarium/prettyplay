@@ -71,7 +71,7 @@ A set `browser_endpoint` (env `PRETTYPLAY_BROWSER_ENDPOINT`) switches the driver
 
 ```python
 engines = {"chromium": p.chromium, "firefox": p.firefox, "webkit": p.webkit}
-engine = engines["chromium" if name in ("chrome", "msedge") else name]  # каналы — это chromium
+engine = engines["chromium" if name in ("chrome", "msedge") else name]  # channels are chromium
 browser = engine.connect(ws_endpoint)
 ```
 
@@ -93,6 +93,100 @@ from playwright.sync_api import expect
 
 expect(page.get_by_text("Welcome back")).to_be_visible()
 ```
+
+## Interactions — keyboard, advanced clicks, drag, upload
+
+Beyond click and fill, the sync API covers the full interaction set:
+
+```python
+page.get_by_role("textbox", name="Search").press("Control+A")
+page.get_by_role("textbox", name="Search").press("Escape")
+
+page.get_by_role("button", name="Delete").dblclick()
+page.get_by_role("button", name="Options").click(button="right")
+
+page.get_by_role("img", name="Product").drag_to(page.get_by_role("list", name="Cart"))
+page.get_by_label("Avatar").set_input_files("avatar.png")
+```
+
+Rules:
+- `press` targets a located element — key names and combinations ("Enter", "Control+A") both work
+- raw input devices (page.keyboard, page.mouse) are outside the facade surface — keys go through element press
+- `drag_to` auto-waits for both endpoints; `set_input_files` takes a filesystem path
+
+## Dialogs — routing and auto-accept
+
+Dialog handling is a setting of the browser group of the configuration. The driver registers one routing handler per page of the context before any step code runs:
+
+```python
+context.on("page", lambda page: page.on("dialog", route))
+# route(dialog): an armed capture on this page claims it (skip);
+#                else accept when the setting is on; else explicit dismiss
+```
+
+Rules:
+- Registering any `dialog` listener disables Playwright's implicit auto-dismiss — the handler itself resolves every uncaptured dialog: accept when the setting is on, an explicit dismiss when off (the same observable default)
+- The handler is unconditional — never accept-only: a capture-armed step must keep control of its dialog
+- An armed event waiter (`page.expect_event("dialog")`) claims the dialog on its page first; the Python client ships no `expect_dialog`
+- Scenario-level dialog verification constructs belong to the facade contract design, not to this usage
+
+## Popups and new tabs
+
+A popup or a `target="_blank"` link opens a new page in the same context; expect it around the triggering action:
+
+```python
+with page.expect_popup() as popup_info:
+    page.get_by_role("link", name="Open docs").click()
+
+popup = popup_info.value
+```
+
+Rules:
+- `expect_popup` waits for the popup event fired by the action inside the with-block
+- Switching between the pages of the context goes through facade-wrapped pages; `bring_to_front()` activates a page
+- Pages of one context share the browser process but stay separate facades
+
+## Frames and iframes
+
+Frame content is reached through frame locators scoped by the frame selector — no raw frame objects cross the facade boundary:
+
+```python
+checkout = page.frame_locator("#checkout")
+checkout.get_by_role("button", name="Pay").click()
+```
+
+Rules:
+- `frame_locator` composes with every locating method; the frame selector addresses the iframe element
+- Nested frames chain: `page.frame_locator("#one").frame_locator("#two")`
+
+## Expectations — the full set
+
+Playwright `expect` covers value, checked state, count, attributes, hiddenness, URL and title:
+
+```python
+expect(page.get_by_label("Username")).to_have_value("user")
+expect(page.get_by_role("checkbox", name="Subscribe")).to_be_checked()
+expect(page.get_by_role("listitem")).to_have_count(3)
+expect(page.get_by_role("link", name="Docs")).to_have_attribute("href", "/docs")
+expect(page.get_by_text("Loading")).to_be_hidden()
+expect(page).to_have_url(re.compile(r"/dashboard"))
+expect(page).to_have_title("Dashboard")
+```
+
+Rules:
+- Every expectation auto-waits for its condition; a failed expectation raises `AssertionError`
+
+## Waits
+
+Explicit waits address navigation states and URL changes only; element waits always go through locators and expectations:
+
+```python
+page.wait_for_url("**/dashboard")
+page.wait_for_load_state("networkidle")
+```
+
+Rules:
+- No `wait_for_timeout`: fixed delays are forbidden everywhere, including around waits
 
 ## Accessibility snapshot — primary LLM input
 
