@@ -145,12 +145,13 @@ Annotations: |
     2. Parse TOML: stdlib tomllib on Python 3.11+, tomli on 3.10 (see `pydantic`)
     3. Extract the tool.prettyplay section; a missing section is an empty section
     4. Reject the removed legacy env name: PRETTYPLAY_BROWSER set in the environment raises `ConfigurationError` before merging — the message names PRETTYPLAY_BROWSER_NAME as the replacement
-    5. Apply environment overrides: each setting is overridden by PRETTYPLAY_<SETTING_UPPERCASE> when the variable is set; the browser group reads PRETTYPLAY_BROWSER_NAME, PRETTYPLAY_BROWSER_SCREEN, PRETTYPLAY_BROWSER_HEADLESS, PRETTYPLAY_BROWSER_ENDPOINT, PRETTYPLAY_BROWSER_ACCEPT_DIALOGS; strict reads PRETTYPLAY_STRICT; classification_prompt reads PRETTYPLAY_CLASSIFICATION_PROMPT
-    6. Reject the removed old flat keys: browser, headless or browser_endpoint present at the [tool.prettyplay] level raise `ConfigurationError` immediately — one line per key naming its new home inside [tool.prettyplay.browser] (browser → name, headless → headless, browser_endpoint → endpoint)
-    7. Construct `Config`; on a validation failure render the actionable text — one line per invalid setting: the setting name, the received value, the allowed values — and raise `ConfigurationError` with the original ValidationError chained
-    8. `overrides` is None — return the file layer as is
-    9. Overlay the explicitly set fields of `overrides` onto the file layer (the model with empty defaults, model_copy — see `pydantic`): a field participates when it was passed at construction and is non-empty for strings; the merge reaches inside the browser group — explicitly set fields of a passed `BrowserConfig` win over the file layer, untouched group defaults never overwrite file values; strict participates when passed explicitly — an explicit False overrides too
-    10. Return the effective `Config`
+    5. Reject the removed old flat keys: browser, headless or browser_endpoint present at the [tool.prettyplay] level raise `ConfigurationError` immediately — one line per key naming its new home inside [tool.prettyplay.browser] (browser → name, headless → headless, browser_endpoint → endpoint)
+    6. Apply environment overrides: each setting is overridden by PRETTYPLAY_<SETTING_UPPERCASE> when the variable is set; the browser group reads PRETTYPLAY_BROWSER_NAME, PRETTYPLAY_BROWSER_SCREEN, PRETTYPLAY_BROWSER_HEADLESS, PRETTYPLAY_BROWSER_ENDPOINT, PRETTYPLAY_BROWSER_ACCEPT_DIALOGS; strict reads PRETTYPLAY_STRICT; classification_prompt reads PRETTYPLAY_CLASSIFICATION_PROMPT
+    7. Resolve the empty cache_root: empty after the file+env merge — set to the absolute default <cwd>/.prettyplay/cache/ — the working directory of the run, wherever the pyproject.toml was found; a value set by the file or env layer stays verbatim
+    8. Construct `Config`; on a validation failure render the actionable text — one line per invalid setting: the setting name, the received value, the allowed values — and raise `ConfigurationError` with the original ValidationError chained
+    9. `overrides` is None — return the file layer as is
+    10. Overlay the explicitly set fields of `overrides` onto the file layer (the model with empty defaults, model_copy — see `pydantic`): a field participates when it was passed at construction and is non-empty for strings; the merge reaches inside the browser group — explicitly set fields of a passed `BrowserConfig` win over the file layer, untouched group defaults never overwrite file values; strict participates when passed explicitly — an explicit False overrides too
+    11. Return the effective `Config`
 
     Requirements:
     - An env override exists for every setting of `Config` (including PRETTYPLAY_STRICT, PRETTYPLAY_CLASSIFICATION_PROMPT and the five PRETTYPLAY_BROWSER_* variables)
