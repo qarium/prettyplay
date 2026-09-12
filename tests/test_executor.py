@@ -8,6 +8,7 @@ import pytest
 from prettyplay import StepExecutor
 from prettyplay.cache import CachedStep, RunBudgets, StepCache, StepIdentity, normalize_step_text
 from prettyplay.config import Config
+from prettyplay.engine.polling import SettleWindow
 from prettyplay.failures import FailureVerdict, IncurableStepError, LLMUnavailableError, ProductDefectError
 from prettyplay.llm import FailureClassification, LLMProvider
 from prettyplay.reporting import StepHooks, StepReporter
@@ -47,6 +48,7 @@ class RecordingGenerator:
         step_text: str,
         previous_steps: list[str],
         page: FakePage,
+        window: SettleWindow,
     ) -> CachedStep | None:
         self.calls.append(
             {
@@ -54,6 +56,7 @@ class RecordingGenerator:
                 "step_text": step_text,
                 "previous_steps": list(previous_steps),  # snapshot: the live list grows after the call
                 "page": page,
+                "window": window,
             }
         )
         return self.step
@@ -72,6 +75,7 @@ class RaisingGenerator:
         step_text: str,
         previous_steps: list[str],
         page: FakePage,
+        window: SettleWindow,
     ) -> CachedStep:
         self.calls += 1
         raise self.error
@@ -84,13 +88,21 @@ class RecordingHealer:
         self.calls: list[dict[str, object]] = []
         self.step = step
 
-    def heal(self, step: CachedStep, error: str, previous_steps: list[str], page: FakePage) -> CachedStep | None:
+    def heal(
+        self,
+        step: CachedStep,
+        error: str,
+        previous_steps: list[str],
+        page: FakePage,
+        window: SettleWindow,
+    ) -> CachedStep | None:
         self.calls.append(
             {
                 "step": step,
                 "error": error,
                 "previous_steps": list(previous_steps),  # snapshot: the live list grows after the call
                 "page": page,
+                "window": window,
             }
         )
         return self.step
@@ -103,7 +115,14 @@ class RaisingHealer:
         self.error = error
         self.calls = 0
 
-    def heal(self, step: CachedStep, error: str, previous_steps: list[str], page: FakePage) -> CachedStep:
+    def heal(
+        self,
+        step: CachedStep,
+        error: str,
+        previous_steps: list[str],
+        page: FakePage,
+        window: SettleWindow,
+    ) -> CachedStep:
         self.calls += 1
         raise self.error
 

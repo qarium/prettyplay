@@ -21,6 +21,7 @@ category | explanation | recommendation
 where category is one of:
 - rot — the UI changed (selectors, texts, structure) and the step can be regenerated for the same intent
 - product_defect — the step works as written but the expected behavior of the application is genuinely broken
+- fixable — the step code is at fault (an ambiguous or wrong locator or strategy) while the intent stays satisfiable; regeneration for the same intent can help
 - incurable — the step sentence no longer matches reality, the intent is ambiguous, or regeneration cannot help
 
 explanation: one short sentence why. recommendation: one short sentence what the engineer should do.

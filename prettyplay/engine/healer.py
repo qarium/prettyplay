@@ -18,9 +18,9 @@ class StepHealer:
     the failure of the cached code, then follows the verdict: a product
     defect propagates loudly as the signal the test suite exists for
     (the cache stays untouched — nothing to regenerate), an incurable step
-    propagates with the verdict fields, and rot delegates to the generator,
-    which regenerates the code and rewrites the cache only after the healed
-    candidate has actually worked on the page.
+    propagates with the verdict fields, and rot or fixable delegates to the
+    generator, which regenerates the code and rewrites the cache only after
+    the healed candidate has actually worked on the page.
 
     Attributes:
         _config: project settings; the screenshot flag feeds the requests.
@@ -61,6 +61,7 @@ class StepHealer:
         error: str,
         previous_steps: list[str],
         page: PageFacade,
+        window: SettleWindow,
     ) -> CachedStep:
         """Heal a failed cached step according to the classification verdict.
 
@@ -69,6 +70,8 @@ class StepHealer:
             error: the failure description of the cached code.
             previous_steps: the sentences of the previous steps of the test.
             page: the live page facade the healed code runs against.
+            window: the settle window of the current step execution — the
+                regenerated candidates absorb transient failures inside it.
 
         Returns:
             The healed step with proven code, already cached by the generator.
@@ -79,7 +82,8 @@ class StepHealer:
             IncurableStepError: the verdict says regeneration cannot help,
                 or the regeneration attempt budget is exhausted — the
                 exhaustion reuses the verdict of this classification, no
-                second LLM request is made.
+                second LLM request is made; the code field carries the
+                cached step code.
             LLMUnavailableError: the provider service failed; no retry.
         """
         step_text = step.identity.normalized_text
@@ -96,8 +100,9 @@ class StepHealer:
         if classification.category == "product_defect":
             raise ProductDefectError(step_text, classification.explanation, error, verdict)
         if classification.category == "incurable":
-            raise IncurableStepError(step_text, classification.explanation, error, verdict=verdict)
+            raise IncurableStepError(step_text, classification.explanation, error, code=step.code, verdict=verdict)
 
+        # rot | fixable — regeneration carrying the classification recommendation
         try:
             healed = self._generator.regenerate(
                 identity=step.identity,
@@ -107,15 +112,11 @@ class StepHealer:
                 existing_code=step.code,
                 error=error,
                 recommendation=classification.recommendation,
-                # the settle window of the healing run, from the polling settings —
-                # disabled unless the project enables polling
-                window=SettleWindow(self._config.polling_timeout, self._config.polling_delay),
+                window=window,
             )
-        except IncurableStepError as incurable:
-            if incurable.verdict is None:
-                # regeneration exhausted: verdict of this classification, no second LLM request
-                raise IncurableStepError(step_text, incurable.reason, incurable.error, verdict=verdict) from incurable
-            raise  # a fresh failed-check verdict is never overwritten
+        except IncurableStepError as inner:  # regeneration exhausted — the verdict stays None inside
+            # the entry verdict of this classification, never a second LLM request; raise … from inner
+            raise IncurableStepError(step_text, inner.reason, inner.error, code=step.code, verdict=verdict) from inner
 
         self._reporter.emit("on_healed", {"step_text": step_text, "explanation": classification.explanation})
         return healed

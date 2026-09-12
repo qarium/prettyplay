@@ -90,6 +90,9 @@ max-complexity = 10
 "prettyplay/engine/generator.py" = [
     "E501",    # the prompt constants are verbatim contract texts and must not be rewrapped
 ]
+"prettyplay/engine/classification.py" = [
+    "E501",    # the prompt constant is a verbatim contract text and must not be rewrapped
+]
 "prettyplay/cache/store.py" = [
     "PTH105",  # the atomic write is fixed to os.replace by the cell contract; Path.replace resolves os.replace through the pathlib accessor on Python 3.10
 ]

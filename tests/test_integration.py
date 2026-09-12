@@ -115,6 +115,9 @@ class StubProvider(LLMProvider):
         page_api: str = "",
         existing_code: str | None = None,
         error: str | None = None,
+        recommendation: str | None = None,
+        guidance: str | None = None,
+        guidance_history: list[str] | None = None,
     ) -> str:
         self.generation_requests.append(
             {
@@ -127,6 +130,9 @@ class StubProvider(LLMProvider):
                 "page_api": page_api,
                 "existing_code": existing_code,
                 "error": error,
+                "recommendation": recommendation,
+                "guidance": guidance,
+                "guidance_history": list(guidance_history or []),
             }
         )
         if not self.answers:
@@ -174,6 +180,9 @@ class ForbiddenProvider(LLMProvider):
         page_api: str = "",
         existing_code: str | None = None,
         error: str | None = None,
+        recommendation: str | None = None,
+        guidance: str | None = None,
+        guidance_history: list[str] | None = None,
     ) -> str:
         self.calls += 1
         raise AssertionError("provider must not be called")

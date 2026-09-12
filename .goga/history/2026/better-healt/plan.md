@@ -980,16 +980,16 @@ entry classification already guards the anti-masking.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: in `tests/engine/test_healer.py` add — `heal` accepts the `window`
+- [x] **Contract tests**: in `tests/engine/test_healer.py` add — `heal` accepts the `window`
   parameter (expected to fail at this stage); `CLASSIFICATION_PROMPT` names all four labels
-- [ ] **Code**: `prettyplay/engine/classification.py` — add the `fixable` line to
+- [x] **Code**: `prettyplay/engine/classification.py` — add the `fixable` line to
   `CLASSIFICATION_PROMPT`'s category list
-- [ ] **Code**: `prettyplay/engine/healer.py` — widen `heal` with `window: SettleWindow`; the
+- [x] **Code**: `prettyplay/engine/healer.py` — widen `heal` with `window: SettleWindow`; the
   decision table with the fixable branch folded into rot; thread `recommendation` and `window`
   into `generator.regenerate`; the exhaustion rewrite per the algorithm (`from inner`,
   `code=step.code`, the entry verdict); `code=step.code` on the incurable raise
-- [ ] **Interface verification**: `pytest tests/engine/test_healer.py tests/engine/test_classification.py -x` — all pass
-- [ ] **Logic tests**: in `tests/engine/test_healer.py` add
+- [x] **Interface verification**: `pytest tests/engine/test_healer.py tests/engine/test_classification.py -x` — all pass
+- [x] **Logic tests**: in `tests/engine/test_healer.py` add
   `test_heal_fixable_category_regenerates_with_recommendation`: classification scripted
   `fixable` (recommendation "use an unambiguous role locator"); `CachedStep` with `code="old"`;
   `healer.heal(step, error="strict mode violation: locator resolved to 2 elements", [],
@@ -1000,11 +1000,11 @@ entry classification already guards the anti-masking.
   scripted to raise `IncurableStepError(reason="healing attempt budget exhausted", verdict=None)`
   → the raised error carries the **entry** verdict, `code == "old"`, the inner reason, and
   `__cause__` is the inner error
-- [ ] **Debugging**: `pytest tests/engine/ -x` — fix implementation code until all tests pass
-- [ ] **Contract re-verification**: anti-masking (a classified product defect always raises);
+- [x] **Debugging**: `pytest tests/engine/ -x` — fix implementation code until all tests pass
+- [x] **Contract re-verification**: anti-masking (a classified product defect always raises);
   the healed code replaces the cache only after a successful execution (the engine stores);
   every verdict produced on these paths fully reaches the raised error
-- [ ] **Lint**: `ruff check prettyplay/ tests/` — fix formatting if necessary
+- [x] **Lint**: `ruff check prettyplay/ tests/` — fix formatting if necessary
 
 ### Task 12: `StepSteering` — the interactive steering REPL (engine/steering)
 

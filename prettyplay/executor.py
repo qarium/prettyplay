@@ -7,6 +7,7 @@ from .cache import CachedStep, RunBudgets, StepCache, StepIdentity, normalize_st
 from .config import PrettyConfig
 from .driver import PageFacade
 from .engine import StepGenerator, StepHealer, classify_step_failure, format_step_error, run_step_code
+from .engine.polling import SettleWindow
 from .failures import FailureVerdict, IncurableStepError, LLMUnavailableError, ProductDefectError
 from .llm import LLMProvider
 from .reporting import StepReporter
@@ -106,6 +107,7 @@ class StepExecutor:
                 step_type=step_type,
                 normalized_text=normalize_step_text(step_text),
             )
+            window = SettleWindow(self._config.polling_timeout, self._config.polling_delay)
             cached = self._cache.load(identity)
 
             if cached is not None:
@@ -118,11 +120,11 @@ class StepExecutor:
                         self._strict_failure(step_text, step_type, cached, error_text, page)  # always raises
                     else:
                         # healed = re-executed
-                        self._healer.heal(cached, error_text, self._scenario, page)
+                        self._healer.heal(cached, error_text, self._scenario, page, window)
             elif self._config.strict:
                 raise IncurableStepError(step_text, _STRICT_MISS_REASON, "")
             else:
-                self._generator.generate(identity, step_text, self._scenario, page)
+                self._generator.generate(identity, step_text, self._scenario, page, window)
 
             self._scenario.append(step_text)
             self._reporter.emit("on_step_passed", {"step_text": step_text, "step_type": step_type})
