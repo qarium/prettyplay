@@ -46,6 +46,33 @@ with PrettyPlay("login-flow") as t:
 - Nothing is captured automatically on failures — attaching screenshots to
   reports is the author's decision
 
+## Dialogs, popups and iframes
+
+The step sentence stays a plain sentence; the generated code uses the
+facade's capture constructs for dialogs and popups, and frame locators for
+iframes — see [Driver facade](../reference/driver-facade.md):
+
+```python
+# «click «Delete» and accept the confirmation dialog»
+with page.expect_dialog() as dialog:
+    page.get_by_role("button", name="Delete").click()
+dialog.accept()
+
+# «click «Open docs» — the documentation opens in a new tab»
+with page.expect_popup() as docs:
+    page.get_by_role("link", name="Open docs").click()
+docs.bring_to_front()
+docs.get_by_role("heading", name="Documentation").expect_visible()
+
+# «click «Pay» inside the embedded checkout frame»
+checkout = page.frame_locator("#checkout")
+checkout.get_by_role("button", name="Pay").click()
+```
+
+Dialogs that no `expect_dialog` block claims are handled by the
+`accept_dialogs` browser setting — see
+[Configuration](../configuration.md#dialogs).
+
 ## Addressing
 
 The constructor arguments form the cache address: `cache_key` (mandatory) and

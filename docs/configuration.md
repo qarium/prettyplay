@@ -26,6 +26,7 @@ name = "chromium"                # chromium | firefox | webkit | chrome | msedge
 screen = ""                      # "" | WxH | fullscreen | Playwright device name
 headless = true                  # false -> run with a visible browser window
 endpoint = ""                    # ws:// endpoint of a remote browser; empty -> local launch
+accept_dialogs = false           # true -> automatically accept dialogs outside step-captured dialogs
 ```
 
 The browser group settings — engines, screen modes, remote endpoints — are
@@ -43,6 +44,7 @@ upper case; the browser group keeps flat env names:
 | browser.screen | `PRETTYPLAY_BROWSER_SCREEN` |
 | browser.headless | `PRETTYPLAY_BROWSER_HEADLESS` |
 | browser.endpoint | `PRETTYPLAY_BROWSER_ENDPOINT` |
+| browser.accept_dialogs | `PRETTYPLAY_BROWSER_ACCEPT_DIALOGS` |
 | model | `PRETTYPLAY_MODEL` |
 | generation_model | `PRETTYPLAY_GENERATION_MODEL` |
 | classification_model | `PRETTYPLAY_CLASSIFICATION_MODEL` |
@@ -93,7 +95,7 @@ test = PrettyPlay(
 - The merge reaches inside the nested group: explicitly set fields of a passed
   `BrowserConfig` win over the file layer; untouched group defaults never
   overwrite file values — set only `screen` and the file's `name`,
-  `headless`, `endpoint` keep working
+  `headless`, `endpoint`, `accept_dialogs` keep working
 - `strict` participates when passed explicitly — an explicit `False` overrides
   the file value too
 - File values you did not touch survive: `base_url` and `model` set only in
@@ -148,6 +150,7 @@ config.effective_classification_model  # classification_model when non-empty, ot
 | `screen` | str | `""` | `""` — Playwright default; WxH — fixed viewport; `fullscreen`; Playwright device name |
 | `headless` | bool | `True` | windowless local launch; ignored on a remote connect |
 | `endpoint` | str | `""` | ws endpoint of a remote browser; empty — local launch |
+| `accept_dialogs` | bool | `False` | automatically accept dialogs no step-captured `expect_dialog` block claims |
 
 Fields inside the group carry no `browser_` prefix — the group name scopes
 them; env overrides stay flat (`PRETTYPLAY_BROWSER_NAME`, ...). Validation:
@@ -235,6 +238,19 @@ requests only — it steers the verdict explanations (e.g. `answer in Russian`),
 never generation.
 
 Neither ever invalidates cached steps — a cached step runs unchanged.
+
+## Dialogs
+
+`accept_dialogs` of the browser group controls the automatic dialog handling
+of the driver:
+
+- `true` — every dialog that no step-captured `expect_dialog` block claims
+  is accepted automatically
+- `false` (default) — unclaimed dialogs are dismissed (the Playwright
+  default; nothing blocks)
+- A dialog captured by a step's `expect_dialog` block is accepted or
+  dismissed by the step itself — the setting does not apply to captured
+  dialogs
 
 ## Strict mode
 

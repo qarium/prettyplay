@@ -3,24 +3,47 @@
 The browser facade of prettyplay. For consumers of the page API — the step
 generation engine and engineers reading or hand-writing step code.
 
-The facade wraps the Playwright sync API. Step code receives a `PageFacade`
-and works only through it and `LocatorFacade` — never through raw Playwright
-objects. The method set is a backward-compatibility contract: cached step code
-keeps working across library upgrades. Each context opens with the screen mode
-configured in the browser group — the facade surface itself is identical in
-every mode.
+The facade mirrors the Playwright sync API at page/locator level within the
+step-driving contour — locating, interactions, navigation, waits,
+expectations, dialogs, popups and frames. A covered capability carries its
+Playwright mirror name, with three declared non-mirror families: the
+prettyplay scroll extras (kept under their own names), the method-style
+`expect_*` expectation names (replacing Playwright's chained
+`expect(locator).to_be_*()` model) and the `expect_dialog` capture
+constructor (implemented over Playwright's `expect_event("dialog")` — the
+Python client ships no `expect_dialog`). Raw input devices (keyboard/mouse)
+stay outside the surface with the other excluded capabilities.
 
-## Surface
+Step code receives a `PageFacade` and works only through it,
+`LocatorFacade`, `FrameFacade` and `DialogFacade` — never through raw
+Playwright objects. Each context opens with the screen mode configured in
+the browser group — the facade surface itself is identical in every mode.
+
+## Surface — page
 
 | Call | Purpose |
 |---|---|
-| `page.open(url)` | navigate and wait for load |
-| `page.find_by_role(role, name)` | element by aria role and accessible name |
-| `page.find_by_label(label)` | element by associated label |
-| `page.find_by_text(text)` | element by visible text |
-| `page.find_by_attribute(name, value)` | element by attribute value — data-* attributes |
-| `page.find_by_css(selector)` | element by CSS selector |
-| `page.find_by_xpath(xpath)` | element by XPath expression |
+| `page.goto(url)` | navigate and wait for the load state |
+| `page.go_back()` | browser-history back |
+| `page.go_forward()` | browser-history forward |
+| `page.reload()` | reload and wait for the load state |
+| `page.wait_for_url(url)` | wait until the URL matches a glob pattern |
+| `page.wait_for_load_state(state)` | wait for load, domcontentloaded or networkidle |
+| `page.expect_url(url)` | assert the URL matches a glob pattern |
+| `page.expect_title(title)` | assert the title contains |
+| `page.get_by_role(role, name)` | element by aria role and accessible name |
+| `page.get_by_label(label)` | element by associated label |
+| `page.get_by_text(text)` | element by visible text |
+| `page.get_by_placeholder(placeholder)` | input by placeholder text |
+| `page.get_by_alt_text(alt)` | image by alt text |
+| `page.get_by_title(title)` | element by title attribute |
+| `page.get_by_test_id(test_id)` | element by data-testid |
+| `page.locator(selector)` | element by any selector — CSS, XPath, attribute |
+| `page.expect_dialog()` | context manager — the block performs the triggering action; yields the `DialogFacade` |
+| `page.expect_popup()` | context manager — the block performs the opening action; yields the popup as a full `PageFacade` |
+| `page.bring_to_front()` | raise this page above the others — the switching primitive |
+| `page.pages` | the open pages of the context, each a full `PageFacade` |
+| `page.frame_locator(selector)` | the locating scope of one iframe — yields a `FrameFacade` |
 | `page.aria_snapshot()` | accessibility-tree page state |
 | `page.screenshot()` | full-page PNG bytes |
 | `page.url` | current URL |
@@ -32,34 +55,121 @@ every mode.
 | `page.scroll_into_view(element, container)` | bring an element into view inside a specific scrollable container |
 | `page.scroll_container_down(container, pixels)` | scroll a scrollable container down by an amount |
 | `page.scroll_container_up(container, pixels)` | scroll a scrollable container up by an amount |
-| `element.click()` | click with auto-wait |
+| `page.close()` | close this page's isolated context |
+
+## Surface — dialog
+
+| Call | Purpose |
+|---|---|
+| `dialog.accept(prompt_text)` | accept; `prompt_text` answers a prompt dialog (empty — no answer) |
+| `dialog.dismiss()` | dismiss |
+| `dialog.type` | alert, confirm, prompt or beforeunload |
+| `dialog.message` | the dialog message |
+| `dialog.default_value` | the prompt prefill of a prompt dialog |
+
+## Surface — frame
+
+| Call | Purpose |
+|---|---|
+| `frame.get_by_role(role, name)` — and the whole `get_by_*` family | locate inside the iframe |
+| `frame.locator(selector)` | any selector inside the iframe |
+| `frame.frame_locator(selector)` | the scope of a nested iframe |
+
+## Surface — element
+
+| Call | Purpose |
+|---|---|
+| `element.click(button)` | click; empty button = left, `"right"` = right button |
+| `element.dblclick()` | double click |
 | `element.fill(value)` | set input text |
+| `element.clear()` | clear the input |
+| `element.press(key)` | press a key or combination, e.g. `"Enter"`, `"Control+A"` |
+| `element.check()` | check a checkbox or radio |
+| `element.uncheck()` | uncheck |
+| `element.hover()` | hover |
 | `element.select_option(value)` | choose an option |
+| `element.drag_to(target)` | drag onto another element |
+| `element.set_input_files(path)` | upload one file by filesystem path |
 | `element.expect_visible()` | assert visible |
-| `element.expect_text(text)` | assert text |
+| `element.expect_hidden()` | assert hidden |
+| `element.expect_text(text)` | assert text contains (substring, whitespace-normalized) |
 | `element.expect_enabled()` | assert enabled |
+| `element.expect_value(value)` | assert the input value |
+| `element.expect_checked()` | assert the checkbox/radio state |
+| `element.expect_count(count)` | assert the matched element count |
+| `element.expect_attribute(name, value)` | assert the attribute value |
 
 ## Example
 
 ```python
-page.open("https://example.com/login")
-page.find_by_label("Username").fill("user")
-page.find_by_label("Password").fill("secret")
-page.find_by_role("button", name="Sign in").click()
-page.find_by_text("Welcome back").expect_visible()
+page.goto("https://example.com/login")
+page.get_by_label("Username").fill("user")
+page.get_by_role("button", name="Sign in").click()
+page.get_by_role("textbox", name="Search").press("Enter")
+page.expect_url("**/dashboard")
+```
 
-# locating by data attributes, CSS and XPath
-page.find_by_attribute("data-test-id", "submit-button").click()
-page.find_by_css("form > button.primary").expect_enabled()
-page.find_by_xpath("//button[@type='submit']").expect_visible()
+Locating without accessible names:
 
-# scroll scenarios
+```python
+page.get_by_test_id("submit-button").click()
+page.locator("form > button.primary").expect_enabled()
+page.locator("//button[@type='submit']").expect_visible()
+page.locator("[data-qa='row'] > input").fill("text")
+```
+
+Dialogs:
+
+```python
+with page.expect_dialog() as dialog:
+    page.get_by_role("button", name="Delete").click()
+assert dialog.type == "confirm"
+assert dialog.message == "Delete the item?"
+dialog.accept()
+```
+
+A captured dialog is step-controlled — the `accept_dialogs` setting does
+not apply to it; dialogs outside a capture follow the setting (accept when
+on, dismiss when off) — see [Configuration](../configuration.md#dialogs).
+
+Popups and new tabs:
+
+```python
+with page.expect_popup() as docs:
+    page.get_by_role("link", name="Open docs").click()
+docs.bring_to_front()
+docs.get_by_role("heading", name="Documentation").expect_visible()
+page.bring_to_front()
+```
+
+Iframes:
+
+```python
+checkout = page.frame_locator("#checkout")
+checkout.get_by_role("button", name="Pay").click()
+
+inner = page.frame_locator("#outer").frame_locator("#inner")
+inner.get_by_text("Nested").expect_visible()
+```
+
+Interactions:
+
+```python
+page.get_by_role("checkbox", name="Subscribe").check()
+page.get_by_role("img", name="Product").drag_to(page.get_by_role("list", name="Cart"))
+page.get_by_label("Avatar").set_input_files("avatar.png")
+page.get_by_role("button", name="Options").click(button="right")
+```
+
+Scroll scenarios:
+
+```python
 page.scroll_down(600)
-page.find_by_text("Footer").expect_visible()
+page.get_by_text("Footer").expect_visible()
 
-cards = page.find_by_role("list", name="Recommendations")
+cards = page.get_by_role("list", name="Recommendations")
 page.scroll_container_down(cards, 400)
-page.find_by_text("Fifth card").expect_visible()
+page.get_by_text("Fifth card").expect_visible()
 
 snapshot = page.aria_snapshot()
 ```
@@ -68,12 +178,14 @@ snapshot = page.aria_snapshot()
 
 Generated code is one function receiving exactly one argument — the page
 facade — and working only through the facade surface:
-`page.find_by_role(...).click()`,
-`page.find_by_attribute("data-test-id", "submit").click()`,
-`page.find_by_css("form > button.primary")`,
-`page.find_by_xpath("//button[@type='submit']")`, `element.expect_visible()`,
-`page.scroll_down(600)` and alike. No provider constructs, no direct driver
-imports, no fixed delays.
+`page.get_by_role(...)`,
+`page.get_by_test_id("submit-button").click()`,
+`page.locator("form > button.primary")`,
+`page.locator("//button[@type='submit']")`, `element.expect_visible()`,
+`with page.expect_dialog() as dialog:`,
+`with page.expect_popup() as popup:`, `page.frame_locator("#checkout")`,
+`page.scroll_down(600)` and alike. No provider constructs, no direct
+driver imports, no fixed delays.
 
 ## Rules
 
@@ -84,11 +196,20 @@ imports, no fixed delays.
   Playwright event loop — hand-written step code stays safe in interactive
   hosts (IPython, Jupyter)
 - Auto-wait everywhere: no `time.sleep`, no fixed delays in step code —
-  including around scrolls: the scrolled state is awaited through locators and
-  expectations
-- The screen mode of the browser group (empty, WxH, fullscreen, device name)
-  changes only how the context opens — never the facade surface; step code is
-  identical in every mode
+  including around scrolls: the scrolled state is awaited through locators
+  and expectations
+- The screen mode of the browser group (empty, WxH, fullscreen, device
+  name) changes only how the context opens — never the facade surface;
+  step code is identical in every mode
+- Parity, not exposure: mirroring Playwright never means exposing raw
+  Playwright objects — every interaction stays a facade call marshaled
+  through the driver thread, popup pages and frame scopes included
+- No network interception, no `evaluate`, no CDP, no clock, no HAR, no
+  tracing — these stay outside the facade
+- Dialogs: an `expect_dialog` capture claims its dialog; dialogs outside a
+  capture follow the `accept_dialogs` browser setting
+- Never put secrets into step actions — step texts and code land in the
+  repository cache
 
 !!! warning
     Never put secrets into step actions — step texts and code land in the

@@ -1276,18 +1276,18 @@ This is a documentation-only task: no code, no tests beyond the final gates.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] Rebuild `docs/reference/driver-facade.md` from `prettyplay/driver/.usages/facade.md`:
+- [x] Rebuild `docs/reference/driver-facade.md` from `prettyplay/driver/.usages/facade.md`:
   parity intro, the four surface tables (page/dialog/frame/element), the
   dialogs/popups/iframes/interactions/scroll example blocks, the updated Rules section.
-- [ ] Update `docs/guides/writing-steps.md`: rename surface examples to `goto`/`get_by_*`; add
+- [x] Update `docs/guides/writing-steps.md`: rename surface examples to `goto`/`get_by_*`; add
   dialog, popup, iframe snippets (mirror the facade.md examples).
-- [ ] Update `docs/configuration.md`: the browser-group table and env table gain
+- [x] Update `docs/configuration.md`: the browser-group table and env table gain
   `accept_dialogs`; add the Dialogs subsection (mirrors `prettyplay/config/.usages/
   configuration.md`).
-- [ ] Update `docs/getting-started.md` and `docs/index.md`: replace retired names where present.
-- [ ] Verify facade accessibility: `python -c "import mkdocs"`-free static check — grep the docs
+- [x] Update `docs/getting-started.md` and `docs/index.md`: replace retired names where present.
+- [x] Verify facade accessibility: `python -c "import mkdocs"`-free static check — grep the docs
   for retired names: `grep -rn "find_by\|page\.open(" docs/` returns no hits.
-- [ ] Lint: `ruff check prettyplay/ tests/` — still clean (no code changed in this task).
+- [x] Lint: `ruff check prettyplay/ tests/` — still clean (no code changed in this task).
 
 ---
 
@@ -1308,26 +1308,26 @@ This is a documentation-only task: no code, no tests beyond the final gates.
 
 ## Completion Criteria
 
-- [ ] Every contract entity is implemented in the correct `location`
+- [x] Every contract entity is implemented in the correct `location`
   (`config/models.py`, `config/loader.py`, `driver/page.py`, `driver/session.py`,
   `engine/generator.py`)
-- [ ] Every contract entity is accessible from the facade (`prettyplay.driver` exports
+- [x] Every contract entity is accessible from the facade (`prettyplay.driver` exports
   `DialogFacade` and `FrameFacade`; config/engine facades unchanged)
-- [ ] Properties and methods match the declared API (the set-equality surface test gates the
+- [x] Properties and methods match the declared API (the set-equality surface test gates the
   page level; signature tests gate the rest)
-- [ ] Descriptions are reflected in behavior (routing claim/accept/dismiss chain, capture
+- [x] Descriptions are reflected in behavior (routing claim/accept/dismiss chain, capture
   resolve-at-exit, contains-semantics `expect_title`, empty-name role matching, verbatim
   selector pass-through, glob URL pass-through)
-- [ ] Contract dependencies are met (`Config` reaches the driver; `facade` reaches the engine)
-- [ ] Re-exports are accessible from the facade
-- [ ] Every coding task followed the TDD workflow (contract tests → code → verification →
+- [x] Contract dependencies are met (`Config` reaches the driver; `facade` reaches the engine)
+- [x] Re-exports are accessible from the facade
+- [x] Every coding task followed the TDD workflow (contract tests → code → verification →
   logic tests → debugging → re-verification → lint)
-- [ ] Contract tests and logic tests cover facade, API, and behavior within each coding task
-- [ ] Integration tests exist where cross-entity scenarios require them (Task 9)
-- [ ] No package boundary was expanded (no new cells, no new dependencies, no raw Playwright
+- [x] Contract tests and logic tests cover facade, API, and behavior within each coding task
+- [x] Integration tests exist where cross-entity scenarios require them (Task 9)
+- [x] No package boundary was expanded (no new cells, no new dependencies, no raw Playwright
   object exposed)
-- [ ] `CODEMANIFEST` files were not modified (contract is read-only)
-- [ ] All validation commands pass
-- [ ] Every Usages entry is mentioned in at least one task (`conventions`, `pydantic`,
+- [x] `CODEMANIFEST` files were not modified (contract is read-only)
+- [x] All validation commands pass
+- [x] Every Usages entry is mentioned in at least one task (`conventions`, `pydantic`,
   `playwright`, `system_prompt`; imported: `configuration`, `facade`; `classification` noted as
   unchanged — no task required)
