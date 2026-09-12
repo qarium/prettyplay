@@ -640,19 +640,19 @@ bodies) — the implementations land in the next two tasks. Relative imports per
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] Create `prettyplay/engine/polling/window.py` — module docstring + the `SettleWindow` class
+- [x] Create `prettyplay/engine/polling/window.py` — module docstring + the `SettleWindow` class
   skeleton: `__init__(self, timeout: float | None, delay: float)` storing the two public
   attributes; property/method stubs (`enabled`, `start`, `has_remaining`) raising
   `NotImplementedError`
-- [ ] Create `prettyplay/engine/polling/settle.py` — module docstring + the `settle` function
+- [x] Create `prettyplay/engine/polling/settle.py` — module docstring + the `settle` function
   skeleton with the full contract signature
   (`execute: Callable[[str, PageFacade], None], code: str, page: PageFacade, window: SettleWindow`)
   raising `NotImplementedError`; the needed imports (`is_pollable_failure`, `PageFacade`,
   logger `prettyplay`)
-- [ ] Create `prettyplay/engine/polling/__init__.py` — docstring ("Facade of the
+- [x] Create `prettyplay/engine/polling/__init__.py` — docstring ("Facade of the
   prettyplay.engine.polling cell…"), imports and `__all__ = ["SettleWindow", "settle"]`
-- [ ] Verify facade accessibility: `python -c "from prettyplay.engine.polling import SettleWindow, settle"`
-- [ ] Lint: `ruff check prettyplay/` — fix formatting if necessary
+- [x] Verify facade accessibility: `python -c "from prettyplay.engine.polling import SettleWindow, settle"`
+- [x] Lint: `ruff check prettyplay/` — fix formatting if necessary
 
 ### Task 8: `SettleWindow` — the settle horizon (engine/polling)
 
