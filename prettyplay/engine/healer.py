@@ -8,6 +8,7 @@ from ..llm import LLMProvider
 from ..reporting import StepReporter
 from .classification import classify_step_failure
 from .generator import StepGenerator
+from .polling import SettleWindow
 
 
 class StepHealer:
@@ -105,6 +106,10 @@ class StepHealer:
                 page=page,
                 existing_code=step.code,
                 error=error,
+                recommendation=classification.recommendation,
+                # the settle window of the healing run, from the polling settings —
+                # disabled unless the project enables polling
+                window=SettleWindow(self._config.polling_timeout, self._config.polling_delay),
             )
         except IncurableStepError as incurable:
             if incurable.verdict is None:

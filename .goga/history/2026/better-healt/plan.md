@@ -881,30 +881,30 @@ funded regeneration runs under the same `window` (the same step execution).
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: in `tests/engine/test_generator.py` add — `generate` and `regenerate`
+- [x] **Contract tests**: in `tests/engine/test_generator.py` add — `generate` and `regenerate`
   accept `window` (`regenerate` also `recommendation`, positioned per the contract) — signature
   shape via direct calls with fakes (expected to fail at this stage)
-- [ ] **Code**: `SYSTEM_PROMPT` — replace the constant with the generation.md prompt text
+- [x] **Code**: `SYSTEM_PROMPT` — replace the constant with the generation.md prompt text
   (frozen mirror, comment updated)
-- [ ] **Code**: widen `generate`/`regenerate` signatures and thread `window` into `_loop`; every
+- [x] **Code**: widen `generate`/`regenerate` signatures and thread `window` into `_loop`; every
   candidate execution goes through `settle(run_step_code, code, page, window)`; plain-generation
   requests pass `recommendation=None, guidance=None, guidance_history=[]`
-- [ ] **Code**: implement the failed-check decision table (classify → product_defect /
+- [x] **Code**: implement the failed-check decision table (classify → product_defect /
   incurable / bounded healing) with the code field on every raise; `verdict is None` (quiet
   skip) → `IncurableStepError(reason="candidate check failed — <first line>", verdict=None)`
-- [ ] **Code**: implement `_funded_regeneration` (one request funded by an explicit
+- [x] **Code**: implement `_funded_regeneration` (one request funded by an explicit
   `try_healing` check; `on_generation_started` fires; provider `LLMUnavailableError` propagates
   immediately; execution failure returns the failed code + formatted error to the caller) and
   wire it into the failed-check and exhaustion rot/fixable branches
-- [ ] **Code**: implement the exhaustion path per the algorithm (incl. the no-error first
+- [x] **Code**: implement the exhaustion path per the algorithm (incl. the no-error first
   candidate case `code=""`); the kind-authored repeat-failure reason (AssertionError repeat —
   "candidate check failed — <first line>"; other failure — "candidate failed — <first line>";
   quiet skip — the contract wording)
-- [ ] **Code**: regenerate loop — healing pool spend, every failed attempt retries (failed
+- [x] **Code**: regenerate loop — healing pool spend, every failed attempt retries (failed
   checks included), exhaustion raises `IncurableStepError(..., code=last candidate,
   verdict=None)` with no classification
-- [ ] **Interface verification**: `pytest tests/engine/test_generator.py -x` — all pass
-- [ ] **Logic tests**: in `tests/engine/test_generator.py` add (recording provider fake;
+- [x] **Interface verification**: `pytest tests/engine/test_generator.py -x` — all pass
+- [x] **Logic tests**: in `tests/engine/test_generator.py` add (recording provider fake;
   `RunBudgets`; `FakePage`; `SettleWindow(None, 0.5)` unless stated)
   - `test_generate_failed_check_rot_grants_one_funded_regeneration`: budgets
     `RunBudgets(generation_limit=3, healing_limit=2)`; first candidate raises
@@ -930,13 +930,13 @@ funded regeneration runs under the same `window` (the same step execution).
     twice with a pollable `PlaywrightError("Timeout 10000ms exceeded")` then succeeds;
     `window = SettleWindow(10.0, 0)` → `on_generation_started` emitted exactly once; two
     `settle_retry` log records; budgets spent exactly one generation attempt
-- [ ] **Debugging**: `pytest tests/engine/ -x` — fix implementation code until all tests pass
+- [x] **Debugging**: `pytest tests/engine/ -x` — fix implementation code until all tests pass
   (do NOT fix test code)
-- [ ] **Contract re-verification**: anti-masking preserved (`product_defect` never regenerates);
+- [x] **Contract re-verification**: anti-masking preserved (`product_defect` never regenerates);
   budget invariant (a failing assertion costs at most one classification + one funded
   regeneration + one final classification); `code` on every generation-path terminal error =
   the last candidate; provider request failures surface as `LLMUnavailableError` immediately
-- [ ] **Lint**: `ruff check prettyplay/ tests/` — fix formatting, apply decomposition if necessary
+- [x] **Lint**: `ruff check prettyplay/ tests/` — fix formatting, apply decomposition if necessary
 
 ### Task 11: `StepHealer` — the window, the `fixable` branch and the code rewrite (engine)
 

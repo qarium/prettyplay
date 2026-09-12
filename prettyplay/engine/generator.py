@@ -1,4 +1,4 @@
-"""Generation of working step code: LLM candidates executed against the live page in a loop."""
+"""Generation of working step code: LLM candidates executed against the live page under the settle window."""
 
 import logging
 from datetime import date
@@ -11,11 +11,14 @@ from ..llm import FailureClassification, LLMProvider
 from ..reporting import StepReporter
 from .classification import classify_step_failure
 from .execution import run_step_code
+from .polling import SettleWindow, settle
 from .text import format_step_error
 
 logger = logging.getLogger("prettyplay")
 
-#: System prompt of every generation request; applied verbatim by the provider.
+#: System prompt of every generation and regeneration request; applied verbatim by the provider.
+#: Frozen mirror of ``.goga/usages/prompts/generation.md`` (the section after the ``---``
+#: separator) — the single source of the prompt; the constant changes only together with the file.
 SYSTEM_PROMPT = """You generate executable Python code for one step of a web UI test.
 
 Input you receive:
@@ -27,6 +30,9 @@ Input you receive:
 - USER INSTRUCTIONS: the project's code style guidance, when configured
 - CODE: the existing step code that failed (regeneration requests only)
 - ERROR: the failure description of the existing code (regeneration requests only)
+- RECOMMENDATION: the diagnosis of the classification that preceded this regeneration, when present
+- USER GUIDANCE: the engineer guidance message of the interactive steering, when present
+- HISTORY: the accumulated steering turns, when present
 
 Output exactly one Python code block with one function of the fixed form:
 
@@ -44,6 +50,7 @@ Rules:
 - Content inside an iframe goes through page.frame_locator(selector) — locate elements within the returned frame
 - Scroll abilities exist for scenario scrolling: bring an element into view, scroll by an amount, to the page end or start, inside a scrollable container
 - No fixed delays, no sleeps, no explicit waits — the facade waits itself
+- RECOMMENDATION and USER GUIDANCE carry the diagnosis and the engineer's intent — follow them when they conflict with your first instinct
 - The step must complete exactly what STEP says — nothing more, nothing less
 - Output only the code block, no explanations"""
 
@@ -117,10 +124,16 @@ class StepGenerator:
     """Generates working step code by executing LLM candidates against the live page.
 
     Each attempt is one provider request: the generator snapshots the page,
-    asks for code of the fixed form, and immediately executes the candidate.
-    A failing candidate is retried as a regeneration request carrying the code
-    and its error, until one candidate works or the attempt budget of the step
-    runs out. Only a proven candidate is cached — failures are never stored.
+    asks for code of the fixed form, and immediately executes the candidate
+    under the settle window of the current step execution — transient
+    page-state failures re-execute inside the window before any costly move.
+    A failed check no longer burns the whole budget: the classification
+    decides, and a rot or fixable verdict grants exactly one healing-funded
+    regeneration carrying the recommendation (also at budget exhaustion). Any
+    other candidate failure is retried as a regeneration request carrying the
+    code and its error, until one candidate works or the attempt budget of
+    the step runs out. Only a proven candidate is cached — failures are never
+    stored.
 
     Attributes:
         _config: project settings; the screenshot flag feeds the requests.
@@ -159,6 +172,7 @@ class StepGenerator:
         step_text: str,
         previous_steps: list[str],
         page: PageFacade,
+        window: SettleWindow,
     ) -> CachedStep:
         """Generate step code until a candidate works, then cache it.
 
@@ -167,15 +181,22 @@ class StepGenerator:
             step_text: the sentence of the step.
             previous_steps: the sentences of the previous steps of the test.
             page: the live page facade the candidates run against.
+            window: the settle window of the current step execution — every
+                candidate execution absorbs transient failures inside it.
 
         Returns:
             The cached step holding the proven code.
 
         Raises:
-            IncurableStepError: the generation attempt budget is exhausted.
+            ProductDefectError: a failed candidate check classified as a
+                genuine product defect — by the entry or the final
+                classification.
+            IncurableStepError: a check or budget outcome classified
+                incurable, or the healing funding refused; the code field
+                carries the failed step code.
             LLMUnavailableError: the provider service failed; no retry.
         """
-        return self._loop(identity, step_text, previous_steps, page, "generation", None, None)
+        return self._generation_loop(identity, step_text, previous_steps, page, window)
 
     def regenerate(  # noqa: PLR0913, PLR0917 — the signature is fixed by the engine contract
         self,
@@ -185,11 +206,17 @@ class StepGenerator:
         page: PageFacade,
         existing_code: str,
         error: str,
+        recommendation: str,
+        window: SettleWindow,
     ) -> CachedStep:
-        """Regenerate step code starting from the failed candidate.
+        """Regenerate step code starting from the failed code and its diagnosis.
 
-        The loop is the generation loop; the differences are the healing budget
-        pool and the failed code and error carried by the first request.
+        The loop is the generation loop with three differences: attempts draw
+        from the healing budget pool, every request carries the failed code,
+        its error and the classification recommendation, and every failed
+        attempt — a failed check included — takes the retry branch: the entry
+        classification already guards the anti-masking, so no per-attempt
+        classification happens inside the loop.
 
         Args:
             identity: the address of the step.
@@ -198,44 +225,46 @@ class StepGenerator:
             page: the live page facade the candidates run against.
             existing_code: the cached step code that failed.
             error: the failure description of the existing code.
+            recommendation: the diagnosis of the classification that launched
+                the healing; rendered into every request.
+            window: the settle window of the current step execution.
 
         Returns:
             The cached step holding the proven regenerated code.
 
         Raises:
-            IncurableStepError: the healing attempt budget is exhausted.
+            IncurableStepError: the healing attempt budget is exhausted; the
+                verdict stays None — the calling healer attaches its entry
+                verdict — and the code field carries the last candidate.
             LLMUnavailableError: the provider service failed; no retry.
         """
-        return self._loop(identity, step_text, previous_steps, page, "healing", existing_code, error)
+        return self._healing_loop(identity, step_text, previous_steps, page, existing_code, error, recommendation, window)
 
-    def _loop(  # noqa: PLR0913, PLR0917 — the shared attempt loop with its fixed inputs
+    def _generation_loop(
         self,
         identity: StepIdentity,
         step_text: str,
         previous_steps: list[str],
         page: PageFacade,
-        pool: str,
-        existing_code: str | None,
-        error: str | None,
+        window: SettleWindow,
     ) -> CachedStep:
-        """Run the shared attempt loop until a candidate works or the budget runs out.
+        """Run the generation pool loop until a candidate works or the budget runs out.
 
-        A failed check — a candidate ``AssertionError`` — stops the retries at
-        once and is classified: the attempt budget is never spent on a
-        legitimately failing assertion. Any other candidate failure is retried
-        as a regeneration request carrying the code and its error. When the
-        budget runs out, the generation pool classifies the last candidate;
-        the healing pool raises without classification — the healer attaches
-        the verdict it already holds, so no extra LLM request is made.
+        A failed check — a candidate ``AssertionError`` that survived the
+        settle window — goes through the bounded-healing decision table: the
+        classification decides between a terminal kind and exactly one
+        healing-funded regeneration carrying the recommendation. Any other
+        candidate failure is retried as a regeneration request carrying the
+        code and its error. Budget exhaustion classifies the last candidate
+        and follows the same table — the rot and fixable verdicts grant one
+        extra funded regeneration there too.
 
         Args:
             identity: the address of the step.
             step_text: the sentence of the step.
             previous_steps: the sentences of the previous steps of the test.
             page: the live page facade the candidates run against.
-            pool: the budget pool name — "generation" or "healing".
-            existing_code: the failed code of the first request, if any.
-            error: the failure description of the first request, if any.
+            window: the settle window of the current step execution.
 
         Returns:
             The cached step holding the proven code.
@@ -243,65 +272,350 @@ class StepGenerator:
         Raises:
             ProductDefectError: a failed candidate check classified as a
                 genuine product defect.
-            IncurableStepError: the attempt budget of the step is exhausted,
-                or a failure classified as incurable.
+            IncurableStepError: the generation attempt budget is exhausted,
+                or a failure classified incurable.
             LLMUnavailableError: the provider service failed; no retry.
         """
-        attempt = 0
-        code = None
-        spend = self._budgets.try_generation if pool == "generation" else self._budgets.try_healing
+        attempt: list[int] = [0]  # every LLM request of this pool run — loop attempts and funded regenerations
+        existing_code: str | None = None
+        error: str | None = None
+        code = ""
 
         while True:
-            if not spend(identity):
-                # colon-free authored reason; the candidate failure travels in the error field
-                reason = f"{pool} attempt budget exhausted"
+            if not self._budgets.try_generation(identity):
+                return self._exhaustion_outcome(identity, step_text, previous_steps, page, code, error, window, attempt)
 
-                if pool == "healing":
-                    # healer attaches the verdict — no second LLM request
-                    raise IncurableStepError(step_text, reason, error or "")
-                if error is None:
-                    raise IncurableStepError(
-                        step_text,
-                        reason,
-                        "",  # nothing to classify: no candidates existed
-                    )
+            attempt[0] += 1
+            self._emit_generation_started(step_text, attempt[0])
 
-                raise IncurableStepError(step_text, reason, error, verdict=self._classify(step_text, code, error, page))
-
-            attempt += 1
-            self._reporter.emit("on_generation_started", {"step_text": step_text, "attempt": attempt})
-
-            snapshot = page.aria_snapshot()
-            screenshot = page.screenshot() if self._config.send_screenshots else None
-
-            code = self._provider.generate_step_code(
-                prompt=SYSTEM_PROMPT,
-                user_instructions=self._config.generation_prompt,
-                step_text=step_text,
-                previous_steps=previous_steps,
-                snapshot=snapshot,
-                screenshot=screenshot,
-                page_api=PAGE_API_SURFACE,
-                existing_code=existing_code,
-                error=error,
-            )
+            code = self._request(step_text, previous_steps, page, existing_code, error, recommendation=None)
 
             try:
-                run_step_code(code, page)
+                settle(run_step_code, code, page, window)
             except AssertionError as check_failure:
-                # failed check: attempts not spent — classify and stop
+                # failed check survived the window — the decision table, never blind retries
                 error_field = str(check_failure)  # full text, no prefix — the type is the semantics
-                reason = f"candidate check failed — {error_field.partition(chr(10))[0]}"
-                verdict = self._classify(step_text, code, error_field, page)
-                if verdict is not None and verdict.category == "product_defect":
-                    raise ProductDefectError(step_text, verdict.explanation, error_field, verdict) from None
-                raise IncurableStepError(step_text, reason, error_field, verdict=verdict) from None
+                return self._failed_check_outcome(
+                    identity, step_text, previous_steps, page, code, error_field, window, attempt
+                )
             except Exception as candidate_error:  # other candidate failures heal via retry
                 existing_code = code
                 error = format_step_error(candidate_error)
             else:
-                break
+                return self._store(identity, code)
 
+    def _healing_loop(  # noqa: PLR0913, PLR0917 — the shared attempt loop with its fixed inputs
+        self,
+        identity: StepIdentity,
+        step_text: str,
+        previous_steps: list[str],
+        page: PageFacade,
+        existing_code: str,
+        error: str,
+        recommendation: str,
+        window: SettleWindow,
+    ) -> CachedStep:
+        """Run the healing pool loop until a candidate works or the budget runs out.
+
+        Every failed attempt — a failed check included — takes the retry
+        branch with the fresh failure description and snapshot while attempts
+        remain: the entry classification already guards the anti-masking, so
+        no per-attempt classification happens inside the loop. Exhaustion
+        raises without a classification — the calling healer attaches the
+        verdict it already holds.
+
+        Args:
+            identity: the address of the step.
+            step_text: the sentence of the step.
+            previous_steps: the sentences of the previous steps of the test.
+            page: the live page facade the candidates run against.
+            existing_code: the cached step code that failed.
+            error: the failure description of the existing code.
+            recommendation: the diagnosis of the classification that launched
+                the healing; rendered into every request.
+            window: the settle window of the current step execution.
+
+        Returns:
+            The cached step holding the proven code.
+
+        Raises:
+            IncurableStepError: the healing attempt budget is exhausted.
+            LLMUnavailableError: the provider service failed; no retry.
+        """
+        attempt = 0
+        code = existing_code
+
+        while True:
+            if not self._budgets.try_healing(identity):
+                # colon-free authored reason; the last candidate failure travels in the error field
+                raise IncurableStepError(step_text, "healing attempt budget exhausted", error, code=code)
+
+            attempt += 1
+            self._emit_generation_started(step_text, attempt)
+
+            code = self._request(step_text, previous_steps, page, existing_code, error, recommendation)
+
+            try:
+                settle(run_step_code, code, page, window)
+            except Exception as candidate_error:  # failed checks included — the entry classification guards
+                existing_code = code
+                error = format_step_error(candidate_error)
+            else:
+                return self._store(identity, code)
+
+    def _failed_check_outcome(  # noqa: PLR0913, PLR0917 — the decision table of one failed candidate check
+        self,
+        identity: StepIdentity,
+        step_text: str,
+        previous_steps: list[str],
+        page: PageFacade,
+        code: str,
+        error_field: str,
+        window: SettleWindow,
+        attempt: list[int],
+    ) -> CachedStep:
+        """Decide the bounded-healing outcome of a failed candidate check.
+
+        The uniform decision table: product_defect raises at once, incurable
+        raises carrying the verdict, and rot or fixable grants exactly one
+        healing-funded regeneration carrying the recommendation — a refused
+        funding is terminal, and a repeat failure gets one final
+        classification that decides only the terminal kind, never another
+        regeneration.
+
+        Args:
+            identity: the address of the step — the healing funding key.
+            step_text: the sentence of the failed step.
+            previous_steps: the sentences of the previous steps of the test.
+            page: the live page facade of the test.
+            code: the code of the failed candidate.
+            error_field: the full failure text of the failed check.
+            window: the settle window of the current step execution.
+            attempt: the shared LLM attempt counter of the pool run.
+
+        Returns:
+            The healed step when the funded regeneration worked.
+
+        Raises:
+            ProductDefectError: the entry or final verdict says product defect.
+            IncurableStepError: the verdict says incurable, the healing
+                funding is refused, or the repeat failure stays terminal —
+                the code field carries the failed step code.
+        """
+        reason = f"candidate check failed — {_first_line(error_field)}"
+        verdict = self._classify(step_text, code, error_field, page)
+        if verdict is None:  # quiet skip — the failed check itself is the primary signal
+            raise IncurableStepError(step_text, reason, error_field, code=code) from None
+        if verdict.category == "product_defect":
+            raise ProductDefectError(step_text, verdict.explanation, error_field, verdict) from None
+        if verdict.category == "incurable":
+            raise IncurableStepError(step_text, reason, error_field, code=code, verdict=verdict) from None
+
+        # rot | fixable — exactly one healing-funded regeneration
+        if not self._budgets.try_healing(identity):
+            raise IncurableStepError(
+                step_text, "healing attempt budget exhausted", error_field, code=code, verdict=verdict
+            ) from None
+
+        healed, failed_code, failure_text, repeat_was_check = self._funded_regeneration(
+            identity, step_text, previous_steps, page, code, error_field, verdict.recommendation, window, attempt
+        )
+        if healed is not None:
+            return healed
+
+        # repeat failure — one final classification deciding the terminal kind only
+        final = self._classify(step_text, failed_code, failure_text, page)
+        if final is not None and final.category == "product_defect":
+            raise ProductDefectError(step_text, final.explanation, failure_text, final) from None
+        if final is None or repeat_was_check:
+            # quiet skip keeps the contract wording; an assertion repeat names the failed check
+            repeat_reason = f"candidate check failed — {_first_line(failure_text)}"
+        else:
+            repeat_reason = f"candidate failed — {_first_line(failure_text)}"
+        raise IncurableStepError(step_text, repeat_reason, failure_text, code=failed_code, verdict=final) from None
+
+    def _exhaustion_outcome(  # noqa: PLR0913, PLR0917 — the decision table of the refused generation pool
+        self,
+        identity: StepIdentity,
+        step_text: str,
+        previous_steps: list[str],
+        page: PageFacade,
+        code: str,
+        error: str | None,
+        window: SettleWindow,
+        attempt: list[int],
+    ) -> CachedStep:
+        """Decide the outcome of a refused generation attempt.
+
+        No candidate ever existed — the plain budget failure with an empty
+        error. Otherwise the last candidate is classified and follows the
+        decision table: the rot and fixable verdicts grant one extra
+        healing-funded regeneration carrying the recommendation; a repeat
+        failure is terminal without reclassification, carrying the verdict of
+        the entry classification.
+
+        Args:
+            identity: the address of the step — the healing funding key.
+            step_text: the sentence of the failed step.
+            previous_steps: the sentences of the previous steps of the test.
+            page: the live page facade of the test.
+            code: the code of the last candidate.
+            error: the failure description of the last candidate; None — no
+                candidate ever existed.
+            window: the settle window of the current step execution.
+            attempt: the shared LLM attempt counter of the pool run.
+
+        Returns:
+            The healed step when the funded regeneration worked.
+
+        Raises:
+            ProductDefectError: the verdict says product defect.
+            IncurableStepError: the generation attempt budget is exhausted,
+                the verdict says incurable, or the healing funding is
+                refused — the code field carries the failed step code.
+        """
+        reason = "generation attempt budget exhausted"
+        if error is None:
+            raise IncurableStepError(step_text, reason, "", code="") from None  # nothing to classify
+
+        verdict = self._classify(step_text, code, error, page)
+        if verdict is None:  # quiet skip — the budget failure is the primary signal
+            raise IncurableStepError(step_text, reason, error, code=code) from None
+        if verdict.category == "product_defect":
+            raise ProductDefectError(step_text, verdict.explanation, error, verdict) from None
+        if verdict.category == "incurable":
+            raise IncurableStepError(step_text, reason, error, code=code, verdict=verdict) from None
+
+        # rot | fixable — one extra healing-funded regeneration
+        if not self._budgets.try_healing(identity):
+            raise IncurableStepError(step_text, "healing attempt budget exhausted", error, code=code, verdict=verdict) from None
+
+        healed, failed_code, failure_text, _repeat_was_check = self._funded_regeneration(
+            identity, step_text, previous_steps, page, code, error, verdict.recommendation, window, attempt
+        )
+        if healed is not None:
+            return healed
+
+        # repeat failure — terminal, no reclassification; the verdict of the entry classification travels
+        raise IncurableStepError(step_text, reason, failure_text, code=failed_code, verdict=verdict) from None
+
+    def _funded_regeneration(  # noqa: PLR0913, PLR0917 — the single healing-funded request of the bounded healing
+        self,
+        identity: StepIdentity,
+        step_text: str,
+        previous_steps: list[str],
+        page: PageFacade,
+        existing_code: str,
+        error: str,
+        recommendation: str,
+        window: SettleWindow,
+        attempt: list[int],
+    ) -> tuple[CachedStep | None, str, str, bool]:
+        """Run the one healing-funded regeneration request of the bounded healing.
+
+        A single inline request — never a call to the retrying regenerate
+        loop. It is an LLM attempt: the shared counter increments and
+        ``on_generation_started`` fires. A provider failure propagates
+        immediately — no retry, no final classification; only the execution
+        of the funded candidate can fail softly, yielding the failed code and
+        its formatted error for the caller's terminal handling.
+
+        Args:
+            identity: the address of the step — the identity of the stored step.
+            step_text: the sentence of the step.
+            previous_steps: the sentences of the previous steps of the test.
+            page: the live page facade the candidate runs against.
+            existing_code: the code of the failed candidate.
+            error: the failure description of the failed candidate.
+            recommendation: the classification diagnosis carried by the request.
+            window: the settle window of the current step execution — shared
+                with the loop, the same step execution.
+            attempt: the shared LLM attempt counter of the pool run.
+
+        Returns:
+            The stored healed step with empty failure facts on success; None
+            with the failed code, the formatted failure text and whether the
+            failure was a failed check on a failed execution.
+
+        Raises:
+            LLMUnavailableError: the provider request failed; no retry, no
+                final classification.
+        """
+        attempt[0] += 1
+        self._emit_generation_started(step_text, attempt[0])
+
+        code = self._request(step_text, previous_steps, page, existing_code, error, recommendation)
+        try:
+            settle(run_step_code, code, page, window)
+        except AssertionError as check_failure:
+            return None, code, str(check_failure), True
+        except Exception as failure:
+            return None, code, format_step_error(failure), False
+
+        return self._store(identity, code), code, "", False
+
+    def _request(  # noqa: PLR0913, PLR0917 — the fixed request inputs of the port signature
+        self,
+        step_text: str,
+        previous_steps: list[str],
+        page: PageFacade,
+        existing_code: str | None,
+        error: str | None,
+        recommendation: str | None,
+    ) -> str:
+        """Collect the request inputs and ask the provider for one candidate.
+
+        Args:
+            step_text: the sentence of the step.
+            previous_steps: the sentences of the previous steps of the test.
+            page: the live page facade of the test.
+            existing_code: the failed code of the request, if any.
+            error: the failure description of the request, if any.
+            recommendation: the classification diagnosis of the request, if any.
+
+        Returns:
+            The generated step code of the fixed form.
+        """
+        snapshot = page.aria_snapshot()
+        screenshot = page.screenshot() if self._config.send_screenshots else None
+
+        return self._provider.generate_step_code(
+            prompt=SYSTEM_PROMPT,
+            user_instructions=self._config.generation_prompt,
+            step_text=step_text,
+            previous_steps=previous_steps,
+            snapshot=snapshot,
+            screenshot=screenshot,
+            page_api=PAGE_API_SURFACE,
+            existing_code=existing_code,
+            error=error,
+            recommendation=recommendation,
+            guidance=None,  # steering-only input — the engine never carries guidance
+            guidance_history=[],
+        )
+
+    def _emit_generation_started(self, step_text: str, attempt: int) -> None:
+        """Report the start of one LLM attempt.
+
+        Fires once per provider request, never per settle re-execution inside
+        it.
+
+        Args:
+            step_text: the sentence of the step.
+            attempt: the 1-based ordinal of the LLM request in the pool run.
+        """
+        self._reporter.emit("on_generation_started", {"step_text": step_text, "attempt": attempt})
+
+    def _store(self, identity: StepIdentity, code: str) -> CachedStep:
+        """Save the proven candidate as the cached step of the identity.
+
+        Args:
+            identity: the address of the step.
+            code: the proven step code.
+
+        Returns:
+            The stored cached step.
+        """
         step = CachedStep(
             identity=identity,
             code=code,
@@ -311,7 +625,7 @@ class StepGenerator:
 
         return step
 
-    def _classify(self, step_text: str, code: str | None, error: str, page: PageFacade) -> FailureVerdict | None:
+    def _classify(self, step_text: str, code: str, error: str, page: PageFacade) -> FailureVerdict | None:
         """Classify a failure through the shared routine with the quiet skip.
 
         Every classification inside the loop enriches an already-decided
@@ -335,6 +649,18 @@ class StepGenerator:
             return None
 
         return _verdict(classification)
+
+
+def _first_line(text: str) -> str:
+    """Return the first line of a failure text — the authored-reason tail.
+
+    Args:
+        text: the full failure text.
+
+    Returns:
+        The text up to the first newline; the whole text when single-line.
+    """
+    return text.partition("\n")[0]
 
 
 def _verdict(classification: FailureClassification) -> FailureVerdict:

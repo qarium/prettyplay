@@ -55,6 +55,29 @@ class CheckFailingPage(FakePage):
         return FailingLocator()
 
 
+class ClickableLocator:
+    """Fake element boundary: records the click of the healed candidate."""
+
+    def __init__(self, clicks: list[str]) -> None:
+        self._clicks = clicks
+
+    def click(self) -> None:
+        self._clicks.append("click")
+
+
+class RecoveringCheckPage(FakePage):
+    """Fake page where the candidate check fails once, then the healed code runs."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.clicks: list[str] = []
+
+    def get_by_text(self, text: str) -> object:
+        if text == "Welcome back":
+            return FailingLocator()  # the check candidate fails
+        return ClickableLocator(self.clicks)  # the healed candidate works
+
+
 class FakeProvider:
     """Fake provider boundary: scripted verdicts and candidates with recorded requests."""
 
@@ -113,6 +136,9 @@ class FakeProvider:
         page_api: str = "",
         existing_code: str | None = None,
         error: str | None = None,
+        recommendation: str | None = None,
+        guidance: str | None = None,
+        guidance_history: list[str] | None = None,
     ) -> str:
         self.generate_step_code_calls.append(
             {
@@ -125,6 +151,9 @@ class FakeProvider:
                 "page_api": page_api,
                 "existing_code": existing_code,
                 "error": error,
+                "recommendation": recommendation,
+                "guidance": guidance,
+                "guidance_history": guidance_history,
             }
         )
         return self.answers.pop(0)
@@ -145,6 +174,8 @@ class SpyGenerator:
         page: FakePage,
         existing_code: str,
         error: str,
+        recommendation: str = "",
+        window: object = None,
     ) -> CachedStep:
         self.calls.append(
             {
@@ -154,6 +185,8 @@ class SpyGenerator:
                 "page": page,
                 "existing_code": existing_code,
                 "error": error,
+                "recommendation": recommendation,
+                "window": window,
             }
         )
         return self.healed
@@ -465,62 +498,56 @@ class TestStepHealerLogic:
         assert fixture.generator.calls == []
         assert fixture.cache.save_calls == []
 
-    def test_heal_preserves_fresh_verdict_from_regenerate_failed_check(self, tmp_path: Path) -> None:
+    def test_heal_failed_check_inside_regeneration_retries_with_fresh_error(self, tmp_path: Path) -> None:
+        """A failed check inside the regeneration loop retries — no per-attempt classification."""
         provider = FakeProvider(
             classifications=[
                 FailureClassification(
                     category="rot",
                     explanation="the selector rotted",
                     recommendation="refresh the cache",
-                ),
-                FailureClassification(
-                    category="product_defect",
-                    explanation="the banner is genuinely missing",
-                    recommendation="file a bug",
-                ),
+                )
             ],
-            answers=[CHECK_CODE],
+            answers=[CHECK_CODE, HEALED_CODE],
         )
         fixture = HealerFixture(provider, tmp_path, real_generator=True)
+        page = RecoveringCheckPage()
 
-        with pytest.raises(ProductDefectError) as excinfo:
-            fixture.healer.heal(fixture.failed_step, "element not found", [], CheckFailingPage())
+        healed = fixture.healer.heal(fixture.failed_step, "element not found", [], page)
 
-        # the fresh failed-check verdict wins; the except branch never rewrites it
-        assert excinfo.value.verdict.category == "product_defect"
-        assert excinfo.value.message == "the banner is genuinely missing"  # the verdict explanation
-        assert excinfo.value.error == "banner missing"  # the full check text, no prefix
-        assert provider.classify_failure_call_count == 2  # healer classification + a fresh one in regeneration
-        assert fixture.cache.save_calls == []
+        assert healed.code == HEALED_CODE
+        assert provider.generate_step_code_call_count == 2  # the failed check retried, never classified
+        assert provider.classify_failure_call_count == 1  # the entry classification only
+        retry_request = provider.generate_step_code_calls[1]
+        assert retry_request["error"] == "banner missing"  # the fresh failure description of the check
+        assert retry_request["recommendation"] == "refresh the cache"  # the entry diagnosis carries on
+        assert page.clicks == ["click"]  # the healed candidate actually ran
+        assert len(fixture.cache.save_calls) == 1  # only the proven healed code is stored
 
-    def test_heal_preserves_fresh_incurable_verdict_from_regenerate_failed_check(self, tmp_path: Path) -> None:
-        """A fresh failed-check IncurableStepError is re-raised untouched (not the rot verdict)."""
+    def test_heal_failed_check_inside_regeneration_exhaustion_keeps_entry_verdict(self, tmp_path: Path) -> None:
+        """Exhaustion after a failed check carries the entry verdict — the rewrite branch."""
         provider = FakeProvider(
             classifications=[
                 FailureClassification(
                     category="rot",
                     explanation="the selector rotted",
                     recommendation="refresh the cache",
-                ),
-                FailureClassification(
-                    category="incurable",
-                    explanation="the banner step is ambiguous",
-                    recommendation="reword the step",
-                ),
+                )
             ],
             answers=[CHECK_CODE],
         )
-        fixture = HealerFixture(provider, tmp_path, real_generator=True)
+        fixture = HealerFixture(provider, tmp_path, real_generator=True, limits=(3, 1))
 
         with pytest.raises(IncurableStepError) as excinfo:
             fixture.healer.heal(fixture.failed_step, "element not found", [], CheckFailingPage())
 
-        # the fresh regeneration classification verdict — the "raise" branch, not overwritten by the rot verdict
         assert excinfo.value.verdict is not None
-        assert excinfo.value.verdict.category == "incurable"
-        assert excinfo.value.verdict.explanation == "the banner step is ambiguous"
-        assert excinfo.value.reason.startswith("candidate check failed")
-        assert provider.classify_failure_call_count == 2
+        assert excinfo.value.verdict.category == "rot"  # the entry verdict, never a fresh one
+        assert excinfo.value.reason.startswith("healing attempt budget exhausted")
+        assert excinfo.value.error == "banner missing"  # the last candidate failure — the failed check
+        assert isinstance(excinfo.value.__cause__, IncurableStepError)  # raise … from incurable
+        assert provider.classify_failure_call_count == 1  # no second LLM request
+        assert provider.generate_step_code_call_count == 1
         assert fixture.cache.save_calls == []
 
 
