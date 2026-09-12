@@ -1219,8 +1219,8 @@ mode, screenshots) keeps its assertions — recorded calls now under mirror name
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] Create/extend the integration scenarios in `tests/test_integration.py`:
-- [ ] Test cross-entity interaction: `test_retired_members_fail_loudly_on_cached_steps` —
+- [x] Create/extend the integration scenarios in `tests/test_integration.py`:
+- [x] Test cross-entity interaction: `test_retired_members_fail_loudly_on_cached_steps` —
   setup: existing integration harness; cached code `"def step(page) -> None:\n
   page.find_by_role('button', name='Войти').click()\n"`; input: step execution replays the
   cached code; trace: `run_step_code(cached, page)` → `page.find_by_role` → `AttributeError` →
@@ -1228,7 +1228,7 @@ mode, screenshots) keeps its assertions — recorded calls now under mirror name
   assertions: the failure surfaces by kind (`IncurableStepError`/healing path as configured);
   the regenerated code contains no retired name. (The accepted break — cached steps heal lazily
   through the existing loop.)
-- [ ] Test cross-entity interaction: rename the FakePage surface and cached-code literals in
+- [x] Test cross-entity interaction: rename the FakePage surface and cached-code literals in
   `tests/test_integration.py`, `tests/test_executor.py`, `tests/test_scenario.py`,
   `tests/test_runtime.py` — `open`→`goto`, `find_by_role/label/text`→`get_by_*` (+ the
   `_lookup` recorder keys); existing assertions hold (recorded calls now under mirror names);
@@ -1237,14 +1237,14 @@ mode, screenshots) keeps its assertions — recorded calls now under mirror name
   `page.find_by_role/text(…)` → `page.get_by_role/text(…)`) and the fake method surfaces
   (`FakePage.find_by_*` → `get_by_*`, recorder keys) — payloads and fake surface only, no
   behavioral change (the engine fakes are their own boundary; only the advertised names move).
-- [ ] Test edge case (opaque-string sweep): `tests/llm/test_request.py`,
+- [x] Test edge case (opaque-string sweep): `tests/llm/test_request.py`,
   `tests/llm/test_provider.py`, `tests/llm/test_openai_provider.py`,
   `tests/llm/test_anthropic_provider.py`, `tests/cache/test_models.py`,
   `tests/cache/test_store.py` — `page.open(…)` → `page.goto(…)` in
   `FENCED_CODE`/`WORKING_CODE`/`STEP_CODE` fixtures, `page.find_by_role(role, name)` →
   `page.get_by_role(role, name)` in page-api fixtures, `page_api="page.open(...)"` →
   `"page.goto(...)"` — payloads only, no behavioral change.
-- [ ] Run validation: `pytest tests/ -x` — the whole suite is green end to end; then
+- [x] Run validation: `pytest tests/ -x` — the whole suite is green end to end; then
   `grep -rn "find_by\|page\.open(" tests/ prettyplay/` returns no hits outside the
   retired-surface test itself (`test_retired_surface_is_gone`,
   `test_retired_members_fail_loudly_on_cached_steps` and the SYSTEM_PROMPT absence checks, which

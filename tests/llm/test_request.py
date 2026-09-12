@@ -2,7 +2,7 @@
 
 from prettyplay.llm._request import build_classification_fields, build_fields_text, extract_code_block
 
-FENCED_CODE = "def step(page) -> None:\n    page.open('https://example.com')\n"
+FENCED_CODE = "def step(page) -> None:\n    page.goto('https://example.com')\n"
 USER_INSTRUCTIONS = "prefer data-test-id"
 
 
@@ -42,7 +42,7 @@ class TestBuildFieldsTextUserInstructions:
             "нажать Войти",
             ["открыть страницу"],
             "- button 'Войти'",
-            "page.find_by_role(role, name)",
+            "page.get_by_role(role, name)",
             "def step(page) -> None:\n    pass\n",
             "AssertionError: boom",
         )
@@ -56,7 +56,7 @@ class TestBuildFieldsTextUserInstructions:
             "нажать Войти",
             [],
             "- button 'Войти'",
-            "page.find_by_role(role, name)",
+            "page.get_by_role(role, name)",
             "def step(page) -> None:\n    pass\n",
             "AssertionError: boom",
         )
@@ -69,13 +69,21 @@ class TestBuildClassificationFieldsUserInstructions:
     """Logic tests: the USER INSTRUCTIONS block placement in classification fields."""
 
     def test_build_classification_fields_places_user_instructions_last(self) -> None:
-        text = build_classification_fields(USER_INSTRUCTIONS, "нажать Войти", "def step(page) -> None:\n    pass\n", "AssertionError: boom", "- button 'Войти'")
+        text = build_classification_fields(
+            USER_INSTRUCTIONS,
+            "нажать Войти",
+            "def step(page) -> None:\n    pass\n",
+            "AssertionError: boom",
+            "- button 'Войти'",
+        )
 
         assert text.endswith(f"USER INSTRUCTIONS:\n{USER_INSTRUCTIONS}")
         assert text.index("PAGE SNAPSHOT:") < text.index("USER INSTRUCTIONS:")
 
     def test_build_classification_fields_omits_block_when_instructions_empty(self) -> None:
-        text = build_classification_fields("", "нажать Войти", "def step(page) -> None:\n    pass\n", "AssertionError: boom", "- button 'Войти'")
+        text = build_classification_fields(
+            "", "нажать Войти", "def step(page) -> None:\n    pass\n", "AssertionError: boom", "- button 'Войти'"
+        )
 
         assert "USER INSTRUCTIONS" not in text
         assert text.endswith("- button 'Войти'")  # the snapshot section stays the closing section

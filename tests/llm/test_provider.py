@@ -72,7 +72,7 @@ class TestLLMProviderContract:
                 previous_steps=[],
                 snapshot="- snap",
                 screenshot=None,
-                page_api="page.open(...)",
+                page_api="page.goto(...)",
                 existing_code=None,
                 error=None,
             )
@@ -140,8 +140,8 @@ class TestInitialismRenames:
     """Contract tests: the initialism renames are total — no old spellings survive."""
 
     def test_provider_renames_are_total(self) -> None:
-        import prettyplay.failures
-        import prettyplay.llm
+        import prettyplay.failures  # noqa: PLC0415 — cell facade checks
+        import prettyplay.llm  # noqa: PLC0415 — cell facade checks
 
         assert hasattr(prettyplay.failures, "LLMUnavailableError")
         with pytest.raises(AttributeError):
@@ -248,7 +248,7 @@ class TestClassificationInstructionsPlacement:
                     previous_steps=[],
                     snapshot="snap",
                     screenshot=None,
-                    page_api="page.open(...)",
+                    page_api="page.goto(...)",
                     existing_code="def step(page) -> None:\n    pass\n",
                     error="err",
                 )

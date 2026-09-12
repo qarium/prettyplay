@@ -56,7 +56,7 @@ class TestCachedStepContract:
 
     def test_cached_step_holds_identity_code_and_created_at(self) -> None:
         identity = StepIdentity(cache_key="k", step_type="action", normalized_text="нажать войти")
-        code = "def step(page) -> None:\n    page.open('https://example.com')\n"
+        code = "def step(page) -> None:\n    page.goto('https://example.com')\n"
 
         step = CachedStep(identity=identity, code=code, created_at="2026-09-07")
 

@@ -9,8 +9,8 @@ from prettyplay.failures import (
     LLMUnavailableError,
     PrettyplayError,
     ProductDefectError,
-    render_terminal_message,
     __all__,
+    render_terminal_message,
 )
 
 
@@ -182,7 +182,9 @@ class TestRenderTerminalMessageLogic:
 
     def test_terminal_errors_carry_render_error_field_and_types(self) -> None:
         verdict = FailureVerdict("product_defect", "на странице нет элемента", "проверить селектор")
-        pde = ProductDefectError("Проверить кнопку", "the button stayed invisible", "Locator expected to be visible", verdict)
+        pde = ProductDefectError(
+            "Проверить кнопку", "the button stayed invisible", "Locator expected to be visible", verdict
+        )
 
         assert str(pde) == render_terminal_message(
             "the button stayed invisible", "Проверить кнопку", "Locator expected to be visible", verdict

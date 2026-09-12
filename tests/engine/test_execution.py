@@ -14,19 +14,19 @@ class FakePage:
     def __init__(self) -> None:
         self.calls: list[tuple[str, ...]] = []
 
-    def open(self, url: str) -> None:
-        self.calls.append(("open", url))
+    def goto(self, url: str) -> None:
+        self.calls.append(("goto", url))
 
-    def find_by_role(self, role: str, name: str) -> "FakeLocator":
-        self.calls.append(("find_by_role", role, name))
+    def get_by_role(self, role: str, name: str) -> "FakeLocator":
+        self.calls.append(("get_by_role", role, name))
         return FakeLocator(self.calls)
 
-    def find_by_label(self, label: str) -> "FakeLocator":
-        self.calls.append(("find_by_label", label))
+    def get_by_label(self, label: str) -> "FakeLocator":
+        self.calls.append(("get_by_label", label))
         return FakeLocator(self.calls)
 
-    def find_by_text(self, text: str) -> "FakeLocator":
-        self.calls.append(("find_by_text", text))
+    def get_by_text(self, text: str) -> "FakeLocator":
+        self.calls.append(("get_by_text", text))
         return FakeLocator(self.calls)
 
     def aria_snapshot(self) -> str:
@@ -85,24 +85,24 @@ class TestRunStepCodeLogic:
     def test_run_step_code_executes_fixed_form(self) -> None:
         page = FakePage()
 
-        run_step_code("def step(page) -> None:\n    page.open('https://example.com')\n", page)
+        run_step_code("def step(page) -> None:\n    page.goto('https://example.com')\n", page)
 
-        assert page.calls == [("open", "https://example.com")]
+        assert page.calls == [("goto", "https://example.com")]
 
     def test_step_code_works_through_locator_api(self) -> None:
         page = FakePage()
         code = (
             "def step(page) -> None:\n"
-            "    page.find_by_role('button', name='Войти').click()\n"
-            "    page.find_by_label('Логин').fill('user')\n"
+            "    page.get_by_role('button', name='Войти').click()\n"
+            "    page.get_by_label('Логин').fill('user')\n"
         )
 
         run_step_code(code, page)
 
         assert page.calls == [
-            ("find_by_role", "button", "Войти"),
+            ("get_by_role", "button", "Войти"),
             ("click",),
-            ("find_by_label", "Логин"),
+            ("get_by_label", "Логин"),
             ("fill", "user"),
         ]
 
@@ -115,34 +115,34 @@ class TestRunStepCodeLogic:
 
     def test_arbitrary_exception_propagates_unswallowed(self) -> None:
         page = FakePage()
-        code = "def step(page) -> None:\n    page.open('https://example.com')\n    raise ValueError('boom')\n"
+        code = "def step(page) -> None:\n    page.goto('https://example.com')\n    raise ValueError('boom')\n"
 
         with pytest.raises(ValueError, match="boom"):
             run_step_code(code, page)
 
-        assert page.calls == [("open", "https://example.com")]
+        assert page.calls == [("goto", "https://example.com")]
 
     def test_syntax_error_propagates_outward(self) -> None:
         with pytest.raises(SyntaxError):
-            run_step_code("def step(page) -> None:\n    page.open(\n", FakePage())
+            run_step_code("def step(page) -> None:\n    page.goto(\n", FakePage())
 
     def test_code_without_step_function_raises_outward(self) -> None:
         with pytest.raises(KeyError):
-            run_step_code("def other(page) -> None:\n    page.open('https://example.com')\n", FakePage())
+            run_step_code("def other(page) -> None:\n    page.goto('https://example.com')\n", FakePage())
 
     def test_namespace_is_isolated_between_calls(self) -> None:
         first = FakePage()
         second = FakePage()
 
-        run_step_code("MARKER = 'first'\n\ndef step(page) -> None:\n    page.open(MARKER)\n", first)
+        run_step_code("MARKER = 'first'\n\ndef step(page) -> None:\n    page.goto(MARKER)\n", first)
 
-        assert first.calls == [("open", "first")]
+        assert first.calls == [("goto", "first")]
 
         with pytest.raises(NameError):  # the first code's MARKER did not leak into the second namespace
-            run_step_code("def step(page) -> None:\n    page.open(MARKER)\n", second)
+            run_step_code("def step(page) -> None:\n    page.goto(MARKER)\n", second)
 
     def test_step_module_not_registered_in_sys_modules(self) -> None:
-        run_step_code("def step(page) -> None:\n    page.open('https://example.com')\n", FakePage())
+        run_step_code("def step(page) -> None:\n    page.goto('https://example.com')\n", FakePage())
 
         assert "<prettyplay-step>" not in sys.modules
         assert [name for name in sys.modules if "prettyplay-step" in name] == []

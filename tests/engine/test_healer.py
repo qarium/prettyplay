@@ -18,10 +18,10 @@ from prettyplay.failures import (
 from prettyplay.llm import FailureClassification
 from prettyplay.reporting import StepHooks, StepReporter
 
-FAILED_CODE = "def step(page) -> None:\n    page.find_by_role('button', name='Sign in').click()\n"
-HEALED_CODE = "def step(page) -> None:\n    page.find_by_text('Sign in').click()\n"
-TIMEOUT_CODE = "def step(page) -> None:\n    page.find_by_role('button', name='Submit').click()\n"
-CHECK_CODE = "def step(page) -> None:\n    page.find_by_text('Welcome back').expect_visible()\n"
+FAILED_CODE = "def step(page) -> None:\n    page.get_by_role('button', name='Sign in').click()\n"
+HEALED_CODE = "def step(page) -> None:\n    page.get_by_text('Sign in').click()\n"
+TIMEOUT_CODE = "def step(page) -> None:\n    page.get_by_role('button', name='Submit').click()\n"
+CHECK_CODE = "def step(page) -> None:\n    page.get_by_text('Welcome back').expect_visible()\n"
 
 
 class FakePage:
@@ -37,7 +37,7 @@ class FakePage:
 class TimeoutPage(FakePage):
     """Fake page where every regenerated candidate fails with a TimeoutError."""
 
-    def find_by_role(self, role: str, name: str) -> None:
+    def get_by_role(self, role: str, name: str) -> None:
         raise TimeoutError("waiting for the element timed out")
 
 
@@ -51,7 +51,7 @@ class FailingLocator:
 class CheckFailingPage(FakePage):
     """Fake page where the candidate check fails with an AssertionError."""
 
-    def find_by_text(self, text: str) -> FailingLocator:
+    def get_by_text(self, text: str) -> FailingLocator:
         return FailingLocator()
 
 

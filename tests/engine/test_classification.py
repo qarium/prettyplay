@@ -9,7 +9,7 @@ from prettyplay.engine import classify_step_failure
 from prettyplay.failures import LLMUnavailableError
 from prettyplay.llm import FailureClassification
 
-STEP_CODE = "def step(page) -> None:\n    page.find_by_role('button', name='Sign in').click()\n"
+STEP_CODE = "def step(page) -> None:\n    page.get_by_role('button', name='Sign in').click()\n"
 
 
 class FakePage:

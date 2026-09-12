@@ -18,7 +18,7 @@ from prettyplay.reporting import StepHooks, StepReporter
 
 CACHE_KEY = "k"
 STEP_TEXT = "шаг"
-CACHED_CODE = "def step(page) -> None:\n    page.open('https://example.com')\n"
+CACHED_CODE = "def step(page) -> None:\n    page.goto('https://example.com')\n"
 
 
 class FakePage:
@@ -29,8 +29,8 @@ class FakePage:
         self.close_count = 0
         self.screenshot_count = 0
 
-    def open(self, url: str) -> None:
-        self.calls.append(("open", url))
+    def goto(self, url: str) -> None:
+        self.calls.append(("goto", url))
 
     def close(self) -> None:
         self.close_count += 1
@@ -397,7 +397,7 @@ class TestPrettyPlayLogic:
 
     def test_cache_path_participates_in_addressing(self, tmp_path: Path) -> None:
         seed_cache(tmp_path)
-        checkout_code = "def step(page) -> None:\n    page.open('https://checkout.example.com')\n"
+        checkout_code = "def step(page) -> None:\n    page.goto('https://checkout.example.com')\n"
         identity = StepIdentity(cache_key=CACHE_KEY, step_type="action", normalized_text=normalize_step_text(STEP_TEXT))
         StepCache(Config(cache_root=str(tmp_path)), "checkout", StepReporter(hooks=[])).save(
             CachedStep(identity=identity, code=checkout_code, created_at="2026-09-08")
@@ -414,7 +414,7 @@ class TestPrettyPlayLogic:
 
             # the same identity triple resolves to different addresses: the subdirectory
             # step runs, and neither store sees the copy of the other
-        assert page.calls == [("open", "https://checkout.example.com")]
+        assert page.calls == [("goto", "https://checkout.example.com")]
         assert shared.load(identity) is not None
         assert test._cache.load(identity).code.rstrip("\n") == checkout_code.rstrip("\n")
         assert shared.load(identity).code != test._cache.load(identity).code
@@ -645,7 +645,7 @@ class TestInstructionsIndependentCacheAddress:
             test.step(STEP_TEXT)
             test.close()
 
-        assert page.calls == [("open", "https://example.com")]  # cached code executed as-is
+        assert page.calls == [("goto", "https://example.com")]  # cached code executed as-is
         assert provider.generate_calls == 0  # zero generation requests — cache not regenerated
 
     def test_shared_root_reuses_cached_step_across_independent_budgets(self, tmp_path: Path) -> None:
@@ -664,8 +664,8 @@ class TestInstructionsIndependentCacheAddress:
             second.close()
 
         # both tests execute the same cached step from the shared root
-        assert first_page.calls == [("open", "https://example.com")]
-        assert second_page.calls == [("open", "https://example.com")]
+        assert first_page.calls == [("goto", "https://example.com")]
+        assert second_page.calls == [("goto", "https://example.com")]
         assert provider.generate_calls == 0
 
         # per-test budget registries: one test's attempts never spend the other's budget

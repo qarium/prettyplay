@@ -17,8 +17,8 @@ from prettyplay.failures import IncurableStepError, ProductDefectError
 from prettyplay.llm import FailureClassification, LLMProvider
 from prettyplay.reporting import StepHooks, StepReporter
 
-OPEN_LOGIN_CODE = "def step(page) -> None:\n    page.open('https://login.example.com')\n"
-WORKING_CODE = "def step(page) -> None:\n    page.open('https://app.example.com')\n"
+OPEN_LOGIN_CODE = "def step(page) -> None:\n    page.goto('https://login.example.com')\n"
+WORKING_CODE = "def step(page) -> None:\n    page.goto('https://app.example.com')\n"
 
 
 class FakeLocator:
@@ -54,17 +54,17 @@ class FakePage:
         self._broken_lookups = broken_lookups or frozenset()
         self.close_count = 0
 
-    def open(self, url: str) -> None:
-        self.calls.append(("open", url))
+    def goto(self, url: str) -> None:
+        self.calls.append(("goto", url))
 
-    def find_by_role(self, role: str, name: str) -> FakeLocator:
-        return self._lookup("find_by_role", (role, name))
+    def get_by_role(self, role: str, name: str) -> FakeLocator:
+        return self._lookup("get_by_role", (role, name))
 
-    def find_by_label(self, label: str) -> FakeLocator:
-        return self._lookup("find_by_label", (label,))
+    def get_by_label(self, label: str) -> FakeLocator:
+        return self._lookup("get_by_label", (label,))
 
-    def find_by_text(self, text: str) -> FakeLocator:
-        return self._lookup("find_by_text", (text,))
+    def get_by_text(self, text: str) -> FakeLocator:
+        return self._lookup("get_by_text", (text,))
 
     def aria_snapshot(self) -> str:
         return "- button 'Войти'"
@@ -339,7 +339,7 @@ def test_cached_step_runs_without_llm(tmp_path: Path) -> None:
         test.step("открыть страницу логина")
         test.close()
 
-    assert page.calls == [("open", "https://login.example.com")]
+    assert page.calls == [("goto", "https://login.example.com")]
     assert hook.events == [
         ("on_step_started", {"step_text": "открыть страницу логина", "step_type": "action"}),
         ("on_step_passed", {"step_text": "открыть страницу логина", "step_type": "action"}),
@@ -384,14 +384,14 @@ def test_per_test_generation_prompt_reaches_the_provider_request(tmp_path: Path,
             test.close()
 
     assert provider.generation_requests[0]["user_instructions"] == "prefer data-test-id"
-    assert page.calls == [("open", "https://app.example.com")]  # generated code executed
+    assert page.calls == [("goto", "https://app.example.com")]  # generated code executed
 
 
 def test_rot_healing_regenerates_rewrites_cache_and_passes(tmp_path: Path) -> None:
     """Flow C: a rotted cached step is classified, regenerated, re-cached and passes."""
     step_text = "нажать Войти"
-    broken_code = "def step(page) -> None:\n    page.find_by_role('button', name='Войти').click()\n"
-    healed_code = "def step(page) -> None:\n    page.find_by_text('Войти').click()\n"
+    broken_code = "def step(page) -> None:\n    page.get_by_role('button', name='Войти').click()\n"
+    healed_code = "def step(page) -> None:\n    page.get_by_text('Войти').click()\n"
     identity = seed_step(tmp_path, step_text, broken_code, cache_key="login-flow")
     provider = StubProvider(
         answers=[healed_code],
@@ -399,7 +399,7 @@ def test_rot_healing_regenerates_rewrites_cache_and_passes(tmp_path: Path) -> No
             category="rot", explanation="кнопка переименована", recommendation="проверить шаг"
         ),
     )
-    page = FakePage(broken_lookups=frozenset({"find_by_role"}))
+    page = FakePage(broken_lookups=frozenset({"get_by_role"}))
     hook = RecorderHook()
 
     with installed_test(tmp_path, provider, page, "login-flow") as test:
@@ -407,7 +407,7 @@ def test_rot_healing_regenerates_rewrites_cache_and_passes(tmp_path: Path) -> No
         test.step(step_text)
         test.close()
 
-    assert page.calls == [("find_by_role", "button", "Войти"), ("find_by_text", "Войти"), ("click",)]
+    assert page.calls == [("get_by_role", "button", "Войти"), ("get_by_text", "Войти"), ("click",)]
     # a cache file carries the code with a trailing newline — compare without the tail
     assert provider.classification_requests[0]["code"].rstrip("\n") == broken_code.rstrip("\n")
     assert provider.classification_requests[0]["error"] == "element not found"
@@ -421,14 +421,53 @@ def test_rot_healing_regenerates_rewrites_cache_and_passes(tmp_path: Path) -> No
         ("on_step_passed", {"step_text": "нажать Войти", "step_type": "action"}),
     ]
     rewritten = (tmp_path / identity.filename).read_text(encoding="utf-8")
-    assert "find_by_text" in rewritten
-    assert "find_by_role" not in rewritten
+    assert "get_by_text" in rewritten
+    assert "get_by_role" not in rewritten
+
+
+def test_retired_members_fail_loudly_on_cached_steps(tmp_path: Path) -> None:
+    """The accepted break: a cached step calling a retired member fails loudly and heals to the mirror surface."""
+    step_text = "нажать Войти"
+    retired_code = "def step(page) -> None:\n    page.find_by_role('button', name='Войти').click()\n"
+    regenerated_code = "def step(page) -> None:\n    page.get_by_role('button', name='Войти').click()\n"
+    identity = seed_step(tmp_path, step_text, retired_code, cache_key="login-flow")
+    provider = StubProvider(
+        answers=[regenerated_code],
+        verdict=FailureClassification(
+            category="rot", explanation="вызов устарел после смены поверхности", recommendation="обновить шаг"
+        ),
+    )
+    page = FakePage()  # the mirror surface only: find_by_role no longer exists on it
+    hook = RecorderHook()
+
+    with installed_test(tmp_path, provider, page, "login-flow") as test:
+        test.add_hooks(hook)
+        test.step(step_text)  # non-strict: the classify → rot → regenerate loop heals lazily
+        test.close()
+
+    # the replay failed loudly on the retired member and the failure traveled to the classification
+    assert provider.classification_requests[0]["error"] == (
+        "AttributeError: 'FakePage' object has no attribute 'find_by_role'"
+    )
+    assert provider.generation_requests[0]["existing_code"].rstrip("\n") == retired_code.rstrip("\n")
+    assert page.calls == [("get_by_role", "button", "Войти"), ("click",)]  # the regenerated candidate ran
+    assert [event for event, _payload in hook.events] == [
+        "on_step_started",
+        "on_healing_started",
+        "on_generation_started",
+        "on_cache_saved",
+        "on_healed",
+        "on_step_passed",
+    ]
+    rewritten = (tmp_path / identity.filename).read_text(encoding="utf-8")
+    assert "get_by_role" in rewritten
+    assert "find_by" not in rewritten  # the regenerated code contains no retired name
 
 
 def test_cache_path_subdirectories_do_not_collide(tmp_path: Path) -> None:
     """The cache subdirectory is part of the address: same triple, different steps."""
-    checkout_code = "def step(page) -> None:\n    page.open('https://checkout.example.com')\n"
-    marketing_code = "def step(page) -> None:\n    page.open('https://marketing.example.com')\n"
+    checkout_code = "def step(page) -> None:\n    page.goto('https://checkout.example.com')\n"
+    marketing_code = "def step(page) -> None:\n    page.goto('https://marketing.example.com')\n"
     provider = ForbiddenProvider()
     checkout_page = FakePage()
     marketing_page = FakePage()
@@ -443,8 +482,8 @@ def test_cache_path_subdirectories_do_not_collide(tmp_path: Path) -> None:
         test.step("открыть страницу")
         test.close()
 
-    assert checkout_page.calls == [("open", "https://checkout.example.com")]
-    assert marketing_page.calls == [("open", "https://marketing.example.com")]
+    assert checkout_page.calls == [("goto", "https://checkout.example.com")]
+    assert marketing_page.calls == [("goto", "https://marketing.example.com")]
     assert provider.calls == 0
     assert (tmp_path / "checkout" / identity.filename).exists()
     assert (tmp_path / "marketing" / identity.filename).exists()
@@ -453,14 +492,14 @@ def test_cache_path_subdirectories_do_not_collide(tmp_path: Path) -> None:
 def test_generated_failed_check_verdict_fails_the_test_loudly(tmp_path: Path) -> None:
     """Flow A failure: a first-run candidate check fails, stops the retries and carries the verdict."""
     step_text = "see the welcome banner"
-    check_code = "def step(page) -> None:\n    page.find_by_text('Welcome back').expect_visible()\n"
+    check_code = "def step(page) -> None:\n    page.get_by_text('Welcome back').expect_visible()\n"
     provider = StubProvider(
         answers=[check_code],
         verdict=FailureClassification(
             category="product_defect", explanation="the banner is genuinely missing", recommendation="file a bug"
         ),
     )
-    page = FakePage(broken_lookups=frozenset({"find_by_text"}))  # lookup fails: the check did not hold
+    page = FakePage(broken_lookups=frozenset({"get_by_text"}))  # lookup fails: the check did not hold
     hook = RecorderHook()
 
     with installed_test(tmp_path, provider, page, "login-flow") as test:
@@ -492,14 +531,14 @@ def test_generated_failed_check_verdict_fails_the_test_loudly(tmp_path: Path) ->
 def test_product_defect_verdict_fails_the_test_loudly(tmp_path: Path) -> None:
     """A classified product defect surfaces through PrettyPlay.step with an intact cache."""
     step_text = "нажать Войти"
-    broken_code = "def step(page) -> None:\n    page.find_by_role('button', name='Войти').click()\n"
+    broken_code = "def step(page) -> None:\n    page.get_by_role('button', name='Войти').click()\n"
     identity = seed_step(tmp_path, step_text, broken_code, cache_key="login-flow")
     provider = StubProvider(
         verdict=FailureClassification(
             category="product_defect", explanation="ожидание не оправдалось", recommendation="чинить продукт"
         ),
     )
-    page = FakePage(broken_lookups=frozenset({"find_by_role"}))
+    page = FakePage(broken_lookups=frozenset({"get_by_role"}))
     hook = RecorderHook()
 
     with installed_test(tmp_path, provider, page, "login-flow") as test:
@@ -512,7 +551,7 @@ def test_product_defect_verdict_fails_the_test_loudly(tmp_path: Path) -> None:
     assert excinfo.value.message == "ожидание не оправдалось"
     assert provider.generation_requests == []  # product defect is not regenerated
     rewritten = (tmp_path / identity.filename).read_text(encoding="utf-8")
-    assert "find_by_role" in rewritten  # cache untouched
+    assert "get_by_role" in rewritten  # cache untouched
     assert hook.events == [
         ("on_step_started", {"step_text": "нажать Войти", "step_type": "action"}),
         ("on_healing_started", {"step_text": "нажать войти", "category": "product_defect"}),
@@ -544,7 +583,7 @@ def test_product_defect_verdict_fails_the_test_loudly(tmp_path: Path) -> None:
 def test_incurable_verdict_fails_with_verdict_fields(tmp_path: Path) -> None:
     """An incurable classification surfaces with the verdict explanation and recommendation."""
     step_text = "нажать Войти"
-    broken_code = "def step(page) -> None:\n    page.find_by_role('button', name='Войти').click()\n"
+    broken_code = "def step(page) -> None:\n    page.get_by_role('button', name='Войти').click()\n"
     identity = seed_step(tmp_path, step_text, broken_code, cache_key="login-flow")
     provider = StubProvider(
         verdict=FailureClassification(
@@ -553,7 +592,7 @@ def test_incurable_verdict_fails_with_verdict_fields(tmp_path: Path) -> None:
             recommendation="переформулируйте шаг",
         ),
     )
-    page = FakePage(broken_lookups=frozenset({"find_by_role"}))
+    page = FakePage(broken_lookups=frozenset({"get_by_role"}))
     hook = RecorderHook()
 
     with installed_test(tmp_path, provider, page, "login-flow") as test:
@@ -567,7 +606,7 @@ def test_incurable_verdict_fails_with_verdict_fields(tmp_path: Path) -> None:
     assert excinfo.value.recommendation == "переформулируйте шаг"
     assert provider.generation_requests == []  # healing requests no regeneration
     rewritten = (tmp_path / identity.filename).read_text(encoding="utf-8")
-    assert "find_by_role" in rewritten  # cache untouched
+    assert "get_by_role" in rewritten  # cache untouched
     assert hook.events == [
         ("on_step_started", {"step_text": "нажать Войти", "step_type": "action"}),
         ("on_healing_started", {"step_text": "нажать войти", "category": "incurable"}),
@@ -622,14 +661,14 @@ def test_strict_cache_miss_raises_incurable_without_generation(tmp_path: Path) -
 def test_strict_failed_cached_step_classifies_without_healing(tmp_path: Path, caplog) -> None:
     """Strict + failed cached step: classification is the only LLM call; the log record carries the render."""
     step_text = "виден баннер «С возвращением»"
-    broken_code = "def step(page) -> None:\n    page.find_by_text('Welcome back').expect_visible()\n"
+    broken_code = "def step(page) -> None:\n    page.get_by_text('Welcome back').expect_visible()\n"
     seed_step(tmp_path, step_text, broken_code, cache_key="login-flow", step_type="assertion")
     provider = StubProvider(
         verdict=FailureClassification(
             category="product_defect", explanation="баннера нет в продукте", recommendation="завести дефект"
         ),
     )
-    page = FakePage(broken_lookups=frozenset({"find_by_text"}))
+    page = FakePage(broken_lookups=frozenset({"get_by_text"}))
     hook = RecorderHook()
     caplog.set_level(logging.INFO, logger="prettyplay")
 
@@ -694,7 +733,7 @@ def test_classification_instructions_reach_only_classification_requests(tmp_path
         answers=[WORKING_CODE],
         verdict=FailureClassification(category="rot", explanation="селектор сгнил", recommendation="обновить шаг"),
     )
-    broken_code = "def step(page) -> None:\n    page.find_by_role('button', name='Войти').click()\n"
+    broken_code = "def step(page) -> None:\n    page.get_by_role('button', name='Войти').click()\n"
 
     # non-strict pass: one generation request — the generation instructions ride along
     with configured_test(
@@ -719,7 +758,7 @@ def test_classification_instructions_reach_only_classification_requests(tmp_path
             classification_prompt="answer in Russian",
         ),
         provider,
-        FakePage(broken_lookups=frozenset({"find_by_role"})),
+        FakePage(broken_lookups=frozenset({"get_by_role"})),
     ) as test:
         with pytest.raises(IncurableStepError):  # strict: rot is still incurable — the healer never runs
             test.step("нажать Войти")
@@ -785,12 +824,12 @@ def test_strict_failure_never_writes_the_cache(tmp_path: Path) -> None:
 
     # failed cached step: classification only — the seeded file survives untouched
     step_text = "нажать Войти"
-    broken_code = "def step(page) -> None:\n    page.find_by_role('button', name='Войти').click()\n"
+    broken_code = "def step(page) -> None:\n    page.get_by_role('button', name='Войти').click()\n"
     identity = seed_step(failed_root, step_text, broken_code, cache_key="login-flow")
     provider = StubProvider(
         verdict=FailureClassification(category="rot", explanation="селектор сгнил", recommendation="обновить шаг")
     )
-    page = FakePage(broken_lookups=frozenset({"find_by_role"}))
+    page = FakePage(broken_lookups=frozenset({"get_by_role"}))
 
     with configured_test(Config(strict=True, cache_root=str(failed_root)), provider, page) as test:
         with pytest.raises(IncurableStepError):
@@ -798,4 +837,4 @@ def test_strict_failure_never_writes_the_cache(tmp_path: Path) -> None:
         test.close()
 
     assert [path.name for path in failed_root.iterdir()] == [identity.filename]
-    assert "find_by_role" in (failed_root / identity.filename).read_text(encoding="utf-8")  # bytes unchanged
+    assert "get_by_role" in (failed_root / identity.filename).read_text(encoding="utf-8")  # bytes unchanged

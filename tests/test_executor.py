@@ -12,8 +12,8 @@ from prettyplay.failures import FailureVerdict, IncurableStepError, LLMUnavailab
 from prettyplay.llm import FailureClassification, LLMProvider
 from prettyplay.reporting import StepHooks, StepReporter
 
-CACHED_CODE = "def step(page) -> None:\n    page.open('https://example.com')\n"
-BROKEN_CODE = "def step(page) -> None:\n    page.find_by_role('button', name='Войти').click()\n"
+CACHED_CODE = "def step(page) -> None:\n    page.goto('https://example.com')\n"
+BROKEN_CODE = "def step(page) -> None:\n    page.get_by_role('button', name='Войти').click()\n"
 
 
 class FakePage:
@@ -23,11 +23,11 @@ class FakePage:
         self.calls: list[tuple[str, ...]] = []
         self._lookup_error = lookup_error if lookup_error is not None else AssertionError("element not found")
 
-    def open(self, url: str) -> None:
-        self.calls.append(("open", url))
+    def goto(self, url: str) -> None:
+        self.calls.append(("goto", url))
 
-    def find_by_role(self, role: str, name: str) -> object:
-        self.calls.append(("find_by_role", role, name))
+    def get_by_role(self, role: str, name: str) -> object:
+        self.calls.append(("get_by_role", role, name))
         raise self._lookup_error
 
     def aria_snapshot(self) -> str:
@@ -399,7 +399,7 @@ class TestStepExecutorLogic:
         # step with different case and spacing normalizes to the same address
         fixture.executor.execute("  Открыть   страницу ", "action", page)
 
-        assert page.calls == [("open", "https://example.com")]
+        assert page.calls == [("goto", "https://example.com")]
         assert generator.calls == []
         assert healer.calls == []
         assert events_named(fixture.recorder, "on_step_started") == [

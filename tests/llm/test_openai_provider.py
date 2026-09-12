@@ -33,7 +33,7 @@ CLASSIFY_FAILURE_PARAMS = [
     "screenshot",
 ]
 
-WORKING_CODE = "def step(page) -> None:\n    page.open('https://example.com')\n"
+WORKING_CODE = "def step(page) -> None:\n    page.goto('https://example.com')\n"
 USER_INSTRUCTIONS = "prefer data-test-id"
 
 
@@ -104,7 +104,7 @@ class TestOpenAIProviderLogic:
                 previous_steps=[],
                 snapshot="- snap",
                 screenshot=None,
-                page_api="page.open(...)",
+                page_api="page.goto(...)",
                 existing_code=None,
                 error=None,
             )
@@ -164,7 +164,7 @@ class TestOpenAIProviderLogic:
                 previous_steps=["шаг один"],
                 snapshot="- snap",
                 screenshot=None,
-                page_api="page.open(...)",
+                page_api="page.goto(...)",
                 existing_code=None,
                 error=None,
             )
@@ -178,7 +178,7 @@ class TestOpenAIProviderLogic:
         assert user["role"] == "user"
         assert "открыть страницу" in user["content"]
         assert "шаг один" in user["content"]
-        assert "page.open(...)" in user["content"]
+        assert "page.goto(...)" in user["content"]
         assert "CODE" not in user["content"]  # no regeneration fields on the first attempt
 
     def test_generate_returns_code_extracted_from_markdown_fence(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -195,7 +195,7 @@ class TestOpenAIProviderLogic:
                 previous_steps=[],
                 snapshot="- snap",
                 screenshot=None,
-                page_api="page.open(...)",
+                page_api="page.goto(...)",
                 existing_code=None,
                 error=None,
             )
@@ -215,7 +215,7 @@ class TestOpenAIProviderLogic:
                 previous_steps=[],
                 snapshot="- snap",
                 screenshot=None,
-                page_api="page.open(...)",
+                page_api="page.goto(...)",
                 existing_code="def step(page) -> None:\n    pass\n",
                 error="AssertionError: boom",
             )
@@ -237,7 +237,7 @@ class TestOpenAIProviderLogic:
                 previous_steps=[],
                 snapshot="- snap",
                 screenshot=b"png-bytes",
-                page_api="page.open(...)",
+                page_api="page.goto(...)",
                 existing_code=None,
                 error=None,
             )
@@ -285,7 +285,7 @@ class TestOpenAIProviderLogic:
                 previous_steps=[],
                 snapshot="- snap",
                 screenshot=None,
-                page_api="page.open(...)",
+                page_api="page.goto(...)",
                 existing_code=None,
                 error=None,
             )
@@ -412,7 +412,7 @@ class TestOpenAIProviderLogic:
                 previous_steps=[],
                 snapshot="- snap",
                 screenshot=None,
-                page_api="page.open(...)",
+                page_api="page.goto(...)",
                 existing_code=None,
                 error=None,
             )
@@ -439,7 +439,7 @@ class TestOpenAIProviderLogic:
                 previous_steps=[],
                 snapshot="- snap",
                 screenshot=None,
-                page_api="page.open(...)",
+                page_api="page.goto(...)",
                 existing_code=None,
                 error=None,
             )
@@ -461,7 +461,7 @@ class TestOpenAIProviderLogic:
                 previous_steps=[],
                 snapshot="- snap",
                 screenshot=None,
-                page_api="page.open(...)",
+                page_api="page.goto(...)",
                 existing_code=None,
                 error=None,
             )

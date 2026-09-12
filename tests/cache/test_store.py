@@ -65,7 +65,7 @@ def make_cache(tmp_path: Path, path: str | None = "checkout") -> tuple[StepCache
     return StepCache(config, path, reporter), recorder
 
 
-STEP_CODE = "def step(page) -> None:\n    page.open('https://x')\n"
+STEP_CODE = "def step(page) -> None:\n    page.goto('https://x')\n"
 
 
 class TestStepCacheLogic:
