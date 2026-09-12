@@ -229,6 +229,9 @@ class RecorderHook(StepHooks):
             )
         )
 
+    def on_step_finished(self, step_text: str, step_type: str, outcome: str) -> None:
+        self.events.append(("on_step_finished", {"step_text": step_text, "step_type": step_type, "outcome": outcome}))
+
     def on_generation_started(self, step_text: str, attempt: int) -> None:
         self.events.append(("on_generation_started", {"step_text": step_text, "attempt": attempt}))
 
@@ -352,6 +355,7 @@ def test_cached_step_runs_without_llm(tmp_path: Path) -> None:
     assert hook.events == [
         ("on_step_started", {"step_text": "открыть страницу логина", "step_type": "action"}),
         ("on_step_passed", {"step_text": "открыть страницу логина", "step_type": "action"}),
+        ("on_step_finished", {"step_text": "открыть страницу логина", "step_type": "action", "outcome": "passed"}),
     ]
     assert provider.calls == 0
 
@@ -428,6 +432,7 @@ def test_rot_healing_regenerates_rewrites_cache_and_passes(tmp_path: Path) -> No
         ("on_cache_saved", {"step_text": "нажать войти", "filename": identity.filename}),
         ("on_healed", {"step_text": "нажать войти", "explanation": "кнопка переименована"}),
         ("on_step_passed", {"step_text": "нажать Войти", "step_type": "action"}),
+        ("on_step_finished", {"step_text": "нажать Войти", "step_type": "action", "outcome": "passed"}),
     ]
     rewritten = (tmp_path / identity.filename).read_text(encoding="utf-8")
     assert "get_by_text" in rewritten
@@ -467,6 +472,7 @@ def test_retired_members_fail_loudly_on_cached_steps(tmp_path: Path) -> None:
         "on_cache_saved",
         "on_healed",
         "on_step_passed",
+        "on_step_finished",
     ]
     rewritten = (tmp_path / identity.filename).read_text(encoding="utf-8")
     assert "get_by_role" in rewritten
@@ -531,6 +537,7 @@ def test_generated_failed_check_verdict_fails_the_test_loudly(tmp_path: Path) ->
         "on_generation_started",
         "on_step_failed",
         "on_step_verdict",
+        "on_step_finished",
     ]
     frames = [entry.filename for entry in traceback.extract_tb(excinfo.value.__traceback__)]
     assert frames[-1].endswith("scenario.py")  # traceback folded to the facade boundary
@@ -578,6 +585,7 @@ def test_product_defect_verdict_fails_the_test_loudly(tmp_path: Path) -> None:
                 "recommendation": "чинить продукт",
             },
         ),
+        ("on_step_finished", {"step_text": "нажать Войти", "step_type": "action", "outcome": "failed"}),
     ]
     # full failure cycle: traceback folded to the facade boundary, message ends with the verdict render
     frames = [entry.filename for entry in traceback.extract_tb(excinfo.value.__traceback__)]
@@ -633,6 +641,7 @@ def test_incurable_verdict_fails_with_verdict_fields(tmp_path: Path) -> None:
                 "recommendation": "переформулируйте шаг",
             },
         ),
+        ("on_step_finished", {"step_text": "нажать Войти", "step_type": "action", "outcome": "failed"}),
     ]
     # full failure cycle: traceback folded to the facade boundary, message ends with the verdict render
     frames = [entry.filename for entry in traceback.extract_tb(excinfo.value.__traceback__)]
@@ -663,7 +672,11 @@ def test_strict_cache_miss_raises_incurable_without_generation(tmp_path: Path) -
     assert "step: Нажать «Войти»" in rendered
     assert "recommendation: reword the step or refresh the cache" in rendered  # render-only fallback verdict
     assert provider.calls == 0  # no LLM boundary touched at all
-    assert [event for event, _payload in hook.events] == ["on_step_started", "on_step_failed"]
+    assert [event for event, _payload in hook.events] == [
+        "on_step_started",
+        "on_step_failed",
+        "on_step_finished",
+    ]
     assert hook.events[1][1]["error"] == str(excinfo.value)  # one render — never re-composed
 
 
@@ -696,6 +709,7 @@ def test_strict_failed_cached_step_classifies_without_healing(tmp_path: Path, ca
         "on_step_started",
         "on_step_failed",
         "on_step_verdict",
+        "on_step_finished",
     ]  # no on_healing_started / on_generation_started: the engines never run
     assert hook.events[1][1]["error"] == str(excinfo.value)
     assert hook.events[2][1] == {
@@ -847,3 +861,118 @@ def test_strict_failure_never_writes_the_cache(tmp_path: Path) -> None:
 
     assert [path.name for path in failed_root.iterdir()] == [identity.filename]
     assert "get_by_role" in (failed_root / identity.filename).read_text(encoding="utf-8")  # bytes unchanged
+
+
+class SettlingPage(FakePage):
+    """Fake page whose first text lookup fails — a transient state only a settle window absorbs."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._text_lookups = 0
+
+    def get_by_text(self, text: str) -> FakeLocator:
+        self._text_lookups += 1
+        if self._text_lookups == 1:  # the element state settles after the first attempt
+            self.calls.append(("get_by_text", text))
+            raise AssertionError("element is not visible yet")  # a failed expectation — pollable
+        return super().get_by_text(text)
+
+
+def test_scenario_and_full_integration_green_path_with_window(tmp_path: Path, caplog) -> None:
+    """The full green cycle with the settle window: generation, settle, cache write, closing event."""
+    action_text = "open the page"
+    assertion_text = "the heading is visible"
+    heading_code = "def step(page) -> None:\n    page.get_by_text('App title').expect_visible()\n"
+    provider = StubProvider(answers=[WORKING_CODE, heading_code])
+    page = SettlingPage()
+    hook = RecorderHook()
+    caplog.set_level(logging.INFO, logger="prettyplay")
+
+    with configured_test(
+        Config(cache_root=str(tmp_path), polling_timeout=6.0, polling_delay=0.0), provider, page
+    ) as test:
+        test.add_hooks(hook)
+        test.step(action_text)
+        test.expect(assertion_text)
+        test.close()
+
+    # the transient lookup failure was absorbed inside the window of the one step execution:
+    # one LLM attempt per step (no regeneration for a settle-retried candidate), one retry record
+    assert len(provider.generation_requests) == 2
+    settle_retries = [record for record in caplog.records if record.getMessage() == "settle_retry"]
+    assert len(settle_retries) == 1
+    assert settle_retries[0].attempt == 1
+
+    action_identity = StepIdentity(
+        cache_key="login-flow", step_type="action", normalized_text=normalize_step_text(action_text)
+    )
+    assertion_identity = StepIdentity(
+        cache_key="login-flow", step_type="assertion", normalized_text=normalize_step_text(assertion_text)
+    )
+    assert hook.events == [
+        ("on_step_started", {"step_text": action_text, "step_type": "action"}),
+        ("on_generation_started", {"step_text": action_text, "attempt": 1}),
+        ("on_cache_saved", {"step_text": action_text, "filename": action_identity.filename}),
+        ("on_step_passed", {"step_text": action_text, "step_type": "action"}),
+        ("on_step_finished", {"step_text": action_text, "step_type": "action", "outcome": "passed"}),
+        ("on_step_started", {"step_text": assertion_text, "step_type": "assertion"}),
+        ("on_generation_started", {"step_text": assertion_text, "attempt": 1}),
+        ("on_cache_saved", {"step_text": assertion_text, "filename": assertion_identity.filename}),
+        ("on_step_passed", {"step_text": assertion_text, "step_type": "assertion"}),
+        ("on_step_finished", {"step_text": assertion_text, "step_type": "assertion", "outcome": "passed"}),
+    ]
+
+    # cache writes: both proven candidates are on disk under their addressed filenames
+    assert (tmp_path / action_identity.filename).exists()
+    assert (tmp_path / assertion_identity.filename).exists()
+
+    # both generated codes actually executed against the page — the second one twice (settle retry)
+    assert page.calls == [
+        ("goto", "https://app.example.com"),
+        ("get_by_text", "App title"),
+        ("get_by_text", "App title"),
+        ("expect_visible",),
+    ]
+
+
+def test_incurable_failure_shape_end_to_end(tmp_path: Path) -> None:
+    """The failure shape end to end: an incurable check reaches the integrator with the candidate code."""
+    step_text = "the heading is visible"
+    failing_check_code = "def step(page) -> None:\n    page.get_by_text('App title').expect_visible()\n"
+    provider = StubProvider(
+        answers=[failing_check_code, failing_check_code],  # every candidate fails the check
+        verdict=FailureClassification(
+            category="incurable", explanation="the heading never exists on the page", recommendation="reword the step"
+        ),
+    )
+    page = FakePage(broken_lookups=frozenset({"get_by_text"}))  # the check can never hold
+    hook = RecorderHook()
+
+    with configured_test(Config(cache_root=str(tmp_path)), provider, page) as test:  # interactive off
+        test.add_hooks(hook)
+        with pytest.raises(IncurableStepError) as excinfo:
+            test.expect(step_text)
+        test.close()
+
+    # the integrator-facing failure carries the last candidate verbatim and the scripted verdict
+    assert excinfo.value.code == failing_check_code
+    assert excinfo.value.verdict is not None
+    assert excinfo.value.verdict.category == "incurable"
+    assert excinfo.value.error == "element not found"
+    assert provider.classification_requests[0]["code"] == failing_check_code
+
+    # the failed candidate is never cached
+    identity = StepIdentity(
+        cache_key="login-flow", step_type="assertion", normalized_text=normalize_step_text(step_text)
+    )
+    assert not (tmp_path / identity.filename).exists()
+
+    assert [event for event, _payload in hook.events] == [
+        "on_step_started",
+        "on_generation_started",
+        "on_step_failed",
+        "on_step_verdict",
+        "on_step_finished",  # the closing event last, exactly once, outcome failed
+    ]
+    assert hook.events[-1][1] == {"step_text": step_text, "step_type": "assertion", "outcome": "failed"}
+    assert hook.events[2][1]["error"] == str(excinfo.value)  # the render — never re-composed

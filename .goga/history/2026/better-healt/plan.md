@@ -1322,19 +1322,19 @@ browser, no real LLM).
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] Create/extend the integration scenario in `tests/test_integration.py`
-- [ ] Test `test_scenario_and_full_integration_green_path_with_window`: a scripted provider over
+- [x] Create/extend the integration scenario in `tests/test_integration.py`
+- [x] Test `test_scenario_and_full_integration_green_path_with_window`: a scripted provider over
   a fake page; `PrettyConfig(polling_timeout=6.0)`; `test.step("open the page")` and
   `test.expect("the heading is visible")` → both steps pass; per step the hook sequence is
   `[on_step_started, on_generation_started, (on_cache_saved when stored), on_step_passed,
   on_step_finished]` with `outcome == "passed"` — one window per step execution, cache writes,
   the closing event last
-- [ ] Test the failure-shape scenario end-to-end: a scripted provider whose candidate always
+- [x] Test the failure-shape scenario end-to-end: a scripted provider whose candidate always
   fails the check with a scripted `incurable` verdict, `interactive=False` → the raised
   `IncurableStepError` reaches the integrator with `.code` == the last candidate; the hook
   sequence per step ends `[..., on_step_failed, on_step_verdict, on_step_finished]`
-- [ ] Run validation: `pytest tests/ -x` — the full suite green
-- [ ] Final gates: `ruff check prettyplay/` and `goga lint` (0 errors — no CODEMANIFEST was
+- [x] Run validation: `pytest tests/ -x` — the full suite green
+- [x] Final gates: `ruff check prettyplay/` and `goga lint` (0 errors — no CODEMANIFEST was
   modified)
 
 ---
@@ -1352,16 +1352,16 @@ browser, no real LLM).
 
 ## Completion Criteria
 
-- [ ] Every contract entity is implemented in the correct `location`
-- [ ] Every contract entity is accessible from the facade
-- [ ] Properties and methods match the declared API
-- [ ] Descriptions are reflected in behavior
-- [ ] Contract dependencies are met
-- [ ] Re-exports are accessible from the facade
-- [ ] Every coding task followed the TDD workflow (contract tests → code → verification → logic tests → debugging → re-verification → lint)
-- [ ] Contract tests and logic tests cover facade, API, and behavior within each coding task
-- [ ] Integration tests exist where cross-entity scenarios require them
-- [ ] No package boundary was expanded
-- [ ] `CODEMANIFEST` files were not modified (contract is read-only)
-- [ ] All validation commands pass
-- [ ] Every Usages entry is mentioned in at least one task
+- [x] Every contract entity is implemented in the correct `location`
+- [x] Every contract entity is accessible from the facade
+- [x] Properties and methods match the declared API
+- [x] Descriptions are reflected in behavior
+- [x] Contract dependencies are met
+- [x] Re-exports are accessible from the facade
+- [x] Every coding task followed the TDD workflow (contract tests → code → verification → logic tests → debugging → re-verification → lint)
+- [x] Contract tests and logic tests cover facade, API, and behavior within each coding task
+- [x] Integration tests exist where cross-entity scenarios require them
+- [x] No package boundary was expanded
+- [x] `CODEMANIFEST` files were not modified (contract is read-only)
+- [x] All validation commands pass
+- [x] Every Usages entry is mentioned in at least one task
