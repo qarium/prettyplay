@@ -10,18 +10,40 @@ step = generator.generate(
     step_text="click the «Sign in» button",
     previous_steps=["open the login page", "enter the login and password"],
     page=page,
+    window=window,
 )
 ```
 
 - The loop: request code → execute against the live page → on failure re-request with the fresh error and snapshot
-- A non-empty generation_prompt setting adds a USER INSTRUCTIONS block to every generation and regeneration request — the project's code style guidance (e.g. prefer data-test-id attributes); classification requests never carry it; changing the instructions never invalidates the cache — cached steps run as stored
-- A non-empty classification_prompt setting adds a USER INSTRUCTIONS block to classification requests only — the project's steering for verdict explanations (e.g. answer in a specific language); generation requests never carry it
-- A failed check of a candidate (an assertion that executed and did not hold) stops the retries at once: the failure goes to classification — product_defect raises ProductDefectError with the verdict, anything else raises IncurableStepError with it; when the LLM is unavailable at this classification the verdict is skipped quietly (WARNING in the log) and IncurableStepError raises without it; one failed check is spent, never the whole budget
-- Other candidate failures (element not found, timeouts) retry with the fresh error and snapshot
-- Attempts are budgeted per step per test (default 3); exhaustion raises IncurableStepError carrying the classification verdict of the last candidate — when the LLM is unavailable the verdict is skipped quietly (WARNING in the log) and the failure raises without it
-- Raised terminal failures carry the full failure description of the candidate in their error field
-- A success stores the step in the cache and returns it
-- Provider unavailability of a generation request raises LLMUnavailableError immediately — no retry on it
+- Every candidate execution runs under the settle window: transient failures re-execute the same code inside the window (settle_retry log records), no LLM budget consumed; deterministic failures go to the next request or classification
+- A non-empty generation_prompt setting adds a USER INSTRUCTIONS block to every generation and regeneration request; classification requests never carry it; changing the instructions never invalidates the cache — cached steps run as stored
+- A non-empty classification_prompt setting adds a USER INSTRUCTIONS block to classification requests only; generation requests never carry it
+
+## The decision table
+
+Every classification verdict drives the same table — the category decides, the path only delivers:
+
+| Verdict | Action |
+|---|---|
+| product_defect | ProductDefectError carrying the verdict — loud, never healed |
+| rot, fixable | regeneration carrying the classification recommendation |
+| incurable | IncurableStepError carrying the verdict |
+
+## Failed candidate check (bounded healing)
+
+A failed check — an assertion that executed and did not hold, survived the settle window — is classified, then:
+
+- product_defect → ProductDefectError with the verdict; one failed check is spent, never the whole budget
+- rot or fixable → exactly one regeneration funded from the healing budget, the request carrying the recommendation as a RECOMMENDATION block; success stores the healed step; a repeat failure gets one final classification deciding only the terminal kind — product_defect → ProductDefectError, anything else → IncurableStepError; no further regeneration
+- incurable → IncurableStepError with the verdict
+- LLM unavailable at the classification → the verdict is skipped quietly (WARNING in the log) and IncurableStepError raises without it
+
+## Budget exhaustion
+
+Exhaustion of the generation attempts classifies the last candidate: rot or fixable grants exactly one extra
+recommendation-carrying regeneration funded from the healing budget — a repeat failure is terminal
+IncurableStepError without reclassification; any other verdict is terminal as before. LLM unavailability at this
+classification skips the verdict quietly.
 
 ## Classification call
 
@@ -40,7 +62,7 @@ classification = classify_step_failure(
 )
 ```
 
-The routine collects the fresh page snapshot (plus the screenshot when enabled) and calls the provider with the engine classification prompt; a non-empty classification_prompt setting of the config reaches the request as a USER INSTRUCTIONS block. Provider unavailability propagates: the calling path decides whether it is a terminal infrastructure failure or a quiet verdict skip.
+The routine collects the fresh page snapshot (plus the screenshot when enabled) and calls the provider with the engine classification prompt; a non-empty classification_prompt setting of the config reaches the request as a USER INSTRUCTIONS block. The category set is four: rot, product_defect, fixable, incurable. Provider unavailability propagates: the calling path decides whether it is a terminal infrastructure failure or a quiet verdict skip.
 
 ## The fixed form
 

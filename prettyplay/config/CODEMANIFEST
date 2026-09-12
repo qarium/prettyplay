@@ -71,7 +71,7 @@ Annotations: |
     "accept_dialogs -> bool": |
       Whether dialogs outside a captured expect_dialog block are accepted automatically; False keeps the dismiss default.
 
-"Config(provider: str, browser: BrowserConfig, model: str, generation_model: str, classification_model: str, base_url: str, cache_root: str, generation_prompt: str, classification_prompt: str, strict: bool, generation_attempts: int, healing_attempts: int, send_screenshots: bool)":
+"Config(provider: str, browser: BrowserConfig, model: str, generation_model: str, classification_model: str, base_url: str, cache_root: str, generation_prompt: str, classification_prompt: str, strict: bool, polling_timeout: float | None, polling_delay: float, interactive: bool, generation_attempts: int, healing_attempts: int, send_screenshots: bool)":
   location: models.py
   annotations: |
     Validated project settings — the single source of the immutable configuration part.
@@ -86,6 +86,9 @@ Annotations: |
     `generation_prompt`: user instructions for generation requests; non-empty — a separate USER INSTRUCTIONS block in generation and regeneration requests; classification requests never see it; empty — no block; default empty.
     `classification_prompt`: user instructions for classification requests; non-empty — a separate USER INSTRUCTIONS block in classification requests only; generation requests never see it; takes no part in the step address; empty — no block; default empty.
     `strict`: replay-only mode; True — cached code executes honestly and nothing is ever (re)generated: a cache miss fails as incurable, a failed cached step is at most classified; default False.
+    `polling_timeout`: the total settle horizon of one step execution in seconds, measured from the first execution of the step code — the facade's internal waits count inside; None — polling disabled (default); 0 — an explicit disable, equivalent to None; positive — the settle window.
+    `polling_delay`: the pause between re-executions of the same step code in seconds; default 0.5; 0 — re-execute without a pause.
+    `interactive`: the opt-in interactive steering switch; True — the terminal REPL opens at a terminally stuck step; default False — an accidentally enabled REPL must never hang CI.
     `generation_attempts`: generation attempt budget per step per test; default 3.
     `healing_attempts`: healing attempt budget per step per test; default 2.
     `send_screenshots`: optional screenshot input to the LLM; default False.
@@ -96,9 +99,12 @@ Annotations: |
     - attempts are positive integers
     - a non-empty endpoint inside `browser` is a valid ws/wss URL — otherwise a loud actionable error
     - `strict`, `classification_prompt` and the `browser` group participate in the layered merge of `load_config` like every other setting
+    - polling_timeout is None or a non-negative number — a negative value fails loudly with the received value; polling_delay is non-negative (0 allowed)
+    - polling_timeout, polling_delay and interactive participate in the layered merge of `load_config` like every other setting — an explicit False or 0.0 overrides the file layer too
 
     Constraints:
     - No secret values in fields: LLM API keys are never stored in the config; keys come only from environment variables
+    - A programmatically passed polling_timeout of None is indistinguishable from unset — disable polling per-test with 0.0
   properties:
     "provider -> str": |
       The LLM provider setting: openai or anthropic.
@@ -120,6 +126,12 @@ Annotations: |
       The user instructions for classification requests; empty means no instructions block.
     "strict -> bool": |
       Whether the run is replay-only: no generation, no healing.
+    "polling_timeout -> float | None": |
+      The total settle horizon of one step execution; None means polling disabled, 0 an explicit disable.
+    "polling_delay -> float": |
+      The pause between re-executions of the same step code in seconds.
+    "interactive -> bool": |
+      Whether the interactive steering REPL is enabled; False keeps runs non-interactive.
     "generation_attempts -> int": |
       The generation attempt budget per step per test.
     "healing_attempts -> int": |
@@ -146,7 +158,7 @@ Annotations: |
     3. Extract the tool.prettyplay section; a missing section is an empty section
     4. Reject the removed legacy env name: PRETTYPLAY_BROWSER set in the environment raises `ConfigurationError` before merging — the message names PRETTYPLAY_BROWSER_NAME as the replacement
     5. Reject the removed old flat keys: browser, headless or browser_endpoint present at the [tool.prettyplay] level raise `ConfigurationError` immediately — one line per key naming its new home inside [tool.prettyplay.browser] (browser → name, headless → headless, browser_endpoint → endpoint)
-    6. Apply environment overrides: each setting is overridden by PRETTYPLAY_<SETTING_UPPERCASE> when the variable is set; the browser group reads PRETTYPLAY_BROWSER_NAME, PRETTYPLAY_BROWSER_SCREEN, PRETTYPLAY_BROWSER_HEADLESS, PRETTYPLAY_BROWSER_ENDPOINT, PRETTYPLAY_BROWSER_ACCEPT_DIALOGS; strict reads PRETTYPLAY_STRICT; classification_prompt reads PRETTYPLAY_CLASSIFICATION_PROMPT
+    6. Apply environment overrides: each setting is overridden by PRETTYPLAY_<SETTING_UPPERCASE> when the variable is set; the browser group reads PRETTYPLAY_BROWSER_NAME, PRETTYPLAY_BROWSER_SCREEN, PRETTYPLAY_BROWSER_HEADLESS, PRETTYPLAY_BROWSER_ENDPOINT, PRETTYPLAY_BROWSER_ACCEPT_DIALOGS; strict reads PRETTYPLAY_STRICT; classification_prompt reads PRETTYPLAY_CLASSIFICATION_PROMPT; polling_timeout reads PRETTYPLAY_POLLING_TIMEOUT (a decimal float; 0 — an explicit disable), polling_delay reads PRETTYPLAY_POLLING_DELAY, interactive reads PRETTYPLAY_INTERACTIVE
     7. Resolve the empty cache_root: empty after the file+env merge — set to the absolute default <cwd>/.prettyplay/cache/ — the working directory of the run, wherever the pyproject.toml was found; a value set by the file or env layer stays verbatim
     8. Construct `Config`; on a validation failure render the actionable text — one line per invalid setting: the setting name, the received value, the allowed values — and raise `ConfigurationError` with the original ValidationError chained
     9. `overrides` is None — return the file layer as is
@@ -157,6 +169,7 @@ Annotations: |
     - An env override exists for every setting of `Config` (including PRETTYPLAY_STRICT, PRETTYPLAY_CLASSIFICATION_PROMPT and the five PRETTYPLAY_BROWSER_* variables)
     - The removed legacy env name PRETTYPLAY_BROWSER fails loudly before merging: it belongs to the same pre-1.0 hard break as the old flat keys
     - Scalar env overrides parse by the field type: booleans accept true/false/1/0 case-insensitively, integers parse as decimal integers; an unparseable value raises the loud actionable `ConfigurationError` naming the setting, the received value and the accepted form — never a silent ignore
+    - The three polling and interactive settings parse by the field type: floats parse as decimal floats, the boolean accepts true/false/1/0 case-insensitively; an unparseable value raises the loud actionable `ConfigurationError` naming the setting, the received value and the accepted form
     - A raw pydantic.ValidationError never leaves the loader
     - The empty cache_root setting is resolved to the absolute default <cwd>/.prettyplay/cache/ at load — anchored at the working directory of the run, wherever the pyproject.toml was found
 

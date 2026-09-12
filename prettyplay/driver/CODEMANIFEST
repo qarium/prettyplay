@@ -24,6 +24,7 @@ Annotations: |
   The facade surface mirrors the Playwright sync API at page/locator level under the parity principle: within the step-driving contour — locating, interactions, navigation, waits, expectations, dialogs, popups and frames — a covered capability lands under its Playwright mirror name, and a mirror member is renamed or removed only together with a Playwright-level re-mapping. Declared non-mirror families: the prettyplay scroll extras under their own names, the method-style expect_* expectation names replacing the chained to_be_* model, and the expect_dialog capture constructor over Playwright's expect_event("dialog") waiter (the Python client ships no expect_dialog). Future Playwright capabilities land as mirror extensions.
   The excluded capabilities stay absent from the surface: no route/request interception, no evaluate, no CDP, no clock, no HAR, no tracing, no raw input devices (keyboard/mouse) — the page-state model behind failure classification and healing must stay honest.
   The thread-marshaling boundary covers every facade kind — pages, popup pages, frame-scoped locators, dialogs: no raw Playwright object crosses the facade boundary.
+  The driver knows its own error surface: the fixed pollable map lives in this cell — the single recognition point deciding which failed step-code exceptions a settle window may absorb (see `playwright`).
 
 ---
 
@@ -296,6 +297,36 @@ Annotations: |
       Locate one element inside the frame by any selector — CSS, XPath and attribute selectors.
     "frame_locator(selector: str) -> frame: FrameFacade": |
       The locating scope of a nested iframe inside this frame.
+
+"is_pollable_failure(exc: Exception) -> pollable: bool":
+  location: errors.py
+  annotations: |
+    The fixed pollable map of the facade error surface: decide whether a failed step-code
+    exception is a transient page state a settle window may absorb — recognition only,
+    no LLM, no settings.
+
+    `exc`: the exception raised by the failed step code.
+    `pollable`: True — the kind is transient (the settle window may re-execute the same
+    code); False — deterministic or unknown (straight to classification).
+
+    Algorithm:
+    1. A failed expectation — an AssertionError that is not the locator-ambiguity
+       violation of step 3 — is pollable (see `playwright`): the check executed and did
+       not hold; the state may catch up
+    2. Recognize the driver kinds by the exception type and the message patterns
+       (see `playwright`): timeout — Timeout NNNms exceeded; element state — not visible,
+       not enabled, outside of the viewport, detached or stale; navigation and context —
+       Execution context was destroyed, Target closed, navigation interrupted mid-flight —
+       pollable
+    3. Locator ambiguity — the strict mode violation, locator resolved to N elements — is
+       not pollable: the elements are there; waiting will not collapse them to one
+    4. A Python-level error of the step code — syntax, names, types — is not a driver
+       error at all: not pollable
+    5. An unrecognized kind is not pollable — the conservative default goes to classification
+
+    Requirements:
+    - Pure function: no state, no I/O, deterministic on the exception alone
+    - The map is fixed in code: never configured, never asked of an LLM
 
 ---
 

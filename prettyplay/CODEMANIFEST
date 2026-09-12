@@ -43,6 +43,13 @@ Imports:
       - generation
       - healing
     From: prettyplay/engine
+  - Types:
+      - SettleWindow
+      - settle
+    From: prettyplay/engine/polling
+  - Types:
+      - StepSteering
+    From: prettyplay/engine/steering
 
 Usages:
   conventions: .goga/usages/conventions.md
@@ -60,6 +67,7 @@ Annotations: |
   `BrowserConfig` — the public name of the browser settings group — is re-exported by this facade (see the embedding), uniform with `PrettyConfig`.
   `StepHooks` — the callback contract the facade accepts — is re-exported by this facade (see the embedding), uniform with `PrettyConfig` and `BrowserConfig`.
   Strict mode — the strict field of the effective config — makes the step cycle replay-only: cached code executes honestly, nothing is ever (re)generated. A cache miss is the incurable failure stating that strict forbids generation; a failed cached step is at most classified — never regenerated; without LLM access the failure raises immediately by step type. Classifications are the only LLM calls of a strict run; the generation and healing budgets are never consumed.
+  The interactive gate lives in the executor: the steering dialog opens exactly at a caught IncurableStepError on a non-strict interactive run — never on product_defect, never in replay-strict, never when the LLM is unavailable.
 
 ---
 
@@ -86,8 +94,8 @@ Annotations: |
     2. Build the own `PrettyplayRuntime` with the effective config — no process-wide singleton exists
     3. Construct the per-test reporter: `StepReporter` seeded with hooks — the given list or an empty one; add_hooks appends to it
     4. Construct the per-test `StepCache` from the runtime config, `cache_path` and the reporter
-    5. Construct `StepGenerator` and `StepHealer` from the runtime config, provider and budgets, the step cache and the reporter
-    6. Construct `StepExecutor` with `cache_key`, the cache, the engines, the runtime budgets, the reporter, the runtime config and the runtime provider
+    5. Construct `StepGenerator`, `StepHealer` and `StepSteering` from the runtime config, provider, budgets, the step cache and the reporter
+    6. Construct `StepExecutor` with `cache_key`, the cache, the engines, the steering, the runtime budgets, the reporter, the runtime config and the runtime provider
     7. The test page opens lazily on the first step via the runtime open_page
 
     Requirements:
@@ -128,7 +136,7 @@ Annotations: |
     "close()": |
       Close the test page context and stop the whole runtime of this test — the browser process, the Playwright driver and the driver thread; idempotent; the context manager exit does the same.
 
-"StepExecutor(cache_key: str, cache: StepCache, generator: StepGenerator, healer: StepHealer, budgets: RunBudgets, reporter: StepReporter, config: PrettyConfig, provider: LLMProvider)":
+"StepExecutor(cache_key: str, cache: StepCache, generator: StepGenerator, healer: StepHealer, steering: StepSteering, budgets: RunBudgets, reporter: StepReporter, config: PrettyConfig, provider: LLMProvider)":
   location: executor.py
   annotations: |
     The owner of the step cycle: cache hit — execute; cache miss — generate and store; cached failure — heal. In strict mode the cycle is replay-only: nothing is ever (re)generated.
@@ -136,6 +144,7 @@ Annotations: |
     `cache_key`: the context key of the owning test object.
     `cache`: the step cache of the test.
     `generator` and `healer`: the engines (see `generation` and `healing` from Imports) — never invoked in strict mode.
+    `steering`: the interactive steering of terminally stuck steps — invoked only on a non-strict interactive run; never in strict mode.
     `budgets`: the per-test attempt registry — never consumed in strict mode.
     `reporter`: the visibility point.
     `config`: the effective settings of the test — the source of the strict switch.
@@ -147,20 +156,24 @@ Annotations: |
 
       Algorithm:
       1. Report on_step_started with the sentence and the step type
-      2. Build the step identity: `normalize_step_text`, then `StepIdentity` with the test cache key and the step type
-      3. Load the cached step. Strict mode and a miss: raise `IncurableStepError` — the reason states that strict mode forbids generation and names the cache miss, the error field empty, the verdict absent; no generation request is made, no budget consumed. A hit: execute its code with `run_step_code` against `page`
-      4. On a hit execution failure. Strict mode — classification only: classify via `classify_step_failure` passing the full underlying error; a product_defect classification raises `ProductDefectError` carrying the verdict and the full underlying error — the message names what was expected against what was observed per the classification explanation; a rot or incurable classification raises `IncurableStepError` carrying them — the reason names the classification explanation; both authored colon-free; never regenerated: the healer is not invoked, the healing budget stays untouched, on_healing_started never fires; an unavailable LLM at this classification is skipped quietly with a WARNING and the failure raises immediately by step type without a verdict — an assertion step raises `ProductDefectError`, an action step raises `IncurableStepError`, each carrying the full underlying error, the message/reason stating that the step failed in strict mode without an LLM verdict — colon-free. Otherwise: delegate to the healer heal with the failure description and the scenario context — a healed step is already re-executed and stored by the engine
-      5. Otherwise on a miss: the generator generate — the engine stores the step on success
-      6. Append the sentence to the scenario context of the test — the previous step texts feed the next generation
-      7. Report on_step_passed; on a failed step report on_step_failed with the sentence, the step type and the full render — the rendered message of the raised error, never re-composed; then, when the terminal failure carries a verdict, report on_step_verdict with the sentence and the three verdict fields taken from the verdict object; finally raise by kind — `ProductDefectError`, `IncurableStepError`, `LLMUnavailableError` (see `taxonomy`)
+      2. Build the step identity: `normalize_step_text`, then `StepIdentity` with the test cache key and the step type; create a `SettleWindow` of this step execution from the polling settings of the effective config
+      3. Load the cached step. Strict mode and a miss: raise `IncurableStepError` — the reason states that strict mode forbids generation and names the cache miss, the error field empty, the verdict absent; no generation request is made, no budget consumed. A hit: execute its code under the settle window — `settle` with `run_step_code`, the cached code, `page` and the window; replay-strict included: re-executing cached code is execution, not generation
+      4. On a hit execution failure. Strict mode — classification only: classify via `classify_step_failure` passing the full underlying error; a product_defect classification raises `ProductDefectError` carrying the verdict and the full underlying error; a rot, fixable or incurable classification raises `IncurableStepError` carrying them — the reason names the classification explanation; both authored colon-free; never regenerated: the healer is not invoked, the healing budget stays untouched, on_healing_started never fires; an unavailable LLM at this classification is skipped quietly with a WARNING and the failure raises immediately by step type without a verdict — colon-free. Otherwise: delegate to the healer heal with the failure description, the scenario context and the window — a healed step is already re-executed and stored by the engine
+      5. Otherwise on a miss: the generator generate with the window — the engine stores the step on success
+      6. Steering intercept — wrap the engine paths of steps 4 and 5: a raised `IncurableStepError` on a non-strict interactive run goes to the steering steer with the failure, the identity, the scenario context and `page` before it propagates; a healed return continues as success — the cache write-back already happened inside the dialog; None — the original failure propagates unchanged. The intercept never triggers on `ProductDefectError`, on `LLMUnavailableError`, in strict mode or when interactive is off
+      7. Append the sentence to the scenario context of the test — the previous step texts feed the next generation
+      8. Report on_step_passed; on a failed step report on_step_failed with the sentence, the step type and the full render — the rendered message of the raised error, never re-composed; then, when the terminal failure carries a verdict, report on_step_verdict with the sentence and the three verdict fields taken from the verdict object; finally raise by kind — `ProductDefectError`, `IncurableStepError`, `LLMUnavailableError` (see `taxonomy`)
+      9. Report on_step_finished with the sentence, the step type and the outcome — passed or failed — exactly once at the very end of every step, after every other event, regardless of outcome
 
       Requirements:
       - The scenario context lives per test: steps of different tests never mix
       - A cached step executes with no LLM involvement whatsoever
       - An assertion step surfaces a legitimately failed expectation as the product defect failure
-      - Strict mode: the only LLM calls are classifications; the generation and healing budgets are never consumed; the engines are never invoked
+      - Strict mode: the only LLM calls are classifications; the generation and healing budgets are never consumed; the engines are never invoked; the settle window still applies to the cached code
       - The error text carried by the raised failures: for failed checks — without the AssertionError prefix, the exception type already carries the assertion semantics; for action steps — the full underlying error text with its type; formatted by `format_step_error`
       - One render per terminal failure: the exception message, the on_step_failed error payload and the log record carry the same rendered text
+      - One settle window per step execution: created in step 2, threaded into every engine call; the first execution marks its start
+      - on_step_finished fires exactly once per step — the closing event of the cycle
 
 "PrettyplayRuntime(config: PrettyConfig)":
   location: runtime.py

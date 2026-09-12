@@ -1,0 +1,86 @@
+Imports:
+  - Types:
+      - IncurableStepError
+    From: prettyplay/failures
+  - Types:
+      - Config
+    From: prettyplay/config
+  - Types:
+      - LLMProvider
+    From: prettyplay/llm
+  - Types:
+      - StepCache
+      - CachedStep
+      - StepIdentity
+    From: prettyplay/cache
+  - Types:
+      - StepReporter
+    From: prettyplay/reporting
+  - Types:
+      - PageFacade
+    Usages:
+      - facade
+    From: prettyplay/driver
+  - Types:
+      - run_step_code
+    From: prettyplay/engine
+
+Usages:
+  conventions: .goga/usages/conventions.md
+  system_prompt: .goga/usages/prompts/generation.md
+
+Annotations: |
+  Use `conventions` for code writing rules and testing.
+  Use `system_prompt` as the system prompt of every guided regeneration request.
+  Use `facade` from Imports as the single source of the page API surface for regeneration requests.
+
+  The opt-in human-in-the-loop escape hatch of a terminally stuck step: opened by the step executor exactly at the moment an IncurableStepError would propagate — never on product_defect, never in replay-strict, never when the LLM is unavailable.
+  Every guidance turn is a regeneration request carrying a USER GUIDANCE block plus the conversation history; the result executes against the live page — every turn has a measurable green or red outcome; no free-form conversation.
+  Interactive attempts consume no generation or healing budgets — the human in the loop is the bound; the settle window never re-arms inside the dialog: a failed execution returns to the guidance prompt immediately.
+  The guidance is one-shot: logged, never persisted. Nothing hangs: quit, EOF and SIGINT end the dialog and the original terminal failure propagates.
+
+---
+
+"StepSteering(config: Config, provider: LLMProvider, cache: StepCache, reporter: StepReporter | None)":
+  location: steering.py
+  annotations: |
+    The interactive steering dialog of a terminally stuck step: show the full failure context, take engineer guidance, regenerate with it, execute against the live page, heal or decline.
+
+    `config`: the effective settings of the test — the generation instructions of the config join every request.
+    `provider`: the LLM port for guided regeneration requests.
+    `cache`: the step cache for the healed write-back.
+    `reporter`: the visibility point — the healed step is reported loudly; omitted — the hook-less default reporter.
+  methods:
+    "steer(failure: IncurableStepError, identity: StepIdentity, previous_steps: list[str], page: PageFacade) -> healed: CachedStep | None": |
+      Run the steering dialog over a terminal failure.
+
+      `failure`: the terminal failure about to propagate — the source of the step sentence, the failed code, the underlying error and the verdict.
+      `identity`: the address of the stuck step — the healed step is written back under it.
+      `previous_steps`: the sentences of the previous steps of the test — scenario context for regeneration.
+      `page`: the live page facade of the test.
+      `healed`: the healed cached step on a successful guided execution; None — the dialog declined or died: the caller propagates the original failure.
+
+      Algorithm:
+      1. Render the context banner: the step sentence, the failed code, the underlying error, the verdict (explanation and recommendation), a fragment of the fresh accessibility snapshot, a screenshot path
+      2. Read the guidance line; quit, EOF or SIGINT — return None
+      3. A local command runs without the LLM: snapshot — the full accessibility snapshot; screenshot — a full PNG written to a temporary file with the path printed; error and code — the stored texts; back to step 2
+      4. A guidance message builds one regeneration request via the provider: `system_prompt` as the system prompt, the page API surface from `facade`, the step sentence of `failure` and `previous_steps` as the scenario context, the fresh accessibility snapshot plus the screenshot when the project settings enable screenshots, the user instructions — the effective config generation_prompt — when non-empty, existing_code from the failed code of `failure`, error from its underlying error, the message as the guidance and the accumulated turns as the guidance history
+      5. Execute the regenerated code via `run_step_code` against `page`
+      6. Success: build `CachedStep` with `identity`, save it to the cache, report on_healed with an explanation naming the interactive healing, return the healed step
+      7. A failed execution: show the outcome, append the turn to the history, return to step 2 — no re-execution of the same code, the settle window never re-arms
+      8. Provider unavailability of the request: the dialog ends, return None
+
+      Requirements:
+      - The write-back happens only after a successful execution
+      - No generation or healing budget is consumed; no polling applies
+      - The dialog never outlives the failure: every exit path either heals or returns None
+
+      Constraints:
+      - Never persist the guidance into the cache file
+
+---
+
+Author: Goga
+CreatedAt: 12/09/26
+Description: |
+  The interactive steering of prettyplay: the opt-in terminal REPL taking engineer guidance over a terminally stuck step — guided regeneration, live execution, healed write-back or honest decline.

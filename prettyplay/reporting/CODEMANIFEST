@@ -7,7 +7,8 @@ Annotations: |
   Visibility goes through the standard logging library: the logger is named prettyplay.
   Log messages: lowercase, concise operational wording, stable event names, contextual metadata attached.
   Never log secrets, credentials, tokens or personal sensitive data.
-  Step lifecycle events — including the verdict event — are logged at INFO; a skipped cache write and a failed hook call — WARNING.
+  Step lifecycle events — including the verdict event and the closing finished event — are logged at INFO; a skipped cache write and a failed hook call — WARNING.
+  Hook events fire per step or per LLM attempt — never per execution retry: settle re-executions of the same code emit no hook events, their visibility is log-only.
   The error field of the on_step_failed event and its log record carry the full structured render of the terminal failure — the same multi-line text the raised exception carries: the primary reason line, the --- separated step/error block and the verdict block; integrators display it verbatim.
   The on_step_verdict event keeps its structured fields built from the verdict object of the failure — never parsed from the render.
 
@@ -30,19 +31,29 @@ Annotations: |
       The terminal failure of the step carried a verdict; fires after on_step_failed.
 
       `step_text`: the sentence of the failed step.
-      `category`: the verdict label — rot, product_defect or incurable.
+      `category`: the verdict label — rot, product_defect, fixable or incurable.
       `explanation`: what the LLM saw on the page at the moment of the failure.
       `recommendation`: the recommended engineer action.
 
       Requirements:
       - Not fired when the verdict was skipped: LLM unavailability logs a WARNING and raises no event
       - Payload values are built from the verdict object of the failure — plain strings, uniform with the other events, never parsed from the rendered error text
+    "on_step_finished(step_text: str, step_type: str, outcome: str)": |
+      The step ended — the closing event of every step, fired exactly once regardless of outcome.
+
+      `step_text`: the sentence of the step.
+      `step_type`: action or assertion.
+      `outcome`: passed or failed.
+
+      Requirements:
+      - Fired after on_step_passed, or after on_step_failed — and after on_step_verdict whenever the verdict exists
+      - Covers every terminal kind: the step, generation, healing and infrastructure failures alike — a step ends exactly once
     "on_generation_started(step_text: str, attempt: int)": |
-      A code generation attempt started; `attempt` is the 1-based attempt number.
+      A code generation attempt started; `attempt` is the 1-based attempt number of the LLM request — settle re-executions of the same candidate do not count as attempts.
     "on_healing_started(step_text: str, category: str)": |
-      Healing of a failed cached step started; `category` is the classification label: rot, product_defect, incurable.
+      Healing of a failed cached step started; `category` is the classification label: rot, product_defect, fixable, incurable.
     "on_healed(step_text: str, explanation: str)": |
-      The step was healed and the cache updated; `explanation` says why it was rot and what changed.
+      The step was healed and the cache updated; `explanation` says why it failed and what changed — an interactively healed step reports here too.
     "on_cache_saved(step_text: str, filename: str)": |
       Step code was written to the cache file `filename`.
     "on_cache_skipped(step_text: str, reason: str)": |

@@ -8,7 +8,10 @@ Domain: classifying a failed cached step before healing. Audience: engineers rea
 |---|---|---|
 | rot | the UI changed: selectors, texts, structure | the step is regenerated from the current page and retried |
 | product_defect | the expectation legitimately failed | the test fails loudly — never healed green |
+| fixable | the step code is at fault (ambiguous or wrong locator/strategy); the intent is satisfiable | the step is regenerated for the same intent, the request carrying the classification recommendation |
 | incurable | regeneration cannot help: budget exhausted, text no longer matches reality, ambiguity | the incurable failure carries step, reason, recommendation |
+
+An unrecognized label of the model answer parses to `incurable` — the protective fallback: an unknown verdict never grants a regeneration.
 
 ## Call
 

@@ -28,7 +28,7 @@ Annotations: |
   annotations: |
     The unified LLM port of the library: code generation for a step and failure classification for healing. One contract, two interchangeable implementations selected by configuration.
   methods:
-    "generate_step_code(prompt: str, user_instructions: str, step_text: str, previous_steps: list[str], snapshot: str, screenshot: bytes | None, page_api: str, existing_code: str | None, error: str | None) -> code: str": |
+    "generate_step_code(prompt: str, user_instructions: str, step_text: str, previous_steps: list[str], snapshot: str, screenshot: bytes | None, page_api: str, existing_code: str | None, error: str | None, recommendation: str | None, guidance: str | None, guidance_history: list[str]) -> code: str": |
       Generate step code of the fixed form.
 
       `prompt`: the system prompt text supplied by the calling engine — applied verbatim as the system message.
@@ -40,11 +40,16 @@ Annotations: |
       `page_api`: the exact page facade surface listing — the list of calls the model may use.
       `existing_code`: the existing step code that failed; non-empty only on regeneration requests.
       `error`: the failure description of the existing code; non-empty only on regeneration requests.
+      `recommendation`: the diagnosis of the classification that preceded the regeneration; non-empty — rendered as a separate RECOMMENDATION block after the CODE and ERROR blocks: regeneration starts from the diagnosis, not the raw error; None — no block.
+      `guidance`: the engineer guidance message of the interactive steering; non-empty — rendered as a separate USER GUIDANCE block; None — no block.
+      `guidance_history`: the accumulated steering turns — each a rendered guidance-and-outcome line; non-empty — rendered as a separate HISTORY block after the USER GUIDANCE block; empty — no block.
       `code`: the generated step code of the fixed form, working only through the driver facade; the first markdown-fenced block of the answer is unwrapped — an answer with no closed fence returns verbatim.
 
       Requirements:
       - A provider service failure (connectivity, timeout, rate limit, authentication) raises `LLMUnavailableError` naming the provider
       - The generated code contains no provider-specific constructs
+      - The block order of a regeneration request is fixed: page API, user instructions, CODE, ERROR, RECOMMENDATION, USER GUIDANCE, HISTORY — a non-empty input renders its named block, identically in both implementations
+      - The new inputs take no part in step addressing: a cached step never regenerates because they changed
     "classify_failure(prompt: str, user_instructions: str, step_text: str, code: str, error: str, snapshot: str, screenshot: bytes | None) -> classification: FailureClassification": |
       Classify a failed cached step.
 
@@ -68,7 +73,7 @@ Annotations: |
     `config`: project settings; the generation model is the effective_generation_model of `config`, the classification model is the effective_classification_model of `config`; the base_url setting of `config` overrides the endpoint when set.
 
     Algorithm (both operations):
-    1. Build the request: the prompt text as the system message, the user content carrying the inputs — a non-empty user_instructions of a generation request renders as a separate USER INSTRUCTIONS block placed after the page API block, before the regeneration-only blocks (CODE, ERROR); a non-empty user_instructions of a classification request renders as the separate USER INSTRUCTIONS block placed last in the user content, after all classification inputs (STEP, CODE, ERROR, PAGE SNAPSHOT)
+    1. Build the request: the prompt text as the system message, the user content carrying the inputs — a non-empty user_instructions of a generation request renders as a separate USER INSTRUCTIONS block placed after the page API block; the regeneration-only blocks render in the fixed order CODE, ERROR, RECOMMENDATION, USER GUIDANCE, HISTORY — a non-empty input renders its named block, identically in both implementations; a non-empty user_instructions of a classification request renders as the separate USER INSTRUCTIONS block placed last in the user content, after all classification inputs (STEP, CODE, ERROR, PAGE SNAPSHOT)
     2. Send one completion request via the SDK
     3. Extract the text answer; a generation answer unwraps its first markdown-fenced block — an unfenced answer passes through verbatim
     4. An SDK error maps to `LLMUnavailableError` (see `openai`)
@@ -81,7 +86,7 @@ Annotations: |
     `config`: the same settings semantics as the openai implementation.
 
     Algorithm (both operations):
-    1. Build the request: the prompt text as the system message, the user content carrying the inputs — a non-empty user_instructions of a generation request renders as a separate USER INSTRUCTIONS block placed after the page API block, before the regeneration-only blocks (CODE, ERROR); a non-empty user_instructions of a classification request renders as the separate USER INSTRUCTIONS block placed last in the user content, after all classification inputs (STEP, CODE, ERROR, PAGE SNAPSHOT)
+    1. Build the request: the prompt text as the system message, the user content carrying the inputs — a non-empty user_instructions of a generation request renders as a separate USER INSTRUCTIONS block placed after the page API block; the regeneration-only blocks render in the fixed order CODE, ERROR, RECOMMENDATION, USER GUIDANCE, HISTORY — a non-empty input renders its named block, identically in both implementations; a non-empty user_instructions of a classification request renders as the separate USER INSTRUCTIONS block placed last in the user content, after all classification inputs (STEP, CODE, ERROR, PAGE SNAPSHOT)
     2. Send one message request via the SDK
     3. Extract the text answer; a generation answer unwraps its first markdown-fenced block — an unfenced answer passes through verbatim
     4. An SDK error maps to `LLMUnavailableError` (see `anthropic`)
@@ -107,15 +112,16 @@ Annotations: |
   annotations: |
     The verdict of a failure classification: what kind of failure it is and what to do about it.
 
-    `category`: one of rot (the UI changed — regeneration is meaningful), product_defect (the expectation legitimately failed), incurable (regeneration cannot help).
+    `category`: one of rot (the UI changed — regeneration is meaningful), product_defect (the expectation legitimately failed), fixable (the step code is at fault — an ambiguous or wrong locator or strategy — while the intent stays satisfiable; regeneration for the same intent can help), incurable (regeneration cannot help).
     `explanation`: why the failure got this category.
     `recommendation`: the recommended engineer action.
 
     Requirements:
-    - `category` is always one of the three labels
+    - `category` is always one of the four labels
+    - An unrecognized label of the model answer parses to incurable — the protective fallback in both provider implementations: an unknown verdict never grants a regeneration
   properties:
     "category -> str": |
-      The classification label: rot, product_defect or incurable.
+      The classification label: rot, product_defect, fixable or incurable.
     "explanation -> str": |
       Why the failure got this category.
     "recommendation -> str": |

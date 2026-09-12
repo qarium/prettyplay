@@ -188,6 +188,38 @@ page.wait_for_load_state("networkidle")
 Rules:
 - No `wait_for_timeout`: fixed delays are forbidden everywhere, including around waits
 
+## Error kinds — the driver error surface
+
+Playwright reports action, locator and protocol failures through a small set of exception
+types and message patterns. Recognizing the kind programmatically (exception type plus
+message pattern) is the basis for classifying a failure as transient page state versus a
+deterministic defect:
+
+```python
+from playwright.sync_api import Error as PlaywrightError
+```
+
+Kinds and their message signatures:
+
+- **timeout** — `Timeout NNNms exceeded` while waiting for a locator, action, expectation or
+  navigation; the condition did not hold within the wait
+- **strict-mode violation** — `strict mode violation: locator resolved to N elements`; the
+  locator is ambiguous — the elements exist, there are several of them
+- **element state** — `element is not visible`, `element is not enabled`,
+  `element is outside of the viewport`, a detached/stale element handle
+- **navigation / context** — `Execution context was destroyed`, navigation interrupted
+  mid-flight, `Target closed`
+- **failed expectation** — a failed `expect_*` raises plain `AssertionError`: the check
+  executed and did not hold
+
+Transience guidance:
+- timeout, element state and navigation/context kinds typically reflect a page-state race —
+  the previous action finished while a state transition was still in flight
+- strict-mode violation is deterministic: waiting does not collapse N matching elements into
+  one; the locator itself is at fault
+- errors raised by the step code at the Python level (syntax, names, types) are not driver
+  errors at all
+
 ## Accessibility snapshot — primary LLM input
 
 The a11y snapshot (structured accessibility-tree representation of the page) is the primary LLM context for generation and healing (ADR-7). It is cheap and stable compared to raw HTML:

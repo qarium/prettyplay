@@ -30,6 +30,8 @@ Both providers expose the same two operations — generate_step_code and classif
 
 User instructions parity: each operation carries its own instructions — generation requests render the generation_prompt setting, classification requests render the classification_prompt setting — as a verbatim USER INSTRUCTIONS block with identical placement semantics in both providers. A parity requirement, not a capability difference.
 
+Regeneration block parity: a regeneration request may carry extra blocks after CODE and ERROR — RECOMMENDATION (the classification diagnosis), USER GUIDANCE (the engineer message of the interactive steering) and HISTORY (the accumulated steering turns), in this fixed order. Both providers render every non-empty block identically at the same position. A parity requirement, not a capability difference.
+
 ## Answer shape
 
 generate_step_code returns step code of the fixed form. Models often answer with a fenced python block (```python … ```); the provider unwraps the first fenced block before returning, so the engine receives clean code either way — an answer with no closed fence is returned verbatim and, if unparsable, keeps failing downstream in execution.

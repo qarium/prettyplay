@@ -1,0 +1,75 @@
+Imports:
+  - Types:
+      - PageFacade
+      - is_pollable_failure
+    From: prettyplay/driver
+
+Usages:
+  conventions: .goga/usages/conventions.md
+
+Annotations: |
+  Use `conventions` for code writing rules and testing.
+
+  The settle policy of step-code execution: one window per step execution, created by the step executor from the polling settings, threaded into every execution of the step's code — cached code and candidates alike, replay-strict included.
+  The window gates repetitions, never kills a running attempt; re-executions emit no hook events — their visibility is the settle_retry log record alone; no LLM budget is ever consumed.
+
+---
+
+"SettleWindow(timeout: float | None, delay: float)":
+  location: window.py
+  annotations: |
+    The settle horizon of one step execution: when re-executing the same step code may still help and how long to pause between re-executions.
+
+    `timeout`: the total window in seconds; None — polling disabled; 0 — an explicit disable, equivalent to None; positive — the window.
+    `delay`: the pause between re-executions in seconds; 0 — re-execute without a pause.
+  properties:
+    "timeout -> float | None": |
+      The total window in seconds; None means polling disabled.
+    "delay -> float": |
+      The pause between re-executions in seconds.
+    "enabled -> bool": |
+      Whether polling is active: a positive timeout is set.
+  methods:
+    "start()": |
+      Mark the window start at the first execution of the step code.
+
+      Requirements:
+      - Idempotent: only the first call wins — later executions of the same step never shift the start
+    "has_remaining() -> remaining: bool": |
+      Whether the window still allows a repetition.
+
+      `remaining`: True — time remains and the window is enabled and started.
+
+      Requirements:
+      - Checked only before a repetition: the window never interrupts a running attempt
+      - False when disabled, not started, or expired — the first execution may consume the whole window
+
+"settle(execute: Callable[[str, PageFacade], None], code: str, page: PageFacade, window: SettleWindow)":
+  location: settle.py
+  annotations: |
+    Execute step code under the settle window: absorb transient page-state failures by re-executing the same code, propagate everything else as-is.
+
+    `execute`: the step-code execution routine passed by the caller.
+    `code`: the step code text.
+    `page`: the page facade of the current test.
+    `window`: the settle window of the current step execution.
+
+    Algorithm:
+    1. `window` start — mark the first execution
+    2. Call `execute` with `code` and `page`; success — return: the step code worked
+    3. On failure: `window` enabled, `is_pollable_failure` of the exception True, `window` has time remaining — pause the `window` delay, repeat from step 2
+    4. Otherwise propagate the failure to the caller as-is
+
+    Requirements:
+    - Each repetition writes a settle_retry record to the logger prettyplay at INFO: the attempt counter and the failure text; no hook events are emitted
+    - No LLM budget is consumed: re-execution is execution, not generation
+
+    Constraints:
+    - Never swallow, translate or retry a non-pollable failure — the classification path decides it
+
+---
+
+Author: Goga
+CreatedAt: 12/09/26
+Description: |
+  The settle policy of prettyplay: the per-execution settle window and the re-execution loop absorbing transient page-state failures before any costly move.

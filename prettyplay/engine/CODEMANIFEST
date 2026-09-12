@@ -28,40 +28,14 @@ Imports:
     Usages:
       - classification
     From: prettyplay/llm
+  - Types:
+      - SettleWindow
+      - settle
+    From: prettyplay/engine/polling
 
 Usages:
   conventions: .goga/usages/conventions.md
-  system_prompt: |
-    You generate executable Python code for one step of a web UI test.
-
-    Input you receive:
-    - STEP: the step sentence in a natural language
-    - PREVIOUS STEPS: the sentences of the previous steps of the test, in order
-    - PAGE SNAPSHOT: the accessibility snapshot of the current page
-    - SCREENSHOT: an image of the page, when attached
-    - PAGE API: the exact surface listing of the page facade — call nothing outside it
-    - USER INSTRUCTIONS: the project's code style guidance, when configured
-    - CODE: the existing step code that failed (regeneration requests only)
-    - ERROR: the failure description of the existing code (regeneration requests only)
-
-    Output exactly one Python code block with one function of the fixed form:
-
-    def step(page) -> None:
-        ...
-
-    Rules:
-    - The function receives exactly one argument: the page facade — the Playwright-mirroring page API. Never import anything, never use other libraries
-    - Work only through the page API: the request carries the exact surface listing of the page facade — call nothing outside it
-    - For an assertion sentence end with an expectation call; for an action sentence perform the actions
-    - Locating by role and accessible name is preferred; by visible text next; by label or placeholder for form fields
-    - get_by_test_id and locator(selector) exist for elements without accessible names — the accessibility-first priority stands unless USER INSTRUCTIONS say otherwise
-    - Dialogs: when the step verifies or steers a dialog, capture it — with page.expect_dialog() as dialog: — perform the triggering action inside the block, read dialog.message and dialog.type, then dialog.accept() or dialog.dismiss()
-    - Popups and new tabs: capture the opened page — with page.expect_popup() as popup: — trigger the opening action inside the block, work through the popup facade; bring_to_front() raises a page above the others
-    - Content inside an iframe goes through page.frame_locator(selector) — locate elements within the returned frame
-    - Scroll abilities exist for scenario scrolling: bring an element into view, scroll by an amount, to the page end or start, inside a scrollable container
-    - No fixed delays, no sleeps, no explicit waits — the facade waits itself
-    - The step must complete exactly what STEP says — nothing more, nothing less
-    - Output only the code block, no explanations
+  system_prompt: .goga/usages/prompts/generation.md
   classification_prompt: |
     You classify a failure of a web UI test step.
 
@@ -79,6 +53,7 @@ Usages:
     where category is one of:
     - rot — the UI changed (selectors, texts, structure) and the step can be regenerated for the same intent
     - product_defect — the step works as written but the expected behavior of the application is genuinely broken
+    - fixable — the step code is at fault (an ambiguous or wrong locator or strategy) while the intent stays satisfiable; regeneration for the same intent can help
     - incurable — the step sentence no longer matches reality, the intent is ambiguous, or regeneration cannot help
 
     explanation: one short sentence why. recommendation: one short sentence what the engineer should do.
@@ -96,10 +71,13 @@ Annotations: |
   Every attempt — generation or healing — consumes the shared per-step budget of the test; exhaustion is the incurable failure, never an infinite loop.
   Healing never masks a product defect: a classified product_defect fails the test loudly; a healed step is reported loudly and written back to the cache.
   Every terminal failure carries a verdict — a `FailureVerdict` of category, explanation, recommendation — fully present in the exception message, the verdict hook event and the log; an unavailable LLM skips the verdict quietly with a WARNING, the failure itself is never delayed or distorted — the quiet skip applies to verdicts enriching an already-decided failure; the classification driving the healing decision surfaces as the infrastructure failure.
-  A failed check of a candidate stops the generation retries: a check that executed and did not hold is classified, not regenerated.
+  A failed check of a candidate stops the generation-budget retries: a check that executed and did not hold is classified first; a rot or fixable verdict grants exactly one healing-funded regeneration, a repeat failure gets the final terminal-kind classification — the attempt budget is never spent on a legitimately failing assertion beyond it.
   The page API surface listing sent to the provider mirrors `facade` from Imports exactly — the listing and the practice change together.
   The user instructions of the project settings reach their own requests only: the generation_prompt field of `Config` reaches generation and regeneration requests, the classification_prompt field reaches classification requests; neither crosses to the other kind; the instructions take no part in the step address: a cached step never regenerates because the instructions changed.
   The terminal failures raised by the engines carry the full underlying error of the failed code in the error field; reason and message texts are authored without colons — the first line of the rendered message is the primary reason alone.
+  The uniform decision table on every classification point: product_defect raises ProductDefectError — never healed; rot and fixable regenerate carrying the classification recommendation; incurable raises IncurableStepError carrying the verdict. The category decides, the path only delivers.
+  Polling runs before every costly move: every execution of step code — cached code and candidates alike — runs under the settle window threaded through the calling paths; per-attempt classification inside the loops is rejected (LLM cost): an attempt failure retries with the fresh error and snapshot while budget remains.
+  on_generation_started fires once per LLM attempt regardless of the settle re-executions inside it; the raised IncurableStepError carries the failed step code in the code field.
 
 ---
 
@@ -114,31 +92,37 @@ Annotations: |
     `budgets`: the per-test attempt registry.
     `reporter`: the visibility point.
   methods:
-    "generate(identity: StepIdentity, step_text: str, previous_steps: list[str], page: PageFacade) -> step: CachedStep": |
+    "generate(identity: StepIdentity, step_text: str, previous_steps: list[str], page: PageFacade, window: SettleWindow) -> step: CachedStep": |
       Generate and store a new step.
 
       Algorithm:
       1. Ask the budgets registry try_generation for the step identity; a refused attempt is the incurable failure
       2. Collect the request inputs: the page accessibility snapshot, the step sentence, `previous_steps`, and the page API surface from `facade`; add the page screenshot when the project settings enable screenshots
       3. Request step code from the provider port generate_step_code passing `system_prompt` as the system prompt, the page API surface listing taken from `facade`, and the user instructions — the effective config generation_prompt — when non-empty
-      4. Execute the candidate with `run_step_code` against `page`
+      4. Execute the candidate under the settle window: `settle` with run_step_code, the candidate code, `page` and `window` — transient failures re-execute inside the window, no LLM budget consumed
       5. On success: build `CachedStep`, save it to the cache, return it
-      6. On a candidate failure that is an AssertionError — a check that executed and did not hold: stop the retries immediately and classify via `classify_step_failure`; a product_defect verdict raises `ProductDefectError` carrying the verdict and the full failure description of the candidate in the error field, any other verdict raises `IncurableStepError` carrying them — the reason names the failed candidate check; provider unavailability at this classification is skipped quietly with a WARNING — `IncurableStepError` is raised without a verdict, the reason naming the failed candidate check and the error field carrying the full failure description (the failed check is the primary signal, the verdict is enrichment)
+      6. On a failed check — an AssertionError that survived the settle window: classify via `classify_step_failure`; a product_defect verdict raises `ProductDefectError` carrying the verdict and the full failure description of the candidate in the error field; an incurable verdict raises `IncurableStepError` carrying them; a rot or fixable verdict grants exactly one regeneration: try_healing funds it — a refused funding leaves the failure terminal `IncurableStepError` carrying the verdict, the reason naming the exhausted healing pool; the request carries the classification recommendation — a success stores and returns the healed step; a repeat failure gets one final classification deciding only the terminal kind — product_defect raises `ProductDefectError`, anything else raises `IncurableStepError` — no further regeneration; provider unavailability at these classifications is skipped quietly with a WARNING — the failure raises without a verdict as IncurableStepError, the conservative default uniform with the unrecognized-label fallback, the reason naming the failed candidate check
       7. On any other candidate failure: repeat from step 1 with the fresh failure description and the fresh snapshot, while attempts remain
-      8. On budget exhaustion: classify the last candidate via `classify_step_failure` and raise `IncurableStepError` carrying the verdict and the last candidate failure in the error field — the reason names the exhausted pool; provider unavailability at this classification is skipped quietly with a WARNING, the failure raises without a verdict
-      9. Report on_generation_started for every attempt
+      8. On budget exhaustion: classify the last candidate via `classify_step_failure`; a rot or fixable verdict grants exactly one extra regeneration funded by try_healing and carrying the recommendation — a refused funding leaves the failure terminal `IncurableStepError` carrying the verdict, the reason naming the exhausted healing pool; a repeat failure is terminal `IncurableStepError` carrying the verdict, no reclassification; a product_defect verdict raises `ProductDefectError` carrying the verdict and the last candidate failure in the error field; an incurable verdict raises `IncurableStepError` carrying them — the reason names the exhausted pool; provider unavailability at this classification is skipped quietly with a WARNING, the failure raises without a verdict
+      9. Report on_generation_started for every LLM attempt
 
       Requirements:
       - Every generation request carries the exact page API surface taken from `facade` from Imports: the model always sees the precise list of calls it may use
       - Provider unavailability of a generation request surfaces as `LLMUnavailableError` immediately — no retry on it
-      - Provider unavailability of a failed-check classification is skipped quietly with a WARNING: the failure raises without a verdict — the failed check itself is the primary signal
-      - Exactly one failed check stops the retries: the attempt budget is never spent on a legitimately failing assertion
+      - Provider unavailability of a classification is skipped quietly with a WARNING: the failure raises without a verdict — the failed check itself is the primary signal
+      - Exactly one failed check drives the bounded healing rule; the attempt budget is never spent on a legitimately failing assertion beyond it
       - A verdict requested on this path fully reaches the raised error
-    "regenerate(identity: StepIdentity, step_text: str, previous_steps: list[str], page: PageFacade, existing_code: str, error: str) -> step: CachedStep": |
+      - Every verdict-preceded regeneration request carries the classification recommendation — regeneration starts from the diagnosis, not the raw error
+      - The raised IncurableStepError carries the failed step code in the code field
+    "regenerate(identity: StepIdentity, step_text: str, previous_steps: list[str], page: PageFacade, existing_code: str, error: str, recommendation: str, window: SettleWindow) -> step: CachedStep": |
       Regenerate a failed step for healing.
 
+      `recommendation`: the diagnosis of the classification that launched the healing; non-empty — rendered into every request as the RECOMMENDATION block.
+      `window`: the settle window of the current step execution.
+
       Algorithm:
-      1. The same loop as the generate method with three additions: every provider request carries `existing_code` and `error` and the user instructions — the effective config generation_prompt — when non-empty; attempts consume the healing budget via try_healing; a budget exhaustion raises `IncurableStepError` without classification — the healer attaches the verdict of its own classification, no extra LLM request is made (the failed-check classification of the generate loop applies on both pools)
+      1. The same loop as the generate method with four differences: every provider request carries `existing_code`, `error` and `recommendation` plus the user instructions — the effective config generation_prompt — when non-empty; attempts consume the healing budget via try_healing; candidate executions run under `settle` with `window`; a failed attempt of any kind — a failed check included — retries with the fresh failure description and the fresh snapshot while attempts remain: no per-attempt classification inside the loop (rejected: LLM cost), the entry classification already guards the anti-masking
+      2. A budget exhaustion raises `IncurableStepError` without an extra classification — the verdict of the entry classification is carried, the reason names the exhausted pool
 
 "format_step_error(exc: Exception) -> text: str":
   location: text.py
@@ -206,24 +190,25 @@ Annotations: |
     `budgets`: the per-test attempt registry.
     `reporter`: the visibility point.
   methods:
-    "heal(step: CachedStep, error: str, previous_steps: list[str], page: PageFacade) -> step: CachedStep": |
+    "heal(step: CachedStep, error: str, previous_steps: list[str], page: PageFacade, window: SettleWindow) -> step: CachedStep": |
       Classify and heal a failed cached step.
 
       `previous_steps`: the sentences of the previous steps of the test, in execution order — scenario context for regeneration.
+      `window`: the settle window of the current step execution.
 
       Algorithm:
       1. Classify the failure via `classify_step_failure` — the verdict is a `FailureClassification`
       2. Report on_healing_started with the category
       3. product_defect: raise `ProductDefectError` carrying the verdict built from the classification and the full underlying error in the error field — the message states what was expected against what was observed; the recommendation reaches the error through the verdict
       4. incurable: raise `IncurableStepError` carrying the verdict and the full underlying error in the error field; the reason names the classification explanation of incurability
-      5. rot: regenerate via the generator regenerate — its loop executes the candidate and stores the healed step on success; report on_healed with the explanation of what was rot and what changed, return the healed step
+      5. rot and fixable: regenerate via the generator regenerate — the request carries the classification recommendation, the loop executes the candidate under the settle window and stores the healed step on success; report on_healed with the explanation of what failed and what changed, return the healed step
       6. A regeneration budget exhaustion inside step 5 surfaces as `IncurableStepError` carrying the verdict of the step 1 classification — the reason names the exhausted pool; no extra LLM request is made
       7. Provider unavailability of the classification surfaces as `LLMUnavailableError` — an explicit infrastructure failure
 
       Requirements:
-      - Anti-masking: healing may only turn a rot-failed step green; a classified product defect always fails the test
+      - Anti-masking: healing may only turn a rot- or fixable-failed step green; a classified product defect always fails the test
       - The healed code replaces the cached code only after a successful execution
-      - Every verdict produced on the paths of this method fully reaches the raised error
+      - Every verdict produced on the paths of this method fully reaches the raised error; the raised IncurableStepError carries the failed step code in the code field
 
 ---
 

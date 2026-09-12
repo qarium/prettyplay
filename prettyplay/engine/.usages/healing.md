@@ -6,15 +6,15 @@ Domain: healing a failed cached step. Audience: library internals and engineers 
 
 ```python
 healed = healer.heal(
-    step=failed_step, error="element not found: button «Sign in»", previous_steps=["open the login page"], page=page
+    step=failed_step, error="element not found: button «Sign in»", previous_steps=["open the login page"], page=page, window=window
 )
 ```
 
-The classification verdict decides the path:
+The classification verdict decides the path — the uniform decision table:
 
 | Category | Path |
 |---|---|
-| rot | regenerate from the current page within the healing budget (default 2), execute, save back to the cache, report loudly |
+| rot, fixable | regenerate from the current page within the healing budget (default 2), the request carrying the classification recommendation as a RECOMMENDATION block; execute under the settle window, save back to the cache on success, report loudly |
 | product_defect | raise ProductDefectError carrying the verdict — category, explanation and recommendation all reach the exception message, the on_step_verdict hook and the log |
 | incurable | raise IncurableStepError carrying the verdict; the reason names the incurability cause |
 
@@ -23,10 +23,12 @@ The classification verdict decides the path:
 - Anti-masking: healing never turns a product defect into a green test
 - The healed code replaces the cached code only after a successful execution
 - Generation and healing attempts live in one per-test registry — owned by the runtime of the test — with separate per-step limits (default 3 and 2)
-- A regeneration budget exhaustion after rot raises IncurableStepError carrying the verdict of the original rot classification — no extra LLM request
+- Inside the regeneration loop no per-attempt classification happens (rejected: LLM cost): a failed attempt of any kind — a failed check included — retries with the fresh error and snapshot while budget remains; the entry classification guards the anti-masking
+- A regeneration budget exhaustion raises IncurableStepError carrying the verdict of the original classification — no extra LLM request
 - Provider unavailability during the classification raises LLMUnavailableError — an explicit infrastructure failure
 - Healing never runs in strict mode: a failed cached step is at most classified, never regenerated
+- Interactive steering attempts are separate from healing: they consume no budgets and report their own healings
 
 ## Verdicts
 
-Every terminal failure carries its verdict in full and the full underlying error in the error field: the exception message is the structured render — the primary reason, the `---` separated step/error block, the column-aligned verdict block; the same text reaches on_step_verdict (structured fields) and the log record.
+Every terminal failure carries its verdict in full and the full underlying error in the error field: the exception message is the structured render — the primary reason, the `---` separated step/error block, the column-aligned verdict block; the same text reaches on_step_verdict (structured fields) and the log record. The terminal errors also carry the failed step code in the code field — a programmatic field, never rendered.

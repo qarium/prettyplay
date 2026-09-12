@@ -1,6 +1,6 @@
 # Run lifecycle
 
-Domain: how a run is composed — runtimes, contexts, hooks, failures, strict mode. Audience: integrators wiring the library into a runner and CI.
+Domain: how a run is composed — runtimes, contexts, hooks, failures, strict mode, polling, steering. Audience: integrators wiring the library into a runner and CI.
 
 ## Composition
 
@@ -17,6 +17,12 @@ test = PrettyPlay(
         browser=BrowserConfig(screen="fullscreen", headless=False),
     ),
 )
+
+# a local generation session with polling and steering
+test = PrettyPlay(
+    cache_key="login",
+    config=PrettyConfig(polling_timeout=8.0, interactive=True),
+)
 ```
 
 ## Wiring into a framework
@@ -25,18 +31,34 @@ The library is framework-agnostic: no plugins, no base classes. Construct the ob
 
 ## Strict mode — replay-only CI runs
 
-`strict = true` (env PRETTYPLAY_STRICT, per-test override) turns the run into an honest replay: cached code executes exactly as stored and nothing is ever (re)generated.
+`strict = true` (env PRETTYPLAY_STRICT, per-test override) turns the run into an honest replay: cached code executes exactly as stored and nothing is ever (re)generated. Settle polling still applies to cached code — re-executing it is execution, not generation.
 
 - A cache miss fails the step as IncurableStepError stating that strict mode forbids generation — an expected CI signal: generating a step is a deliberate non-strict act
-- A failed cached step is classified when LLM access is configured: product_defect raises ProductDefectError, rot/incurable raises IncurableStepError — never regenerated
+- A failed cached step is classified when LLM access is configured: product_defect raises ProductDefectError, rot/fixable/incurable raises IncurableStepError — never regenerated
 - Without LLM access the failure raises immediately by step type — an assertion step raises ProductDefectError, an action step raises IncurableStepError — each carrying the full underlying error; a WARNING is logged
 - Classifications are the only LLM calls; generation and healing budgets are never consumed
 
 Team workflow: generate locally where the LLM is reachable, commit the cache directory, run CI fully from the cache with no LLM keys — optionally with strict=true for guaranteed replay-only behavior.
 
+## Settle polling
+
+`polling_timeout` (default None — off; 0 — explicit disable) opens one settle window per step execution, measured
+from the first execution of the step's code: a transient failure of a pollable kind re-executes the same code after
+`polling_delay` (default 0.5 s) until success or window end. Attempts appear as settle_retry log records; no LLM
+budget is consumed. Locator ambiguity and Python-level errors of the step code never poll.
+
+## Interactive steering
+
+`interactive = true` (env PRETTYPLAY_INTERACTIVE, per-test override) arms the steering REPL for local generation
+sessions: when a step terminally fails with IncurableStepError, a terminal dialog opens — step, failed code, error,
+verdict, snapshot fragment, screenshot path — and every engineer message drives one regeneration executed against the
+live page. A green turn heals the step and writes it back to the cache; quit/EOF/SIGINT raises the original terminal
+failure. The dialog never opens on product_defect, in strict mode, or without LLM access, and consumes no budgets.
+Keep it off in CI — an accidentally opened dialog would hang the run.
+
 ## Hooks
 
-Implement the StepHooks callback contract and register the implementation — either pass the list to the keyword-only constructor parameter `hooks` (events are captured from the very construction) or call add_hooks before the first step. Step, generation, healing, cache and verdict events reach the handler synchronously. on_step_failed carries the full rendered failure message; on_step_verdict fires after it whenever the terminal failure carries an LLM verdict. In strict mode generation and healing events never fire.
+Implement the StepHooks callback contract and register the implementation — either pass the list to the keyword-only constructor parameter `hooks` (events are captured from the very construction) or call add_hooks before the first step. Step, generation, healing, cache and verdict events reach the handler synchronously. on_step_failed carries the full rendered failure message; on_step_verdict fires after it whenever the terminal failure carries an LLM verdict; on_step_finished closes every step exactly once, passed or failed. In strict mode generation and healing events never fire.
 
 ## Failures
 
@@ -67,4 +89,4 @@ test.expect("the «Welcome back» message appears")
 test.close()  # stops this test's browser and driver thread
 ```
 
-Generation of the step cache remains a batch workflow: prefer a plain script or a pytest run over a REPL when generating many steps.
+Generation of the step cache remains a batch workflow: prefer a plain script or a pytest run over a REPL when generating many steps. The `interactive` setting of the previous section is a different thing entirely: it is the steering dialog of a stuck step, not a host mode.

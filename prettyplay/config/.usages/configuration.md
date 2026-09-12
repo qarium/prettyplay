@@ -16,6 +16,9 @@ generation_attempts = 3
 healing_attempts = 2
 send_screenshots = false
 strict = false             # replay-only mode; default false
+polling_timeout = 6.0      # None (default) — polling off; 0 — explicit disable; >0 — settle window seconds
+polling_delay = 0.5        # pause between re-executions, seconds
+interactive = false        # opt-in steering REPL; default false
 generation_prompt = ""     # user instructions for generation requests; empty -> no block
 classification_prompt = "" # user instructions for classification requests; empty -> no block
 
@@ -48,6 +51,9 @@ Every setting has an override for CI — env variable PRETTYPLAY_<SETTING> in up
 | healing_attempts | PRETTYPLAY_HEALING_ATTEMPTS |
 | send_screenshots | PRETTYPLAY_SEND_SCREENSHOTS |
 | strict | PRETTYPLAY_STRICT |
+| polling_timeout | PRETTYPLAY_POLLING_TIMEOUT |
+| polling_delay | PRETTYPLAY_POLLING_DELAY |
+| interactive | PRETTYPLAY_INTERACTIVE |
 | generation_prompt | PRETTYPLAY_GENERATION_PROMPT |
 | classification_prompt | PRETTYPLAY_CLASSIFICATION_PROMPT |
 
@@ -66,16 +72,38 @@ test = PrettyPlay(
     cache_key="login-flow",
     config=PrettyConfig(
         strict=True,
+        polling_timeout=8.0,
+        interactive=True,
         browser=BrowserConfig(screen="fullscreen", headless=False),
     ),
 )
 ```
 
 - An explicitly set field wins over pyproject+env; a field left at its default falls back to the file layer
-- The merge reaches inside the nested group: explicitly set fields of a passed BrowserConfig win over the file layer; untouched group defaults never overwrite file values — set only `screen` and the file's `name`, `headless`, `endpoint`, `accept_dialogs` keep working
-- `strict` participates when passed explicitly — an explicit False overrides the file value too
+- The merge reaches inside the nested group: explicitly set fields of a passed BrowserConfig win over the file layer; untouched group defaults never overwrite file values
+- `strict` and `interactive` participate when passed explicitly — an explicit False overrides the file value too
+- `polling_timeout` passed as None is indistinguishable from unset — disable polling for one test with `0.0`
 - File values you did not touch survive: base_url and model set only in pyproject.toml keep working when a config is passed
 - One model — one place of validation: file and programmatic values validate identically
+
+## Settle polling
+
+`polling_timeout` is the total settle horizon of one step execution — the window starts with the first execution of
+the step's code (cached or candidate); the facade's internal waits count inside it. A transient failure of a pollable
+kind with time remaining re-executes the same code after `polling_delay` until success or window end — no LLM budget
+is consumed, attempts are visible as settle_retry log records. Locator ambiguity and Python-level errors of the step
+code never poll. Polling is opt-in: the default `None` (and `0`) keeps it off; polling applies in strict replay too —
+re-executing cached code is execution, not generation.
+
+## Interactive steering
+
+`interactive` (default false, env PRETTYPLAY_INTERACTIVE, per-test override) enables the steering REPL: when a step
+terminally fails with IncurableStepError on a non-strict run, a terminal dialog opens showing the step, the failed
+code, the error and the verdict; each engineer message drives one regeneration executed against the live page. Opt-in
+by design — an accidentally enabled REPL must never hang CI. This is the steering dialog of a stuck step; it is
+unrelated to interactive hosts (IPython, Jupyter) — see the library lifecycle docs. The REPL never opens on
+product_defect, in strict replay, or when the LLM is unavailable; quit/EOF/SIGINT raises the original terminal
+failure.
 
 ## Browsers
 
@@ -106,7 +134,7 @@ The `screen` field of the browser group is the single size setting:
 
 ## Strict mode
 
-`strict = true` (env PRETTYPLAY_STRICT, per-test override) switches the run to replay-only: cached code executes honestly and nothing is ever (re)generated. A cache miss fails as an incurable step; a failed cached step is at most classified — never regenerated. Classification is the only LLM call strict mode makes; without LLM access the failure raises immediately by step type.
+`strict = true` (env PRETTYPLAY_STRICT, per-test override) switches the run to replay-only: cached code executes honestly and nothing is ever (re)generated. A cache miss fails as an incurable step; a failed cached step is at most classified — never regenerated. Settle polling applies to cached code (re-execution, not generation). Classification is the only LLM call strict mode makes; without LLM access the failure raises immediately by step type.
 
 ## Remote execution
 
@@ -119,6 +147,7 @@ A non-empty browser.endpoint switches the test to connecting over the Playwright
 - The provider set: openai, anthropic; the browser name set: chromium, firefox, webkit, chrome, msedge
 - A non-empty browser.endpoint must be a valid ws/wss URL
 - The cache root default: <cwd>/.prettyplay/cache/ — anchored at the working directory of the run, wherever the pyproject.toml was found
+- polling_timeout is None or non-negative; polling_delay is non-negative — violations fail loudly at load
 - generation_prompt reaches generation and regeneration requests only; classification_prompt reaches classification requests only — neither ever invalidates the cache
 
 ## Loading
@@ -127,5 +156,5 @@ A non-empty browser.endpoint switches the test to connecting over the Playwright
 from prettyplay.config import load_config
 
 config = load_config(pyproject_path=None)  # locates pyproject.toml upwards from the current directory
-print(config.browser.name, config.browser.accept_dialogs, config.strict, config.classification_prompt)
+print(config.browser.name, config.polling_timeout, config.interactive)
 ```

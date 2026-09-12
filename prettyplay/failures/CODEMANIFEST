@@ -9,6 +9,8 @@ Annotations: |
   The rendered message of a terminal failure follows the single structured template: the primary reason alone on the first line — no kind label and no internal colons, the exception type prefix rendered by the runner supplies the kind; then --- separated blocks.
   One render — produced at exception construction through `render_terminal_message` — feeds the exception message, the log record and the on_step_failed hook payload; consumers never re-compose.
   Reason texts authored by the engines and the executor are written without colons — the first-line contract of the render.
+  The verdict category label set is four: rot, product_defect, fixable, incurable — the fixable label names the world state where the step code is at fault (an ambiguous or wrong locator or strategy) while the intent stays satisfiable and regeneration for the same intent can help; rot keeps its pure meaning: the UI changed.
+  IncurableStepError additionally carries the failed step code — empty when unknown; a field for programmatic consumers only: never rendered, never carried by hook or log payloads.
 
 ---
 
@@ -49,7 +51,7 @@ Annotations: |
   annotations: |
     The verdict of a terminal step failure: what the LLM saw on the page at the moment of the failure and what the engineer should do next.
 
-    `category`: the classification label: rot, product_defect or incurable — travels in structured fields only, never in the render.
+    `category`: the classification label: rot, product_defect, fixable or incurable — travels in structured fields only, never in the render.
     `explanation`: what happened on the page — one short sentence.
     `recommendation`: the recommended engineer action — one short sentence.
 
@@ -57,7 +59,7 @@ Annotations: |
     - Built by the engines and the strict-mode executor from the failure classification; the failure types never request it themselves
   properties:
     "category -> str": |
-      The classification label: rot, product_defect or incurable.
+      The classification label: rot, product_defect, fixable or incurable.
     "explanation -> str": |
       What happened on the page at the moment of the failure.
     "recommendation -> str": |
@@ -104,7 +106,7 @@ Annotations: |
     "verdict -> FailureVerdict | None": |
       The optional failure verdict; None — the explicit absence when the LLM was unavailable.
 
-"PrettyplayError::IncurableStepError(step_text: str, reason: str, error: str, verdict: FailureVerdict | None)":
+"PrettyplayError::IncurableStepError(step_text: str, reason: str, error: str, code: str, verdict: FailureVerdict | None)":
   location: errors.py
   annotations: |
     An incurable step: regeneration cannot produce working code — the attempt budget is exhausted, the step text no longer matches the application reality, the intent is ambiguous, or strict mode forbids generation.
@@ -112,12 +114,16 @@ Annotations: |
     `step_text`: the sentence of the failed step.
     `reason`: the specific incurability cause — the primary reason of the rendered message; authored without colons.
     `error`: the full underlying error text of the failed step code, locator details included; empty — the render carries no error line.
+    `code`: the step code that terminally failed; filled by the raiser — the cached step code on the healing and strict failure paths, the last candidate code on the generation path; empty — unknown (the strict cache miss carries none).
     `verdict`: the optional `FailureVerdict` — reused from a classification that already happened or requested at budget exhaustion; absent when the LLM was unavailable.
 
     Requirements:
     - The recommendation is carried by `verdict`; the recommendation property derives from it, falling back to the built-in path guidance when the verdict is absent
     - The rendered message is composed through `render_terminal_message` from `reason`, `step_text`, `error` and `verdict`; the fallback recommendation keeps the message actionable without a verdict
     - An execution failure, not a failed check: derives from `PrettyplayError` only, never from AssertionError
+
+    Constraints:
+    - `code` is a field for programmatic consumers only — never rendered, never carried by hook or log payloads; the code lives in the cache and the log
   properties:
     "step_text -> str": |
       The sentence of the failed step.
@@ -125,6 +131,8 @@ Annotations: |
       The specific incurability cause.
     "error -> str": |
       The full underlying error text of the failed step code; empty means no underlying code error.
+    "code -> str": |
+      The step code that terminally failed; empty means unknown.
     "recommendation -> str": |
       The recommended engineer action: verdict recommendation when present, the built-in path guidance otherwise.
     "verdict -> FailureVerdict | None": |
