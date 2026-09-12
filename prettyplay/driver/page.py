@@ -313,9 +313,18 @@ class LocatorFacade:
 
         return self._worker.run(fn)
 
-    def click(self) -> None:
-        """Click the element with auto-wait."""
-        self._call(self._locator.click)
+    def click(self, button: str = "") -> None:
+        """Click the element, waiting for actionability.
+
+        Args:
+            button: the mouse button — empty for the left button, ``right`` for
+                the right button, ``middle`` for the middle button.
+        """
+        self._call(lambda: self._locator.click(button=button or "left"))
+
+    def dblclick(self) -> None:
+        """Double-click the element, waiting for actionability."""
+        self._call(self._locator.dblclick)
 
     def fill(self, value: str) -> None:
         """Set the text input value of the element.
@@ -325,17 +334,61 @@ class LocatorFacade:
         """
         self._call(lambda: self._locator.fill(value))
 
+    def clear(self) -> None:
+        """Clear the text input value of the element."""
+        self._call(self._locator.clear)
+
+    def press(self, key: str) -> None:
+        """Press a single key or a key combination on the element, waiting for actionability.
+
+        Args:
+            key: the key name or combination, e.g. ``Enter`` or ``Control+A``.
+        """
+        self._call(lambda: self._locator.press(key))
+
+    def check(self) -> None:
+        """Check the checkbox or radio button, waiting for actionability."""
+        self._call(self._locator.check)
+
+    def uncheck(self) -> None:
+        """Uncheck the checkbox or radio button, waiting for actionability."""
+        self._call(self._locator.uncheck)
+
+    def hover(self) -> None:
+        """Hover the element, waiting for actionability."""
+        self._call(self._locator.hover)
+
     def select_option(self, value: str) -> None:
-        """Choose one option of the element.
+        """Select the option with the value in a list or combo box.
 
         Args:
             value: the value of the option to choose.
         """
         self._call(lambda: self._locator.select_option(value))
 
+    def drag_to(self, target: LocatorFacade) -> None:
+        """Drag this element onto the target element, auto-waiting both endpoints.
+
+        Args:
+            target: the located drop target element.
+        """
+        self._call(lambda: self._locator.drag_to(target._locator))
+
+    def set_input_files(self, path: str) -> None:
+        """Upload one file to the file input.
+
+        Args:
+            path: the filesystem path of the file to upload.
+        """
+        self._call(lambda: self._locator.set_input_files(path))
+
     def expect_visible(self) -> None:
         """Assert the element is visible."""
         self._call(lambda: expect(self._locator).to_be_visible())
+
+    def expect_hidden(self) -> None:
+        """Assert the element is hidden."""
+        self._call(lambda: expect(self._locator).to_be_hidden())
 
     def expect_text(self, text: str) -> None:
         """Assert the element contains the text.
@@ -348,3 +401,32 @@ class LocatorFacade:
     def expect_enabled(self) -> None:
         """Assert the element is enabled."""
         self._call(lambda: expect(self._locator).to_be_enabled())
+
+    def expect_value(self, value: str) -> None:
+        """Assert the element input value equals the value.
+
+        Args:
+            value: the exact input value the element must have.
+        """
+        self._call(lambda: expect(self._locator).to_have_value(value))
+
+    def expect_checked(self) -> None:
+        """Assert the checkbox or radio is checked."""
+        self._call(lambda: expect(self._locator).to_be_checked())
+
+    def expect_count(self, count: int) -> None:
+        """Assert the locator resolves to exactly the count elements.
+
+        Args:
+            count: the number of elements the locator must match.
+        """
+        self._call(lambda: expect(self._locator).to_have_count(count))
+
+    def expect_attribute(self, name: str, value: str) -> None:
+        """Assert the attribute of the element equals the value.
+
+        Args:
+            name: the attribute name to read.
+            value: the exact attribute value to expect.
+        """
+        self._call(lambda: expect(self._locator).to_have_attribute(name, value))

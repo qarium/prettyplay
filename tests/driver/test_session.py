@@ -194,7 +194,7 @@ class FakeLocator:
         self._factory = factory
         self.fail_on_click = False
 
-    def click(self) -> None:
+    def click(self, button: str = "left") -> None:
         self._factory.threads.append(threading.get_ident())
         if self.fail_on_click:
             raise AssertionError("element not stable")
@@ -513,15 +513,20 @@ class TestDriverSessionConnect:
         assert isinstance(page, PageFacade)
 
 
+def viewport_params(width: int, height: int) -> dict:
+    """The expected new_context kwargs of a WxH-shaped screen value."""
+    return {"viewport": {"width": width, "height": height}}
+
+
 SCREEN_MODE_MATRIX = [
     # (case, name, screen, headless, endpoint, expected launch kwargs, expected new_context kwargs)
     # expected launch kwargs None — the remote connect path (connect, no launch)
     ("empty-headed", "chromium", "", False, "", {"headless": False}, {}),
     ("empty-headless", "chromium", "", True, "", {"headless": True}, {}),
     ("empty-remote", "chromium", "", False, "ws://grid:3000", None, {}),
-    ("wxh-headed", "chromium", "1280x720", False, "", {"headless": False}, {"viewport": {"width": 1280, "height": 720}}),
-    ("wxh-headless", "chromium", "1280x720", True, "", {"headless": True}, {"viewport": {"width": 1280, "height": 720}}),
-    ("wxh-remote", "chromium", "1280x720", False, "ws://grid:3000", None, {"viewport": {"width": 1280, "height": 720}}),
+    ("wxh-headed", "chromium", "1280x720", False, "", {"headless": False}, viewport_params(1280, 720)),
+    ("wxh-headless", "chromium", "1280x720", True, "", {"headless": True}, viewport_params(1280, 720)),
+    ("wxh-remote", "chromium", "1280x720", False, "ws://grid:3000", None, viewport_params(1280, 720)),
     ("device-headed", "chromium", "iPhone 13", False, "", {"headless": False}, dict(IPHONE_13_DESCRIPTOR)),
     ("device-headless", "chromium", "iPhone 13", True, "", {"headless": True}, dict(IPHONE_13_DESCRIPTOR)),
     ("device-remote", "chromium", "iPhone 13", False, "ws://grid:3000", None, dict(IPHONE_13_DESCRIPTOR)),
@@ -543,8 +548,8 @@ SCREEN_MODE_MATRIX = [
         {"headless": False, "channel": "chrome", "args": ["--start-maximized"]},
         {"no_viewport": True},
     ),
-    ("fullscreen-headless", "chromium", "fullscreen", True, "", {"headless": True}, {"viewport": {"width": 1920, "height": 1080}}),
-    ("fullscreen-remote", "chromium", "fullscreen", False, "ws://grid:3000", None, {"viewport": {"width": 1920, "height": 1080}}),
+    ("fullscreen-headless", "chromium", "fullscreen", True, "", {"headless": True}, viewport_params(1920, 1080)),
+    ("fullscreen-remote", "chromium", "fullscreen", False, "ws://grid:3000", None, viewport_params(1920, 1080)),
     ("fullscreen-firefox-headed", "firefox", "fullscreen", False, "", {"headless": False}, {"no_viewport": True}),
     ("fullscreen-webkit-headed", "webkit", "fullscreen", False, "", {"headless": False}, {"no_viewport": True}),
 ]
@@ -585,19 +590,12 @@ class TestDriverSessionScreenModes:
     """Logic tests: the screen-mode matrix of the context creation and unknown devices."""
 
     @pytest.mark.parametrize(
-        ("name", "screen", "headless", "endpoint", "expected_launch", "expected_context"),
-        [row[1:] for row in SCREEN_MODE_MATRIX],
+        "mode",
+        SCREEN_MODE_MATRIX,
         ids=[row[0] for row in SCREEN_MODE_MATRIX],
     )
-    def test_open_context_screen_modes(
-        self,
-        name: str,
-        screen: str,
-        headless: bool,
-        endpoint: str,
-        expected_launch: dict | None,
-        expected_context: dict,
-    ) -> None:
+    def test_open_context_screen_modes(self, mode: tuple) -> None:
+        _, name, screen, headless, endpoint, expected_launch, expected_context = mode
         factory = FakePlaywrightFactory()
         factory.devices = {"iPhone 13": IPHONE_13_DESCRIPTOR, "Pixel 7": PIXEL_7_DESCRIPTOR}
 

@@ -2,9 +2,11 @@
 
 import inspect
 import threading
+from collections.abc import Callable
 from typing import Any, get_type_hints
 from unittest import mock
 
+import pytest
 from prettyplay.driver import LocatorFacade, PageFacade
 
 
@@ -31,6 +33,21 @@ class FakeExpectation:
 
     def to_be_enabled(self) -> None:
         self._assertions.append("to_be_enabled")
+
+    def to_be_hidden(self) -> None:
+        self._assertions.append("to_be_hidden")
+
+    def to_have_value(self, value: str) -> None:
+        self._assertions.append(("to_have_value", value))
+
+    def to_be_checked(self) -> None:
+        self._assertions.append("to_be_checked")
+
+    def to_have_count(self, count: int) -> None:
+        self._assertions.append(("to_have_count", count))
+
+    def to_have_attribute(self, name: str, value: str) -> None:
+        self._assertions.append(("to_have_attribute", name, value))
 
 
 class FakeMouse:
@@ -68,16 +85,40 @@ class FakeLocator:
         self.element_handle_returns_self_locator = True
         self.fail_on_click = False
 
-    def click(self) -> None:
-        self.calls.append(("click",))
+    def click(self, button: str = "left") -> None:
+        self.calls.append(("click", button))
         if self.fail_on_click:
             raise AssertionError("element not stable")
+
+    def dblclick(self) -> None:
+        self.calls.append(("dblclick",))
 
     def fill(self, value: str) -> None:
         self.calls.append(("fill", value))
 
+    def clear(self) -> None:
+        self.calls.append(("clear",))
+
+    def press(self, key: str) -> None:
+        self.calls.append(("press", key))
+
+    def check(self) -> None:
+        self.calls.append(("check",))
+
+    def uncheck(self) -> None:
+        self.calls.append(("uncheck",))
+
+    def hover(self) -> None:
+        self.calls.append(("hover",))
+
     def select_option(self, value: str) -> None:
         self.calls.append(("select_option", value))
+
+    def drag_to(self, target: "FakeLocator") -> None:
+        self.calls.append(("drag_to", target))
+
+    def set_input_files(self, path: str) -> None:
+        self.calls.append(("set_input_files", path))
 
     def scroll_into_view_if_needed(self) -> None:
         self.calls.append(("scroll_into_view_if_needed",))
@@ -256,12 +297,84 @@ class TestPageFacadeContract:
         assert list(inspect.signature(PageFacade.scroll_container_up).parameters) == ["self", "container", "pixels"]
 
     def test_locator_facade_signatures_match_contract(self) -> None:
-        assert list(inspect.signature(LocatorFacade.click).parameters) == ["self"]
+        assert list(inspect.signature(LocatorFacade.click).parameters) == ["self", "button"]
+        assert inspect.signature(LocatorFacade.click).parameters["button"].default == ""
         assert list(inspect.signature(LocatorFacade.fill).parameters) == ["self", "value"]
         assert list(inspect.signature(LocatorFacade.select_option).parameters) == ["self", "value"]
         assert list(inspect.signature(LocatorFacade.expect_visible).parameters) == ["self"]
         assert list(inspect.signature(LocatorFacade.expect_text).parameters) == ["self", "text"]
         assert list(inspect.signature(LocatorFacade.expect_enabled).parameters) == ["self"]
+
+    def test_locator_facade_interaction_surface_matches_contract(self) -> None:
+        surface = [
+            "dblclick",
+            "clear",
+            "press",
+            "check",
+            "uncheck",
+            "hover",
+            "drag_to",
+            "set_input_files",
+            "expect_hidden",
+            "expect_value",
+            "expect_checked",
+            "expect_count",
+            "expect_attribute",
+        ]
+
+        for name in surface:
+            assert hasattr(LocatorFacade, name), name
+
+    def test_locator_facade_interaction_signatures_match_contract(self) -> None:
+        assert list(inspect.signature(LocatorFacade.dblclick).parameters) == ["self"]
+        assert list(inspect.signature(LocatorFacade.clear).parameters) == ["self"]
+        assert list(inspect.signature(LocatorFacade.press).parameters) == ["self", "key"]
+        assert list(inspect.signature(LocatorFacade.check).parameters) == ["self"]
+        assert list(inspect.signature(LocatorFacade.uncheck).parameters) == ["self"]
+        assert list(inspect.signature(LocatorFacade.hover).parameters) == ["self"]
+        assert list(inspect.signature(LocatorFacade.drag_to).parameters) == ["self", "target"]
+        assert list(inspect.signature(LocatorFacade.set_input_files).parameters) == ["self", "path"]
+        assert list(inspect.signature(LocatorFacade.expect_hidden).parameters) == ["self"]
+        assert list(inspect.signature(LocatorFacade.expect_value).parameters) == ["self", "value"]
+        assert list(inspect.signature(LocatorFacade.expect_checked).parameters) == ["self"]
+        assert list(inspect.signature(LocatorFacade.expect_count).parameters) == ["self", "count"]
+        assert list(inspect.signature(LocatorFacade.expect_attribute).parameters) == ["self", "name", "value"]
+
+    def test_locator_facade_interaction_annotations_match_contract(self) -> None:
+        click_hints = get_type_hints(LocatorFacade.click)
+        assert click_hints["button"] is str
+        assert click_hints["return"] is type(None)
+
+        press_hints = get_type_hints(LocatorFacade.press)
+        assert press_hints["key"] is str
+        assert press_hints["return"] is type(None)
+
+        drag_hints = get_type_hints(LocatorFacade.drag_to)
+        assert drag_hints["target"] is LocatorFacade
+        assert drag_hints["return"] is type(None)
+
+        files_hints = get_type_hints(LocatorFacade.set_input_files)
+        assert files_hints["path"] is str
+        assert files_hints["return"] is type(None)
+
+        hidden_hints = get_type_hints(LocatorFacade.expect_hidden)
+        assert hidden_hints["return"] is type(None)
+
+        value_hints = get_type_hints(LocatorFacade.expect_value)
+        assert value_hints["value"] is str
+        assert value_hints["return"] is type(None)
+
+        checked_hints = get_type_hints(LocatorFacade.expect_checked)
+        assert checked_hints["return"] is type(None)
+
+        count_hints = get_type_hints(LocatorFacade.expect_count)
+        assert count_hints["count"] is int
+        assert count_hints["return"] is type(None)
+
+        attribute_hints = get_type_hints(LocatorFacade.expect_attribute)
+        assert attribute_hints["name"] is str
+        assert attribute_hints["value"] is str
+        assert attribute_hints["return"] is type(None)
 
     def test_page_facade_annotations_match_contract(self) -> None:
         hints = get_type_hints(PageFacade.open)
@@ -555,7 +668,51 @@ class TestLocatorFacadeLogic:
         element.fill("user")
         element.select_option("RU")
 
-        assert element._locator.calls == [("click",), ("fill", "user"), ("select_option", "RU")]
+        assert element._locator.calls == [("click", "left"), ("fill", "user"), ("select_option", "RU")]
+
+    @pytest.mark.parametrize(
+        ("action", "expected"),
+        [
+            (lambda element: element.dblclick(), ("dblclick",)),
+            (lambda element: element.clear(), ("clear",)),
+            (lambda element: element.press("Control+A"), ("press", "Control+A")),
+            (lambda element: element.check(), ("check",)),
+            (lambda element: element.uncheck(), ("uncheck",)),
+            (lambda element: element.hover(), ("hover",)),
+            (lambda element: element.select_option("red"), ("select_option", "red")),
+            (lambda element: element.set_input_files("avatar.png"), ("set_input_files", "avatar.png")),
+        ],
+    )
+    def test_element_action_family_delegates(self, action: Callable[["LocatorFacade"], None], expected: tuple) -> None:
+        element = make_locator_facade(FakeLocator())
+
+        action(element)
+
+        assert element._locator.calls == [expected]  # each mirror call recorded with exact args
+
+    def test_click_maps_button_values(self) -> None:
+        element = make_locator_facade(FakeLocator())
+
+        element.click()
+        element.click("")
+        element.click("right")
+        element.click("middle")
+
+        assert element._locator.calls == [
+            ("click", "left"),  # the empty button means the left mouse button
+            ("click", "left"),
+            ("click", "right"),
+            ("click", "middle"),
+        ]
+
+    def test_drag_to_receives_the_target_locator(self) -> None:
+        source = make_locator_facade(FakeLocator())
+        target = make_locator_facade(FakeLocator())
+
+        source.drag_to(target)
+
+        # the raw target locator crosses facade-to-facade inside the boundary module, never out
+        assert source._locator.calls == [("drag_to", target._locator)]
 
     def test_expectations_apply_assertions_through_expect(self) -> None:
         locator = FakeLocator()
@@ -589,6 +746,42 @@ class TestLocatorFacadeLogic:
         assert assertions.calls[0] == ("received", locator)
         assert assertions.calls[0][1] is locator
 
+    def test_expectation_family_uses_the_full_set(self) -> None:
+        locator = FakeLocator()
+        element = make_locator_facade(locator)
+        assertions = RecordingAssertions()
+
+        recorder = lambda loc: FakeExpectation(loc, assertions.calls)  # noqa: E731
+        with mock.patch("prettyplay.driver.page.expect", side_effect=recorder):
+            element.expect_visible()
+            element.expect_text("Добро пожаловать")
+            element.expect_enabled()
+            element.expect_hidden()
+            element.expect_value("user")
+            element.expect_checked()
+            element.expect_count(3)
+            element.expect_attribute("href", "/docs")
+
+        # the eight expectation members map onto their to_* assertions with exact args
+        assert assertions.calls == [
+            ("received", locator),
+            "to_be_visible",
+            ("received", locator),
+            ("to_contain_text", "Добро пожаловать"),
+            ("received", locator),
+            "to_be_enabled",
+            ("received", locator),
+            "to_be_hidden",
+            ("received", locator),
+            ("to_have_value", "user"),
+            ("received", locator),
+            "to_be_checked",
+            ("received", locator),
+            ("to_have_count", 3),
+            ("received", locator),
+            ("to_have_attribute", "href", "/docs"),
+        ]
+
     def test_failed_expectation_raises_assertion_error(self) -> None:
         # a failed wait raises AssertionError (goes to classification), not swallowed
         element = make_locator_facade(FakeLocator())
@@ -607,14 +800,28 @@ class TestLocatorFacadeLogic:
 
     def test_locator_actions_never_return_raw_objects(self) -> None:
         element = make_locator_facade(FakeLocator())
+        target = make_locator_facade(FakeLocator())
 
         with mock.patch("prettyplay.driver.page.expect", return_value=FakeExpectation(FakeLocator(), [])):
             assert element.click() is None
+            assert element.dblclick() is None
             assert element.fill("x") is None
+            assert element.clear() is None
+            assert element.press("Enter") is None
+            assert element.check() is None
+            assert element.uncheck() is None
+            assert element.hover() is None
             assert element.select_option("x") is None
+            assert element.drag_to(target) is None
+            assert element.set_input_files("avatar.png") is None
             assert element.expect_visible() is None
             assert element.expect_text("x") is None
             assert element.expect_enabled() is None
+            assert element.expect_hidden() is None
+            assert element.expect_value("x") is None
+            assert element.expect_checked() is None
+            assert element.expect_count(1) is None
+            assert element.expect_attribute("href", "/x") is None
 
 
 class TestFacadeThreadingBoundary:

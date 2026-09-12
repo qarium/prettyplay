@@ -524,25 +524,25 @@ raise `AssertionError` (classification path), action errors are Playwright error
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: in `tests/driver/test_page.py` add a signature/surface check for the
+- [x] **Contract tests**: in `tests/driver/test_page.py` add a signature/surface check for the
   new members of `LocatorFacade` (`click` now takes `button: str = ""`; `dblclick`, `clear`,
   `press`, `check`, `uncheck`, `hover`, `drag_to`, `set_input_files`, `expect_hidden`,
   `expect_value`, `expect_checked`, `expect_count`, `expect_attribute` exist with the declared
   signatures — `inspect.signature`/`get_type_hints` in the suite's established style). Expected
   to fail at this stage.
-- [ ] **Code**: extend the fakes first where the tests need them — `FakeLocator.click` records
+- [x] **Code**: extend the fakes first where the tests need them — `FakeLocator.click` records
   `button` kwarg; add `dblclick()`, `clear(v)`, `press(k)`, `check()`, `uncheck()`, `hover()`,
   `drag_to(target)`, `set_input_files(p)` recording methods; `FakeExpectation` grows
   `to_be_hidden`, `to_have_value`, `to_be_checked`, `to_have_count`, `to_have_attribute`.
-- [ ] **Code**: implement the members in `prettyplay/driver/page.py` exactly per the table
+- [x] **Code**: implement the members in `prettyplay/driver/page.py` exactly per the table
   above, with Google docstrings carrying the contract descriptions (`button`: the mouse button —
   empty for the left button, right for the right button, middle for the middle button; `key`:
   the key name or combination, e.g. Enter or Control+A; `path`: the filesystem path of the file
   to upload; `target`: the located drop target element; equality semantics for `expect_value`/
   `expect_attribute`).
-- [ ] **Interface verification**: `pytest tests/driver/test_page.py -x -k "element or click or
+- [x] **Interface verification**: `pytest tests/driver/test_page.py -x -k "element or click or
   drag or expectation"` — the contract tests pass against the implemented signatures.
-- [ ] **Logic tests** (in `tests/driver/test_page.py`, from the design):
+- [x] **Logic tests** (in `tests/driver/test_page.py`, from the design):
   - `test_element_action_family_delegates` — setup: `FakeLocator` records; parametrized
     member/input table: `dblclick()`, `clear()`, `press("Control+A")`, `check()`, `uncheck()`,
     `hover()`, `select_option("red")`, `set_input_files("avatar.png")`; trace:
@@ -563,13 +563,13 @@ raise `AssertionError` (classification path), action errors are Playwright error
     `element.expect_value("user")` → `expect(loc).to_have_value("user")` recorded, … each member
     → its `to_*` assertion with exact args; assertion: the assertion list == the expected 8
     entries with args.
-- [ ] **Debugging**: `pytest tests/driver/test_page.py -x` — fix implementation code until all
+- [x] **Debugging**: `pytest tests/driver/test_page.py -x` — fix implementation code until all
   tests pass (do NOT fix test code).
-- [ ] **Contract re-verification**: `LocatorFacade` importable from `prettyplay.driver`; the
+- [x] **Contract re-verification**: `LocatorFacade` importable from `prettyplay.driver`; the
   full method list matches the CODEMANIFEST `LocatorFacade` methods verbatim; no raw Playwright
   object is returned; expectations raise `AssertionError` on failure (the fakes' recorder honors
   the same call shape).
-- [ ] **Lint**: `ruff check prettyplay/driver/ tests/driver/` — fix formatting, apply
+- [x] **Lint**: `ruff check prettyplay/driver/ tests/driver/` — fix formatting, apply
   decomposition if necessary.
 
 ### Task 4: `DialogFacade` and `FrameFacade` — new facades + driver exports (TDD coding)
