@@ -34,11 +34,14 @@ def step(page) -> None:
     ...
 
 Rules:
-- The function receives exactly one argument: the page facade. Never import anything, never use other libraries
+- The function receives exactly one argument: the page facade — the Playwright-mirroring page API. Never import anything, never use other libraries
 - Work only through the page API: the request carries the exact surface listing of the page facade — call nothing outside it
 - For an assertion sentence end with an expectation call; for an action sentence perform the actions
-- Locating by role and accessible name is preferred; by visible text next; by label for form fields
-- Attribute, CSS and XPath locating exist for elements without accessible names — the accessibility-first priority stands unless USER INSTRUCTIONS say otherwise
+- Locating by role and accessible name is preferred; by visible text next; by label or placeholder for form fields
+- get_by_test_id and locator(selector) exist for elements without accessible names — the accessibility-first priority stands unless USER INSTRUCTIONS say otherwise
+- Dialogs: when the step verifies or steers a dialog, capture it — with page.expect_dialog() as dialog: — perform the triggering action inside the block, read dialog.message and dialog.type, then dialog.accept() or dialog.dismiss()
+- Popups and new tabs: capture the opened page — with page.expect_popup() as popup: — trigger the opening action inside the block, work through the popup facade; bring_to_front() raises a page above the others
+- Content inside an iframe goes through page.frame_locator(selector) — locate elements within the returned frame
 - Scroll abilities exist for scenario scrolling: bring an element into view, scroll by an amount, to the page end or start, inside a scrollable container
 - No fixed delays, no sleeps, no explicit waits — the facade waits itself
 - The step must complete exactly what STEP says — nothing more, nothing less
@@ -46,32 +49,68 @@ Rules:
 
 #: Frozen surface listing of the driver facade — the only calls step code may make.
 #: Mirrors ``prettyplay/driver/.usages/facade.md`` verbatim; the driver facade is a
-#: backward-compatibility contract, so this constant changes only together with it.
-#: ``close()`` stays out: it is a runtime method of PrettyPlay, not of step code.
-PAGE_API_SURFACE = """page.open(url)                    — navigate and wait for load
-page.find_by_role(role, name)     — element by aria role and accessible name
-page.find_by_label(label)         — element by associated label
-page.find_by_text(text)           — element by visible text
-page.find_by_attribute(name, value) — element by attribute value — data-* attributes
-page.find_by_css(selector)        — element by CSS selector
-page.find_by_xpath(xpath)         — element by XPath expression
-page.aria_snapshot()              — accessibility-tree page state
-page.screenshot()                 — full-page PNG bytes
-page.url                          — current URL
-page.scroll_to_element(element)            — bring an element into the viewport (works inside scrollable ancestors)
-page.scroll_down(pixels)                   — scroll the page down by an amount
-page.scroll_up(pixels)                     — scroll the page up by an amount
-page.scroll_to_bottom()                    — scroll to the end of the page
-page.scroll_to_top()                       — scroll to the start of the page
-page.scroll_into_view(element, container)  — bring an element into view inside a specific scrollable container
+#: parity contract of the Playwright sync API, so this constant changes only
+#: together with it. ``page.close()`` stays out: it is a runtime method of
+#: PrettyPlay, not of step code.
+PAGE_API_SURFACE = """page.goto(url)                                — navigate and wait for the load state
+page.go_back()                                — browser-history back
+page.go_forward()                             — browser-history forward
+page.reload()                                 — reload and wait for the load state
+page.wait_for_url(url)                        — wait until the URL matches a glob pattern
+page.wait_for_load_state(state)               — wait for load, domcontentloaded or networkidle
+page.expect_url(url)                          — assert the URL matches a glob pattern
+page.expect_title(title)                      — assert the title contains
+page.get_by_role(role, name)                  — element by aria role and accessible name
+page.get_by_label(label)                      — element by associated label
+page.get_by_text(text)                        — element by visible text
+page.get_by_placeholder(placeholder)          — input by placeholder text
+page.get_by_alt_text(alt)                     — image by alt text
+page.get_by_title(title)                      — element by title attribute
+page.get_by_test_id(test_id)                  — element by data-testid
+page.locator(selector)                        — element by any selector — CSS, XPath, attribute
+page.expect_dialog()                          — context manager — the block performs the triggering action; yields the DialogFacade
+page.expect_popup()                           — context manager — the block performs the opening action; yields the popup as a full PageFacade
+page.bring_to_front()                         — raise this page above the others — the switching primitive
+page.pages                                    — the open pages of the context, each a full PageFacade
+page.frame_locator(selector)                  — the locating scope of one iframe — yields a FrameFacade
+page.aria_snapshot()                          — accessibility-tree page state
+page.screenshot()                             — full-page PNG bytes
+page.url                                      — current URL
+page.scroll_to_element(element)               — bring an element into the viewport (works inside scrollable ancestors)
+page.scroll_down(pixels)                      — scroll the page down by an amount
+page.scroll_up(pixels)                        — scroll the page up by an amount
+page.scroll_to_bottom()                       — scroll to the end of the page
+page.scroll_to_top()                          — scroll to the start of the page
+page.scroll_into_view(element, container)     — bring an element into view inside a specific scrollable container
 page.scroll_container_down(container, pixels) — scroll a scrollable container down by an amount
 page.scroll_container_up(container, pixels)   — scroll a scrollable container up by an amount
-element.click()                   — click with auto-wait
-element.fill(value)               — set input text
-element.select_option(value)      — choose an option
-element.expect_visible()          — assert visible
-element.expect_text(text)         — assert text
-element.expect_enabled()          — assert enabled"""
+dialog.accept(prompt_text) — accept; prompt_text answers a prompt dialog (empty — no answer)
+dialog.dismiss()           — dismiss
+dialog.type                — alert, confirm, prompt or beforeunload
+dialog.message             — the dialog message
+dialog.default_value       — the prompt prefill of a prompt dialog
+frame.get_by_role(role, name) — and the whole get_by_* family — locate inside the iframe
+frame.locator(selector)                                       — any selector inside the iframe
+frame.frame_locator(selector)                                 — the scope of a nested iframe
+element.click(button)                 — click; empty button = left, "right" = right button
+element.dblclick()                    — double click
+element.fill(value)                   — set input text
+element.clear()                       — clear the input
+element.press(key)                    — press a key or combination, e.g. "Enter", "Control+A"
+element.check()                       — check a checkbox or radio
+element.uncheck()                     — uncheck
+element.hover()                       — hover
+element.select_option(value)          — choose an option
+element.drag_to(target)               — drag onto another element
+element.set_input_files(path)         — upload one file by filesystem path
+element.expect_visible()              — assert visible
+element.expect_hidden()               — assert hidden
+element.expect_text(text)             — assert text contains (substring, whitespace-normalized)
+element.expect_enabled()              — assert enabled
+element.expect_value(value)           — assert the input value
+element.expect_checked()              — assert the checkbox/radio state
+element.expect_count(count)           — assert the matched element count
+element.expect_attribute(name, value) — assert the attribute value"""
 
 
 class StepGenerator:

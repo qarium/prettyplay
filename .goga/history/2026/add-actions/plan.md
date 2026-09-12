@@ -1143,7 +1143,7 @@ facade.md row appears in the listing.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: in `tests/engine/test_generator.py` add
+- [x] **Contract tests**: in `tests/engine/test_generator.py` add
   `test_page_api_surface_members_exist_on_the_facades` — setup: import `PAGE_API_SURFACE`,
   `PageFacade`, `LocatorFacade`, `DialogFacade`, `FrameFacade`; input: parse each line: prefix
   (`page.`/`element.`/`dialog.`/`frame.`) + member name before `(` or end; trace: for each line,
@@ -1151,18 +1151,18 @@ facade.md row appears in the listing.
   FrameFacade}[prefix]`; `hasattr(owner, member)` → True; also `"page.close" not in
   PAGE_API_SURFACE`; `"open("` / `"find_by"` not in it; assertions: every listed member resolves
   on its facade class; retired names absent. Expected to fail at this stage.
-- [ ] **Code**: replace `SYSTEM_PROMPT` in `prettyplay/engine/generator.py` with the engine
+- [x] **Code**: replace `SYSTEM_PROMPT` in `prettyplay/engine/generator.py` with the engine
   CODEMANIFEST `system_prompt` text **verbatim** — copy from the manifest's `Usages` block; no
   paraphrasing.
-- [ ] **Code**: replace `PAGE_API_SURFACE` with the facade.md four tables verbatim as aligned
+- [x] **Code**: replace `PAGE_API_SURFACE` with the facade.md four tables verbatim as aligned
   `call — purpose` lines — 32 page rows (`page.close()` excluded), 5 dialog rows, 3 frame rows,
   19 element rows; keep the standing exclusion comment, reworded to the parity principle.
-- [ ] **Code**: update the constant's docstring/comment: parity wording replaces the
+- [x] **Code**: update the constant's docstring/comment: parity wording replaces the
   backward-compatibility wording.
-- [ ] **Interface verification**: `pytest tests/engine/test_generator.py -x -k "surface or
+- [x] **Interface verification**: `pytest tests/engine/test_generator.py -x -k "surface or
   prompt"` — the contract test passes; the provider request still receives
   `prompt=SYSTEM_PROMPT` and `page_api=PAGE_API_SURFACE` unchanged in shape.
-- [ ] **Logic tests** (in `tests/engine/test_generator.py`, from the design):
+- [x] **Logic tests** (in `tests/engine/test_generator.py`, from the design):
   - `test_system_prompt_carries_the_new_rules` — setup: import `SYSTEM_PROMPT`; input: none
     (constant inspection); trace: contains "the Playwright-mirroring page API", the
     label-or-placeholder rule, the get_by_test_id/locator rule, the dialog capture rule, the
@@ -1183,13 +1183,13 @@ facade.md row appears in the listing.
     `get_by_text`, `FailingPage`/`TimeoutPage`/`PlaywrightTimeoutPage` `find_by_role` →
     `get_by_role`, and the recorded call names inside `calls` — behavior identical (failures
     and recorded shapes unchanged).
-- [ ] **Debugging**: `pytest tests/engine/ -x` — fix implementation code until all tests pass
+- [x] **Debugging**: `pytest tests/engine/ -x` — fix implementation code until all tests pass
   (do NOT fix test code).
-- [ ] **Contract re-verification**: the annotation "Use `system_prompt` as the system prompt of
+- [x] **Contract re-verification**: the annotation "Use `system_prompt` as the system prompt of
   every code generation request" holds — the constant equals the manifest text verbatim; the
   requirement "Every generation request carries the exact page API surface taken from `facade`
   from Imports" holds; no engine signature changed.
-- [ ] **Lint**: `ruff check prettyplay/engine/ tests/engine/` — fix formatting if necessary.
+- [x] **Lint**: `ruff check prettyplay/engine/ tests/engine/` — fix formatting if necessary.
 
 ### Task 9: Integration tests — cross-package surface consistency and the retired-name sweep
 

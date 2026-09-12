@@ -10,6 +10,7 @@ import pytest
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from prettyplay.cache import RunBudgets, StepCache, StepIdentity
 from prettyplay.config import Config
+from prettyplay.driver import DialogFacade, FrameFacade, LocatorFacade, PageFacade
 from prettyplay.engine import StepGenerator
 from prettyplay.engine import generator as generator_module  # to verify the CLASSIFICATION_PROMPT move
 from prettyplay.engine.generator import PAGE_API_SURFACE, SYSTEM_PROMPT
@@ -17,8 +18,8 @@ from prettyplay.failures import IncurableStepError, LLMUnavailableError, Product
 from prettyplay.llm import FailureClassification
 from prettyplay.reporting import StepHooks, StepReporter
 
-WORKING_CODE = "def step(page) -> None:\n    page.open('https://example.com')\n"
-BROKEN_CODE = "def step(page) -> None:\n    page.find_by_role('button', name='Войти').click()\n"
+WORKING_CODE = "def step(page) -> None:\n    page.goto('https://example.com')\n"
+BROKEN_CODE = "def step(page) -> None:\n    page.get_by_role('button', name='Войти').click()\n"
 
 FACADE_PRACTICE = Path(__file__).resolve().parents[2] / "prettyplay" / "driver" / ".usages" / "facade.md"
 
@@ -41,11 +42,11 @@ class FakePage:
         self.calls: list[tuple[str, ...]] = []
         self._assertion_message = assertion_message
 
-    def open(self, url: str) -> None:
-        self.calls.append(("open", url))
+    def goto(self, url: str) -> None:
+        self.calls.append(("goto", url))
 
-    def find_by_text(self, text: str) -> FakeLocator:
-        self.calls.append(("find_by_text", text))
+    def get_by_text(self, text: str) -> FakeLocator:
+        self.calls.append(("get_by_text", text))
         return FakeLocator(self._assertion_message)
 
     def aria_snapshot(self) -> str:
@@ -60,7 +61,7 @@ class FakePage:
 class FailingPage(FakePage):
     """Fake page where locator-driven step code fails like a broken assertion."""
 
-    def find_by_role(self, role: str, name: str) -> None:
+    def get_by_role(self, role: str, name: str) -> None:
         raise AssertionError("element not found")
 
 
@@ -126,16 +127,16 @@ class UnavailableProvider:
 class TimeoutPage(FakePage):
     """Fake page where every candidate fails with a non-assertion TimeoutError."""
 
-    def find_by_role(self, role: str, name: str) -> None:
-        self.calls.append(("find_by_role", role, name))
+    def get_by_role(self, role: str, name: str) -> None:
+        self.calls.append(("get_by_role", role, name))
         raise TimeoutError("navigation timed out")
 
 
 class PlaywrightTimeoutPage(FakePage):
     """Fake page where the locator action fails with the real Playwright TimeoutError."""
 
-    def find_by_role(self, role: str, name: str) -> None:
-        self.calls.append(("find_by_role", role, name))
+    def get_by_role(self, role: str, name: str) -> None:
+        self.calls.append(("get_by_role", role, name))
         raise PlaywrightTimeoutError("locator.click: Timeout 30000ms exceeded")
 
 
@@ -220,9 +221,9 @@ ROT_VERDICT = FailureClassification(
 )
 
 
-def facade_page_calls(practice: str) -> list[str]:
-    """Extract the ordered ``page.*`` call column of the facade practice table."""
-    return re.findall(r"^\| (page\.[a-z_]+(?:\([^)]*\))?)", practice, flags=re.MULTILINE)
+def facade_surface_rows(practice: str, prefix: str) -> list[str]:
+    """Extract the ordered call column of one facade practice surface table."""
+    return re.findall(rf"^\| ({prefix}\.[a-z_]+(?:\([^)]*\))?)", practice, flags=re.MULTILINE)
 
 
 def make_identity() -> StepIdentity:
@@ -292,7 +293,7 @@ class TestStepGeneratorLogic:
         captured = provider.calls[0]
         assert captured["user_instructions"] == "prefer data-test-id"
         assert captured["prompt"] == SYSTEM_PROMPT
-        assert "page.find_by_attribute(name, value)" in captured["page_api"]
+        assert "page.get_by_test_id(test_id)" in captured["page_api"]
 
     def test_regenerate_carries_user_instructions_with_code_and_error(self, tmp_path: Path) -> None:
         provider = StubProvider([WORKING_CODE])
@@ -307,14 +308,14 @@ class TestStepGeneratorLogic:
             "click Sign in",
             [],
             page,
-            existing_code="def step(page) -> None:\n    page.open('https://old')\n",
+            existing_code="def step(page) -> None:\n    page.goto('https://old')\n",
             error="TimeoutError",
         )
 
         captured = provider.calls[0]
         # instructions travel with the regeneration-only fields through the one shared call site
         assert captured["user_instructions"] == "prefer data-test-id"
-        assert captured["existing_code"] == "def step(page) -> None:\n    page.open('https://old')\n"
+        assert captured["existing_code"] == "def step(page) -> None:\n    page.goto('https://old')\n"
         assert captured["error"] == "TimeoutError"
         assert captured["prompt"] == SYSTEM_PROMPT
 
@@ -398,12 +399,12 @@ class TestStepGeneratorLogic:
             "открыть страницу",
             [],
             page,
-            existing_code="def step(page) -> None:\n    page.open('https://old')\n",
+            existing_code="def step(page) -> None:\n    page.goto('https://old')\n",
             error="assertion failed",
         )
 
         assert step.code == WORKING_CODE
-        assert provider.calls[0]["existing_code"] == "def step(page) -> None:\n    page.open('https://old')\n"
+        assert provider.calls[0]["existing_code"] == "def step(page) -> None:\n    page.goto('https://old')\n"
         assert provider.calls[0]["error"] == "assertion failed"
         # the healing budget is spent, the generation budget untouched
         assert fixture.budgets.try_healing(identity) is False
@@ -445,7 +446,7 @@ class TestStepGeneratorLogic:
 
     def test_messageless_candidate_check_keeps_plain_reason(self, tmp_path: Path) -> None:
         provider = StubProvider(
-            ["def step(page) -> None:\n    page.find_by_text('Welcome back').expect_visible()\n"],
+            ["def step(page) -> None:\n    page.get_by_text('Welcome back').expect_visible()\n"],
             verdict=FailureClassification(category="incurable", explanation="e", recommendation="r"),
         )
         fixture = GeneratorFixture(tmp_path, provider, limits=(1, 2))
@@ -481,7 +482,7 @@ class TestStepGeneratorLogic:
 
     def test_generate_failed_check_product_defect_stops_and_carries_verdict(self, tmp_path: Path) -> None:
         provider = StubProvider(
-            ["def step(page) -> None:\n    page.find_by_text('Welcome back').expect_visible()\n"],
+            ["def step(page) -> None:\n    page.get_by_text('Welcome back').expect_visible()\n"],
             verdict=FailureClassification(
                 category="product_defect",
                 explanation="the banner is missing",
@@ -505,7 +506,7 @@ class TestStepGeneratorLogic:
 
     def test_generate_failed_check_non_defect_verdict_raises_incurable(self, tmp_path: Path) -> None:
         provider = StubProvider(
-            ["def step(page) -> None:\n    page.find_by_text('Welcome back').expect_visible()\n"],
+            ["def step(page) -> None:\n    page.get_by_text('Welcome back').expect_visible()\n"],
             verdict=FailureClassification(
                 category="incurable",
                 explanation="the step is ambiguous",
@@ -549,7 +550,7 @@ class TestStepGeneratorLogic:
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         provider = StubProvider(
-            ["def step(page) -> None:\n    page.find_by_text('Welcome back').expect_visible()\n"],
+            ["def step(page) -> None:\n    page.get_by_text('Welcome back').expect_visible()\n"],
             verdict=LLMUnavailableError("openai down"),
         )
         fixture = GeneratorFixture(tmp_path, provider)
@@ -615,7 +616,7 @@ class TestStepGeneratorLogic:
     def test_generator_carries_full_error_text_in_terminal_failures(self, tmp_path: Path) -> None:
         long_message = "Locator expected to be visible" + " x" * 120  # well past the old 200-char cut
         defect_provider = StubProvider(
-            ["def step(page) -> None:\n    page.find_by_text('Welcome back').expect_visible()\n"],
+            ["def step(page) -> None:\n    page.get_by_text('Welcome back').expect_visible()\n"],
             verdict=FailureClassification(
                 category="product_defect",
                 explanation="the banner is gone",
@@ -670,29 +671,49 @@ class TestPromptConstants:
         code_input = SYSTEM_PROMPT.index("- CODE: the existing step code that failed")
         assert page_api_input < user_instructions_input < code_input
 
-    def test_system_prompt_carries_the_universal_locating_priority(self) -> None:
+    def test_system_prompt_carries_the_new_rules(self) -> None:
+        assert "the Playwright-mirroring page API" in SYSTEM_PROMPT
         assert (
-            "- Attribute, CSS and XPath locating exist for elements without accessible names — the "
-            "accessibility-first priority stands unless USER INSTRUCTIONS say otherwise" in SYSTEM_PROMPT
+            "- Locating by role and accessible name is preferred; by visible text next; "
+            "by label or placeholder for form fields" in SYSTEM_PROMPT
         )
-        # the universal-locating priority sits right after the role/text/label line
-        locating = SYSTEM_PROMPT.index("Locating by role and accessible name is preferred")
-        universal = SYSTEM_PROMPT.index("Attribute, CSS and XPath locating exist")
-        scroll = SYSTEM_PROMPT.index("Scroll abilities exist")
-        assert locating < universal < scroll
+        assert (
+            "- get_by_test_id and locator(selector) exist for elements without accessible names" in SYSTEM_PROMPT
+        )
+        assert "- Dialogs: when the step verifies or steers a dialog, capture it" in SYSTEM_PROMPT
+        assert "with page.expect_dialog() as dialog:" in SYSTEM_PROMPT
+        assert "with page.expect_popup() as popup:" in SYSTEM_PROMPT
+        assert "bring_to_front() raises a page above the others" in SYSTEM_PROMPT
+        assert "Content inside an iframe goes through page.frame_locator(selector)" in SYSTEM_PROMPT
+        assert "find_by" not in SYSTEM_PROMPT
+        assert "Attribute, CSS and XPath locating" not in SYSTEM_PROMPT
 
     def test_classification_prompt_moved_out_of_generator(self) -> None:
         assert not hasattr(generator_module, "CLASSIFICATION_PROMPT")  # moved to classification.py
 
     def test_page_api_surface_lists_every_facade_call(self) -> None:
         for call in (
-            "page.open(url)",
-            "page.find_by_role(role, name)",
-            "page.find_by_label(label)",
-            "page.find_by_text(text)",
-            "page.find_by_attribute(name, value)",
-            "page.find_by_css(selector)",
-            "page.find_by_xpath(xpath)",
+            "page.goto(url)",
+            "page.go_back()",
+            "page.go_forward()",
+            "page.reload()",
+            "page.wait_for_url(url)",
+            "page.wait_for_load_state(state)",
+            "page.expect_url(url)",
+            "page.expect_title(title)",
+            "page.get_by_role(role, name)",
+            "page.get_by_label(label)",
+            "page.get_by_text(text)",
+            "page.get_by_placeholder(placeholder)",
+            "page.get_by_alt_text(alt)",
+            "page.get_by_title(title)",
+            "page.get_by_test_id(test_id)",
+            "page.locator(selector)",
+            "page.expect_dialog()",
+            "page.expect_popup()",
+            "page.bring_to_front()",
+            "page.pages",
+            "page.frame_locator(selector)",
             "page.aria_snapshot()",
             "page.screenshot()",
             "page.url",
@@ -704,46 +725,62 @@ class TestPromptConstants:
             "page.scroll_into_view(element, container)",
             "page.scroll_container_down(container, pixels)",
             "page.scroll_container_up(container, pixels)",
-            "element.click()",
+            "dialog.accept(prompt_text)",
+            "dialog.dismiss()",
+            "dialog.type",
+            "dialog.message",
+            "dialog.default_value",
+            "frame.get_by_role(role, name)",
+            "frame.locator(selector)",
+            "frame.frame_locator(selector)",
+            "element.click(button)",
+            "element.dblclick()",
             "element.fill(value)",
+            "element.clear()",
+            "element.press(key)",
+            "element.check()",
+            "element.uncheck()",
+            "element.hover()",
             "element.select_option(value)",
+            "element.drag_to(target)",
+            "element.set_input_files(path)",
             "element.expect_visible()",
+            "element.expect_hidden()",
             "element.expect_text(text)",
             "element.expect_enabled()",
+            "element.expect_value(value)",
+            "element.expect_checked()",
+            "element.expect_count(count)",
+            "element.expect_attribute(name, value)",
         ):
             assert call in PAGE_API_SURFACE
-        assert "close" not in PAGE_API_SURFACE
+        assert "page.close" not in PAGE_API_SURFACE
+
+    def test_page_api_surface_members_exist_on_the_facades(self) -> None:
+        owners = {"page": PageFacade, "element": LocatorFacade, "dialog": DialogFacade, "frame": FrameFacade}
+
+        for line in PAGE_API_SURFACE.splitlines():
+            match = re.match(r"^(page|element|dialog|frame)\.([a-z_]+)", line)
+            assert match is not None  # every line is an owned facade call
+            assert hasattr(owners[match.group(1)], match.group(2))
+
+        assert "page.close" not in PAGE_API_SURFACE
+        assert "open(" not in PAGE_API_SURFACE
+        assert "find_by" not in PAGE_API_SURFACE
 
     def test_page_api_surface_mirrors_facade_practice(self) -> None:
         practice = FACADE_PRACTICE.read_text(encoding="utf-8")
-        surface_calls = [line.split("—")[0].strip() for line in PAGE_API_SURFACE.splitlines()]
+        page_rows = facade_surface_rows(practice, "page")
+        dialog_rows = facade_surface_rows(practice, "dialog")
+        frame_rows = facade_surface_rows(practice, "frame")
+        element_rows = facade_surface_rows(practice, "element")
 
-        assert surface_calls == [
-            *facade_page_calls(practice),
-            "element.click()",
-            "element.fill(value)",
-            "element.select_option(value)",
-            "element.expect_visible()",
-            "element.expect_text(text)",
-            "element.expect_enabled()",
-        ]
-        assert facade_page_calls(practice) == [
-            "page.open(url)",
-            "page.find_by_role(role, name)",
-            "page.find_by_label(label)",
-            "page.find_by_text(text)",
-            "page.find_by_attribute(name, value)",
-            "page.find_by_css(selector)",
-            "page.find_by_xpath(xpath)",
-            "page.aria_snapshot()",
-            "page.screenshot()",
-            "page.url",
-            "page.scroll_to_element(element)",
-            "page.scroll_down(pixels)",
-            "page.scroll_up(pixels)",
-            "page.scroll_to_bottom()",
-            "page.scroll_to_top()",
-            "page.scroll_into_view(element, container)",
-            "page.scroll_container_down(container, pixels)",
-            "page.scroll_container_up(container, pixels)",
-        ]
+        for row in (*page_rows, *dialog_rows, *frame_rows, *element_rows):
+            if row.startswith("page.close"):
+                continue  # the runtime method of PrettyPlay — the standing exclusion
+            assert row.split("(", 1)[0] in PAGE_API_SURFACE
+
+        assert len(page_rows) == 33  # 32 listed + close excluded by the standing comment
+        assert len(dialog_rows) == 5
+        assert len(frame_rows) == 3  # the get_by_* family collapsed to its family row
+        assert len(element_rows) == 19
