@@ -9,7 +9,9 @@ from unittest import mock
 
 import prettyplay.driver
 import pytest
+from playwright.sync_api import Error
 from prettyplay.driver import DialogFacade, FrameFacade, LocatorFacade, PageFacade
+from prettyplay.driver.page import _DialogRouter
 
 
 class RecordingAssertions:
@@ -166,6 +168,29 @@ class FakeDialog:
         self.calls.append(("dismiss",))
 
 
+class FakeEventContextManager:
+    """Fake Playwright event context manager; arms on enter, resolves or times out on exit."""
+
+    def __init__(self, event: str, value: Any = None, timeout: bool = False) -> None:
+        self.event = event
+        self.calls: list[str] = []
+        self.value: Any = None  # the EventInfo.value mirror — filled at a successful exit
+        self._value = value
+        self._timeout = timeout
+
+    def __enter__(self) -> "FakeEventContextManager":
+        self.calls.append("__enter__")
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.calls.append("__exit__")
+        if exc_val is not None:
+            return  # a raising block cancels the waiter — no wait, no timeout
+        if self._timeout:
+            raise Error(f'Timeout 30000ms exceeded while waiting for event "{self.event}"')
+        self.value = self._value
+
+
 class FakeFrameLocator:
     """Fake Playwright frame locator hidden behind the facade; records every call."""
 
@@ -277,6 +302,10 @@ class FakePage:
         self._context = FakeContext()
         self._body = FakeBodyLocator(snapshot)
         self._locator_factory = FakeLocator
+        self.dialog_value: FakeDialog | None = None
+        self.dialog_timeout = False
+        self.popup_value: FakePopupPage | None = None
+        self.popup_timeout = False
 
     def goto(self, url: str) -> None:
         self.calls.append(("goto", url))
@@ -362,9 +391,21 @@ class FakePage:
         self.calls.append(("screenshot", full_page))
         return b"png-bytes"
 
+    def expect_event(self, event: str) -> FakeEventContextManager:
+        self.calls.append(("expect_event", event))
+        return FakeEventContextManager(event, value=self.dialog_value, timeout=self.dialog_timeout)
+
+    def expect_popup(self) -> FakeEventContextManager:
+        self.calls.append(("expect_popup",))
+        return FakeEventContextManager("popup", value=self.popup_value, timeout=self.popup_timeout)
+
     @property
     def context(self) -> FakeContext:
         return self._context
+
+
+class FakePopupPage(FakePage):
+    """Fake page opened as a popup of another page; carries its own context reference."""
 
 
 class RecordingWorker:
@@ -376,6 +417,31 @@ class RecordingWorker:
     def run(self, fn: Callable[[], Any]) -> Any:
         self.calls.append(fn)
         return fn()
+
+
+class ThreadedWorker:
+    """Fake ``PlaywrightWorker``: runs every callable on a fresh thread; records the idents."""
+
+    def __init__(self) -> None:
+        self.idents: list[int] = []
+
+    def run(self, fn: Callable[[], Any]) -> Any:
+        outcome: dict[str, Any] = {}
+
+        def target() -> None:
+            outcome["ident"] = threading.get_ident()
+            try:
+                outcome["value"] = fn()
+            except BaseException as error:  # exception propagates to the calling thread
+                outcome["error"] = error
+
+        thread = threading.Thread(target=target)
+        thread.start()
+        thread.join()
+        self.idents.append(outcome["ident"])
+        if "error" in outcome:
+            raise outcome["error"]
+        return outcome["value"]
 
 
 def make_page_facade(page: FakePage | None = None, context: FakeContext | None = None) -> PageFacade:
@@ -580,6 +646,12 @@ class TestPageFacadeContract:
         assert list(inspect.signature(PageFacade.aria_snapshot).parameters) == ["self"]
         assert list(inspect.signature(PageFacade.screenshot).parameters) == ["self"]
         assert list(inspect.signature(PageFacade.close).parameters) == ["self"]
+
+    def test_capture_members_signatures_match_contract(self) -> None:
+        assert list(inspect.signature(PageFacade.expect_dialog).parameters) == ["self"]
+        assert list(inspect.signature(PageFacade.expect_popup).parameters) == ["self"]
+        assert get_type_hints(PageFacade.expect_dialog)["return"] is DialogFacade
+        assert get_type_hints(PageFacade.expect_popup)["return"] is PageFacade
 
     def test_scroll_method_signatures_match_contract(self) -> None:
         assert list(inspect.signature(PageFacade.scroll_to_element).parameters) == ["self", "element"]
@@ -1362,3 +1434,170 @@ class TestFrameFacadeLogic:
 
         assert fake.calls == [("get_by_label", "Username")]  # hand-built scope: inline, no worker
         assert element._worker is None
+
+
+class TestDialogAndPopupCaptures:
+    """Logic tests: the expect_dialog/expect_popup captures resolve at block exit."""
+
+    def test_expect_dialog_yields_usable_dialog_facade(self) -> None:
+        page = FakePage()
+        page.dialog_value = FakeDialog(type="confirm", message="Delete?", default_value="")
+        facade = make_page_facade(page)
+
+        with facade.expect_dialog() as dialog:
+            facade.get_by_role("button", name="Delete").click()
+
+        assert dialog.message == "Delete?"
+        assert dialog.type == "confirm"
+        assert dialog.default_value == ""
+        dialog.accept()
+
+        assert page.calls == [("expect_event", "dialog"), ("get_by_role", "button", "Delete")]
+        assert page.locators[0].calls == [("click", "left")]  # the block action ran while armed
+        assert page.dialog_value.calls == [("accept", {})]  # accept without a prompt_text kwarg
+        assert facade._router.capture_page is None  # the claim cleared at exit
+
+    def test_expect_dialog_timeout_names_the_event(self) -> None:
+        page = FakePage()
+        page.dialog_timeout = True
+        facade = make_page_facade(page)
+
+        with pytest.raises(Error) as info, facade.expect_dialog():
+            pass
+
+        assert 'event "dialog"' in str(info.value)  # actionable — names the awaited event
+        assert not isinstance(info.value, AssertionError)  # an action failure, never a failed check
+        assert facade._router.capture_page is None  # cleared in the finally
+
+    def test_expect_popup_yields_bound_page_facade(self) -> None:
+        page = FakePage()
+        popup_page = FakePopupPage(url="https://docs.example.com")
+        page.popup_value = popup_page
+        worker = RecordingWorker()
+        facade = make_page_facade(page)
+        facade._worker = worker
+
+        with facade.expect_popup() as popup:
+            facade.get_by_role("link", name="Open docs").click()
+        popup.bring_to_front()
+
+        assert isinstance(popup, PageFacade)
+        assert popup._worker is worker  # bound to the opener's driver thread
+        assert popup._page is popup_page  # wraps the raw popup page — never returns it
+        assert popup_page.calls == [("bring_to_front",)]
+
+    def test_expect_popup_timeout_names_the_event(self) -> None:
+        page = FakePage()
+        page.popup_timeout = True
+        worker = RecordingWorker()
+        facade = make_page_facade(page)
+        facade._worker = worker
+
+        with pytest.raises(Error) as info, facade.expect_popup() as popup:
+            pass
+
+        assert 'event "popup"' in str(info.value)  # actionable — names the awaited event
+        assert not isinstance(info.value, AssertionError)  # an action failure, never a failed check
+        with pytest.raises(AttributeError, match="resolves at the end of the with-block"):
+            _ = popup.url  # the shell stays uninitialized — the guard covers any post-catch access
+
+    def test_new_members_marshal_to_the_driver_thread(self) -> None:
+        page = FakePage()
+        page.dialog_value = FakeDialog(type="alert", message="Hi")
+        context = FakeContext(pages=[page])
+        worker = ThreadedWorker()
+        facade = make_page_facade(page, context)
+        facade._worker = worker
+        assertions: list[tuple[Any, ...]] = []
+
+        recorder = lambda receiver: FakePageExpectation(receiver, assertions)  # noqa: E731
+        with mock.patch("prettyplay.driver.page.expect", side_effect=recorder):
+            facade.goto("https://example.com")
+            facade.expect_url("**/dashboard")
+            frame = facade.frame_locator("#frame")
+            listed = facade.pages
+            with facade.expect_dialog() as dialog:
+                pass
+            dialog.accept("Bob")
+
+        assert frame._worker is worker
+        assert all(wrapped._worker is worker for wrapped in listed)
+        # one marshaled unit per call: goto, expect_url, frame_locator, pages, capture enter, capture exit, accept
+        assert len(worker.idents) == 7
+        assert all(ident != threading.get_ident() for ident in worker.idents)  # never the calling thread
+
+    def test_hand_built_facade_runs_inline(self) -> None:
+        page = FakePage()
+        page.dialog_value = FakeDialog(message="Saved")
+        facade = make_page_facade(page)
+
+        assert facade._worker is None
+        element = facade.locator("#save")
+        frame = facade.frame_locator("#frame")
+        with facade.expect_dialog() as dialog:
+            pass
+
+        assert dialog.message == "Saved"
+        assert page.calls == [("locator", "#save"), ("frame_locator", "#frame"), ("expect_event", "dialog")]
+        assert element._worker is None  # no worker required anywhere on the path
+        assert frame._worker is None
+        assert facade._router is not None  # lazily created default router
+        assert facade._router.accept_dialogs is False
+
+    def test_popup_capture_and_pages_agree(self) -> None:
+        main = FakePage()
+        popup_page = FakePopupPage()
+        main.popup_value = popup_page
+        context = FakeContext(pages=[main, popup_page])
+        worker = RecordingWorker()
+        router = _DialogRouter(accept_dialogs=True)
+        facade = make_page_facade(main, context)
+        facade._worker = worker
+        facade._router = router
+
+        with facade.expect_popup() as captured:
+            pass
+        listed = facade.pages
+
+        assert len(listed) == 2
+        assert isinstance(captured, PageFacade)
+        assert captured._page is popup_page
+        assert listed[1]._page is popup_page  # the same raw page, wrapped independently
+        assert captured is not listed[1]
+        for wrapped in (captured, *listed):
+            assert wrapped._worker is worker  # the session worker, inherited
+            assert wrapped._router is router  # the shared context router
+
+    def test_popup_capture_claims_through_the_shared_router(self) -> None:
+        main = FakePage()
+        popup_page = FakePopupPage()
+        context = FakeContext(pages=[main, popup_page])
+        router = _DialogRouter(accept_dialogs=True)
+        popup = PageFacade(popup_page, context)
+        popup._router = router
+
+        handler = router.handle_for(popup_page)  # what the context page-event wiring registers
+        event = FakeDialog(type="confirm", message="Leave?")
+        popup_page.dialog_value = event  # the waiter resolves the same dialog the handler saw
+
+        with popup.expect_dialog() as dialog:
+            handler(event)  # dispatched while the capture is armed
+
+        assert event.calls == []  # the handler claimed it — neither accept nor dismiss fired
+        assert dialog.message == "Leave?"
+        dialog.accept()
+        assert event.calls == [("accept", {})]  # the facade resolves the dialog exactly once
+        assert router.capture_page is None  # cleared after the block
+
+    def test_access_before_block_resolution_raises_actionable(self) -> None:
+        page = FakePage()
+        page.dialog_value = FakeDialog(message="Hi")
+        facade = make_page_facade(page)
+
+        with (
+            pytest.raises(AttributeError, match="resolves at the end of the with-block") as info,
+            facade.expect_dialog() as dialog,
+        ):
+            _ = dialog.message  # pre-resolution access
+
+        assert not isinstance(info.value, AssertionError)  # an access guard, never a failed check

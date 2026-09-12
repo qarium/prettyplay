@@ -20,11 +20,14 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
+from types import TracebackType
 from typing import TYPE_CHECKING, TypeVar
 
 from playwright.sync_api import BrowserContext, Dialog, FrameLocator, Locator, Page, expect
 
 if TYPE_CHECKING:
+    from playwright._impl._sync_base import EventContextManager, EventInfo
+
     from .session import PlaywrightWorker
 
 _T = TypeVar("_T")
@@ -48,6 +51,9 @@ class PageFacade:
         _context: the isolated context owning the page; the facade boundary.
         _worker: the driver thread of the owning session; ``None`` for
             hand-built facades, which then call Playwright inline.
+        _router: the dialog routing state shared by every page of the context;
+            ``None`` until the session attaches it or the first capture lazily
+            creates the dismiss default.
     """
 
     def __init__(self, page: Page, context: BrowserContext) -> None:
@@ -60,6 +66,7 @@ class PageFacade:
         self._page = page
         self._context = context
         self._worker: PlaywrightWorker | None = None
+        self._router: _DialogRouter | None = None
 
     def _call(self, fn: Callable[[], _T]) -> _T:
         """Run one Playwright-touching callable in the driver thread.
@@ -74,6 +81,23 @@ class PageFacade:
             return fn()
 
         return self._worker.run(fn)
+
+    def __getattr__(self, name: str) -> None:
+        """Guard attribute access on a capture shell not yet resolved.
+
+        Fires only for missing attributes: on the shell a capture bound before
+        its block exited, with the actionable pre-resolution text; on an
+        initialized facade, with the regular missing-attribute text.
+
+        Args:
+            name: the requested attribute name.
+
+        Raises:
+            AttributeError: always — the shell state fills at block exit.
+        """
+        if "_page" not in self.__dict__:
+            raise AttributeError(f"{name!r} resolves at the end of the with-block — read it after the block")
+        raise AttributeError(f"{type(self).__name__!r} object has no attribute {name!r}")
 
     @property
     def url(self) -> str:
@@ -264,6 +288,34 @@ class PageFacade:
         facade._worker = self._worker
         return facade
 
+    def expect_dialog(self) -> DialogFacade:
+        """Capture the next dialog of the page inside the with-block.
+
+        The capture claims the dialog on this page — the routing handler
+        leaves it to the step, which then accepts or dismisses through the
+        bound facade; the ``accept_dialogs`` setting never applies to a
+        captured dialog. The bound facade resolves at the end of the
+        with-block; a dialog that never fires fails the exit with Playwright's
+        own timeout naming the awaited event.
+
+        Returns:
+            The capture context manager yielding the facade of the dialog.
+        """
+        return _DialogCapture(self)
+
+    def expect_popup(self) -> PageFacade:
+        """Capture the page opened inside the with-block.
+
+        The bound facade resolves at the end of the with-block as a full page
+        facade bound to the same driver thread as its opener; a popup that
+        never opens fails the exit with Playwright's own timeout naming the
+        awaited event.
+
+        Returns:
+            The capture context manager yielding the facade of the popup.
+        """
+        return _PopupCapture(self)
+
     def aria_snapshot(self) -> str:
         """Capture the accessibility-tree state of the page.
 
@@ -382,8 +434,23 @@ class PageFacade:
         """
         facade = PageFacade(page, self._context)
         facade._worker = self._worker
+        facade._router = self._router
 
         return facade
+
+    def _ensure_router(self) -> _DialogRouter:
+        """Return the shared dialog router, creating the dismiss default once.
+
+        A facade of a live session carries the context router attached by
+        ``open_context``; a hand-built facade gets a dismissing router at the
+        first capture use, so ``expect_dialog`` works without a session.
+
+        Returns:
+            The router the captures of this page claim through.
+        """
+        if self._router is None:
+            self._router = _DialogRouter(accept_dialogs=False)
+        return self._router
 
 
 class LocatorFacade:
@@ -577,6 +644,23 @@ class DialogFacade:
             return fn()
 
         return self._worker.run(fn)
+
+    def __getattr__(self, name: str) -> None:
+        """Guard attribute access on a capture shell not yet resolved.
+
+        Fires only for missing attributes: on the shell a capture bound before
+        its block exited, with the actionable pre-resolution text; on an
+        initialized facade, with the regular missing-attribute text.
+
+        Args:
+            name: the requested attribute name.
+
+        Raises:
+            AttributeError: always — the shell state fills at block exit.
+        """
+        if "_dialog" not in self.__dict__:
+            raise AttributeError(f"{name!r} resolves at the end of the with-block — read it after the block")
+        raise AttributeError(f"{type(self).__name__!r} object has no attribute {name!r}")
 
     @property
     def type(self) -> str:
@@ -778,3 +862,225 @@ class FrameFacade:
         facade._worker = self._worker
 
         return facade
+
+
+class _DialogRouter:
+    """The single dialog routing state of one browser context.
+
+    One router serves every page of the context: the session registers the
+    per-page handler returned by :meth:`handle_for` through the context page
+    event before any step code runs. Registering any ``dialog`` listener
+    disables Playwright's implicit auto-dismiss, so the handler itself
+    resolves every dialog no armed capture claims — accept on the setting,
+    else an explicit dismiss restoring the Playwright default.
+
+    Attributes:
+        accept_dialogs: the ``browser.accept_dialogs`` setting read once at
+            context creation; ``True`` accepts uncaptured dialogs.
+        capture_page: the raw page whose ``expect_dialog`` capture is armed;
+            ``None`` while no capture holds the claim.
+    """
+
+    def __init__(self, accept_dialogs: bool) -> None:
+        """Keep the setting; no capture is armed.
+
+        Args:
+            accept_dialogs: whether dialogs no captured ``expect_dialog`` block
+                claims are accepted automatically.
+        """
+        self.accept_dialogs = accept_dialogs
+        self.capture_page: Page | None = None
+
+    def handle_for(self, page: Page) -> Callable[[Dialog], None]:
+        """Build the dialog handler of one page of the context.
+
+        Args:
+            page: the raw page the handler is registered on.
+
+        Returns:
+            The per-page closure registered on ``page.on("dialog", ...)``.
+        """
+
+        def handler(dialog: Dialog) -> None:
+            if self.capture_page is page:
+                return  # an armed expect_dialog capture claims the dialog on its own page
+            if self.accept_dialogs:
+                dialog.accept()
+            else:
+                dialog.dismiss()
+
+        return handler
+
+
+class _DialogCapture:
+    """The ``expect_dialog`` context-manager capture of one page.
+
+    ``__enter__`` arms Playwright's own ``expect_event("dialog")`` waiter and
+    marks the page's claim on the shared router, so the routing handler leaves
+    the dialog to the capture. ``__exit__`` waits for the dialog and
+    initializes the bound :class:`DialogFacade` shell — the block variable is
+    a genuine facade whose state fills at exit. The enter and the exit are
+    each one marshaled call, so the block body's calls interleave correctly
+    between them; a dialog that never fires fails the exit with Playwright's
+    own timeout naming the awaited event.
+
+    Attributes:
+        _facade: the page facade owning the capture.
+        _router: the shared context router whose claim the capture arms.
+        _cm: the armed Playwright event context manager.
+        _info: the armed event info; ``value`` yields the raw dialog at exit.
+        _shell: the facade shell returned to the with-block.
+    """
+
+    def __init__(self, facade: PageFacade) -> None:
+        """Bind the capture to the page facade.
+
+        Args:
+            facade: the facade whose page arms the capture.
+        """
+        self._facade = facade
+        self._router: _DialogRouter | None = None
+        self._cm: EventContextManager[Dialog] | None = None
+        self._info: EventInfo[Dialog] | None = None
+        self._shell: DialogFacade | None = None
+
+    def __enter__(self) -> DialogFacade:
+        """Arm the dialog waiter and claim the page on the router.
+
+        Returns:
+            The facade shell resolving at the end of the with-block.
+        """
+        facade = self._facade
+        router = facade._ensure_router()
+        self._router = router
+
+        def arm() -> None:
+            router.capture_page = facade._page
+            self._cm = facade._page.expect_event("dialog")
+            self._info = self._cm.__enter__()
+
+        facade._call(arm)
+        self._shell = DialogFacade.__new__(DialogFacade)
+        return self._shell
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> bool:
+        """Wait for the dialog and initialize the shell; never suppress.
+
+        A block exception cancels the waiter without a timeout and propagates;
+        the shell then stays uninitialized and the pre-resolution guard covers
+        any later access.
+
+        Args:
+            exc_type: the type of the block exception, if the block raised.
+            exc_val: the block exception, if the block raised.
+            exc_tb: the traceback of the block exception, if the block raised.
+
+        Returns:
+            ``False`` — a block exception always propagates.
+        """
+        facade = self._facade
+        router = self._router
+
+        def resolve() -> Dialog | None:
+            try:
+                self._cm.__exit__(exc_type, exc_val, exc_tb)
+                if exc_type is None:
+                    return self._info.value
+            finally:
+                router.capture_page = None
+            return None
+
+        dialog = facade._call(resolve)
+        if exc_type is None and self._shell is not None:
+            DialogFacade.__init__(self._shell, dialog)
+            self._shell._worker = facade._worker
+        return False
+
+
+class _PopupCapture:
+    """The ``expect_popup`` context-manager capture of one page.
+
+    ``__enter__`` arms Playwright's own ``expect_popup`` waiter;
+    ``__exit__`` waits for the opened page and initializes the bound
+    :class:`PageFacade` shell as a full page facade of the popup's context,
+    inheriting the opener's driver thread and the shared context router — the
+    popup already carries the routing handler through the context page event,
+    so a dialog capture on it must mark the shared router for the handler to
+    skip. The enter and the exit are each one marshaled call; a popup that
+    never opens fails the exit with Playwright's own timeout naming the
+    awaited event.
+
+    Attributes:
+        _facade: the page facade owning the capture.
+        _cm: the armed Playwright event context manager.
+        _info: the armed event info; ``value`` yields the raw popup at exit.
+        _shell: the facade shell returned to the with-block.
+    """
+
+    def __init__(self, facade: PageFacade) -> None:
+        """Bind the capture to the page facade.
+
+        Args:
+            facade: the facade whose page arms the capture.
+        """
+        self._facade = facade
+        self._cm: EventContextManager[Page] | None = None
+        self._info: EventInfo[Page] | None = None
+        self._shell: PageFacade | None = None
+
+    def __enter__(self) -> PageFacade:
+        """Arm the popup waiter.
+
+        Returns:
+            The facade shell resolving at the end of the with-block.
+        """
+        facade = self._facade
+
+        def arm() -> None:
+            self._cm = facade._page.expect_popup()
+            self._info = self._cm.__enter__()
+
+        facade._call(arm)
+        self._shell = PageFacade.__new__(PageFacade)
+        return self._shell
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> bool:
+        """Wait for the popup and initialize the shell; never suppress.
+
+        A block exception cancels the waiter without a timeout and propagates;
+        the shell then stays uninitialized and the pre-resolution guard covers
+        any later access.
+
+        Args:
+            exc_type: the type of the block exception, if the block raised.
+            exc_val: the block exception, if the block raised.
+            exc_tb: the traceback of the block exception, if the block raised.
+
+        Returns:
+            ``False`` — a block exception always propagates.
+        """
+        facade = self._facade
+
+        def resolve() -> tuple[Page, BrowserContext] | None:
+            self._cm.__exit__(exc_type, exc_val, exc_tb)
+            if exc_type is None:
+                popup = self._info.value
+                return popup, popup.context
+
+        opened = facade._call(resolve)
+        if exc_type is None and self._shell is not None and opened is not None:
+            popup, context = opened
+            PageFacade.__init__(self._shell, popup, context)
+            self._shell._worker = facade._worker
+            self._shell._router = facade._router
+        return False

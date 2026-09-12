@@ -906,32 +906,32 @@ Verified facts (transfer from the design traces):
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: the `expect_dialog`/`expect_popup` rows of
+- [x] **Contract tests**: the `expect_dialog`/`expect_popup` rows of
   `test_page_surface_matches_the_contract` (Task 5) must now pass; add a signature check — both
   are zero-argument methods returning the capture context manager. Expected to fail before the
   code lands.
-- [ ] **Code**: add `_DialogRouter` to `prettyplay/driver/page.py` per its algorithm
+- [x] **Code**: add `_DialogRouter` to `prettyplay/driver/page.py` per its algorithm
   (`accept_dialogs` bool, `capture_page: Page | None = None`, `handle_for(page)` returning the
   per-page closure `handler(dialog)` with the claim → accept → dismiss chain).
-- [ ] **Code**: add `_DialogCapture` and `_PopupCapture` per the pseudocode — `__enter__`/`__exit__`
+- [x] **Code**: add `_DialogCapture` and `_PopupCapture` per the pseudocode — `__enter__`/`__exit__`
   each as one `_call`-marshaled unit; `expect_event("dialog")` for the dialog waiter
   (the fake mirrors this arming call); `expect_popup()` direct; `finally` clears
   `router.capture_page`; shell initialization at exit; `return False`.
-- [ ] **Code**: `PageFacade.expect_dialog()` → `_DialogCapture(self)`; `PageFacade.expect_popup()`
+- [x] **Code**: `PageFacade.expect_dialog()` → `_DialogCapture(self)`; `PageFacade.expect_popup()`
   → `_PopupCapture(self)`; `PageFacade.__init__` gains `_router: _DialogRouter | None = None`
   with the lazy `accept_dialogs=False` default at first capture use for hand-built facades;
   `_wrap_page` helper (or the same inline pattern) attaches `_worker` and `_router` for `pages`
   and popup wrapping.
-- [ ] **Code**: add the actionable `__getattr__` pre-resolution guard on `PageFacade` and
+- [x] **Code**: add the actionable `__getattr__` pre-resolution guard on `PageFacade` and
   `DialogFacade`: raise `AttributeError("… resolves at the end of the with-block — read it
   after the block …")` for unmapped attribute access before initialization (careful: `__getattr__`
   fires only for missing attributes — keep dunder/internal names working).
-- [ ] **Code**: extend the fakes — `FakePage.expect_event("dialog")` and `FakePage.expect_popup()`
+- [x] **Code**: extend the fakes — `FakePage.expect_event("dialog")` and `FakePage.expect_popup()`
   return recording context managers whose `__exit__` resolves `value` (a `FakeDialog` / a
     `FakePopupPage` with `.context`) or raises the Playwright-style timeout `Error`.
-- [ ] **Interface verification**: `pytest tests/driver/test_page.py -x -k "dialog or popup or
+- [x] **Interface verification**: `pytest tests/driver/test_page.py -x -k "dialog or popup or
   marshal or inline"` — all pass.
-- [ ] **Logic tests** (in `tests/driver/test_page.py`, from the design):
+- [x] **Logic tests** (in `tests/driver/test_page.py`, from the design):
   - `test_expect_dialog_yields_usable_dialog_facade` — setup: `FakePage.expect_event("dialog")`
     returns a recording cm whose `__exit__` resolves `value = FakeDialog(type="confirm",
     message="Delete?", default_value="")`; `FakeDialog` records accept/dismiss kwargs; input:
@@ -974,7 +974,7 @@ Verified facts (transfer from the design traces):
     `_call` executes inline in the test thread; `expect_dialog` → lazily created default
     `_DialogRouter(accept_dialogs=False)` → capture works; assertions: calls reach the fakes; no
     worker required.
-- [ ] **Logic tests (edge, popups + shared router)**:
+- [x] **Logic tests (edge, popups + shared router)**:
   - `test_popup_capture_and_pages_agree` — setup: context with main + popup (popup opened
     through a resolved capture); input: `facade.pages` after the capture; trace: `pages` wraps
     both raw pages → two distinct facades; the captured popup facade and the listed one wrap the
@@ -989,18 +989,18 @@ Verified facts (transfer from the design traces):
     capture exit → cm resolves → `DialogFacade` initialized → step controls accept/dismiss;
     assertions: neither accept nor dismiss fired from the handler; the facade resolves the
     dialog exactly once; `router.capture_page` cleared after the block.
-- [ ] **Logic test (negative)**: `test_access_before_block_resolution_raises_actionable` —
+- [x] **Logic test (negative)**: `test_access_before_block_resolution_raises_actionable` —
   setup: capture cm armed; input: `with facade.expect_dialog() as d: d.message`; trace:
   `d.message` → `DialogFacade.__getattr__` → `AttributeError("… resolves at the end of the
   with-block …")`; assertions: `pytest.raises(AttributeError)` with the actionable text; not
   `AssertionError`.
-- [ ] **Debugging**: `pytest tests/driver/test_page.py -x` — fix implementation code until all
+- [x] **Debugging**: `pytest tests/driver/test_page.py -x` — fix implementation code until all
   tests pass (do NOT fix test code).
-- [ ] **Contract re-verification**: `expect_dialog()`/`expect_popup()` present on the surface
+- [x] **Contract re-verification**: `expect_dialog()`/`expect_popup()` present on the surface
   (Task 5's set-equality gate now fully green); the contract Requirements hold — the capture
   claims the dialog, timeouts name the awaited event, the popup is a full `PageFacade` bound to
   the opener's driver thread; no raw `Page`/`Dialog`/`BrowserContext` crosses the boundary.
-- [ ] **Lint**: `ruff check prettyplay/driver/ tests/driver/` — fix formatting, apply
+- [x] **Lint**: `ruff check prettyplay/driver/ tests/driver/` — fix formatting, apply
   decomposition if necessary.
 
 ### Task 7: `DriverSession.open_context` dialog wiring (TDD coding)
