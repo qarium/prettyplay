@@ -4,6 +4,7 @@ The single source of the immutable configuration part. Secrets (LLM API keys)
 never live here: they come only from environment variables.
 """
 
+import math
 import re
 from typing import Literal
 from urllib.parse import urlparse
@@ -152,6 +153,21 @@ class Config(BaseModel):
             empty means no block.
         strict: replay-only mode; True — cached code executes honestly and
             nothing is ever (re)generated; default False.
+        polling_timeout: the settle horizon of one step execution in seconds;
+            None — polling off (the default); 0 — an explicit disable
+            equivalent to None; a finite non-negative number — failed step
+            code is re-executed inside the window to absorb transient
+            page-state failures. Sizing: the window must exceed the facade's
+            longest internal wait the engineer wants to absorb — the Playwright
+            expect default is 5 s, so 6.0 covers one exhausted expectation
+            plus one re-execution; a 30 s action wait consumes any sane window
+            alone, polling targets expectation/element-state races.
+        polling_delay: the pause between settle re-executions in seconds;
+            default 0.5; 0 — repetition without a pause; must be a finite
+            non-negative number.
+        interactive: open the opt-in steering REPL when an otherwise terminal
+            step failure occurs on a non-strict interactive run; default
+            False — an accidentally enabled REPL must never hang CI.
         generation_attempts: generation attempt budget per step per test; default 3.
         healing_attempts: healing attempt budget per step per test; default 2.
         send_screenshots: whether screenshots are attached to LLM requests.
@@ -169,9 +185,54 @@ class Config(BaseModel):
     generation_prompt: str = ""
     classification_prompt: str = ""
     strict: bool = False
+    polling_timeout: float | None = None
+    polling_delay: float = 0.5
+    interactive: bool = False
     generation_attempts: PositiveInt = 3
     healing_attempts: PositiveInt = 2
     send_screenshots: bool = False
+
+    @field_validator("polling_timeout")
+    @classmethod
+    def _validate_polling_timeout(cls, value: float | None) -> float | None:
+        """Check that a set timeout is a finite non-negative number.
+
+        Args:
+            value: the raw timeout setting; None means the settle window is
+                off; 0 is an explicit disable and stays legal.
+
+        Returns:
+            The unchanged timeout when None or a finite non-negative number.
+
+        Raises:
+            ValueError: when the value is negative or non-finite (inf/nan).
+        """
+        if value is None:
+            return value
+
+        if not math.isfinite(value) or value < 0:
+            raise ValueError("must be None or a non-negative number")
+
+        return value
+
+    @field_validator("polling_delay")
+    @classmethod
+    def _validate_polling_delay(cls, value: float) -> float:
+        """Check that the delay is a finite non-negative number.
+
+        Args:
+            value: the raw delay setting; 0 — repetition without a pause.
+
+        Returns:
+            The unchanged delay when finite and non-negative.
+
+        Raises:
+            ValueError: when the value is negative or non-finite (inf/nan).
+        """
+        if not math.isfinite(value) or value < 0:
+            raise ValueError("must be a non-negative number")
+
+        return value
 
     @property
     def effective_generation_model(self) -> str:

@@ -125,8 +125,11 @@ class TestLoadConfigContract:
         values = set(_loader._ENV_NAMES.values())
 
         assert expected <= values  # every setting present — all five browser variables included
-        # one entry per top-level scalar field (the group itself excluded) plus per group field
-        assert len(_loader._ENV_NAMES) == len(Config.model_fields) - 1 + len(BrowserConfig.model_fields)
+        # one entry per top-level scalar field (the group itself excluded) plus per group field;
+        # the polling/interactive settings join the env map in their own loader task
+        pending = {"polling_timeout", "polling_delay", "interactive"}
+        wired = [name for name in Config.model_fields if name not in pending and name != "browser"]
+        assert len(_loader._ENV_NAMES) == len(wired) + len(BrowserConfig.model_fields)
 
 
 class TestLoadConfigLogic:

@@ -26,7 +26,7 @@ class TestConfigContract:
         with pytest.raises(TypeError):
             Config("openai")  # type: ignore[misc]
 
-    def test_all_fifteen_properties_accessible(self) -> None:
+    def test_all_eighteen_properties_accessible(self) -> None:
         config = Config()
         expected = [
             "provider",
@@ -39,6 +39,9 @@ class TestConfigContract:
             "generation_prompt",
             "classification_prompt",
             "strict",
+            "polling_timeout",
+            "polling_delay",
+            "interactive",
             "generation_attempts",
             "healing_attempts",
             "send_screenshots",
@@ -48,7 +51,7 @@ class TestConfigContract:
         for name in expected:
             assert hasattr(config, name), f"missing property: {name}"
 
-    def test_signature_declares_thirteen_fields_in_contract_order(self) -> None:
+    def test_signature_declares_sixteen_fields_in_contract_order(self) -> None:
         fields = Config.model_fields
         assert list(fields.keys()) == [
             "provider",
@@ -61,10 +64,33 @@ class TestConfigContract:
             "generation_prompt",
             "classification_prompt",
             "strict",
+            "polling_timeout",
+            "polling_delay",
+            "interactive",
             "generation_attempts",
             "healing_attempts",
             "send_screenshots",
         ]
+
+    def test_config_defaults_polling_and_interactive_settings(self) -> None:
+        """The three new settings: polling off, half-second pause, steering off."""
+        config = Config()
+
+        assert config.polling_timeout is None
+        assert config.polling_delay == 0.5
+        assert config.interactive is False
+
+    def test_polling_and_interactive_field_types_match_contract(self) -> None:
+        polling_timeout = Config.model_fields["polling_timeout"]
+        polling_delay = Config.model_fields["polling_delay"]
+        interactive = Config.model_fields["interactive"]
+
+        assert polling_timeout.annotation == float | None
+        assert polling_timeout.default is None
+        assert polling_delay.annotation is float
+        assert polling_delay.default == 0.5
+        assert interactive.annotation is bool
+        assert interactive.default is False
 
     def test_config_carries_nested_group_and_new_switches(self) -> None:
         """The browser group is a BrowserConfig; strict/classification_prompt are new scalar fields."""
@@ -149,6 +175,30 @@ class TestConfigLogic:
             Config(generation_attempts=0)
 
         assert "generation_attempts" in str(excinfo.value)
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("polling_timeout", -1.0),
+            ("polling_delay", -0.5),
+            ("polling_timeout", float("inf")),
+            ("polling_timeout", float("nan")),
+            ("polling_delay", float("inf")),
+        ],
+    )
+    def test_config_rejects_negative_polling_values(self, field: str, value: float) -> None:
+        """Negative and non-finite polling values fail loudly naming the field."""
+        with pytest.raises(pydantic.ValidationError) as excinfo:
+            Config(**{field: value})
+
+        assert field in str(excinfo.value)
+
+    def test_config_zero_polling_values_are_valid(self) -> None:
+        """Boundary: an explicit disable (timeout 0) and a zero pause stay legal."""
+        config = Config(polling_timeout=0.0, polling_delay=0)
+
+        assert config.polling_timeout == 0.0
+        assert config.polling_delay == 0.0
 
     def test_unknown_browser_fails_loudly(self) -> None:
         with pytest.raises(pydantic.ValidationError) as excinfo:

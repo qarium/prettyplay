@@ -409,29 +409,29 @@ equivalent to None; only negative or non-finite values fail. The defaults mean p
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: in `tests/config/test_models.py` add — `Config()` defaults:
+- [x] **Contract tests**: in `tests/config/test_models.py` add — `Config()` defaults:
   `polling_timeout is None`, `polling_delay == 0.5`, `interactive is False`; the three properties
   readable with the contract types (`float | None`, `float`, `bool`)
-- [ ] **Code**: in `prettyplay/config/models.py` — add the three fields with the validators
+- [x] **Code**: in `prettyplay/config/models.py` — add the three fields with the validators
   (`math.isfinite` for both floats; negative → loud pydantic validation error) in the contract's
   field order (after `strict`, before `generation_attempts`); extend the class docstring Args —
   the `polling_timeout` Args line carries the sizing guidance: the window must exceed the
   facade's longest internal wait the engineer wants to absorb (Playwright expect default 5 s) —
   6.0 covers one exhausted expectation plus one re-execution; a 30 s action wait consumes any
   sane window alone, polling targets expectation/element-state races
-- [ ] **Code**: in `prettyplay/config/loader.py` — extend `_ALLOWED_TEXT` with the three entries
+- [x] **Code**: in `prettyplay/config/loader.py` — extend `_ALLOWED_TEXT` with the three entries
   (the validation render names setting, value, allowed form)
-- [ ] **Interface verification**: `pytest tests/config/test_models.py -x` — all pass
-- [ ] **Logic tests**: in `tests/config/test_models.py` add
+- [x] **Interface verification**: `pytest tests/config/test_models.py -x` — all pass
+- [x] **Logic tests**: in `tests/config/test_models.py` add
   `test_config_rejects_negative_polling_values` (parametrized): `pytest.raises(ValidationError)`
   for `Config(polling_timeout=-1.0)` and `Config(polling_delay=-0.5)` — the field name appears in
   the error; boundary row: `Config(polling_timeout=0.0, polling_delay=0)` is valid (explicit
   disable and zero pause stay legal); non-finite row: `Config(polling_timeout=float("inf"))`
   raises (an infinite settle window is never constructible)
-- [ ] **Debugging**: `pytest tests/config/ -x` — fix implementation code until all tests pass
-- [ ] **Contract re-verification**: facade accessibility
+- [x] **Debugging**: `pytest tests/config/ -x` — fix implementation code until all tests pass
+- [x] **Contract re-verification**: facade accessibility
   `python -c "from prettyplay.config import Config"`; the layered-merge participants unchanged
-- [ ] **Lint**: `ruff check prettyplay/ tests/` — fix formatting if necessary
+- [x] **Lint**: `ruff check prettyplay/ tests/` — fix formatting if necessary
 
 ### Task 4: `load_config` parses the three settings — env floats/bools and the None-skip merge (config loader)
 
