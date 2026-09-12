@@ -31,7 +31,7 @@ guidance> the modal has id=terms — close it via
 - Every other line is guidance: one regeneration request carrying a USER GUIDANCE block plus the conversation
   history — the result executes against the live page, every turn ends green or red
 - A red turn shows the outcome and returns to the guidance prompt immediately — no re-execution loop, the settle
-  window does not re-arms inside the dialog
+  window does not re-arm inside the dialog
 - `quit`, EOF (Ctrl+D) and SIGINT (Ctrl+C) end the dialog and the original terminal failure propagates — nothing hangs
 
 ## Effects

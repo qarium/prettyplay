@@ -1091,21 +1091,21 @@ introduced by the architecture stage; the design instructs applying it during im
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: create `tests/engine/steering/` package (`__init__.py` + test module) —
+- [x] **Contract tests**: create `tests/engine/steering/` package (`__init__.py` + test module) —
   `StepSteering` importable from `prettyplay.engine.steering`; constructs with the four contract
   parameters (`reporter=None` accepted); `steer` callable with the four parameters (expected to
   fail at this stage)
-- [ ] **Code**: create `prettyplay/engine/steering/steering.py` — the frozen `SYSTEM_PROMPT` and
+- [x] **Code**: create `prettyplay/engine/steering/steering.py` — the frozen `SYSTEM_PROMPT` and
   `PAGE_API_SURFACE` copies (mirroring comments), the constructor with the `reporter=None` →
   `StepReporter([])` substitution, and `steer` per the algorithm (banner, guarded page
   interactions, the input loop, blank re-prompt, local commands, the guidance request, the bare
   execution, the write-back + `on_healed`, the red-turn history, the exit paths)
-- [ ] **Code**: create `prettyplay/engine/steering/__init__.py` — docstring, import,
+- [x] **Code**: create `prettyplay/engine/steering/__init__.py` — docstring, import,
   `__all__ = ["StepSteering"]`
-- [ ] **Editorial**: in `prettyplay/engine/steering/.usages/steering.md` fix "does not re-arms"
+- [x] **Editorial**: in `prettyplay/engine/steering/.usages/steering.md` fix "does not re-arms"
   → "does not re-arm"
-- [ ] **Interface verification**: `pytest tests/engine/steering/ -x` — all pass
-- [ ] **Logic tests**: in the steering test module add (steering tests monkeypatch
+- [x] **Interface verification**: `pytest tests/engine/steering/ -x` — all pass
+- [x] **Logic tests**: in the steering test module add (steering tests monkeypatch
   `builtins.input` with a scripted answer queue; `FakePage`; recording provider/cache/reporter
   fakes; failure = `IncurableStepError("click Pay", "budget exhausted", "Timeout…", code="old",
   verdict=None)` unless stated)
@@ -1143,11 +1143,11 @@ introduced by the architecture stage; the design instructs applying it during im
     `run_step_code` monkeypatched to succeed → provider `kwargs["existing_code"] == ""`; the
     captured stdout contains the empty code block of the banner and the `code` command; the
     returned step's code is the generated code; `cache.save` called once
-- [ ] **Debugging**: `pytest tests/engine/steering/ -x` — fix implementation code until all tests pass
-- [ ] **Contract re-verification**: facade accessibility
+- [x] **Debugging**: `pytest tests/engine/steering/ -x` — fix implementation code until all tests pass
+- [x] **Contract re-verification**: facade accessibility
   `python -c "from prettyplay.engine.steering import StepSteering"`; every exit path heals or
   returns None; the guidance never enters the cache file; no budgets touched
-- [ ] **Lint**: `ruff check prettyplay/ tests/` — fix formatting if necessary
+- [x] **Lint**: `ruff check prettyplay/ tests/` — fix formatting if necessary
 
 ### Task 13: `StepExecutor` — the window, settle, the steering intercept and `on_step_finished` (facade)
 

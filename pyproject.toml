@@ -90,6 +90,9 @@ max-complexity = 10
 "prettyplay/engine/generator.py" = [
     "E501",    # the prompt constants are verbatim contract texts and must not be rewrapped
 ]
+"prettyplay/engine/steering/steering.py" = [
+    "E501",    # the prompt constants are verbatim contract texts and must not be rewrapped
+]
 "prettyplay/engine/classification.py" = [
     "E501",    # the prompt constant is a verbatim contract text and must not be rewrapped
 ]
