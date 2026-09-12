@@ -469,7 +469,7 @@ class TestPrettyPlayLogic:
 
     def test_expect_folds_traceback_to_boundary(self, tmp_path: Path) -> None:
         page = FakePage()
-        error = IncurableStepError("s", "r", "", FailureVerdict("incurable", "e", "rec"))
+        error = IncurableStepError("s", "r", "", verdict=FailureVerdict("incurable", "e", "rec"))
 
         def engine_depth_two() -> None:
             """Innermost library frame: raise through two nested helpers."""
@@ -502,7 +502,7 @@ class TestPrettyPlayLogic:
 
     def test_folded_error_keeps_identity_and_context(self, tmp_path: Path) -> None:
         page = FakePage()
-        error = IncurableStepError("s", "r", "", FailureVerdict("incurable", "e", "rec"))
+        error = IncurableStepError("s", "r", "", verdict=FailureVerdict("incurable", "e", "rec"))
 
         class FailingExecutor:
             """Stub executor raising the scripted terminal error."""
@@ -527,9 +527,9 @@ class TestPrettyPlayLogic:
     def test_folded_error_folds_chained_tracebacks(self, tmp_path: Path) -> None:
         """The context/cause chains survive for debugging, their internal frames do not."""
         page = FakePage()
-        terminal = IncurableStepError("s", "r", "", FailureVerdict("incurable", "e", "rec"))
+        terminal = IncurableStepError("s", "r", "", verdict=FailureVerdict("incurable", "e", "rec"))
         original = TimeoutError("waiting for the element timed out")
-        inner = IncurableStepError("s", "inner reason", "", FailureVerdict("rot", "e2", "r2"))
+        inner = IncurableStepError("s", "inner reason", "", verdict=FailureVerdict("rot", "e2", "r2"))
 
         class ChainingExecutor:
             """Stub executor raising the terminal error from an except handler."""

@@ -324,26 +324,26 @@ cells start passing the code in their own tasks. `render_terminal_message`, `Fai
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: in `tests/failures/test_errors.py` add — `IncurableStepError` accepts
+- [x] **Contract tests**: in `tests/failures/test_errors.py` add — `IncurableStepError` accepts
   `code` as the 4th positional/keyword argument between `error` and `verdict`
   (`IncurableStepError("s", "r", "e", "c", None)` constructs; 4-arg legacy construction still
   works and yields `code == ""`); the `code` property exists and returns the stored value
   (expected to fail at this stage)
-- [ ] **Code**: in `prettyplay/failures/errors.py` — insert `code: str = ""` into
+- [x] **Code**: in `prettyplay/failures/errors.py` — insert `code: str = ""` into
   `IncurableStepError.__init__` between `error` and `verdict`, store it as `self.code`, extend
   the class docstring Args with `code` (the step code that terminally failed; empty — unknown)
-- [ ] **Code**: verify the render path is untouched — `render_terminal_message` is not called
+- [x] **Code**: verify the render path is untouched — `render_terminal_message` is not called
   with and does not accept `code`; `str(exc)` and `exc.message` stay exactly as before
-- [ ] **Interface verification**: `pytest tests/failures/test_errors.py -x` — all pass
-- [ ] **Logic tests**: in `tests/failures/test_errors.py` add — a code-bearing error:
+- [x] **Interface verification**: `pytest tests/failures/test_errors.py -x` — all pass
+- [x] **Logic tests**: in `tests/failures/test_errors.py` add — a code-bearing error:
   `exc.code == "def step(page): boom()"`, the code string absent from `str(exc)` and from the
   structured render; a no-code error: `exc.code == ""` and the render identical to the pre-change
   form (reason / step / error / verdict blocks unchanged); a verdict-bearing error with code:
   the verdict block renders, the code still absent
-- [ ] **Debugging**: `pytest tests/failures/ -x` — fix implementation code until all tests pass
-- [ ] **Contract re-verification**: facade accessibility `python -c "from prettyplay.failures import IncurableStepError"`;
+- [x] **Debugging**: `pytest tests/failures/ -x` — fix implementation code until all tests pass
+- [x] **Contract re-verification**: facade accessibility `python -c "from prettyplay.failures import IncurableStepError"`;
   property set matches the contract (`step_text`, `reason`, `error`, `code`, `recommendation`, `verdict`)
-- [ ] **Lint**: `ruff check prettyplay/ tests/` — fix formatting if necessary
+- [x] **Lint**: `ruff check prettyplay/ tests/` — fix formatting if necessary
 
 ### Task 2: `StepHooks` grows `on_step_finished` (reporting)
 

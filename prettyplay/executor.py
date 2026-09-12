@@ -120,7 +120,7 @@ class StepExecutor:
                         # healed = re-executed
                         self._healer.heal(cached, error_text, self._scenario, page)
             elif self._config.strict:
-                raise IncurableStepError(step_text, _STRICT_MISS_REASON, "", None)
+                raise IncurableStepError(step_text, _STRICT_MISS_REASON, "")
             else:
                 self._generator.generate(identity, step_text, self._scenario, page)
 
@@ -183,7 +183,7 @@ class StepExecutor:
             # from None: the skip is logged; the step failure itself travels in the error field
             if step_type == "assertion":
                 raise ProductDefectError(step_text, _STRICT_NO_VERDICT_REASON, error_text, None) from None
-            raise IncurableStepError(step_text, _STRICT_NO_VERDICT_REASON, error_text, None) from None
+            raise IncurableStepError(step_text, _STRICT_NO_VERDICT_REASON, error_text) from None
 
         verdict = FailureVerdict(
             category=classification.category,
@@ -193,4 +193,4 @@ class StepExecutor:
 
         if classification.category == "product_defect":
             raise ProductDefectError(step_text, classification.explanation, error_text, verdict)
-        raise IncurableStepError(step_text, classification.explanation, error_text, verdict)
+        raise IncurableStepError(step_text, classification.explanation, error_text, verdict=verdict)

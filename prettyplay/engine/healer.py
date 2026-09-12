@@ -95,7 +95,7 @@ class StepHealer:
         if classification.category == "product_defect":
             raise ProductDefectError(step_text, classification.explanation, error, verdict)
         if classification.category == "incurable":
-            raise IncurableStepError(step_text, classification.explanation, error, verdict)
+            raise IncurableStepError(step_text, classification.explanation, error, verdict=verdict)
 
         try:
             healed = self._generator.regenerate(
@@ -109,7 +109,7 @@ class StepHealer:
         except IncurableStepError as incurable:
             if incurable.verdict is None:
                 # regeneration exhausted: verdict of this classification, no second LLM request
-                raise IncurableStepError(step_text, incurable.reason, incurable.error, verdict) from incurable
+                raise IncurableStepError(step_text, incurable.reason, incurable.error, verdict=verdict) from incurable
             raise  # a fresh failed-check verdict is never overwritten
 
         self._reporter.emit("on_healed", {"step_text": step_text, "explanation": classification.explanation})

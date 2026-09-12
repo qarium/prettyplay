@@ -158,6 +158,11 @@ class IncurableStepError(PrettyplayError):
         reason: the specific incurability cause — the primary reason.
         error: the full underlying error text of the failed step code; empty —
             the render carries no error line.
+        code: the step code that terminally failed; empty — unknown. Filled by
+            the raiser — the cached step code on the healing and strict failure
+            paths, the last candidate code on the generation path. A field for
+            programmatic consumers only: never rendered, never carried by hook
+            or log payloads.
         verdict: the optional :class:`FailureVerdict` — reused from a
             classification that already happened or requested at budget
             exhaustion; ``None`` when the LLM was unavailable.
@@ -168,6 +173,7 @@ class IncurableStepError(PrettyplayError):
         step_text: str,
         reason: str,
         error: str = "",
+        code: str = "",
         verdict: FailureVerdict | None = None,
     ) -> None:
         self.step_text = step_text
@@ -176,6 +182,7 @@ class IncurableStepError(PrettyplayError):
         # the base-class attribute contract — the primary reason, not the render.
         self.message = reason
         self.error = error
+        self.code = code
         self.verdict = verdict
 
         # Render-only fallback verdict: keeps the message actionable without a

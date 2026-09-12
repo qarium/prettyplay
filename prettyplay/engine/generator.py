@@ -258,16 +258,15 @@ class StepGenerator:
 
                 if pool == "healing":
                     # healer attaches the verdict — no second LLM request
-                    raise IncurableStepError(step_text, reason, error or "", None)
+                    raise IncurableStepError(step_text, reason, error or "")
                 if error is None:
                     raise IncurableStepError(
                         step_text,
                         reason,
                         "",  # nothing to classify: no candidates existed
-                        None,
                     )
 
-                raise IncurableStepError(step_text, reason, error, self._classify(step_text, code, error, page))
+                raise IncurableStepError(step_text, reason, error, verdict=self._classify(step_text, code, error, page))
 
             attempt += 1
             self._reporter.emit("on_generation_started", {"step_text": step_text, "attempt": attempt})
@@ -296,7 +295,7 @@ class StepGenerator:
                 verdict = self._classify(step_text, code, error_field, page)
                 if verdict is not None and verdict.category == "product_defect":
                     raise ProductDefectError(step_text, verdict.explanation, error_field, verdict) from None
-                raise IncurableStepError(step_text, reason, error_field, verdict) from None
+                raise IncurableStepError(step_text, reason, error_field, verdict=verdict) from None
             except Exception as candidate_error:  # other candidate failures heal via retry
                 existing_code = code
                 error = format_step_error(candidate_error)

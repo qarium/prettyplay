@@ -350,7 +350,7 @@ class TestStepExecutorContract:
                 "open the dashboard",
                 "the step text no longer matches reality",
                 "",
-                FailureVerdict("incurable", "the step is ambiguous", "reword the step"),
+                verdict=FailureVerdict("incurable", "the step is ambiguous", "reword the step"),
             ),
         ],
         ids=["product-defect", "incurable"],
@@ -430,7 +430,7 @@ class TestStepExecutorLogic:
         assert not events_named(fixture.recorder, "on_step_failed")
 
     def test_executor_reports_verdict_after_failed(self, tmp_path: Path) -> None:
-        failure = IncurableStepError("s", "r", "", FailureVerdict("incurable", "e", "rec"))
+        failure = IncurableStepError("s", "r", "", verdict=FailureVerdict("incurable", "e", "rec"))
         healer = RaisingHealer(failure)
         fixture = ExecutorFixture(tmp_path, RecordingGenerator(), healer)
         identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="s")
@@ -458,7 +458,7 @@ class TestStepExecutorLogic:
         assert "on_step_failed" in [event for event, _ in fixture.recorder.events]
 
     def test_verdict_event_logged_at_info(self, tmp_path: Path, caplog) -> None:
-        failure = IncurableStepError("s", "r", "", FailureVerdict("incurable", "e", "rec"))
+        failure = IncurableStepError("s", "r", "", verdict=FailureVerdict("incurable", "e", "rec"))
         healer = RaisingHealer(failure)
         fixture = ExecutorFixture(tmp_path, RecordingGenerator(), healer)
         identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="s")

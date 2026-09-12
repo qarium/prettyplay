@@ -62,18 +62,40 @@ class TestFailuresContract:
 
         assert (error.step_text, error.message, error.error, error.verdict) == ("step", "msg", "err", verdict)
 
-    def test_incurable_signature_is_step_text_reason_error_verdict(self) -> None:
+    def test_incurable_signature_is_step_text_reason_error_code_verdict(self) -> None:
         parameters = list(inspect.signature(IncurableStepError.__init__).parameters.values())[1:]
 
-        assert [parameter.name for parameter in parameters] == ["step_text", "reason", "error", "verdict"]
+        assert [parameter.name for parameter in parameters] == ["step_text", "reason", "error", "code", "verdict"]
         assert parameters[2].default == ""
-        assert parameters[3].default is None
+        assert parameters[3].default == ""
+        assert parameters[4].default is None
 
-    def test_incurable_accepts_the_four_argument_form(self) -> None:
+    def test_incurable_accepts_the_five_argument_form_with_code(self) -> None:
         verdict = FailureVerdict("incurable", "e", "r")
-        error = IncurableStepError("step", "why", "err", verdict)
+        error = IncurableStepError("step", "why", "err", "code", verdict)
 
-        assert (error.step_text, error.reason, error.error, error.verdict) == ("step", "why", "err", verdict)
+        assert (error.step_text, error.reason, error.error, error.code, error.verdict) == (
+            "step",
+            "why",
+            "err",
+            "code",
+            verdict,
+        )
+
+        keyword = IncurableStepError("step", "why", "err", code="code", verdict=None)
+
+        assert keyword.code == "code"
+
+    def test_incurable_legacy_construction_still_works_with_empty_code(self) -> None:
+        error = IncurableStepError("step", "why", "err")
+        with_verdict = IncurableStepError("step", "why", "err", verdict=FailureVerdict("incurable", "e", "r"))
+
+        assert error.code == ""
+        assert with_verdict.code == ""
+
+    def test_incurable_code_property_returns_the_stored_value(self) -> None:
+        assert IncurableStepError("s", "r", "e", "c", None).code == "c"
+        assert IncurableStepError("s", "r", "e").code == ""
 
     def test_llm_unavailable_signature_is_single_message(self) -> None:
         parameters = list(inspect.signature(LLMUnavailableError.__init__).parameters.values())[1:]
@@ -239,7 +261,9 @@ class TestFailuresLogic:
         assert rendered.index("expected x, observed y") < rendered.index("recommendation:")
 
     def test_incurable_recommendation_comes_from_verdict(self) -> None:
-        error = IncurableStepError("s", "budget exhausted", "", FailureVerdict("incurable", "e", "reword the step"))
+        error = IncurableStepError(
+            "s", "budget exhausted", "", verdict=FailureVerdict("incurable", "e", "reword the step")
+        )
 
         assert error.recommendation == "reword the step"
 
@@ -253,14 +277,16 @@ class TestFailuresLogic:
 
     def test_incurable_str_appends_verdict_block(self) -> None:
         verdict = FailureVerdict("incurable", "the text is gone", "reword the step")
-        rendered = str(IncurableStepError("s", "budget exhausted", "", verdict))
+        rendered = str(IncurableStepError("s", "budget exhausted", "", verdict=verdict))
 
         assert rendered.startswith("budget exhausted")
         assert "recommendation: reword the step" in rendered
         assert rendered.index("budget exhausted") < rendered.index("recommendation:")
 
     def test_incurable_is_catchable_by_base(self) -> None:
-        error = IncurableStepError("click Sign in", "budget exhausted", "", FailureVerdict("incurable", "e", "reword"))
+        error = IncurableStepError(
+            "click Sign in", "budget exhausted", "", verdict=FailureVerdict("incurable", "e", "reword")
+        )
 
         assert isinstance(error, PrettyplayError)  # one except clause at the suite boundary
 
@@ -293,3 +319,42 @@ class TestFailuresLogic:
         error = ProductDefectError("step", "expected x, observed y", "", FailureVerdict("product_defect", "e", "rec"))
 
         assert error.args == (str(error),)  # one render — composed at construction, never re-composed
+
+    def test_code_bearing_error_keeps_code_out_of_every_render(self) -> None:
+        step_code = "def step(page): boom()"
+        error = IncurableStepError("click Pay", "budget exhausted", "Timeout 10000ms exceeded", step_code, None)
+
+        assert error.code == step_code
+        assert step_code not in str(error)
+        assert step_code not in render_terminal_message(error.reason, error.step_text, error.error, error.verdict)
+        assert error.message == "budget exhausted"  # the code never leaks into the message attribute
+
+    def test_no_code_error_renders_the_pre_change_form(self) -> None:
+        error = IncurableStepError("s", "budget exhausted", "err")
+
+        assert error.code == ""
+        assert str(error) == (
+            "budget exhausted\n"
+            "---\n"
+            "step: s\n"
+            "error: err\n"
+            "---\n"
+            "recommendation: reword the step or refresh the cache"
+        )
+
+    def test_verdict_bearing_error_with_code_renders_verdict_block_without_code(self) -> None:
+        verdict = FailureVerdict("rot", "the button was renamed", "refresh the cache")
+        step_code = "page.click('#pay')"
+        error = IncurableStepError("s", "budget exhausted", "err", step_code, verdict)
+
+        assert error.verdict is verdict
+        assert "explanation:    the button was renamed" in str(error)
+        assert "recommendation: refresh the cache" in str(error)
+        assert step_code not in str(error)  # the code field stays programmatic-only
+
+    def test_incurable_property_set_matches_the_contract(self) -> None:
+        error = IncurableStepError("s", "r", "e", "c", None)
+
+        assert (error.step_text, error.reason, error.error, error.code) == ("s", "r", "e", "c")
+        assert error.recommendation == "reword the step or refresh the cache"  # fallback — no verdict
+        assert error.verdict is None
