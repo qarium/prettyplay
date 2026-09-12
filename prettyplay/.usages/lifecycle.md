@@ -52,8 +52,9 @@ budget is consumed. Locator ambiguity and Python-level errors of the step code n
 `interactive = true` (env PRETTYPLAY_INTERACTIVE, per-test override) arms the steering REPL for local generation
 sessions: when a step terminally fails with IncurableStepError, a terminal dialog opens — step, failed code, error,
 verdict, snapshot fragment, screenshot path — and every engineer message drives one regeneration executed against the
-live page. A green turn heals the step and writes it back to the cache; quit/EOF/SIGINT raises the original terminal
-failure. The dialog never opens on product_defect, in strict mode, or without LLM access, and consumes no budgets.
+live page. A green turn heals the step and writes it back to the cache; quit/EOF/SIGINT/unreadable stdin raises the
+original terminal failure. The dialog never opens on product_defect, in strict mode, or without LLM access, and
+consumes no budgets.
 Keep it off in CI — an accidentally opened dialog would hang the run.
 
 ## Hooks

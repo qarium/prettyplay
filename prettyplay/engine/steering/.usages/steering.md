@@ -32,7 +32,8 @@ guidance> the modal has id=terms — close it via
   history — the result executes against the live page, every turn ends green or red
 - A red turn shows the outcome and returns to the guidance prompt immediately — no re-execution loop, the settle
   window does not re-arm inside the dialog
-- `quit`, EOF (Ctrl+D) and SIGINT (Ctrl+C) end the dialog and the original terminal failure propagates — nothing hangs
+- `quit`, EOF (Ctrl+D), SIGINT (Ctrl+C) and an unreadable stdin (a captured CI stream) end the dialog and the original
+  terminal failure propagates — nothing hangs
 
 ## Effects
 

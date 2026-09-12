@@ -285,8 +285,13 @@ class TestStepSteeringLogic:
 
     @pytest.mark.parametrize(
         "answer",
-        ["quit", EOFError(), KeyboardInterrupt()],
-        ids=["quit", "eof", "sigint"],
+        [
+            "quit",
+            EOFError(),
+            KeyboardInterrupt(),
+            OSError("reading from stdin while output is captured"),
+        ],
+        ids=["quit", "eof", "sigint", "unreadable-stdin"],
     )
     def test_steer_quit_eof_sigint_return_none(
         self,
@@ -295,7 +300,7 @@ class TestStepSteeringLogic:
         caplog: pytest.LogCaptureFixture,
         answer: str | BaseException,
     ) -> None:
-        """quit, EOF and SIGINT at the prompt end the dialog declined — no provider request, no hang."""
+        """quit, EOF, SIGINT and an unreadable stdin end the dialog declined — no provider request, no hang."""
         from prettyplay.engine.steering import StepSteering  # noqa: PLC0415 — cell facade check
 
         provider = FakeProvider(answers=[GENERATED_CODE])

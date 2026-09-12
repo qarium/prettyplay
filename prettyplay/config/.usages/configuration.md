@@ -102,8 +102,8 @@ terminally fails with IncurableStepError on a non-strict run, a terminal dialog 
 code, the error and the verdict; each engineer message drives one regeneration executed against the live page. Opt-in
 by design — an accidentally enabled REPL must never hang CI. This is the steering dialog of a stuck step; it is
 unrelated to interactive hosts (IPython, Jupyter) — see the library lifecycle docs. The REPL never opens on
-product_defect, in strict replay, or when the LLM is unavailable; quit/EOF/SIGINT raises the original terminal
-failure.
+product_defect, in strict replay, or when the LLM is unavailable; quit/EOF/SIGINT/unreadable stdin raises the
+original terminal failure.
 
 ## Browsers
 

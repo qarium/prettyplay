@@ -144,9 +144,10 @@ class StepSteering:
     turns each into a regeneration request executed against the live page:
     every turn ends green — the healed step is written back to the cache and
     reported — or red — the outcome joins the history of the next request.
-    Local commands serve the context without the LLM; quit, EOF and SIGINT at
-    the prompt end the dialog declined, a provider failure ends it, and no
-    budget is ever consumed: the human in the loop is the bound.
+    Local commands serve the context without the LLM; quit, EOF, SIGINT and
+    an unreadable stdin at the prompt end the dialog declined, a provider
+    failure ends it, and no budget is ever consumed: the human in the loop
+    is the bound.
 
     Attributes:
         _config: project settings; the generation instructions and the
@@ -213,7 +214,7 @@ class StepSteering:
 
         while True:
             message = self._read_guidance(failure)
-            if message is None:  # quit, EOF or SIGINT at the prompt — declined
+            if message is None:  # quit, EOF, SIGINT or an unreadable stdin — declined
                 return None
 
             command = message.strip()
@@ -277,12 +278,12 @@ class StepSteering:
                 of the step sentence of the decline record.
 
         Returns:
-            The raw guidance message; ``None`` — quit, EOF or SIGINT ended
-            the dialog declined.
+            The raw guidance message; ``None`` — quit, EOF, SIGINT or an
+            unreadable stdin ended the dialog declined.
         """
         try:
             message = input("guidance> ")
-        except (EOFError, KeyboardInterrupt):
+        except (EOFError, KeyboardInterrupt, OSError):  # an unreadable stdin (captured CI) declines like EOF
             logger.info("steering_declined", extra={"step_text": failure.step_text})
             return None
 

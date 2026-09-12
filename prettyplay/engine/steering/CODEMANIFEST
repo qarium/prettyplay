@@ -37,7 +37,7 @@ Annotations: |
   The opt-in human-in-the-loop escape hatch of a terminally stuck step: opened by the step executor exactly at the moment an IncurableStepError would propagate — never on product_defect, never in replay-strict, never when the LLM is unavailable.
   Every guidance turn is a regeneration request carrying a USER GUIDANCE block plus the conversation history; the result executes against the live page — every turn has a measurable green or red outcome; no free-form conversation.
   Interactive attempts consume no generation or healing budgets — the human in the loop is the bound; the settle window never re-arms inside the dialog: a failed execution returns to the guidance prompt immediately.
-  The guidance is one-shot: logged, never persisted. Nothing hangs: quit, EOF and SIGINT end the dialog and the original terminal failure propagates.
+  The guidance is one-shot: logged, never persisted. Nothing hangs: quit, EOF, SIGINT and an unreadable stdin end the dialog and the original terminal failure propagates.
 
 ---
 
@@ -62,7 +62,7 @@ Annotations: |
 
       Algorithm:
       1. Render the context banner: the step sentence, the failed code, the underlying error, the verdict (explanation and recommendation), a fragment of the fresh accessibility snapshot, a screenshot path
-      2. Read the guidance line; quit, EOF or SIGINT — return None
+      2. Read the guidance line; quit, EOF, SIGINT or an unreadable stdin — return None
       3. A local command runs without the LLM: snapshot — the full accessibility snapshot; screenshot — a full PNG written to a temporary file with the path printed; error and code — the stored texts; back to step 2
       4. A guidance message builds one regeneration request via the provider: `system_prompt` as the system prompt, the page API surface from `facade`, the step sentence of `failure` and `previous_steps` as the scenario context, the fresh accessibility snapshot plus the screenshot when the project settings enable screenshots, the user instructions — the effective config generation_prompt — when non-empty, existing_code from the failed code of `failure`, error from its underlying error, the message as the guidance and the accumulated turns as the guidance history
       5. Execute the regenerated code via `run_step_code` against `page`

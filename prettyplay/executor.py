@@ -207,7 +207,7 @@ class StepExecutor:
             raise failure
 
         healed = self._steering.steer(failure, identity, self._scenario, page)
-        if healed is None:  # quit, EOF, SIGINT at the prompt or a dead provider
+        if healed is None:  # quit, EOF, SIGINT, an unreadable stdin or a dead provider
             raise failure
 
         return healed

@@ -127,8 +127,8 @@ generation sessions: when a step terminally fails with
 `IncurableStepError`, a terminal dialog opens — step, failed code, error,
 verdict, snapshot fragment, screenshot path — and every engineer message
 drives one regeneration executed against the live page. A green turn heals
-the step and writes it back to the cache; quit, EOF or SIGINT raises the
-original terminal failure. The dialog never opens on `product_defect`, in
+the step and writes it back to the cache; quit, EOF, SIGINT or an unreadable
+stdin raises the original terminal failure. The dialog never opens on `product_defect`, in
 strict mode, or when the provider is down, and consumes no budgets. Keep it
 off in CI — an accidentally opened dialog would hang the run. This is the
 steering dialog of a stuck step, not an interactive host mode (IPython and
