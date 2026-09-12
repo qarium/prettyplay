@@ -81,12 +81,20 @@ t.save_screenshot("artifacts/home.png")   # write full-page PNG to a file
 - **cache miss** — the step code is generated (a candidate that must actually
   work on the page), then cached; only successes are cached. A candidate
   assertion that legitimately fails stops the retries at once and is
-  classified: a real defect fails as `product_defect` instead of burning the
-  attempt budget
+  classified: a real defect fails as `product_defect`; a `rot` or `fixable`
+  verdict grants exactly one healing-funded regeneration carrying the
+  classification recommendation
 - **cached failure** — the failure is classified:
   - `rot` (the UI changed) — the step is regenerated and the cache rewritten
+  - `fixable` (the step code is at fault — an ambiguous or wrong locator —
+    while the intent stays satisfiable) — regenerated for the same intent,
+    the request carrying the classification recommendation
   - `product_defect` — the test fails loudly; nothing is regenerated
   - `incurable` — the step fails with an explanation and a recommendation
+
+Every execution of step code — cached code and candidates alike — runs under
+the **settle window** (see [Settle polling](#settle-polling)): a transient
+page-state failure re-executes the same code before any costly move.
 
 **Strict replay-only mode** (`strict = true`) never contacts the LLM for code:
 a cache miss fails immediately as `IncurableStepError` ("strict mode forbids
@@ -94,10 +102,37 @@ generation — the step is missing from the cache"), and a failed cached step is
 at most classified — the only LLM call strict mode ever makes — then raised by
 its category (`product_defect` → `ProductDefectError`, everything else — rot
 included — → `IncurableStepError`). Nothing is regenerated or healed, no
-attempt budget is consumed and the cache is never written. When the LLM is
-unavailable, the verdict is skipped with a `WARNING` and the step type alone
-picks the error kind. This is the natural CI posture: generate locally, run
-strict in the pipeline.
+attempt budget is consumed and the cache is never written. The settle window
+still applies to cached code — re-executing it is execution, not generation.
+When the LLM is unavailable, the verdict is skipped with a `WARNING` and the
+step type alone picks the error kind. This is the natural CI posture: generate
+locally, run strict in the pipeline.
+
+## Settle polling
+
+`polling_timeout` (default `None` — off; `0` — explicit disable) opens one
+settle window per step execution, measured from the first execution of the
+step's code: a transient failure of a pollable kind — timeouts, element-state
+races, navigation races, failed expectations — re-executes the same code after
+`polling_delay` (default 0.5 s) until success or window end. Attempts appear
+as `settle_retry` log records; no LLM budget is consumed. Locator ambiguity
+and Python-level errors of the step code never poll. Size the window above
+the longest facade wait it must absorb (6.0 covers one exhausted 5 s
+expectation plus one re-execution).
+
+## Interactive steering
+
+`interactive = true` (default `false`) arms the steering REPL for local
+generation sessions: when a step terminally fails with
+`IncurableStepError`, a terminal dialog opens — step, failed code, error,
+verdict, snapshot fragment, screenshot path — and every engineer message
+drives one regeneration executed against the live page. A green turn heals
+the step and writes it back to the cache; quit, EOF or SIGINT raises the
+original terminal failure. The dialog never opens on `product_defect`, in
+strict mode, or when the provider is down, and consumes no budgets. Keep it
+off in CI — an accidentally opened dialog would hang the run. This is the
+steering dialog of a stuck step, not an interactive host mode (IPython and
+Jupyter keep working as before).
 
 ## Seeing the scenario
 
@@ -129,8 +164,11 @@ cache_root = ""                  # empty -> <cwd>/.prettyplay/cache/
 generation_prompt = ""           # user instructions for generation; empty -> no instructions block
 classification_prompt = ""       # user instructions for classification; empty -> no instructions block
 strict = false                   # true -> replay-only mode (no generation, no healing)
+interactive = false              # true -> the steering dialog on a terminally stuck step (local sessions)
 generation_attempts = 3
 healing_attempts = 2
+polling_timeout = 6.0            # settle window seconds; omit -> off, 0.0 -> explicit disable
+polling_delay = 0.5              # pause between settle re-executions
 send_screenshots = false
 
 [tool.prettyplay.browser]
@@ -194,7 +232,8 @@ browser group reads the flat `PRETTYPLAY_BROWSER_NAME`,
 `PRETTYPLAY_BROWSER_SCREEN`, `PRETTYPLAY_BROWSER_HEADLESS`,
 `PRETTYPLAY_BROWSER_ENDPOINT` and `PRETTYPLAY_BROWSER_ACCEPT_DIALOGS`. Env
 values parse by the field type: booleans
-accept `true/false/1/0` case-insensitively, integers parse as decimals, and an
+accept `true/false/1/0` case-insensitively, integers parse as decimals, floats
+(the polling settings) parse as decimal floats, and an
 unparseable value fails loudly with a `ConfigurationError` naming the setting,
 the received value and the accepted form.
 
@@ -235,7 +274,11 @@ verdict block with column-aligned `explanation:` and `recommendation:` lines
 (the `category` travels in the structured fields, never in the render). The
 same single text feeds the exception message, the log record and the
 `on_step_failed` hook payload — consumers never re-compose it. The verdict
-fields also arrive through the `on_step_verdict` hook.
+fields also arrive through the `on_step_verdict` hook. `IncurableStepError`
+also carries a `code` attribute — the step code that terminally failed (the
+cached code on healing and strict paths, the last candidate on generation);
+a field for programmatic consumers only, never rendered and never in hook
+payloads.
 `ProductDefectError` also derives from `AssertionError`, so any runner counts
 it as a failed test, never an error. Tracebacks of library failures are folded
 at the `t.step(...)` / `t.expect(...)` call site: internal engine frames
@@ -254,6 +297,7 @@ class Reporter(StepHooks):
     def on_step_passed(self, step_text: str, step_type: str) -> None: ...
     def on_step_failed(self, step_text: str, step_type: str, error: str) -> None: ...
     def on_step_verdict(self, step_text: str, category: str, explanation: str, recommendation: str) -> None: ...
+    def on_step_finished(self, step_text: str, step_type: str, outcome: str) -> None: ...
     def on_generation_started(self, step_text: str, attempt: int) -> None: ...
     def on_healing_started(self, step_text: str, category: str) -> None: ...
     def on_healed(self, step_text: str, explanation: str) -> None: ...

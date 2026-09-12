@@ -108,18 +108,61 @@ ever (re)generated.
   forbids generation — an expected CI signal: generating a step is a
   deliberate non-strict act
 - A failed cached step is classified when LLM access is configured:
-  `product_defect` raises `ProductDefectError`, `rot`/`incurable` raises
-  `IncurableStepError` — never regenerated
+  `product_defect` raises `ProductDefectError`, `rot`/`fixable`/`incurable`
+  raises `IncurableStepError` — never regenerated
 - Without LLM access the failure raises immediately by step type — an
   assertion step raises `ProductDefectError`, an action step raises
   `IncurableStepError` — each carrying the full underlying error; a `WARNING`
   is logged
 - Classifications are the only LLM calls; generation and healing budgets are
   never consumed
+- The settle window still applies to cached code — re-executing it is
+  execution, not generation
 
 Team workflow: generate locally where the LLM is reachable, commit the cache
 directory, run CI fully from the cache with no LLM keys — optionally with
 `strict = true` for guaranteed replay-only behavior.
+
+## Settle polling
+
+`polling_timeout` (default `None` — off; `0` — explicit disable; env
+`PRETTYPLAY_POLLING_TIMEOUT`, per-test override) opens one settle window per
+step execution, measured from the first execution of the step's code: a
+transient failure of a pollable kind — timeouts, element-state races,
+navigation races, failed expectations — re-executes the same code after
+`polling_delay` (default 0.5 s) until success or window end. Attempts appear
+as `settle_retry` log records; no LLM budget is consumed, and the window
+applies to cached code in strict mode too. Locator ambiguity and Python-level
+errors of the step code never poll. Size the window above the longest facade
+wait it must absorb — 6.0 covers one exhausted 5 s expectation plus one
+re-execution.
+
+```python
+from prettyplay import PrettyConfig, PrettyPlay
+
+# a local generation session with a settle window
+test = PrettyPlay("login-flow", config=PrettyConfig(polling_timeout=8.0))
+```
+
+## Interactive steering
+
+`interactive = true` (default `false`; env `PRETTYPLAY_INTERACTIVE`, per-test
+override) arms the steering REPL for local generation sessions: when a step
+terminally fails with `IncurableStepError` on a non-strict run, a terminal
+dialog opens — step, failed code, error, verdict, snapshot fragment,
+screenshot path — and every engineer message drives one regeneration executed
+against the live page. A green turn heals the step and writes it back to the
+cache; quit, EOF or SIGINT raises the original terminal failure. The dialog
+never opens on `product_defect`, in strict mode, or without LLM access, and
+consumes no budgets. Keep it off in CI — an accidentally opened dialog would
+hang the run.
+
+```python
+from prettyplay import PrettyConfig, PrettyPlay
+
+# a local generation session with the steering dialog armed
+test = PrettyPlay("login-flow", config=PrettyConfig(interactive=True))
+```
 
 ## Hooks
 
@@ -164,4 +207,6 @@ test.close()  # stops this test's browser and driver thread
 ```
 
 Generation of the step cache remains a batch workflow: prefer a plain script
-or a pytest run over a REPL when generating many steps.
+or a pytest run over a REPL when generating many steps. The `interactive`
+setting of the previous section is a different thing entirely: it is the
+steering dialog of a stuck step, not a host mode.

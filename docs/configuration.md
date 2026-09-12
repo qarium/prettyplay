@@ -17,8 +17,11 @@ cache_root = ""                  # empty -> <cwd>/.prettyplay/cache/
 generation_prompt = ""           # user instructions for generation; empty -> no instructions block
 classification_prompt = ""       # user instructions for classification; empty -> no instructions block
 strict = false                   # true -> replay-only mode (no generation, no healing)
+interactive = false              # true -> the steering dialog on a terminally stuck step (local sessions)
 generation_attempts = 3
 healing_attempts = 2
+polling_timeout = 6.0            # settle window seconds; omit -> off, 0.0 -> explicit disable
+polling_delay = 0.5              # pause between settle re-executions
 send_screenshots = false
 
 [tool.prettyplay.browser]
@@ -52,13 +55,17 @@ upper case; the browser group keeps flat env names:
 | cache_root | `PRETTYPLAY_CACHE_ROOT` |
 | generation_attempts | `PRETTYPLAY_GENERATION_ATTEMPTS` |
 | healing_attempts | `PRETTYPLAY_HEALING_ATTEMPTS` |
+| polling_timeout | `PRETTYPLAY_POLLING_TIMEOUT` |
+| polling_delay | `PRETTYPLAY_POLLING_DELAY` |
+| interactive | `PRETTYPLAY_INTERACTIVE` |
 | send_screenshots | `PRETTYPLAY_SEND_SCREENSHOTS` |
 | strict | `PRETTYPLAY_STRICT` |
 | generation_prompt | `PRETTYPLAY_GENERATION_PROMPT` |
 | classification_prompt | `PRETTYPLAY_CLASSIFICATION_PROMPT` |
 
 Env values parse by the field type: booleans accept `true/false/1/0`
-case-insensitively, integers parse as decimals, and an unparseable value fails
+case-insensitively, integers parse as decimals, floats (the polling settings)
+parse as decimal floats, and an unparseable value fails
 loudly with a `ConfigurationError` naming the setting, the received value and
 the accepted form.
 
@@ -98,6 +105,10 @@ test = PrettyPlay(
   `headless`, `endpoint`, `accept_dialogs` keep working
 - `strict` participates when passed explicitly — an explicit `False` overrides
   the file value too
+- `polling_timeout` merges by skip-when-`None`: a `PrettyConfig` that leaves
+  it `None` (the default) resolves from the file layer, while an explicit
+  `0.0` participates in the merge as an explicit disable — indistinguishable
+  from unset only at the `None` default, never at the value
 - File values you did not touch survive: `base_url` and `model` set only in
   pyproject.toml keep working when a config is passed
 - One model — one place of validation: file and programmatic values validate
@@ -131,8 +142,11 @@ fields, which is what makes the layered merge above possible.
 | `generation_prompt` | str | `""` | user instructions for generation requests; empty → no block |
 | `classification_prompt` | str | `""` | user instructions for classification requests; empty → no block |
 | `strict` | bool | `False` | replay-only mode: no generation, no healing |
+| `interactive` | bool | `False` | arm the steering dialog for terminally stuck steps (local sessions) |
 | `generation_attempts` | int | `3` | generation attempt budget per step per test |
 | `healing_attempts` | int | `2` | healing attempt budget per step per test |
+| `polling_timeout` | float \| None | `None` | settle window seconds per step execution; `None`/`0` — polling off |
+| `polling_delay` | float | `0.5` | pause between settle re-executions |
 | `send_screenshots` | bool | `False` | attach screenshots to LLM requests |
 
 Read-only effective-model properties resolve the per-operation fallback:

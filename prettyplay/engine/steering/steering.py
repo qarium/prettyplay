@@ -1,8 +1,10 @@
 """Interactive steering of a terminally stuck step: the engineer-in-the-loop REPL."""
 
+import contextlib
 import logging
 import tempfile
 from datetime import date
+from pathlib import Path
 
 from ...cache import CachedStep, StepCache, StepIdentity
 from ...config import Config
@@ -375,7 +377,10 @@ class StepSteering:
         )
         self._cache.save(step)
         self._reporter.emit("on_healed", {"step_text": failure.step_text, "explanation": _HEALED_EXPLANATION})
-        print("step green — healed step written to the cache")
+        if self._cache.writable:  # save is best-effort — a read-only cache skipped the write loudly
+            print("step green — healed step written to the cache")
+        else:
+            print("step green — cache write skipped (read-only cache)")
         return step
 
     def _guarded_snapshot(self, page: PageFacade) -> str:
@@ -404,15 +409,20 @@ class StepSteering:
             The path of the written file; ``None`` when the interaction
             failed — its failure text was printed.
         """
+        path: str | None = None
         try:
             png = page.screenshot()
             with tempfile.NamedTemporaryFile(prefix=_SCREENSHOT_PREFIX, suffix=".png", delete=False) as target:
+                path = target.name
                 target.write(png)
         except Exception as failure:  # a dead page never kills the dialog
+            if path is not None:
+                with contextlib.suppress(OSError):
+                    Path(path).unlink()  # a partial write leaves nothing worth inspecting
             print(f"screenshot unavailable: {failure}")
             return None
 
-        return target.name
+        return path
 
     def _guarded_screenshot_bytes(self, page: PageFacade) -> bytes | None:
         """Read the screenshot bytes of a guided request; a failed interaction degrades to None.

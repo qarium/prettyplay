@@ -94,10 +94,13 @@ against the live page:
   `IncurableStepError` carrying the classification verdict of the last
   candidate
 - A failed check of a candidate (an assertion that executed and did not hold)
-  stops the retries at once: the failure goes to classification —
-  `product_defect` raises `ProductDefectError` with the verdict, anything else
-  raises `IncurableStepError` with it; one failed check is spent, never the
-  whole budget
+  stops the retries at once: the failure goes through the bounded-healing
+  decision table — `product_defect` raises `ProductDefectError` with the
+  verdict, `incurable` raises `IncurableStepError` with it, and a `rot` or
+  `fixable` verdict grants exactly one healing-funded regeneration carrying
+  the classification recommendation; a repeat failure of that regeneration is
+  terminal with one final classification deciding the kind; one failed check
+  is spent, never the whole budget
 - Other candidate failures (element not found, timeouts) retry with the fresh
   error and snapshot
 - Only a success is stored in the cache

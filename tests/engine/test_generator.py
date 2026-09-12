@@ -67,19 +67,18 @@ class FakePage:
         return b"png"
 
 
-class FailingPage(FakePage):
-    """Fake page where locator-driven step code fails like a broken assertion."""
-
-    def get_by_role(self, role: str, name: str) -> None:
-        raise AssertionError("element not found")
-
-
 class StubProvider:
     """Stub LLM provider boundary: scripted answers and verdicts with recorded requests."""
 
-    def __init__(self, answers: list[str], verdict: FailureClassification | None = None) -> None:
+    def __init__(
+        self,
+        answers: list[str | Exception],
+        verdict: FailureClassification | None = None,
+        verdicts: list[FailureClassification | Exception | None] | None = None,
+    ) -> None:
         self.answers = list(answers)
         self.verdict = verdict
+        self.verdicts = list(verdicts) if verdicts is not None else None
         self.calls: list[dict[str, object]] = []
         self.classify_failure_calls: list[dict[str, object]] = []
 
@@ -116,13 +115,17 @@ class StubProvider:
         )
         if not self.answers:
             raise AssertionError("stub provider has no answers left")
-        return self.answers.pop(0)
+        answer = self.answers.pop(0)
+        if isinstance(answer, Exception):  # a scripted provider failure plays itself
+            raise answer
+        return answer
 
     def classify_failure(self, **kwargs: object) -> FailureClassification | None:
         self.classify_failure_calls.append(dict(kwargs))
-        if isinstance(self.verdict, Exception):
-            raise self.verdict
-        return self.verdict
+        outcome = self.verdicts.pop(0) if self.verdicts is not None else self.verdict
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
 
 
 class UnavailableProvider:
@@ -743,6 +746,157 @@ class TestStepGeneratorLogic:
         assert excinfo.value.code == CHECK_CODE
         assert len(provider.calls) == 1  # no unfunded request
         assert len(provider.classify_failure_calls) == 1
+
+    def test_generate_failed_check_repeat_check_failure_gets_final_classification(self, tmp_path: Path) -> None:
+        """A repeat failed check gets the one final classification — the rot verdict stays terminal."""
+        provider = StubProvider(
+            [CHECK_CODE, CHECK_CODE],
+            verdicts=[
+                FailureClassification(category="rot", explanation="the button was renamed", recommendation="id"),
+                FailureClassification(category="rot", explanation="still renamed", recommendation="reword"),
+            ],
+        )
+        fixture = GeneratorFixture(tmp_path, provider)  # RunBudgets(3, 2)
+        page = FakePage(assertion_message="button is hidden")
+
+        with pytest.raises(IncurableStepError) as excinfo:
+            fixture.generator.generate(make_identity(), "click Pay", [], page, fixture.window)
+
+        assert excinfo.value.reason == "candidate check failed — button is hidden"  # the repeat names the check
+        assert excinfo.value.verdict is not None
+        assert excinfo.value.verdict.explanation == "still renamed"  # the final verdict, not the entry one
+        assert excinfo.value.code == CHECK_CODE  # the funded candidate that repeated the failure
+        assert excinfo.value.error == "button is hidden"
+        assert len(provider.calls) == 2  # the failed candidate + the one funded regeneration
+        assert len(provider.classify_failure_calls) == 2  # entry + final; no third request after the repeat
+        assert not [event for event in fixture.recorder.events if event[0] == "on_cache_saved"]
+
+    def test_generate_failed_check_repeat_product_defect_verdict_raises_product_defect(
+        self, tmp_path: Path
+    ) -> None:
+        """The final classification of a repeat failure may still say product defect — it raises loudly."""
+        provider = StubProvider(
+            [CHECK_CODE, CHECK_CODE],
+            verdicts=[
+                FailureClassification(category="rot", explanation="the button was renamed", recommendation="id"),
+                FailureClassification(category="product_defect", explanation="gone", recommendation="file a bug"),
+            ],
+        )
+        fixture = GeneratorFixture(tmp_path, provider)
+        page = FakePage(assertion_message="button is hidden")
+
+        with pytest.raises(ProductDefectError) as excinfo:
+            fixture.generator.generate(make_identity(), "click Pay", [], page, fixture.window)
+
+        assert excinfo.value.verdict is not None
+        assert excinfo.value.verdict.category == "product_defect"  # the final verdict decides the kind
+        assert excinfo.value.message == "gone"
+        assert excinfo.value.error == "button is hidden"
+        assert len(provider.calls) == 2
+        assert len(provider.classify_failure_calls) == 2
+
+    def test_generate_failed_check_repeat_non_check_failure_names_candidate_failure(
+        self, tmp_path: Path
+    ) -> None:
+        """A non-assertion repeat of a funded regeneration names the candidate, not the check."""
+        provider = StubProvider(
+            [CHECK_CODE, TYPING_BROKEN_CODE],
+            verdicts=[
+                FailureClassification(category="rot", explanation="the button was renamed", recommendation="id"),
+                FailureClassification(category="rot", explanation="still renamed", recommendation="reword"),
+            ],
+        )
+        fixture = GeneratorFixture(tmp_path, provider)
+        # one page serving both: the entry check fails on the locator expectation, the repeat on get_by_role
+        page = TypeErrorPage(assertion_message="button is hidden")
+
+        with pytest.raises(IncurableStepError) as excinfo:
+            fixture.generator.generate(make_identity(), "click Pay", [], page, fixture.window)
+
+        assert excinfo.value.reason == "candidate failed — TypeError: bad code"  # not "candidate check failed"
+        assert excinfo.value.verdict is not None
+        assert excinfo.value.verdict.explanation == "still renamed"
+        assert excinfo.value.code == TYPING_BROKEN_CODE
+        assert excinfo.value.error == "TypeError: bad code"
+
+    def test_generate_failed_check_provider_failure_in_funded_regeneration_propagates(
+        self, tmp_path: Path
+    ) -> None:
+        """A provider failure of the funded regeneration propagates immediately — no retry, no final classification."""
+        outage = LLMUnavailableError("llm unavailable: openai request failed")
+        provider = StubProvider(
+            [CHECK_CODE, outage],
+            verdict=FailureClassification(category="rot", explanation="e", recommendation="r"),
+        )
+        fixture = GeneratorFixture(tmp_path, provider)
+        page = FakePage(assertion_message="button is hidden")
+
+        with pytest.raises(LLMUnavailableError) as excinfo:
+            fixture.generator.generate(make_identity(), "click Pay", [], page, fixture.window)
+
+        assert excinfo.value is outage  # the identical object — never swallowed into a terminal kind
+        assert len(provider.calls) == 2  # the failed candidate + the funded request that died
+        assert len(provider.classify_failure_calls) == 1  # the entry classification only — no final one
+
+    def test_generate_exhaustion_product_defect_verdict_raises_product_defect(self, tmp_path: Path) -> None:
+        provider = StubProvider(
+            [BROKEN_CODE],
+            verdict=FailureClassification(
+                category="product_defect", explanation="the banner is gone", recommendation="file a bug"
+            ),
+        )
+        fixture = GeneratorFixture(tmp_path, provider, limits=(1, 2))
+        page = TimeoutPage()
+
+        with pytest.raises(ProductDefectError) as excinfo:
+            fixture.generator.generate(make_identity(), "see the welcome banner", [], page, fixture.window)
+
+        assert excinfo.value.verdict is not None
+        assert excinfo.value.verdict.category == "product_defect"
+        assert excinfo.value.error == "TimeoutError: navigation timed out"
+        assert len(provider.calls) == 1
+        assert len(provider.classify_failure_calls) == 1
+
+    def test_generate_exhaustion_refused_healing_funding_is_terminal(self, tmp_path: Path) -> None:
+        provider = StubProvider(
+            [BROKEN_CODE],
+            verdict=FailureClassification(category="rot", explanation="e", recommendation="r"),
+        )
+        fixture = GeneratorFixture(tmp_path, provider, limits=(1, 0))  # the healing pool is empty
+        page = TimeoutPage()
+
+        with pytest.raises(IncurableStepError) as excinfo:
+            fixture.generator.generate(make_identity(), "click Pay", [], page, fixture.window)
+
+        assert excinfo.value.reason == "healing attempt budget exhausted"  # the exhaustion entry, refused funding
+        assert excinfo.value.verdict is not None
+        assert excinfo.value.verdict.category == "rot"
+        assert excinfo.value.code == BROKEN_CODE
+        assert len(provider.calls) == 1  # no unfunded request
+        assert len(provider.classify_failure_calls) == 1
+
+    def test_generate_exhaustion_funded_regeneration_saves_the_step(self, tmp_path: Path) -> None:
+        provider = StubProvider(
+            [BROKEN_CODE, WORKING_CODE],
+            verdict=FailureClassification(category="rot", explanation="e", recommendation="use the id"),
+        )
+        fixture = GeneratorFixture(tmp_path, provider, limits=(1, 2))  # generation budget 1, healing 2
+        identity = make_identity()
+        page = TimeoutPage()
+
+        step = fixture.generator.generate(identity, "click Pay", [], page, fixture.window)
+
+        assert step.code == WORKING_CODE  # the exhausted pool was saved by the funded regeneration
+        assert step.identity == identity
+        assert len(provider.calls) == 2
+        assert provider.calls[1]["recommendation"] == "use the id"
+        attempts = [
+            payload["attempt"] for event, payload in fixture.recorder.events if event == "on_generation_started"
+        ]
+        assert attempts == [1, 2]  # the funded request continues the pool-run count
+        saved = [event for event in fixture.recorder.events if event[0] == "on_cache_saved"]
+        assert len(saved) == 1  # only the healed code of the funded regeneration is stored
+        assert saved[0][1]["filename"] == identity.filename
 
     def test_on_generation_started_fires_once_despite_settle_retries(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture

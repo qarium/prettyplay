@@ -176,6 +176,9 @@ class ScriptedProvider(LLMProvider):
         page_api: str = "",
         existing_code: str | None = None,
         error: str | None = None,
+        recommendation: str | None = None,
+        guidance: str | None = None,
+        guidance_history: list[str] | None = None,
     ) -> str:
         self.generation_calls += 1
         raise AssertionError("provider must not generate: strict mode replays cached code only")
@@ -211,6 +214,9 @@ class UnavailableProvider(LLMProvider):
         page_api: str = "",
         existing_code: str | None = None,
         error: str | None = None,
+        recommendation: str | None = None,
+        guidance: str | None = None,
+        guidance_history: list[str] | None = None,
     ) -> str:
         self.generation_calls += 1
         raise AssertionError("provider must not generate: strict mode replays cached code only")
@@ -246,6 +252,9 @@ class CrashingProvider(LLMProvider):
         page_api: str = "",
         existing_code: str | None = None,
         error: str | None = None,
+        recommendation: str | None = None,
+        guidance: str | None = None,
+        guidance_history: list[str] | None = None,
     ) -> str:
         self.generation_calls += 1
         raise AssertionError("provider must not generate: strict mode replays cached code only")
@@ -961,6 +970,38 @@ class TestStepExecutorSteeringAndClosingEvent:
             fixture.executor.execute("нажать Войти", "action", page)
 
         assert excinfo.value.code == expected_code
+
+    def test_execute_steering_declined_propagates_the_original_failure(self, tmp_path: Path) -> None:
+        """A declined dialog propagates the original failure object — unwrapped, fields intact, closing event last."""
+        failure = IncurableStepError(
+            "нажать войти",
+            "budget exhausted",
+            "Timeout …",
+            code=BROKEN_CODE,
+            verdict=FailureVerdict("incurable", "the page moved", "reword the step"),
+        )
+        steering = RecordingSteering(healed=None)  # quit, EOF or a dead provider — the dialog declined
+        fixture = interactive_fixture(tmp_path, RecordingGenerator(), RaisingHealer(failure), steering=steering)
+        seed_cached_step(fixture, "нажать войти")
+        page = FakePage()
+
+        with pytest.raises(IncurableStepError) as excinfo:
+            fixture.executor.execute("нажать войти", "action", page)
+
+        assert excinfo.value is failure  # the identical object — never re-wrapped
+        assert excinfo.value.code == BROKEN_CODE  # the fields survive the decline
+        assert len(steering.calls) == 1
+        assert [event for event, _payload in fixture.recorder.events] == [
+            "on_step_started",
+            "on_step_failed",
+            "on_step_verdict",
+            "on_step_finished",
+        ]
+        assert events_named(fixture.recorder, "on_step_finished") == [
+            {"step_text": "нажать войти", "step_type": "action", "outcome": "failed"}
+        ]
+        assert not events_named(fixture.recorder, "on_step_passed")
+        assert fixture.executor._scenario == []  # the declined step never joins the scenario context
 
     def test_execute_step_finished_fires_on_keyboard_interrupt(self, tmp_path: Path) -> None:
         failure = IncurableStepError("click Pay", "budget exhausted", "Timeout …", verdict=None)

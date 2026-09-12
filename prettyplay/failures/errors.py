@@ -41,7 +41,7 @@ class FailureVerdict:
     and failure paths stay cheap.
 
     Args:
-        category: the classification label: rot, product_defect or incurable.
+        category: the classification label: rot, product_defect, fixable or incurable.
         explanation: what happened on the page — one short sentence.
         recommendation: the recommended engineer action — one short sentence.
     """

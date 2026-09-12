@@ -276,7 +276,7 @@ class StepGenerator:
                 or a failure classified incurable.
             LLMUnavailableError: the provider service failed; no retry.
         """
-        attempt: list[int] = [0]  # every LLM request of this pool run — loop attempts and funded regenerations
+        attempt = 0  # every LLM request of this pool run — loop attempts and funded regenerations
         existing_code: str | None = None
         error: str | None = None
         code = ""
@@ -285,8 +285,8 @@ class StepGenerator:
             if not self._budgets.try_generation(identity):
                 return self._exhaustion_outcome(identity, step_text, previous_steps, page, code, error, window, attempt)
 
-            attempt[0] += 1
-            self._emit_generation_started(step_text, attempt[0])
+            attempt += 1
+            self._emit_generation_started(step_text, attempt)
 
             code = self._request(step_text, previous_steps, page, existing_code, error, recommendation=None)
 
@@ -372,7 +372,7 @@ class StepGenerator:
         code: str,
         error_field: str,
         window: SettleWindow,
-        attempt: list[int],
+        attempt: int,
     ) -> CachedStep:
         """Decide the bounded-healing outcome of a failed candidate check.
 
@@ -391,7 +391,7 @@ class StepGenerator:
             code: the code of the failed candidate.
             error_field: the full failure text of the failed check.
             window: the settle window of the current step execution.
-            attempt: the shared LLM attempt counter of the pool run.
+            attempt: the number of LLM requests the pool run made so far.
 
         Returns:
             The healed step when the funded regeneration worked.
@@ -443,7 +443,7 @@ class StepGenerator:
         code: str,
         error: str | None,
         window: SettleWindow,
-        attempt: list[int],
+        attempt: int,
     ) -> CachedStep:
         """Decide the outcome of a refused generation attempt.
 
@@ -463,7 +463,7 @@ class StepGenerator:
             error: the failure description of the last candidate; None — no
                 candidate ever existed.
             window: the settle window of the current step execution.
-            attempt: the shared LLM attempt counter of the pool run.
+            attempt: the number of LLM requests the pool run made so far.
 
         Returns:
             The healed step when the funded regeneration worked.
@@ -509,16 +509,17 @@ class StepGenerator:
         error: str,
         recommendation: str,
         window: SettleWindow,
-        attempt: list[int],
+        attempt: int,
     ) -> tuple[CachedStep | None, str, str, bool]:
         """Run the one healing-funded regeneration request of the bounded healing.
 
         A single inline request — never a call to the retrying regenerate
-        loop. It is an LLM attempt: the shared counter increments and
-        ``on_generation_started`` fires. A provider failure propagates
-        immediately — no retry, no final classification; only the execution
-        of the funded candidate can fail softly, yielding the failed code and
-        its formatted error for the caller's terminal handling.
+        loop. It is an LLM attempt: the ordinal continues the pool run's
+        count and ``on_generation_started`` fires. A provider failure
+        propagates immediately — no retry, no final classification; only the
+        execution of the funded candidate can fail softly, yielding the
+        failed code and its formatted error for the caller's terminal
+        handling.
 
         Args:
             identity: the address of the step — the identity of the stored step.
@@ -530,7 +531,7 @@ class StepGenerator:
             recommendation: the classification diagnosis carried by the request.
             window: the settle window of the current step execution — shared
                 with the loop, the same step execution.
-            attempt: the shared LLM attempt counter of the pool run.
+            attempt: the number of LLM requests the pool run made so far.
 
         Returns:
             The stored healed step with empty failure facts on success; None
@@ -541,8 +542,8 @@ class StepGenerator:
             LLMUnavailableError: the provider request failed; no retry, no
                 final classification.
         """
-        attempt[0] += 1
-        self._emit_generation_started(step_text, attempt[0])
+        attempt += 1
+        self._emit_generation_started(step_text, attempt)
 
         code = self._request(step_text, previous_steps, page, existing_code, error, recommendation)
         try:

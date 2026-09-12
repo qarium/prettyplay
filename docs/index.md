@@ -46,6 +46,7 @@ closes the page and stops the whole browser of that test.
   work on the page), then cached; only successes are cached
 - **cached failure** — the failure is classified:
     - `rot` (the UI changed) — the step is regenerated and the cache rewritten
+    - `fixable` (the step code is at fault, the intent stays satisfiable) — regenerated for the same intent
     - `product_defect` — the test fails loudly; nothing is regenerated
     - `incurable` — the step fails with an explanation and a recommendation
 

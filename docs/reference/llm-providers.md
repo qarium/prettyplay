@@ -44,6 +44,15 @@ providers. A parity requirement, not a capability difference: classification
 requests never carry the generation instructions and generation requests never
 carry the classification instructions.
 
+Regeneration block parity: a regeneration request may carry three extra
+inputs after the failed code and its error — `RECOMMENDATION` (the diagnosis
+of the classification that preceded the regeneration, when present),
+`USER GUIDANCE` (the engineer guidance message of the interactive steering,
+when present) and `HISTORY` (the accumulated steering turns, when present) —
+rendered in this fixed order, identically in both providers. An unset input
+renders no block. Unrecognized classification labels fall back to `incurable`
+in both providers alike.
+
 ## Answer shape
 
 `generate_step_code` returns step code of the fixed form (see
@@ -68,8 +77,9 @@ classification = provider.classify_failure(
 print(classification.category, classification.explanation, classification.recommendation)
 ```
 
-The classification categories — `rot`, `product_defect`, `incurable` — and
-their consequences are covered in [Self-healing](self-healing.md).
+The classification categories — `rot`, `product_defect`, `fixable`,
+`incurable` — and their consequences are covered in
+[Self-healing](self-healing.md).
 
 A non-empty `user_instructions` renders as a separate `USER INSTRUCTIONS`
 block in the request — the final block of the user content, after all

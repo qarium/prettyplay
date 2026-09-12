@@ -99,6 +99,21 @@ the browser group — the facade surface itself is identical in every mode.
 | `element.expect_count(count)` | assert the matched element count |
 | `element.expect_attribute(name, value)` | assert the attribute value |
 
+## Pollable failure kinds
+
+The driver ships a fixed pollable map, exported as `is_pollable_failure(exc)`
+from `prettyplay.driver`: it returns `True` when the exception kind is
+transient page state — the settle window may re-execute the same code — and
+`False` when the failure is deterministic or unknown, so it goes straight to
+classification. Pollable: timeouts (`Timeout NNNms exceeded`), element state
+(not visible, not enabled, outside the viewport, detached/stale), navigation
+and context races (`Execution context was destroyed`, `Target closed`), and
+plain `AssertionError`s of failed expectations. Not pollable: locator
+ambiguity (`strict mode violation` — deterministic), Python-level errors of
+the step code itself, and unrecognized failures. The map is fixed in code: it
+never reads settings and never asks an LLM. See
+[Settle polling](../getting-started.md#settle-polling).
+
 ## Example
 
 ```python

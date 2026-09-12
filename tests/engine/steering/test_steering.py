@@ -3,6 +3,8 @@
 import builtins
 import logging
 import re
+import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 from unittest import mock
 
@@ -18,6 +20,20 @@ STEPPING_MODULE = "prettyplay.engine.steering.steering"
 
 GENERATED_CODE = "def step(page) -> None:\n    page.get_by_label('Close').click()\n"
 REGENERATED_CODE = "def step(page) -> None:\n    page.get_by_role('button', name='Pay').click()\n"
+
+
+def _steering_screenshots() -> set[Path]:
+    """The temporary screenshot PNGs the dialog has written so far."""
+    return set(Path(tempfile.gettempdir()).glob("prettyplay-steering-*.png"))
+
+
+@pytest.fixture(autouse=True)
+def _clean_steering_screenshots() -> Iterator[None]:
+    """Remove the temporary PNGs a test's dialogs wrote — the suite never leaks them."""
+    existing = _steering_screenshots()
+    yield
+    for path in _steering_screenshots() - existing:
+        path.unlink(missing_ok=True)
 
 
 class FakePage:
@@ -91,8 +107,9 @@ class FakeProvider:
 class SpyCache:
     """Cache spy: records save calls — the write-back happens after a green turn only."""
 
-    def __init__(self) -> None:
+    def __init__(self, writable: bool = True) -> None:
         self.save_calls: list[CachedStep] = []
+        self.writable = writable
 
     def save(self, step: CachedStep) -> None:
         self.save_calls.append(step)
@@ -343,8 +360,7 @@ class TestStepSteeringLogic:
         paths = re.findall(r"\S*prettyplay-steering-\S+\.png", out)
         assert paths  # the banner and the screenshot command each printed a temp PNG path
         for printed in paths:
-            assert Path(printed).exists()
-            Path(printed).unlink()  # keep the temporary directory clean
+            assert Path(printed).exists()  # the printed paths point at real files
 
     def test_steer_survives_dead_page_banner_and_commands(
         self,
@@ -359,7 +375,7 @@ class TestStepSteeringLogic:
         provider = FakeProvider(answers=[GENERATED_CODE])
         fixture = SteeringFixture(provider, tmp_path)
         steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
-        _script_input(monkeypatch, ["snapshot", "quit"])
+        _script_input(monkeypatch, ["snapshot", "screenshot", "quit"])
 
         with caplog.at_level(logging.INFO, logger="prettyplay"):
             healed = steering.steer(_failure(), _identity(), [], DeadPage())
@@ -367,7 +383,7 @@ class TestStepSteeringLogic:
         assert healed is None
         out = capsys.readouterr().out
         assert out.count("snapshot unavailable: Target closed") >= 2  # banner fragment + snapshot command
-        assert out.count("screenshot unavailable: Target closed") >= 1  # the banner screenshot
+        assert out.count("screenshot unavailable: Target closed") >= 2  # the banner screenshot + the screenshot command
         assert [record.getMessage() for record in caplog.records if record.getMessage() == "steering_declined"]
         assert fixture.recorder.events == []  # no on_healed — nothing healed
 
@@ -447,3 +463,73 @@ class TestStepSteeringLogic:
         out = capsys.readouterr().out
         assert "verdict:  fixable — the button is behind the modal" in out
         assert "recommendation: dismiss the modal first" in out
+
+    def test_steer_guided_request_attaches_screenshot_when_enabled(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A send_screenshots project attaches the page PNG to the guided request."""
+        from prettyplay.engine.steering import StepSteering  # noqa: PLC0415 — cell facade check
+
+        provider = FakeProvider(answers=[GENERATED_CODE])
+        fixture = SteeringFixture(provider, tmp_path)
+        fixture.config = Config(cache_root=str(tmp_path), send_screenshots=True)
+        steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
+        _script_input(monkeypatch, ["dismiss the modal first"])
+        monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
+
+        healed = steering.steer(_failure(), _identity(), [], FakePage())
+
+        assert healed is not None
+        assert provider.calls[0]["screenshot"] == b"png"  # the guided request carries the image
+
+    def test_steer_dead_page_screenshot_degrades_to_none_in_guided_request(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """A dead page degrades the guided-request screenshot to None — the dialog continues."""
+        from prettyplay.engine.steering import StepSteering  # noqa: PLC0415 — cell facade check
+
+        provider = FakeProvider(answers=[GENERATED_CODE])
+        fixture = SteeringFixture(provider, tmp_path)
+        fixture.config = Config(cache_root=str(tmp_path), send_screenshots=True)
+        steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
+        _script_input(monkeypatch, ["dismiss the modal first"])
+        monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
+
+        healed = steering.steer(_failure(), _identity(), [], DeadPage())
+
+        assert healed is not None
+        assert provider.calls[0]["screenshot"] is None  # a failed interaction never kills the request
+        assert provider.calls[0]["snapshot"] == ""  # the guarded snapshot degraded to empty likewise
+        assert "screenshot unavailable: Target closed" in capsys.readouterr().out
+
+    def test_steer_read_only_cache_reports_the_skipped_write(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """A read-only cache prints the honest skip — never a false written-to-the-cache line."""
+        from prettyplay.engine.steering import StepSteering  # noqa: PLC0415 — cell facade check
+
+        provider = FakeProvider(answers=[GENERATED_CODE])
+        fixture = SteeringFixture(provider, tmp_path)
+        fixture.cache.writable = False
+        steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
+        _script_input(monkeypatch, ["dismiss the modal first"])
+        monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
+
+        healed = steering.steer(_failure(), _identity(), [], FakePage())
+
+        assert healed is not None  # the green turn still returns the healed step
+        assert len(fixture.cache.save_calls) == 1  # the save was attempted
+        assert fixture.recorder.events == [
+            ("on_healed", {"step_text": "click Pay", "explanation": "healed interactively by engineer guidance"})
+        ]
+        out = capsys.readouterr().out
+        assert "cache write skipped (read-only cache)" in out
+        assert "written to the cache" not in out  # the success line is never printed on a skipped write

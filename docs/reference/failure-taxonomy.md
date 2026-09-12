@@ -52,6 +52,13 @@ category, explanation, recommendation. When the LLM is unavailable the verdict
 is skipped quietly (`WARNING` in the log) — the failure itself is never
 delayed or distorted.
 
+`IncurableStepError` additionally carries a `code` attribute — the step code
+that terminally failed: the cached step code on the healing and strict
+failure paths, the last candidate code on the generation path, empty when no
+candidate ever existed. A field for programmatic consumers only: it is never
+rendered into the structured message and never carried by hook or log
+payloads.
+
 ```python
 import pytest
 
@@ -64,6 +71,7 @@ def test_reports_only_library_failures():
     assert info.value.recommendation
     # info.value.verdict may be None when the LLM was unavailable
     # info.value.error carries the full underlying error text ("" when none)
+    # info.value.code carries the failed step code ("" when no candidate existed)
 ```
 
 ## Assertion semantics

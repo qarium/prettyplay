@@ -45,7 +45,6 @@ def play(request):
         provider='anthropic',
         base_url='https://api.z.ai/api/anthropic',
         generation_model='glm-5.1',
-        # generation_attempts=5,
         classification_model='glm-5.3',
         classification_prompt='Write explanations and recommendations in English',
         generation_prompt='Prefer to use id attributes in HTML documents to find elements. '
