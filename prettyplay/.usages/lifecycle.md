@@ -44,7 +44,7 @@ Team workflow: generate locally where the LLM is reachable, commit the cache dir
 
 `polling_timeout` (default None — off; 0 — explicit disable) opens one settle window per step execution, measured
 from the first execution of the step's code: a transient failure of a pollable kind re-executes the same code after
-`polling_delay` (default 0.5 s) until success or window end. Attempts appear as settle_retry log records; no LLM
+`polling_delay` (default 0.5 s) until success or window end. Re-executions appear as settle_retry log records; no LLM
 budget is consumed. Locator ambiguity and Python-level errors of the step code never poll.
 
 ## Interactive steering
@@ -53,8 +53,9 @@ budget is consumed. Locator ambiguity and Python-level errors of the step code n
 sessions: when a step terminally fails with IncurableStepError, a terminal dialog opens — step, failed code, error,
 verdict, snapshot fragment, screenshot path — and every engineer message drives one regeneration executed against the
 live page. A green turn heals the step and writes it back to the cache; quit/EOF/SIGINT/unreadable stdin raises the
-original terminal failure. The dialog never opens on product_defect, in strict mode, or without LLM access, and
-consumes no budgets.
+original terminal failure. The dialog opens only on IncurableStepError of a non-strict run — an LLMUnavailableError
+leaving the engine never reaches it (with a dead provider the dialog still opens and its local commands work; the
+first guidance message then declines and the original failure propagates) — and consumes no budgets.
 Keep it off in CI — an accidentally opened dialog would hang the run.
 
 ## Hooks

@@ -18,7 +18,11 @@ from ._request import (
 from .models import FailureClassification
 from .provider import LLMProvider
 
-REQUEST_MAX_TOKENS = 1024
+#: The anthropic Messages API requires ``max_tokens`` on every request — the
+#: SDK-forced completion cap the openai side has no analogue of. Sized so a
+#: full multi-step step-code response never truncates (the openai
+#: implementation sends no cap and defaults to the model maximum).
+REQUEST_MAX_TOKENS = 4096
 
 
 def _first_text_block(response: object) -> str | None:

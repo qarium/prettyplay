@@ -307,6 +307,24 @@ class RecorderHook(StepHooks):
         )
 
 
+class BudgetSpy:
+    """Budget registry spy: wraps RunBudgets and records every pool draw."""
+
+    def __init__(self) -> None:
+        self.inner = RunBudgets(3, 2)
+        self.draws: list[str] = []
+
+    def try_generation(self, identity: object) -> bool:
+        self.draws.append("generation")
+
+        return self.inner.try_generation(identity)
+
+    def try_healing(self, identity: object) -> bool:
+        self.draws.append("healing")
+
+        return self.inner.try_healing(identity)
+
+
 class ExecutorFixture:
     """Executor assembled on a tmp cache with recording visibility, for logic tests."""
 
@@ -319,12 +337,13 @@ class ExecutorFixture:
         config: Config | None = None,
         provider: LLMProvider | None = None,
         steering: object | None = None,
+        budgets: RunBudgets | BudgetSpy | None = None,
     ) -> None:
         self.recorder = RecorderHook()
         self.reporter = StepReporter(hooks=[self.recorder])
         self.config = config if config is not None else Config(cache_root=str(tmp_path))
         self.cache = StepCache(self.config, None, self.reporter)
-        self.budgets = RunBudgets(3, 2)
+        self.budgets = budgets if budgets is not None else RunBudgets(3, 2)
         self.generator = generator
         self.healer = healer
         self.steering = steering if steering is not None else RecordingSteering()
@@ -419,8 +438,14 @@ class TestStepExecutorContract:
                 "",
                 verdict=FailureVerdict("incurable", "the step is ambiguous", "reword the step"),
             ),
+            IncurableStepError(
+                "open the dashboard",
+                "the step text no longer matches reality",
+                "",
+                verdict=FailureVerdict("fixable", "the locator is ambiguous", "regenerate with a precise locator"),
+            ),
         ],
-        ids=["product-defect", "incurable"],
+        ids=["product-defect", "incurable", "fixable"],
     )
     def test_execute_emits_verdict_event_for_verdict_carrying_errors(self, tmp_path: Path, failure: Exception) -> None:
         healer = RaisingHealer(failure)
@@ -828,12 +853,13 @@ class TestStepExecutorStrictMode:
         assert not events_named(fixture.recorder, "on_step_verdict")  # no verdict for a crashed classification
 
 
-def interactive_fixture(
+def interactive_fixture(  # noqa: PLR0913, PLR0917 — the assembly inputs of the fixture
     tmp_path: Path,
     generator: object,
     healer: object,
     steering: object | None = None,
     provider: LLMProvider | None = None,
+    budgets: RunBudgets | BudgetSpy | None = None,
 ) -> ExecutorFixture:
     """Assemble a non-strict interactive executor — the steering gate is open."""
     return ExecutorFixture(
@@ -843,6 +869,7 @@ def interactive_fixture(
         config=Config(cache_root=str(tmp_path), strict=False, interactive=True, polling_timeout=None),
         provider=provider,
         steering=steering,
+        budgets=budgets,
     )
 
 
@@ -874,6 +901,25 @@ class TestStepExecutorSteeringAndClosingEvent:
             {"step_text": "нажать Войти", "step_type": "action", "outcome": "passed"}
         ]
         assert not events_named(fixture.recorder, "on_step_failed")  # healed before any failure event fires
+
+    def test_execute_steering_attempts_consume_no_budgets(self, tmp_path: Path) -> None:
+        """A steering-healed step draws from neither pool — the human in the loop is not a budgeted attempt."""
+        failure = IncurableStepError("нажать войти", "budget exhausted", "Timeout …", verdict=None)
+        healed = CachedStep(
+            identity=StepIdentity(cache_key="login-flow", step_type="action", normalized_text="нажать войти"),
+            code=CACHED_CODE,
+            created_at="2026-09-08",
+        )
+        budgets = BudgetSpy()
+        steering = RecordingSteering(healed=healed)
+        fixture = interactive_fixture(
+            tmp_path, RecordingGenerator(), RaisingHealer(failure), steering=steering, budgets=budgets
+        )
+        seed_cached_step(fixture, "нажать войти")
+
+        fixture.executor.execute("нажать Войти", "action", FakePage())  # healed — no raise
+
+        assert budgets.draws == []  # the healed execution and the dialog itself draw nothing
 
     def test_execute_reports_on_step_finished_last_on_failure_with_verdict(self, tmp_path: Path) -> None:
         failure = IncurableStepError(

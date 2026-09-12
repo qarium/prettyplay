@@ -708,6 +708,28 @@ class TestStepGeneratorLogic:
         assert len(saved) == 1  # only the healed code is stored
         assert not [event for event in fixture.recorder.events if event[0] == "on_healing_started"]
 
+    def test_generate_failed_check_fixable_verdict_grants_one_funded_regeneration(self, tmp_path: Path) -> None:
+        """The fixable label rides the same funded regeneration as rot — the code was at fault."""
+        provider = StubProvider(
+            [CHECK_CODE, WORKING_CODE],
+            verdict=FailureClassification(
+                category="fixable",
+                explanation="the locator is ambiguous — it resolves 61 elements",
+                recommendation="use a precise role-and-name locator",
+            ),
+        )
+        fixture = GeneratorFixture(tmp_path, provider)  # RunBudgets(3, 2)
+        page = FakePage(assertion_message="button is hidden")
+
+        step = fixture.generator.generate(make_identity(), "click Pay", [], page, fixture.window)
+
+        assert step.code == WORKING_CODE
+        assert len(provider.calls) == 2  # the failed candidate + the one funded regeneration
+        second = provider.calls[1]
+        assert second["recommendation"] == "use a precise role-and-name locator"
+        assert second["existing_code"] == CHECK_CODE
+        assert second["error"] == "button is hidden"
+
     def test_exhaustion_rot_verdict_grants_extra_regeneration_and_repeat_failure_is_terminal(
         self, tmp_path: Path
     ) -> None:
@@ -728,6 +750,58 @@ class TestStepGeneratorLogic:
         assert excinfo.value.error == "TypeError: bad code"
         assert len(provider.calls) == 2  # 1 loop attempt + 1 funded; no third — no reclassification
         assert len(provider.classify_failure_calls) == 1
+
+    def test_exhaustion_fixable_verdict_grants_extra_regeneration_and_repeat_failure_is_terminal(
+        self, tmp_path: Path
+    ) -> None:
+        """The fixable label rides the exhaustion grant too — and the repeat stays terminal."""
+        provider = StubProvider(
+            [TYPING_BROKEN_CODE, TYPING_BROKEN_CODE],
+            verdict=FailureClassification(
+                category="fixable",
+                explanation="the locator is ambiguous",
+                recommendation="use a precise role-and-name locator",
+            ),
+        )
+        fixture = GeneratorFixture(tmp_path, provider, limits=(1, 2))  # generation budget 1
+        page = TypeErrorPage()
+
+        with pytest.raises(IncurableStepError) as excinfo:
+            fixture.generator.generate(make_identity(), "click Pay", [], page, fixture.window)
+
+        assert excinfo.value.reason == "generation attempt budget exhausted"
+        assert excinfo.value.verdict is not None
+        assert excinfo.value.verdict.category == "fixable"  # the entry verdict — no reclassification
+        assert excinfo.value.code == TYPING_BROKEN_CODE
+        assert provider.calls[1]["recommendation"] == "use a precise role-and-name locator"
+        assert len(provider.calls) == 2
+        assert len(provider.classify_failure_calls) == 1
+
+    def test_generate_failed_check_repeat_final_classification_unavailable_stays_incurable(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """An unavailable final classification of the repeat leaves a verdict-less terminal failure."""
+        provider = StubProvider(
+            [CHECK_CODE, CHECK_CODE],
+            verdicts=[
+                FailureClassification(category="rot", explanation="the button was renamed", recommendation="id"),
+                LLMUnavailableError("llm unavailable: openai request failed"),
+            ],
+        )
+        fixture = GeneratorFixture(tmp_path, provider)
+        page = FakePage(assertion_message="button is hidden")
+
+        with caplog.at_level(logging.WARNING, logger="prettyplay"), pytest.raises(IncurableStepError) as excinfo:
+            fixture.generator.generate(make_identity(), "click Pay", [], page, fixture.window)
+
+        assert excinfo.value.reason == "candidate check failed — button is hidden"
+        assert excinfo.value.verdict is None  # the quiet skip — never an infrastructure failure
+        assert excinfo.value.code == CHECK_CODE
+        assert excinfo.value.error == "button is hidden"
+        assert len(provider.calls) == 2  # the failed candidate + the one funded regeneration
+        assert len(provider.classify_failure_calls) == 2  # entry + the final one that died quietly
+        warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
+        assert any("verdict skipped" in record.message for record in warnings)
 
     def test_generate_failed_check_refused_funding_is_terminal(self, tmp_path: Path) -> None:
         provider = StubProvider(

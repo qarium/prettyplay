@@ -49,8 +49,10 @@ recommendation: проверить селектор или текст кнопк
 - The verdict block shows column-aligned `explanation:` and `recommendation:` values — multi-line continuations indent
   to the same value column; the `category:` line is gone — the category travels in the structured fields of
   `on_step_verdict`, never in the render
-- Empty blocks are omitted entirely: no verdict → no verdict block; no underlying error → no `error:` line
-- The failed step's code is never included — it lives in the cache and the log
+- Empty blocks are omitted entirely: no underlying error → no `error:` line; ProductDefectError without a verdict
+  renders no verdict block, while IncurableStepError without a verdict always renders a fallback `recommendation:`
+  line with the built-in path guidance — the verdict attribute itself stays None and `on_step_verdict` stays silent
+- The failed step's code is never included — it lives in the cache and the `code` field of IncurableStepError
 
 ## Verdicts on terminal failures
 

@@ -23,7 +23,7 @@ Send the system prompt and the step request (a11y snapshot, step text, previous 
 ```python
 message = client.messages.create(
     model=config.model,
-    max_tokens=1024,
+    max_tokens=4096,
     system=GENERATION_SYSTEM_PROMPT,
     messages=[
         {"role": "user", "content": build_step_request(snapshot, step_text, previous_steps)},
@@ -40,7 +40,7 @@ Healing calls additionally include the existing step code and the error message 
 try:
     message = client.messages.create(...)
 except anthropic.AnthropicError as error:
-    raise LlmUnavailableError("llm unavailable: anthropic request failed") from error
+    raise LLMUnavailableError("llm unavailable: anthropic request failed") from error
 ```
 
 SDK errors map to the "LLM unavailable" infrastructure failure (R19, R20) — a taxonomy identical to the OpenAI provider.

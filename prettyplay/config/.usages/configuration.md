@@ -59,7 +59,7 @@ Every setting has an override for CI — env variable PRETTYPLAY_<SETTING> in up
 
 ## Old flat keys are gone — hard break
 
-`browser`, `headless` and `browser_endpoint` at the [tool.prettyplay] level no longer exist (pre-1.0 break). A config carrying them fails loudly at load: the error names each old key and its new home — `browser` → `[tool.prettyplay.browser] name`, `headless` → `[tool.prettyplay.browser] headless`, `browser_endpoint` → `[tool.prettyplay.browser] endpoint`. Migrate before upgrading.
+`browser`, `headless` and `browser_endpoint` at the [tool.prettyplay] level no longer exist (pre-1.0 break). A config carrying them fails loudly at load: the error names each old key and its new home — `browser` → `[tool.prettyplay.browser] name`, `headless` → `[tool.prettyplay.browser] headless`, `browser_endpoint` → `[tool.prettyplay.browser] endpoint`. The removed legacy env name `PRETTYPLAY_BROWSER` is rejected the same way — the error names `PRETTYPLAY_BROWSER_NAME` as its new home. Migrate both the file keys and the env name before upgrading.
 
 ## Per-test overrides — layered merge
 

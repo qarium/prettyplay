@@ -184,6 +184,7 @@ class TestConfigLogic:
             ("polling_timeout", float("inf")),
             ("polling_timeout", float("nan")),
             ("polling_delay", float("inf")),
+            ("polling_delay", float("nan")),
         ],
     )
     def test_config_rejects_negative_polling_values(self, field: str, value: float) -> None:

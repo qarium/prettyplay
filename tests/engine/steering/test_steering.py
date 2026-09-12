@@ -6,6 +6,7 @@ import re
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 import pytest
@@ -282,6 +283,71 @@ class TestStepSteeringLogic:
         assert second["guidance_history"] == ["try hovering first => element detached"]  # the red-turn line
         assert second["guidance"] == "then click"
         assert len(fixture.cache.save_calls) == 1  # only the proven code is written back
+
+    def test_steer_failed_execution_returns_to_the_prompt_without_re_execution(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """A failed interactive execution is never re-executed — the settle window does not re-arm in the dialog."""
+        from prettyplay.engine.steering import StepSteering  # noqa: PLC0415 — cell facade check
+
+        provider = FakeProvider(answers=[GENERATED_CODE])
+        fixture = SteeringFixture(provider, tmp_path)
+        steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
+        scripted = _script_input(monkeypatch, ["try hovering first", "quit"])
+        execute = mock.Mock(side_effect=[AssertionError("element detached")])
+
+        monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", execute)
+
+        healed = steering.steer(_failure(), _identity(), [], FakePage())
+
+        assert healed is None  # quit after the red turn — the original failure propagates
+        assert execute.call_count == 1  # one execution per guidance message — no settle re-execution
+        assert scripted.call_count == 2  # the red turn returned to the guidance prompt immediately
+        assert "turn failed: element detached" in capsys.readouterr().out
+
+    def test_steer_partial_screenshot_write_is_cleaned_up(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """A temp screenshot whose write fails leaves nothing behind — the partial file is unlinked."""
+        from prettyplay.engine.steering import StepSteering  # noqa: PLC0415 — cell facade check
+
+        created: list[Path] = []
+
+        class ExplodingTempFile:
+            """A temp handle whose write always fails after the file was created."""
+
+            def __init__(self, prefix: str, suffix: str, delete: bool) -> None:
+                with tempfile.NamedTemporaryFile(prefix=prefix, suffix=suffix, delete=False) as handle:
+                    self.name = handle.name
+                    created.append(Path(self.name))
+
+            def __enter__(self) -> "ExplodingTempFile":
+                return self
+
+            def __exit__(self, *_args: object) -> bool:
+                return False
+
+            def write(self, data: bytes) -> int:
+                raise OSError("disk full")
+
+        provider = FakeProvider()
+        fixture = SteeringFixture(provider, tmp_path)
+        steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
+        _script_input(monkeypatch, ["quit"])
+        monkeypatch.setattr(f"{STEPPING_MODULE}.tempfile", SimpleNamespace(NamedTemporaryFile=ExplodingTempFile))
+
+        healed = steering.steer(_failure(), _identity(), [], FakePage())
+
+        assert healed is None
+        assert created  # the dialog attempted a temp screenshot
+        assert not created[0].exists()  # the partial write was unlinked — nothing left to inspect
+        assert "screenshot unavailable: disk full" in capsys.readouterr().out
 
     @pytest.mark.parametrize(
         "answer",

@@ -31,6 +31,7 @@ def test_is_pollable_failure_is_exported_and_returns_bool() -> None:
         (Error("Frame has been detached."), True),
         (Error("Node is detached from document"), True),
         (Error("... was interrupted by another navigation to 'https://example.com' ..."), True),
+        (Error("page.evaluate: navigation interrupted the evaluation"), True),
         # failed expectation — a plain AssertionError that is not the ambiguity violation
         (AssertionError("Locator expected to be visible"), True),
         # locator ambiguity — deterministic, never pollable (checked before the AssertionError rule)

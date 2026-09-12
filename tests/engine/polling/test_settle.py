@@ -167,3 +167,31 @@ def test_settle_expired_window_propagates_the_pollable_failure(
     assert execute.call_count == 2  # one repetition inside the window, then the horizon stops the loop
     retries = _retries(caplog)
     assert [record.attempt for record in retries] == [1]
+
+
+def test_settle_first_execution_consuming_the_window_gets_no_repetition(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The first execution alone may consume the whole window — no repetition follows it."""
+    clock = _MonotonicClock()
+    monkeypatch.setattr(window_module, "time", clock)
+    page = _fake_page()
+    original = PlaywrightError("Timeout 10000ms exceeded")
+
+    def outlive_the_horizon(_code: str, _page: SimpleNamespace) -> None:
+        clock.now += 6.0  # the facade's internal wait outlives the 5-second horizon on the first pass
+        raise original
+
+    execute = mock.Mock(side_effect=outlive_the_horizon)
+    window = SettleWindow(5.0, 0)
+
+    with (
+        caplog.at_level(logging.INFO, logger="prettyplay"),
+        pytest.raises(PlaywrightError) as excinfo,
+    ):
+        settle(execute, "CODE", page, window)
+
+    assert excinfo.value is original
+    assert execute.call_count == 1  # the window ended with the first execution — never a second one
+    assert _retries(caplog) == []

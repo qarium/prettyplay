@@ -260,7 +260,7 @@ class TestAnthropicProviderLogic:
         request = requests[0]
         assert request["model"] == "claude-haiku-4-5"  # effective_generation_model
         assert request["system"] == "system prompt text"  # prompt verbatim
-        assert request["max_tokens"] == 1024
+        assert request["max_tokens"] == 4096
         user = request["messages"][0]
         assert user["role"] == "user"
         assert "открыть страницу" in user["content"]

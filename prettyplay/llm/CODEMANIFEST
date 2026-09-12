@@ -16,6 +16,7 @@ Annotations: |
   Use `openai` and `anthropic` for the SDK call patterns and the error mapping of the two providers.
 
   Provider parity is absolute: both providers expose the same operations, accept the same inputs, return the same output shapes and map failures to the same taxonomy; the provider choice is a configuration decision, never a capability difference.
+  The one SDK-forced asymmetry: the anthropic Messages API requires max_tokens on every request, so the anthropic implementation carries a fixed completion cap (4096 tokens — sized so a full multi-step step-code response never truncates) the openai side has no analogue of; the openai SDK sends no cap and defaults to the model maximum. A transport requirement of the SDK, not a capability difference of the port.
   The user instructions input participates in both provider implementations with identical semantics: generation requests render the generation instructions, classification requests render the classification instructions — each verbatim as a separate USER INSTRUCTIONS block; classification requests never carry the generation instructions and generation requests never carry the classification instructions; a parity requirement, not a capability difference.
   API keys come only from environment variables; never log keys or payloads containing secrets.
   One completion request per attempt: attempt budgets are owned by the calling engine, never by a provider.
@@ -81,7 +82,7 @@ Annotations: |
 "LLMProvider::AnthropicProvider(config: Config)":
   location: anthropic_provider.py
   annotations: |
-    The anthropic SDK implementation of `LLMProvider` (see `anthropic`); full parity with the openai implementation.
+    The anthropic SDK implementation of `LLMProvider` (see `anthropic`); full parity with the openai implementation — the SDK-forced max_tokens cap aside (see the document annotations).
 
     `config`: the same settings semantics as the openai implementation.
 

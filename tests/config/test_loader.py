@@ -147,6 +147,16 @@ class TestLoadConfigContract:
         assert config.polling_delay == 0.25
         assert config.interactive is True
 
+    def test_polling_and_interactive_load_from_the_file_layer(self, write_pyproject) -> None:
+        """The three settings validate straight from the [tool.prettyplay] section — no env, no override."""
+        path = write_pyproject(polling_timeout=6.0, polling_delay=0.25, interactive=True)
+
+        config = load_config(pyproject_path=path)
+
+        assert config.polling_timeout == 6.0
+        assert config.polling_delay == 0.25
+        assert config.interactive is True
+
 
 class TestLoadConfigLogic:
     """Logic tests: section reading, env overrides, loud failures, defaults."""
@@ -573,6 +583,14 @@ class TestLoadConfigOverlay:
         config = load_config(path, PrettyConfig(polling_timeout=None))
 
         assert config.polling_timeout == 8.0
+
+    def test_explicit_polling_delay_overrides_the_file_layer(self, write_pyproject) -> None:
+        """A per-test polling_delay participates in the merge like every explicit scalar."""
+        path = write_pyproject(polling_delay=0.25)
+
+        config = load_config(path, PrettyConfig(polling_delay=1.5))
+
+        assert config.polling_delay == 1.5
 
     def test_load_config_env_value_loses_to_explicit_override(self, tmp_path, monkeypatch) -> None:
         path = write_section(tmp_path, '[tool.prettyplay.browser]\nname = "chromium"\n')

@@ -15,7 +15,7 @@ The classification verdict decides the path — the uniform decision table:
 | Category | Path |
 |---|---|
 | rot, fixable | regenerate from the current page within the healing budget (default 2), the request carrying the classification recommendation as a RECOMMENDATION block; execute under the settle window, save back to the cache on success, report loudly |
-| product_defect | raise ProductDefectError carrying the verdict — category, explanation and recommendation all reach the exception message, the on_step_verdict hook and the log |
+| product_defect | raise ProductDefectError carrying the verdict — explanation and recommendation reach the exception message and the log, all three fields reach the on_step_verdict hook (the category never renders) |
 | incurable | raise IncurableStepError carrying the verdict; the reason names the incurability cause |
 
 ## Rules
@@ -31,4 +31,4 @@ The classification verdict decides the path — the uniform decision table:
 
 ## Verdicts
 
-Every terminal failure carries its verdict in full and the full underlying error in the error field: the exception message is the structured render — the primary reason, the `---` separated step/error block, the column-aligned verdict block; the same text reaches on_step_verdict (structured fields) and the log record. The terminal errors also carry the failed step code in the code field — a programmatic field, never rendered.
+Every terminal failure carries its verdict in full and the full underlying error in the error field: the exception message is the structured render — the primary reason, the `---` separated step/error block, the column-aligned verdict block; the same text reaches on_step_verdict (structured fields) and the log record. IncurableStepError also carries the failed step code in the code field — a programmatic field, never rendered.

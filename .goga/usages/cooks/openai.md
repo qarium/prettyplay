@@ -43,7 +43,7 @@ from openai import OpenAIError
 try:
     response = client.chat.completions.create(...)
 except OpenAIError as error:
-    raise LlmUnavailableError("llm unavailable: openai request failed") from error
+    raise LLMUnavailableError("llm unavailable: openai request failed") from error
 ```
 
 ## Rules
