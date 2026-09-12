@@ -129,16 +129,33 @@ class CrashingBrowser(FakeBrowser):
 
 
 class FakeContext:
-    """Fake isolated browser context owning one page."""
+    """Fake isolated browser context; every page joins through the page event.
+
+    Records ``on(event, handler)`` registrations and fires the registered
+    ``"page"`` handlers for every page it opens — the main page of
+    ``new_page()`` and a popup alike, exactly like the Playwright context.
+    """
 
     def __init__(self, browser: FakeBrowser) -> None:
         self.browser = browser
-        self.page = FakePage(self)
         self.close_calls = 0
+        self.pages: list[FakePage] = []
+        self.events: list[tuple[str, object]] = []  # every on(event, handler) registration
+        self.page_handlers: list[object] = []  # the handlers registered on("page", …)
+
+    def on(self, event: str, handler: object) -> None:
+        self.browser._factory.threads.append(threading.get_ident())
+        self.events.append((event, handler))
+        if event == "page":
+            self.page_handlers.append(handler)
 
     def new_page(self) -> "FakePage":
         self.browser._factory.threads.append(threading.get_ident())
-        return self.page
+        page = FakePage(self)
+        self.pages.append(page)
+        for handler in self.page_handlers:  # the context page event fires for every page
+            handler(page)
+        return page
 
     def close(self) -> None:
         self.browser._factory.threads.append(threading.get_ident())
@@ -155,6 +172,14 @@ class FakePage:
     def __init__(self, context: FakeContext) -> None:
         self.context = context
         self.goto_error: Exception | None = None
+        self.events: list[tuple[str, object]] = []  # every on(event, handler) registration
+        self.dialog_handlers: list[object] = []  # the handlers registered on("dialog", …)
+
+    def on(self, event: str, handler: object) -> None:
+        self.context.browser._factory.threads.append(threading.get_ident())
+        self.events.append((event, handler))
+        if event == "dialog":
+            self.dialog_handlers.append(handler)
 
     @property
     def url(self) -> str:
@@ -217,6 +242,20 @@ class FakeSnapshotLocator:
         return "- heading Пример"
 
 
+class FakeDialog:
+    """Fake Playwright dialog dispatched to a registered routing handler; records the resolution."""
+
+    def __init__(self, message: str = "Продолжить?") -> None:
+        self.message = message
+        self.calls: list[tuple[str, ...]] = []
+
+    def accept(self) -> None:
+        self.calls.append(("accept",))
+
+    def dismiss(self) -> None:
+        self.calls.append(("dismiss",))
+
+
 class TestDriverSessionContract:
     """Contract tests: facade import, construction shape, lazy open, safe close."""
 
@@ -241,6 +280,21 @@ class TestDriverSessionContract:
             session.close()
 
         assert isinstance(page, PageFacade)
+
+    def test_open_context_attaches_the_shared_dialog_router(self) -> None:
+        factory = FakePlaywrightFactory()
+
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(Config(browser=BrowserConfig(name="chromium")))
+            page = session.open_context()
+            router = page._router
+            worker = page._worker
+            session.close()
+
+        assert isinstance(page, PageFacade)
+        assert router is not None  # the shared dialog router of the context
+        assert router.accept_dialogs is False  # the browser-group setting read once
+        assert worker is not None  # the driver-thread attachment still holds
 
     def test_close_without_launch_is_noop(self) -> None:
         factory = FakePlaywrightFactory()
@@ -778,3 +832,97 @@ class TestDriverSessionWorkerThread:
 
         assert factory.start_calls == 1  # exactly one successful start
         assert len(factory.contexts) == 1
+
+
+class TestDriverSessionDialogWiring:
+    """Logic tests: the dialog routing wiring of open_context — contract step 4.
+
+    Every page of the context — the open_context page and every later popup —
+    carries exactly one dialog handler registered through the context page
+    event; the uncaptured dialogs route by the ``accept_dialogs`` setting.
+    """
+
+    def test_open_context_registers_dialog_routing(self) -> None:
+        factory = FakePlaywrightFactory()
+
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(Config(browser=BrowserConfig(name="chromium", accept_dialogs=False)))
+            facade = session.open_context()
+            session.close()
+
+        context = factory.contexts[0]
+        assert [event for event, _ in context.events] == ["page"]  # exactly one page wiring
+
+        main_page = context.pages[0]
+        assert [event for event, _ in main_page.events] == ["dialog"]  # one registration, through the event
+
+        dialog = FakeDialog()
+        main_page.dialog_handlers[0](dialog)  # an uncaptured dialog fires on the main page
+
+        assert dialog.calls == [("dismiss",)]  # accept_dialogs False → the explicit dismiss
+        assert facade._router is not None  # the router is attached to the returned facade
+        assert facade._router.accept_dialogs is False
+
+    @pytest.mark.parametrize(
+        ("accept_dialogs", "expected"),
+        [(True, ("accept",)), (False, ("dismiss",))],
+        ids=["accept", "dismiss"],
+    )
+    def test_popup_pages_route_dialogs_through_the_context_wiring(self, accept_dialogs: bool, expected: tuple) -> None:
+        factory = FakePlaywrightFactory()
+
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(Config(browser=BrowserConfig(name="chromium", accept_dialogs=accept_dialogs)))
+            session.open_context()
+            session.close()
+
+        context = factory.contexts[0]
+        popup = context.new_page()  # a popup joins the context — the page wiring fires for it too
+
+        assert [event for event, _ in popup.events] == ["dialog"]  # exactly one handler
+        main_handler = context.pages[0].dialog_handlers[0]
+        popup_handler = popup.dialog_handlers[0]
+        assert popup_handler is not main_handler  # a different closure bound to the popup page
+
+        dialog = FakeDialog()
+        popup_handler(dialog)  # an uncaptured dialog fires on the popup
+
+        assert dialog.calls == [expected]  # the setting routes it
+
+    def test_dialog_router_accepts_when_setting_on(self) -> None:
+        factory = FakePlaywrightFactory()
+
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(Config(browser=BrowserConfig(name="chromium", accept_dialogs=True)))
+            session.open_context()
+            session.close()
+
+        dialog = FakeDialog()
+        factory.contexts[0].pages[0].dialog_handlers[0](dialog)
+
+        assert dialog.calls == [("accept",)]  # accept called, dismiss not
+
+    def test_dialog_router_skips_only_for_a_capture_on_the_same_page(self) -> None:
+        factory = FakePlaywrightFactory()
+
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(Config(browser=BrowserConfig(name="chromium", accept_dialogs=False)))
+            facade = session.open_context()
+            session.close()
+
+        context = factory.contexts[0]
+        main_page = context.pages[0]
+        popup = context.new_page()
+        handler = main_page.dialog_handlers[0]
+        router = facade._router
+        assert router is not None
+
+        router.capture_page = popup  # a capture armed on the popup — not this handler's page
+        routed = FakeDialog()
+        handler(routed)
+        assert routed.calls == [("dismiss",)]  # the main-page dialog still routes by the setting
+
+        router.capture_page = main_page  # a capture armed on this handler's own page
+        claimed = FakeDialog()
+        handler(claimed)
+        assert claimed.calls == []  # the capture claims it — neither accept nor dismiss

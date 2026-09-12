@@ -12,7 +12,7 @@ from typing import TypeVar, cast
 from playwright.sync_api import Browser, BrowserContext, Error, Page, Playwright, sync_playwright
 
 from ..config import Config
-from .page import PageFacade
+from .page import PageFacade, _DialogRouter
 
 _T = TypeVar("_T")
 
@@ -163,6 +163,14 @@ class DriverSession:
         driver thread, because the device registry belongs to the running
         Playwright session.
 
+        Before any step code runs, the single dialog routing handler of the
+        context is registered through the context page event: the wiring goes
+        up before ``new_page()``, so the open_context page itself and every
+        later popup or new tab registers exactly one handler — never two.
+        Registering a ``dialog`` listener disables Playwright's implicit
+        auto-dismiss, so the handler itself resolves every uncaptured dialog
+        by the ``accept_dialogs`` setting of the browser group.
+
         Returns:
             The facade of the new page of a fresh isolated context.
 
@@ -176,15 +184,20 @@ class DriverSession:
         worker = self._worker
         browser = self._browser
 
-        def open_isolated() -> tuple[Page, BrowserContext]:
+        def open_isolated() -> tuple[Page, BrowserContext, _DialogRouter]:
             params = self._screen_context_params()
             context: BrowserContext = browser.new_context(**params)
-            return context.new_page(), context
+            router = _DialogRouter(self._config.browser.accept_dialogs)
+            # registered before new_page: the first page fires the event and registers once
+            context.on("page", lambda opened: opened.on("dialog", router.handle_for(opened)))
+            page = context.new_page()
+            return page, context, router
 
-        page, context = worker.run(open_isolated)
+        page, context, router = worker.run(open_isolated)
 
         facade = PageFacade(page, context)
         facade._worker = worker  # facade calls go to the driver thread
+        facade._router = router  # the captures of every page claim through the shared router
         return facade
 
     def _screen_context_params(self) -> dict[str, object]:

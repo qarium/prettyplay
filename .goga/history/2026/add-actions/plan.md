@@ -1051,21 +1051,21 @@ dialog.accept()` → `else: dialog.dismiss()`.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: in `tests/driver/test_session.py` add a check that `open_context`
+- [x] **Contract tests**: in `tests/driver/test_session.py` add a check that `open_context`
   returns a `PageFacade` carrying `._router` (the shared router attachment — same pattern the
   `_worker` tests already pin). Expected to fail at this stage.
-- [ ] **Code**: extend the session-test fakes — `FakeContext.on(event, handler)` records and
+- [x] **Code**: extend the session-test fakes — `FakeContext.on(event, handler)` records and
   fires registered `"page"` handlers on `new_page()`; `FakePage.on(event, handler)` records; a
   `FakeDialog` records accept/dismiss.
-- [ ] **Code**: in `prettyplay/driver/session.py` import `_DialogRouter` from `.page` and
+- [x] **Code**: in `prettyplay/driver/session.py` import `_DialogRouter` from `.page` and
   restructure `open_isolated` per the algorithm — `new_context(**params)` →
   `router = _DialogRouter(self._config.browser.accept_dialogs)` →
   `context.on("page", lambda p: p.on("dialog", router.handle_for(p)))` → `context.new_page()`
   (fires the event) → after the marshaled call, `facade = PageFacade(page, context)`;
   `facade._worker = worker`; `facade._router = router`.
-- [ ] **Interface verification**: `pytest tests/driver/test_session.py -x` — the existing
+- [x] **Interface verification**: `pytest tests/driver/test_session.py -x` — the existing
   session tests (launch modes, screen params, threading) stay green; the router test passes.
-- [ ] **Logic tests** (in `tests/driver/test_session.py`, from the design):
+- [x] **Logic tests** (in `tests/driver/test_session.py`, from the design):
   - `test_open_context_registers_dialog_routing` — setup: extended `FakePlaywrightFactory`;
     config with `accept_dialogs=False`; input: `session.open_context()`; then call the dialog
     handler registered on the page with a `FakeDialog`; trace: `open_context` → `open_isolated`
@@ -1093,13 +1093,13 @@ dialog.accept()` → `else: dialog.dismiss()`.
     `capture_page` is popup (≠ handler page) → routed by setting (accept/dismiss);
     `capture_page` is main (== handler page) → neither accept nor dismiss; assertions: first
     case resolves the dialog; second case no calls.
-- [ ] **Debugging**: `pytest tests/driver/ -x` — fix implementation code until all tests pass
+- [x] **Debugging**: `pytest tests/driver/ -x` — fix implementation code until all tests pass
   (do NOT fix test code).
-- [ ] **Contract re-verification**: the CODEMANIFEST `open_context` Algorithm steps 1–5 match
+- [x] **Contract re-verification**: the CODEMANIFEST `open_context` Algorithm steps 1–5 match
   the implementation order verbatim; the Constraints bullet holds (facades stay untouched by the
   screen modes — they receive the router, they never read config); the existing launch/connect/
   screen behavior is unchanged.
-- [ ] **Lint**: `ruff check prettyplay/driver/ tests/driver/` — fix formatting, apply
+- [x] **Lint**: `ruff check prettyplay/driver/ tests/driver/` — fix formatting, apply
   decomposition if necessary.
 
 ### Task 8: `SYSTEM_PROMPT` and `PAGE_API_SURFACE` — the generation request surface (TDD coding)
