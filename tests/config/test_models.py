@@ -99,8 +99,14 @@ class TestBrowserConfigContract:
     def test_browser_config_is_kw_only(self) -> None:
         assert BrowserConfig.model_config.get("kw_only") is True
 
-    def test_browser_config_declares_four_fields_in_contract_order(self) -> None:
-        assert list(BrowserConfig.model_fields) == ["name", "screen", "headless", "endpoint"]
+    def test_browser_config_declares_five_fields_in_contract_order(self) -> None:
+        assert list(BrowserConfig.model_fields) == ["name", "screen", "headless", "endpoint", "accept_dialogs"]
+
+    def test_browser_config_accept_dialogs_default_and_explicit(self) -> None:
+        """The dialog auto-accept switch: neutral default False, explicit True."""
+        assert BrowserConfig().accept_dialogs is False
+        assert BrowserConfig(accept_dialogs=True).accept_dialogs is True
+        assert Config().browser.accept_dialogs is False
 
     def test_browser_config_default_is_deep_copied_per_instance(self) -> None:
         first = Config()

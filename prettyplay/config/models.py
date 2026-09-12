@@ -38,6 +38,10 @@ class BrowserConfig(BaseModel):
             default True; ignored on a remote connect.
         endpoint: ws endpoint of a remote browser; empty means the local
             launch.
+        accept_dialogs: automatically accept dialogs that no captured
+            ``expect_dialog`` block claims; False — the Playwright dismiss
+            default stands; default False (neutral — the pre-setting
+            behavior).
     """
 
     model_config = ConfigDict(kw_only=True, extra="forbid")
@@ -46,6 +50,7 @@ class BrowserConfig(BaseModel):
     screen: str = ""
     headless: bool = True
     endpoint: str = ""
+    accept_dialogs: bool = False
 
     @field_validator("name")
     @classmethod

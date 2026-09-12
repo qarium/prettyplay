@@ -175,7 +175,11 @@ class TestLoadConfigLogic:
 
         # all three present — one line per key
         with pytest.raises(ConfigurationError) as excinfo:
-            load_config(pyproject_path=write_section(tmp_path, '[tool.prettyplay]\nbrowser = "c"\nheadless = true\nbrowser_endpoint = "ws://x"\n'))
+            load_config(
+                pyproject_path=write_section(
+                    tmp_path, '[tool.prettyplay]\nbrowser = "c"\nheadless = true\nbrowser_endpoint = "ws://x"\n'
+                )
+            )
 
         assert str(excinfo.value).count("\n") == 2  # three lines, one per key
 
@@ -229,8 +233,16 @@ class TestLoadConfigLogic:
         """Negative: unparseable env values fail loudly naming setting, value and form."""
         cases = [
             ("PRETTYPLAY_STRICT", "maybe", "strict: received 'maybe' — allowed: a boolean (true/false/1/0)"),
-            ("PRETTYPLAY_BROWSER_HEADLESS", "yes", "browser.headless: received 'yes' — allowed: a boolean (true/false/1/0)"),
-            ("PRETTYPLAY_GENERATION_ATTEMPTS", "three", "generation_attempts: received 'three' — allowed: a decimal integer"),
+            (
+                "PRETTYPLAY_BROWSER_HEADLESS",
+                "yes",
+                "browser.headless: received 'yes' — allowed: a boolean (true/false/1/0)",
+            ),
+            (
+                "PRETTYPLAY_GENERATION_ATTEMPTS",
+                "three",
+                "generation_attempts: received 'three' — allowed: a decimal integer",
+            ),
         ]
         for env_name, env_value, expected_line in cases:
             monkeypatch.setenv(env_name, env_value)

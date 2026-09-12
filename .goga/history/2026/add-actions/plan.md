@@ -373,7 +373,7 @@ the env layer is stricter and rejects them.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: in `tests/config/test_models.py` add
+- [x] **Contract tests**: in `tests/config/test_models.py` add
   `test_browser_config_accept_dialogs_default_and_explicit` — setup: none (pure model); input:
   `BrowserConfig()` and `BrowserConfig(accept_dialogs=True)`; trace:
   `BrowserConfig()` → pydantic kw_only construction → `accept_dialogs == False`;
@@ -382,22 +382,22 @@ the env layer is stricter and rejects them.
   `BrowserConfig(accept_dialogs=True).accept_dialogs is True`,
   `Config().browser.accept_dialogs is False`; plus the existing signature-inspection test of the
   suite grows the field row. Expected to fail at this stage (the field does not exist).
-- [ ] **Code**: in `prettyplay/config/models.py` add `accept_dialogs: bool = False` to
+- [x] **Code**: in `prettyplay/config/models.py` add `accept_dialogs: bool = False` to
   `BrowserConfig` after `endpoint` (plain field, no validator — pydantic rejects non-bools with
   the existing render path).
-- [ ] **Code**: extend the `BrowserConfig` class docstring Attributes with the setting —
+- [x] **Code**: extend the `BrowserConfig` class docstring Attributes with the setting —
   auto-accept of dialogs no captured `expect_dialog` block claims; `False` keeps the Playwright
   dismiss default; default `False` (neutral — the pre-setting behavior).
-- [ ] **Interface verification**: `pytest tests/config/test_models.py -x` — all pass; the field
+- [x] **Interface verification**: `pytest tests/config/test_models.py -x` — all pass; the field
   is settable through the kw_only constructor and readable as the property the contract declares.
-- [ ] **Logic tests**: confirm the existing negative/edge tests of the file still pass and that
+- [x] **Logic tests**: confirm the existing negative/edge tests of the file still pass and that
   `Config()` default construction carries `browser.accept_dialogs is False` (the group grows one
   field; `extra="forbid"` unaffected).
-- [ ] **Debugging**: `pytest tests/config/ -x` — fix implementation code until all tests pass
+- [x] **Debugging**: `pytest tests/config/ -x` — fix implementation code until all tests pass
   (do NOT fix test code).
-- [ ] **Contract re-verification**: facade `prettyplay.config` still exports `BrowserConfig`;
+- [x] **Contract re-verification**: facade `prettyplay.config` still exports `BrowserConfig`;
   the declared property `accept_dialogs -> bool` exists; kw_only and neutral default hold.
-- [ ] **Lint**: `ruff check prettyplay/config/ tests/config/` — fix formatting if necessary.
+- [x] **Lint**: `ruff check prettyplay/config/ tests/config/` — fix formatting if necessary.
 
 ### Task 2: `load_config` env override for `accept_dialogs` (TDD coding)
 
