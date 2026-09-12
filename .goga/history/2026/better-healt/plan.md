@@ -366,23 +366,23 @@ reporter fan-out working for the new event name.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: in `tests/reporting/test_hooks.py` add — `StepHooks` has an
+- [x] **Contract tests**: in `tests/reporting/test_hooks.py` add — `StepHooks` has an
   `on_step_finished` attribute callable with `(step_text, step_type, outcome)` returning None
   (no-op default); the method sits in the contract order (source order check:
   `on_step_verdict` before `on_step_finished` before `on_generation_started`)
-- [ ] **Code**: in `prettyplay/reporting/hooks.py` — add the no-op `on_step_finished` method with
+- [x] **Code**: in `prettyplay/reporting/hooks.py` — add the no-op `on_step_finished` method with
   a one-line docstring ("The step ended — the closing event of every step, fired exactly once
   regardless of outcome.") and update the class docstring to ten events
-- [ ] **Interface verification**: `pytest tests/reporting/test_hooks.py -x` — all pass
-- [ ] **Logic tests**: in `tests/reporting/test_hooks.py` add — a recording `StepHooks` subclass
+- [x] **Interface verification**: `pytest tests/reporting/test_hooks.py -x` — all pass
+- [x] **Logic tests**: in `tests/reporting/test_hooks.py` add — a recording `StepHooks` subclass
   receives `("on_step_finished", {...})` through `StepReporter.emit("on_step_finished",
   {"step_text": "s", "step_type": "action", "outcome": "passed"})`; the emit writes an INFO log
   record (caplog: `reclevelno == INFO`, name `prettyplay`, message `on_step_finished`)
-- [ ] **Debugging**: `pytest tests/reporting/ -x` — fix implementation code until all tests pass
-- [ ] **Contract re-verification**: facade accessibility
+- [x] **Debugging**: `pytest tests/reporting/ -x` — fix implementation code until all tests pass
+- [x] **Contract re-verification**: facade accessibility
   `python -c "from prettyplay.reporting import StepHooks; from prettyplay import StepHooks"` (the re-export);
   the class exposes exactly the ten contract events
-- [ ] **Lint**: `ruff check prettyplay/ tests/` — fix formatting if necessary
+- [x] **Lint**: `ruff check prettyplay/ tests/` — fix formatting if necessary
 
 ### Task 3: `Config` gains the polling and interactive settings (config models)
 
