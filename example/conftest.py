@@ -1,8 +1,8 @@
 from pathlib import Path
 
-import pytest
 import allure
-from prettyplay import PrettyPlay, PrettyConfig, BrowserConfig, StepHooks
+import pytest
+from prettyplay import BrowserConfig, PrettyConfig, PrettyPlay, StepHooks
 
 
 class AllureStepHooks(StepHooks):
@@ -17,10 +17,10 @@ class AllureStepHooks(StepHooks):
         if self._step is not None:
             self._step.__exit__(None, None, None)
 
-    def on_step_passed(self, step_text: str, step_type: str) -> None:
+    def on_step_passed(self, step_text: str, step_type: str) -> None:  # noqa: ARG002 — the signature is fixed by the StepHooks contract
         self.on_step_finish()
 
-    def on_step_failed(self, step_text: str, step_type: str, error: str) -> None:
+    def on_step_failed(self, step_text: str, step_type: str, error: str) -> None:  # noqa: ARG002 — the signature is fixed by the StepHooks contract
         self.on_step_finish()
 
 @pytest.fixture
