@@ -530,7 +530,13 @@ class TestEngineCellFacade:
     def test_engine_facade_reexports_all_entities(self) -> None:
         from prettyplay import engine  # noqa: PLC0415 — cell facade check
 
-        assert sorted(engine.__all__) == ["StepGenerator", "StepHealer", "classify_step_failure", "run_step_code"]
+        assert sorted(engine.__all__) == [
+            "StepGenerator",
+            "StepHealer",
+            "classify_step_failure",
+            "format_step_error",
+            "run_step_code",
+        ]
 
 
 def test_real_cache_spy_not_needed_for_healer(tmp_path: Path) -> None:

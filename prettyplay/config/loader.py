@@ -24,7 +24,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from ..failures.errors import PrettyplayError
+from ..failures import PrettyplayError
 from .models import BrowserConfig, Config
 
 if sys.version_info >= (3, 11):

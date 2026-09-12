@@ -11,7 +11,7 @@ from .config import PrettyConfig, load_config
 from .driver import PageFacade
 from .engine import StepGenerator, StepHealer
 from .executor import StepExecutor
-from .failures.errors import PrettyplayError
+from .failures import PrettyplayError
 from .reporting import StepHooks, StepReporter
 from .runtime import PrettyplayRuntime
 

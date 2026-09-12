@@ -38,6 +38,7 @@ Imports:
       - StepHealer
       - run_step_code
       - classify_step_failure
+      - format_step_error
     Usages:
       - generation
       - healing
@@ -158,7 +159,7 @@ Annotations: |
       - A cached step executes with no LLM involvement whatsoever
       - An assertion step surfaces a legitimately failed expectation as the product defect failure
       - Strict mode: the only LLM calls are classifications; the generation and healing budgets are never consumed; the engines are never invoked
-      - The error text carried by the raised failures: for failed checks — without the AssertionError prefix, the exception type already carries the assertion semantics; for action steps — the full underlying error text with its type
+      - The error text carried by the raised failures: for failed checks — without the AssertionError prefix, the exception type already carries the assertion semantics; for action steps — the full underlying error text with its type; formatted by `format_step_error`
       - One render per terminal failure: the exception message, the on_step_failed error payload and the log record carry the same rendered text
 
 "PrettyplayRuntime(config: PrettyConfig)":

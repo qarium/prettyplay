@@ -6,8 +6,7 @@ from typing import NoReturn
 from .cache import CachedStep, RunBudgets, StepCache, StepIdentity, normalize_step_text
 from .config import PrettyConfig
 from .driver import PageFacade
-from .engine import StepGenerator, StepHealer, classify_step_failure, run_step_code
-from .engine.text import format_step_error
+from .engine import StepGenerator, StepHealer, classify_step_failure, format_step_error, run_step_code
 from .failures import FailureVerdict, IncurableStepError, LLMUnavailableError, ProductDefectError
 from .llm import LLMProvider
 from .reporting import StepReporter

@@ -140,6 +140,19 @@ Annotations: |
       Algorithm:
       1. The same loop as the generate method with three additions: every provider request carries `existing_code` and `error` and the user instructions — the effective config generation_prompt — when non-empty; attempts consume the healing budget via try_healing; a budget exhaustion raises `IncurableStepError` without classification — the healer attaches the verdict of its own classification, no extra LLM request is made (the failed-check classification of the generate loop applies on both pools)
 
+"format_step_error(exc: Exception) -> text: str":
+  location: text.py
+  annotations: |
+    Format the full failure text of a step-code exception — the single error-text policy shared by the engines and the executor.
+
+    `exc`: the exception raised by the failed step or candidate branch.
+    `text`: the formatted failure text carried by reports, renders and requests.
+
+    Requirements:
+    - A failed check — an AssertionError — yields its message verbatim with no prefix: the exception type already carries the assertion semantics; a message-less check yields an empty text, so the structured render omits the error line
+    - Any other failure carries its type name: the action failures of step code are timeouts and driver errors whose bare messages lose the kind of failure
+    - A message-less error yields the bare type name, never a dangling separator
+
 "run_step_code(code: str, page: PageFacade)":
   location: execution.py
   annotations: |
@@ -217,4 +230,4 @@ Annotations: |
 Author: Goga
 CreatedAt: 10/09/26
 Description: |
-  The agent engine of prettyplay: step code generation with execution in the loop and failed-check classification, the fixed-form execution routine, the shared classification call carrying the classification user instructions, and healing with anti-masking and verdicts on terminal failures.
+  The agent engine of prettyplay: step code generation with execution in the loop and failed-check classification, the fixed-form execution routine, the shared classification call carrying the classification user instructions, the error-text policy shared with the executor, and healing with anti-masking and verdicts on terminal failures.
