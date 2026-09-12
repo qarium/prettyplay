@@ -983,13 +983,18 @@ class TestPageFacadeLogic:
         assert page.context.close_calls == 1
 
     def test_close_leaves_page_usable_for_other_tests(self) -> None:
-        # close() closes only the context; the browser stays alive (facade contract)
+        # close() closes only the context; the browser serves the next test's context
         page = FakePage()
         facade = make_page_facade(page)
         facade.close()
 
+        next_page = FakePage()
+        next_facade = make_page_facade(next_page)
+        next_facade.goto("https://example.com/next")
+
         assert page.context.close_calls == 1
-        assert page.calls == []  # no browser calls — only context.close()
+        assert page.calls == []  # no page calls — only context.close()
+        assert next_page.calls == [("goto", "https://example.com/next")]  # the browser still works
 
 
 class TestUniversalLocatorLogic:
@@ -1601,3 +1606,43 @@ class TestDialogAndPopupCaptures:
             _ = dialog.message  # pre-resolution access
 
         assert not isinstance(info.value, AssertionError)  # an access guard, never a failed check
+
+    def test_dialog_block_exception_cancels_the_waiter_and_propagates(self) -> None:
+        page = FakePage()
+        page.dialog_value = FakeDialog(message="Hi")
+        facade = make_page_facade(page)
+        capture = facade.expect_dialog()
+
+        with pytest.raises(RuntimeError, match="boom"), capture as dialog:
+            raise RuntimeError("boom")  # the triggering action itself failed
+
+        assert capture._cm.calls == ["__enter__", "__exit__"]  # the waiter exited — cancelled, no wait
+        assert page.dialog_value.calls == []  # cancelled without a timeout: the dialog never resolved
+        assert facade._router.capture_page is None  # the claim cleared on the exception path too
+        with pytest.raises(AttributeError, match="resolves at the end of the with-block"):
+            _ = dialog.message  # the shell stays uninitialized — the guard covers later access
+
+    def test_popup_block_exception_cancels_the_waiter_and_propagates(self) -> None:
+        page = FakePage()
+        page.popup_value = FakePopupPage(url="https://docs.example.com")
+        facade = make_page_facade(page)
+        capture = facade.expect_popup()
+
+        with pytest.raises(RuntimeError, match="boom"), capture as popup:
+            raise RuntimeError("boom")  # the opening action itself failed
+
+        assert capture._cm.calls == ["__enter__", "__exit__"]  # the waiter exited — cancelled, no wait
+        with pytest.raises(AttributeError, match="resolves at the end of the with-block"):
+            _ = popup.url  # the shell stays uninitialized — the guard covers later access
+
+    def test_initialized_page_facade_missing_attribute_gets_the_regular_text(self) -> None:
+        facade = make_page_facade(FakePage())
+
+        with pytest.raises(AttributeError, match="object has no attribute 'find_by_role'"):
+            facade.find_by_role("button", name="Delete")  # a retired name on an initialized facade
+
+    def test_initialized_dialog_facade_missing_attribute_gets_the_regular_text(self) -> None:
+        facade = make_dialog_facade(FakeDialog(message="Hi"))
+
+        with pytest.raises(AttributeError, match="object has no attribute 'send_keys'"):
+            facade.send_keys("Hi")  # a plain typo on an initialized facade

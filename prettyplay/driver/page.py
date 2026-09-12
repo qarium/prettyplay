@@ -996,7 +996,7 @@ class _DialogCapture:
             return None
 
         dialog = facade._call(resolve)
-        if exc_type is None and self._shell is not None:
+        if exc_type is None:
             DialogFacade.__init__(self._shell, dialog)
             self._shell._worker = facade._worker
         return False
@@ -1078,7 +1078,7 @@ class _PopupCapture:
                 return popup, popup.context
 
         opened = facade._call(resolve)
-        if exc_type is None and self._shell is not None and opened is not None:
+        if exc_type is None:
             popup, context = opened
             PageFacade.__init__(self._shell, popup, context)
             self._shell._worker = facade._worker

@@ -13,6 +13,13 @@ playwright install            # browser binaries for the driver
 
 Requires Python 3.10+.
 
+Full documentation: <https://qarium.github.io/prettyplay/>
+
+A complete pytest project — Allure reporting hooks included — lives in the
+`example/` directory of the repository; it additionally requires
+`allure-pytest` (`pip install allure-pytest`), which the core package does
+not depend on.
+
 ## Quick start
 
 ```python
@@ -131,6 +138,7 @@ name = "chromium"                # chromium | firefox | webkit | chrome | msedge
 screen = ""                      # "" | WxH | fullscreen | Playwright device name
 headless = true                  # false -> run with a visible browser window
 endpoint = ""                    # ws:// endpoint of a remote browser; empty -> local launch
+accept_dialogs = false           # true -> automatically accept dialogs outside step-captured expect_dialog blocks
 ```
 
 The old flat keys `browser`, `headless` and `browser_endpoint` at the
@@ -183,8 +191,9 @@ loudly with the endpoint in the message.
 Every setting has a `PRETTYPLAY_<SETTING_UPPER>` environment override for CI —
 including `PRETTYPLAY_STRICT` and `PRETTYPLAY_CLASSIFICATION_PROMPT` — and the
 browser group reads the flat `PRETTYPLAY_BROWSER_NAME`,
-`PRETTYPLAY_BROWSER_SCREEN`, `PRETTYPLAY_BROWSER_HEADLESS` and
-`PRETTYPLAY_BROWSER_ENDPOINT`. Env values parse by the field type: booleans
+`PRETTYPLAY_BROWSER_SCREEN`, `PRETTYPLAY_BROWSER_HEADLESS`,
+`PRETTYPLAY_BROWSER_ENDPOINT` and `PRETTYPLAY_BROWSER_ACCEPT_DIALOGS`. Env
+values parse by the field type: booleans
 accept `true/false/1/0` case-insensitively, integers parse as decimals, and an
 unparseable value fails loudly with a `ConfigurationError` naming the setting,
 the received value and the accepted form.
@@ -195,6 +204,18 @@ setting — the name, the received value and the allowed values.
 LLM API keys are never stored in the config file: they come only from the
 environment — `OPENAI_API_KEY` for openai, `ANTHROPIC_API_KEY` for anthropic —
 and are read lazily on the first request.
+
+### Dialogs
+
+`accept_dialogs` of the browser group controls the automatic dialog handling
+of the driver:
+
+- `true` — every dialog that no step-captured `expect_dialog` block claims is
+  accepted automatically
+- `false` (default) — unclaimed dialogs are dismissed (the Playwright
+  default; nothing blocks)
+- a dialog captured by a step's `expect_dialog` block is accepted or dismissed
+  by the step itself — the setting does not apply to captured dialogs
 
 ## Failure taxonomy
 

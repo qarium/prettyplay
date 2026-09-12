@@ -146,3 +146,87 @@ class TestRunStepCodeLogic:
 
         assert "<prettyplay-step>" not in sys.modules
         assert [name for name in sys.modules if "prettyplay-step" in name] == []
+
+
+class FakeRawDialog:
+    """Fake Playwright dialog behind the real facade: records the resolution."""
+
+    def __init__(self, message: str = "") -> None:
+        self.message = message
+        self.calls: list[tuple[str, ...]] = []
+
+    def accept(self, **kwargs: str) -> None:
+        self.calls.append(("accept", kwargs))
+
+
+class FakeDialogWaiter:
+    """Fake Playwright event waiter: arms on enter, resolves the dialog on exit."""
+
+    def __init__(self, dialog: FakeRawDialog) -> None:
+        self._dialog = dialog
+        self._value: object = None
+
+    def __enter__(self) -> "FakeDialogWaiter":
+        return self
+
+    def __exit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
+        if exc_val is None:
+            self._value = self._dialog
+
+    @property
+    def value(self) -> object:
+        assert self._value is not None, "value read before a successful exit"
+        return self._value
+
+
+class FakeDialogPage:
+    """Fake Playwright page: one armed dialog waiter and a clickable button."""
+
+    def __init__(self, dialog: FakeRawDialog) -> None:
+        self._dialog = dialog
+        self.calls: list[tuple[str, ...]] = []
+        self.context = object()
+
+    def expect_event(self, event: str) -> FakeDialogWaiter:
+        self.calls.append(("expect_event", event))
+        return FakeDialogWaiter(self._dialog)
+
+    def get_by_role(self, role: str, name: str | None = None) -> "FakeDialogButton":
+        self.calls.append(("get_by_role", role, name))
+        return FakeDialogButton(self.calls)
+
+
+class FakeDialogButton:
+    """Fake located button: records the click of the triggering action."""
+
+    def __init__(self, calls: list[tuple[str, ...]]) -> None:
+        self._calls = calls
+
+    def click(self, button: str = "") -> None:
+        self._calls.append(("click", button))
+
+
+class TestRunStepCodeDialogCapture:
+    """Logic tests: the SYSTEM_PROMPT-taught dialog capture form runs as step code."""
+
+    def test_dialog_capture_step_code_runs_through_the_real_facade(self) -> None:
+        dialog = FakeRawDialog(message="Delete?")
+        page = FakeDialogPage(dialog)
+        facade = PageFacade(page, page.context)  # hand-built: inline calls, lazy router
+        code = (
+            "def step(page) -> None:\n"
+            "    with page.expect_dialog() as dialog:\n"
+            "        page.get_by_role('button', name='Delete').click()\n"
+            "    assert dialog.message == 'Delete?'\n"
+            "    dialog.accept()\n"
+        )
+
+        run_step_code(code, facade)
+
+        assert page.calls == [
+            ("expect_event", "dialog"),
+            ("get_by_role", "button", "Delete"),
+            ("click", "left"),
+        ]
+        assert dialog.calls == [("accept", {})]  # resolved by the step, exactly once
+        assert facade._router.capture_page is None  # the router claim cleared at block exit
