@@ -10,6 +10,7 @@ from .cache import StepCache
 from .config import PrettyConfig, load_config
 from .driver import PageFacade
 from .engine import StepGenerator, StepHealer
+from .engine.steering import StepSteering
 from .executor import StepExecutor
 from .failures import PrettyplayError
 from .reporting import StepHooks, StepReporter
@@ -92,6 +93,9 @@ class PrettyPlay:
         _cache: the step cache of this test.
         _generator: the generation engine of this test.
         _healer: the healing engine of this test.
+        _steering: the interactive steering of this test; shares the
+            provider, the cache and the reporter of the healer — one
+            visibility point and one write-back store per test.
         _executor: the owner of the step cycle of this test.
         _page: the isolated page of this test; ``None`` until the first step.
     """
@@ -140,11 +144,18 @@ class PrettyPlay:
             self._runtime.budgets,
             self._reporter,
         )
+        self._steering = StepSteering(
+            self._runtime.config,
+            self._runtime.provider,
+            self._cache,
+            self._reporter,
+        )
         self._executor = StepExecutor(
             cache_key,
             self._cache,
             self._generator,
             self._healer,
+            self._steering,
             self._runtime.budgets,
             self._reporter,
             config=self._runtime.config,

@@ -12,6 +12,8 @@ import pytest
 from prettyplay import BrowserConfig, PrettyPlay
 from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step_text
 from prettyplay.config import Config, PrettyConfig
+from prettyplay.engine.steering import StepSteering
+from prettyplay.executor import StepExecutor
 from prettyplay.failures import FailureVerdict, IncurableStepError, PrettyplayError
 from prettyplay.llm import FailureClassification, LLMProvider
 from prettyplay.reporting import StepHooks, StepReporter
@@ -190,6 +192,15 @@ class TestPrettyPlayContract:
         assert list(inspect.signature(PrettyPlay.get_screenshot).parameters) == ["self"]
         assert list(inspect.signature(PrettyPlay.save_screenshot).parameters) == ["self", "filepath"]
 
+    def test_constructor_composes_step_steering(self, tmp_path: Path) -> None:
+        """The constructor threads a composed StepSteering into the executor."""
+        config = PrettyConfig(interactive=True, cache_root=str(tmp_path))
+
+        with mock.patch("prettyplay.scenario.load_config", return_value=config):
+            test = PrettyPlay(CACHE_KEY, config=config)
+
+        assert isinstance(test._executor._steering, StepSteering)
+
 
 class TestPrettyPlayLogic:
     """Logic tests: page lifecycle, laziness, hooks registration and error pass-through."""
@@ -314,6 +325,26 @@ class TestPrettyPlayLogic:
         assert executor._config.browser.screen == "fullscreen"
         assert executor._config.browser.headless is False
         assert executor._provider is test._runtime.provider  # the runtime provider instance, lazily built
+        assert test._runtime._driver is None  # construction stays browser-free
+
+    def test_prettyplay_composes_steering_and_threads_it_into_the_executor(self, tmp_path: Path) -> None:
+        """StepSteering is composed from the runtime config, provider, cache and reporter, then threaded in."""
+        config = PrettyConfig(interactive=True, cache_root=str(tmp_path))
+
+        with (
+            mock.patch("prettyplay.scenario.load_config", return_value=config),
+            mock.patch("prettyplay.scenario.StepExecutor", wraps=StepExecutor) as executor_spy,
+        ):
+            test = PrettyPlay(CACHE_KEY, config=config)
+
+        steering = test._executor._steering
+        assert isinstance(steering, StepSteering)
+        assert isinstance(test._executor, StepExecutor)  # the spy delegates to the real constructor
+        assert executor_spy.call_args.args[4] is steering  # contract position: after the healer, before the budgets
+        assert steering._config is test._runtime.config  # the same runtime settings the engines read
+        assert steering._provider is test._runtime.provider  # one provider object per test
+        assert steering._cache is test._cache  # one write-back store per test
+        assert steering._reporter is test._healer._reporter  # one visibility point per test
         assert test._runtime._driver is None  # construction stays browser-free
 
     def test_scenario_close_stops_page_and_runtime(self, tmp_path: Path) -> None:

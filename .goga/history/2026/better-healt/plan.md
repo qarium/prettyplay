@@ -1288,23 +1288,23 @@ the import comes from `prettyplay.engine.steering` into `scenario.py`.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: in `tests/test_scenario.py` add — `PrettyPlay(cache_key="k",
+- [x] **Contract tests**: in `tests/test_scenario.py` add — `PrettyPlay(cache_key="k",
   config=PrettyConfig(interactive=True))` with monkeypatched engine/driver boundaries constructs;
   `isinstance(executor._steering, StepSteering)` (expected to fail at this stage)
-- [ ] **Code**: in `prettyplay/scenario.py` — import `StepSteering` from
+- [x] **Code**: in `prettyplay/scenario.py` — import `StepSteering` from
   `prettyplay.engine.steering`; construct it from the runtime config, provider, step cache and
   reporter (after the healer, before the executor); pass it into the `StepExecutor` constructor
-- [ ] **Interface verification**: `pytest tests/test_scenario.py -x` — all pass
-- [ ] **Logic tests**: in `tests/test_scenario.py` add
+- [x] **Interface verification**: `pytest tests/test_scenario.py -x` — all pass
+- [x] **Logic tests**: in `tests/test_scenario.py` add
   `test_prettyplay_composes_steering_and_threads_it_into_the_executor`:
   `PrettyPlay(cache_key="k", config=PrettyConfig(interactive=True))` with monkeypatched
   engine/driver boundaries (no browser, no LLM) → `isinstance(executor._steering, StepSteering)`;
   the same instance is passed to the `StepExecutor` constructor; steering holds the same cache
   and reporter objects as the healer
-- [ ] **Debugging**: `pytest tests/test_scenario.py -x` — fix implementation code until all tests pass
-- [ ] **Contract re-verification**: `python -c "import prettyplay"` — the public facade
+- [x] **Debugging**: `pytest tests/test_scenario.py -x` — fix implementation code until all tests pass
+- [x] **Contract re-verification**: `python -c "import prettyplay"` — the public facade
   (`PrettyPlay`, `PrettyConfig`, `BrowserConfig`, `StepHooks`) unchanged and importable
-- [ ] **Lint**: `ruff check prettyplay/ tests/` — fix formatting if necessary
+- [x] **Lint**: `ruff check prettyplay/ tests/` — fix formatting if necessary
 
 ### Task 15: Integration tests — the full cycle with the window and the closing event
 
