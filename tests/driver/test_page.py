@@ -6,8 +6,9 @@ from collections.abc import Callable
 from typing import Any, get_type_hints
 from unittest import mock
 
+import prettyplay.driver
 import pytest
-from prettyplay.driver import LocatorFacade, PageFacade
+from prettyplay.driver import DialogFacade, FrameFacade, LocatorFacade, PageFacade
 
 
 class RecordingAssertions:
@@ -134,6 +135,87 @@ class FakeLocator:
         self.evaluate_args.append(arg)
 
 
+class FakeDialog:
+    """Fake Playwright dialog hidden behind the facade; records accept kwargs and dismiss."""
+
+    def __init__(self, type: str = "alert", message: str = "", default_value: str = "") -> None:
+        self.type = type
+        self.message = message
+        self.default_value = default_value
+        self.calls: list[tuple[Any, ...]] = []
+
+    def accept(self, **kwargs: Any) -> None:
+        self.calls.append(("accept", kwargs))
+
+    def dismiss(self) -> None:
+        self.calls.append(("dismiss",))
+
+
+class FakeFrameLocator:
+    """Fake Playwright frame locator hidden behind the facade; records every call."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[Any, ...]] = []
+        self.locators: list[FakeLocator] = []
+        self.frames: list[FakeFrameLocator] = []
+        self._locator_factory = FakeLocator
+        self._frame_factory = FakeFrameLocator
+
+    def get_by_role(self, role: str, name: str | None = None) -> FakeLocator:
+        locator = self._locator_factory()
+        self.calls.append(("get_by_role", role, name))
+        self.locators.append(locator)
+        return locator
+
+    def get_by_label(self, label: str) -> FakeLocator:
+        locator = self._locator_factory()
+        self.calls.append(("get_by_label", label))
+        self.locators.append(locator)
+        return locator
+
+    def get_by_text(self, text: str) -> FakeLocator:
+        locator = self._locator_factory()
+        self.calls.append(("get_by_text", text))
+        self.locators.append(locator)
+        return locator
+
+    def get_by_placeholder(self, placeholder: str) -> FakeLocator:
+        locator = self._locator_factory()
+        self.calls.append(("get_by_placeholder", placeholder))
+        self.locators.append(locator)
+        return locator
+
+    def get_by_alt_text(self, alt: str) -> FakeLocator:
+        locator = self._locator_factory()
+        self.calls.append(("get_by_alt_text", alt))
+        self.locators.append(locator)
+        return locator
+
+    def get_by_title(self, title: str) -> FakeLocator:
+        locator = self._locator_factory()
+        self.calls.append(("get_by_title", title))
+        self.locators.append(locator)
+        return locator
+
+    def get_by_test_id(self, test_id: str) -> FakeLocator:
+        locator = self._locator_factory()
+        self.calls.append(("get_by_test_id", test_id))
+        self.locators.append(locator)
+        return locator
+
+    def locator(self, selector: str) -> FakeLocator:
+        locator = self._locator_factory()
+        self.calls.append(("locator", selector))
+        self.locators.append(locator)
+        return locator
+
+    def frame_locator(self, selector: str) -> "FakeFrameLocator":
+        frame = self._frame_factory()
+        self.calls.append(("frame_locator", selector))
+        self.frames.append(frame)
+        return frame
+
+
 class FakeContext:
     """Fake isolated browser context; ``close`` records the call."""
 
@@ -215,6 +297,17 @@ class FakePage:
         return self._context
 
 
+class RecordingWorker:
+    """Fake ``PlaywrightWorker``: records every marshaled callable, executes inline."""
+
+    def __init__(self) -> None:
+        self.calls: list[Callable[[], Any]] = []
+
+    def run(self, fn: Callable[[], Any]) -> Any:
+        self.calls.append(fn)
+        return fn()
+
+
 def make_page_facade(page: FakePage | None = None, context: FakeContext | None = None) -> PageFacade:
     """Build a PageFacade over fakes; the context defaults to the fake page's own."""
     page = page or FakePage()
@@ -226,6 +319,16 @@ def make_locator_facade(locator: FakeLocator | None = None) -> LocatorFacade:
     return LocatorFacade(locator or FakeLocator())
 
 
+def make_dialog_facade(dialog: FakeDialog | None = None) -> DialogFacade:
+    """Build a DialogFacade over a fake dialog."""
+    return DialogFacade(dialog or FakeDialog())
+
+
+def make_frame_facade(frame_locator: FakeFrameLocator | None = None) -> FrameFacade:
+    """Build a FrameFacade over a fake frame locator."""
+    return FrameFacade(frame_locator or FakeFrameLocator())
+
+
 class TestPageFacadeContract:
     """Contract tests: facade import, method set, signatures, return types."""
 
@@ -234,6 +337,95 @@ class TestPageFacadeContract:
 
     def test_locator_facade_importable_from_facade(self) -> None:
         assert isinstance(LocatorFacade, type)
+
+    def test_dialog_facade_importable_from_facade(self) -> None:
+        assert isinstance(DialogFacade, type)
+
+    def test_frame_facade_importable_from_facade(self) -> None:
+        assert isinstance(FrameFacade, type)
+
+    def test_driver_all_exports_match_contract(self) -> None:
+        assert set(prettyplay.driver.__all__) == {
+            "DriverSession",
+            "DialogFacade",
+            "FrameFacade",
+            "LocatorFacade",
+            "PageFacade",
+        }
+
+    def test_dialog_facade_surface_matches_contract(self) -> None:
+        surface = ["type", "message", "default_value", "accept", "dismiss"]
+
+        for name in surface:
+            assert hasattr(DialogFacade, name), name
+
+    def test_dialog_facade_signatures_match_contract(self) -> None:
+        assert list(inspect.signature(DialogFacade.accept).parameters) == ["self", "prompt_text"]
+        assert inspect.signature(DialogFacade.accept).parameters["prompt_text"].default == ""
+        assert list(inspect.signature(DialogFacade.dismiss).parameters) == ["self"]
+
+    def test_dialog_facade_annotations_match_contract(self) -> None:
+        accept_hints = get_type_hints(DialogFacade.accept)
+        assert accept_hints["prompt_text"] is str
+        assert accept_hints["return"] is type(None)
+
+        dismiss_hints = get_type_hints(DialogFacade.dismiss)
+        assert dismiss_hints["return"] is type(None)
+
+        assert get_type_hints(DialogFacade.type.fget)["return"] is str
+        assert get_type_hints(DialogFacade.message.fget)["return"] is str
+        assert get_type_hints(DialogFacade.default_value.fget)["return"] is str
+
+    def test_frame_facade_surface_matches_contract(self) -> None:
+        surface = [
+            "get_by_role",
+            "get_by_label",
+            "get_by_text",
+            "get_by_placeholder",
+            "get_by_alt_text",
+            "get_by_title",
+            "get_by_test_id",
+            "locator",
+            "frame_locator",
+        ]
+
+        for name in surface:
+            assert hasattr(FrameFacade, name), name
+
+    def test_frame_facade_signatures_match_contract(self) -> None:
+        assert list(inspect.signature(FrameFacade.get_by_role).parameters) == ["self", "role", "name"]
+        assert inspect.signature(FrameFacade.get_by_role).parameters["name"].default == ""
+        assert list(inspect.signature(FrameFacade.get_by_label).parameters) == ["self", "label"]
+        assert list(inspect.signature(FrameFacade.get_by_text).parameters) == ["self", "text"]
+        assert list(inspect.signature(FrameFacade.get_by_placeholder).parameters) == ["self", "placeholder"]
+        assert list(inspect.signature(FrameFacade.get_by_alt_text).parameters) == ["self", "alt"]
+        assert list(inspect.signature(FrameFacade.get_by_title).parameters) == ["self", "title"]
+        assert list(inspect.signature(FrameFacade.get_by_test_id).parameters) == ["self", "test_id"]
+        assert list(inspect.signature(FrameFacade.locator).parameters) == ["self", "selector"]
+        assert list(inspect.signature(FrameFacade.frame_locator).parameters) == ["self", "selector"]
+
+    def test_frame_facade_annotations_match_contract(self) -> None:
+        role_hints = get_type_hints(FrameFacade.get_by_role)
+        assert role_hints["role"] is str
+        assert role_hints["name"] is str
+        assert role_hints["return"] is LocatorFacade
+
+        for member, parameter in (
+            ("get_by_label", "label"),
+            ("get_by_text", "text"),
+            ("get_by_placeholder", "placeholder"),
+            ("get_by_alt_text", "alt"),
+            ("get_by_title", "title"),
+            ("get_by_test_id", "test_id"),
+            ("locator", "selector"),
+        ):
+            hints = get_type_hints(getattr(FrameFacade, member))
+            assert hints[parameter] is str, member
+            assert hints["return"] is LocatorFacade, member
+
+        nested_hints = get_type_hints(FrameFacade.frame_locator)
+        assert nested_hints["selector"] is str
+        assert nested_hints["return"] is FrameFacade
 
     def test_page_facade_surface_matches_contract(self) -> None:
         surface = [
@@ -842,3 +1034,136 @@ class TestFacadeThreadingBoundary:
         facade.open("https://example.com")
 
         assert seen_threads == [threading.get_ident()]  # direct path: the same thread
+
+
+class TestDialogFacadeLogic:
+    """Logic tests: delegation of every DialogFacade member to the wrapped dialog."""
+
+    def test_dialog_facade_members(self) -> None:
+        fake = FakeDialog(type="prompt", message="Name?", default_value="Ann")
+        dialog = make_dialog_facade(fake)
+
+        assert dialog.type == "prompt"
+        assert dialog.message == "Name?"
+        assert dialog.default_value == "Ann"
+
+        dialog.accept("Bob")
+        dialog.dismiss()
+
+        assert fake.calls == [("accept", {"prompt_text": "Bob"}), ("dismiss",)]
+
+    def test_dialog_facade_marshals_through_the_inherited_worker(self) -> None:
+        fake = FakeDialog()
+        dialog = make_dialog_facade(fake)
+        worker = RecordingWorker()
+        dialog._worker = worker
+
+        message = dialog.message
+        dialog.dismiss()
+
+        assert message == ""
+
+        assert len(worker.calls) == 2  # every property read and action rides the driver thread
+        assert fake.calls == [("dismiss",)]
+
+    def test_dialog_actions_never_return_raw_objects(self) -> None:
+        dialog = make_dialog_facade(FakeDialog())
+
+        assert dialog.accept("Bob") is None
+        assert dialog.accept() is None
+        assert dialog.dismiss() is None
+        assert isinstance(dialog.type, str)
+        assert isinstance(dialog.message, str)
+        assert isinstance(dialog.default_value, str)
+
+
+class TestFrameFacadeLogic:
+    """Logic tests: delegation of every FrameFacade member to the wrapped frame locator."""
+
+    def test_frame_facade_family_and_nesting(self) -> None:
+        fake = FakeFrameLocator()
+        worker = RecordingWorker()
+        frame = make_frame_facade(fake)
+        frame._worker = worker
+
+        by_role = frame.get_by_role("button", name="Pay")
+        by_test_id = frame.get_by_test_id("pay")
+        by_selector = frame.locator("#x")
+        nested = frame.frame_locator("#inner")
+        frame.get_by_role("button")  # the empty-name variant matches by role alone
+
+        assert fake.calls == [
+            ("get_by_role", "button", "Pay"),
+            ("get_by_test_id", "pay"),
+            ("locator", "#x"),
+            ("frame_locator", "#inner"),
+            ("get_by_role", "button", None),  # no name kwarg reaches Playwright
+        ]
+        assert isinstance(by_role, LocatorFacade)
+        assert by_role._locator is fake.locators[0]  # wraps exactly the located raw locator
+        assert by_role._worker is worker  # the located element inherits the driver thread
+        assert isinstance(by_test_id, LocatorFacade)
+        assert by_test_id._worker is worker
+        assert isinstance(by_selector, LocatorFacade)
+        assert by_selector._worker is worker
+        assert isinstance(nested, FrameFacade)  # nested frames chain
+        assert nested._frame_locator is fake.frames[0]
+        assert nested._worker is worker
+
+    @pytest.mark.parametrize(
+        ("member", "parameter", "value"),
+        [
+            ("get_by_label", "label", "Username"),
+            ("get_by_text", "text", "Welcome"),
+            ("get_by_placeholder", "placeholder", "Search"),
+            ("get_by_alt_text", "alt", "Logo"),
+            ("get_by_title", "title", "Close"),
+            ("get_by_test_id", "test_id", "submit"),
+        ],
+    )
+    def test_frame_get_by_family_delegates(self, member: str, parameter: str, value: str) -> None:
+        fake = FakeFrameLocator()
+        frame = make_frame_facade(fake)
+
+        element = getattr(frame, member)(value)
+
+        assert fake.calls == [(member, value)]  # the mirror call recorded with the verbatim argument
+        assert isinstance(element, LocatorFacade)
+        assert element._locator is fake.locators[0]
+
+    def test_frame_locator_passes_selectors_verbatim(self) -> None:
+        fake = FakeFrameLocator()
+        frame = make_frame_facade(fake)
+
+        for selector in ("form > button.primary", "//button[@type='submit']", "[data-qa='row'] > input"):
+            element = frame.locator(selector)
+            assert isinstance(element, LocatorFacade)
+
+        assert [call for call in fake.calls if call[0] == "locator"] == [
+            ("locator", "form > button.primary"),
+            ("locator", "//button[@type='submit']"),
+            ("locator", "[data-qa='row'] > input"),
+        ]  # no facade-side selector sniffing or rewriting
+
+    def test_nested_frame_locating_inherits_the_worker(self) -> None:
+        fake = FakeFrameLocator()
+        worker = RecordingWorker()
+        frame = make_frame_facade(fake)
+        frame._worker = worker
+
+        nested = frame.frame_locator("#inner")
+        element = nested.get_by_text("Nested label")
+
+        assert fake.frames[0].calls == [("get_by_text", "Nested label")]
+        assert element._worker is worker  # actions on frame content behave like page content
+        assert nested._worker is worker
+
+    def test_frame_facade_without_worker_runs_inline(self) -> None:
+        fake = FakeFrameLocator()
+        frame = make_frame_facade(fake)
+
+        assert frame._worker is None
+        element = frame.get_by_label("Username")
+
+        assert fake.calls == [("get_by_label", "Username")]  # hand-built scope: inline, no worker
+        assert element._worker is None

@@ -621,26 +621,26 @@ are the only initialization path.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: in `tests/driver/test_page.py` add surface checks — `DialogFacade` and
+- [x] **Contract tests**: in `tests/driver/test_page.py` add surface checks — `DialogFacade` and
   `FrameFacade` are importable from `prettyplay.driver` (facade obligation); the property and
   method sets match the CODEMANIFEST verbatim (dialog: properties `type`/`message`/
   `default_value`, methods `accept(prompt_text: str = "")`/`dismiss()`; frame: the `get_by_*`
   family with `get_by_role(role, name="")`, `locator`, `frame_locator`). Expected to fail at
   this stage (the classes do not exist).
-- [ ] **Code**: add `FakeDialog` (records `accept` kwargs and `dismiss`; attributes
+- [x] **Code**: add `FakeDialog` (records `accept` kwargs and `dismiss`; attributes
   `type`/`message`/`default_value`) and `FakeFrameLocator` (records calls; returns
   `FakeLocator`s / a nested `FakeFrameLocator`) to `tests/driver/test_page.py`.
-- [ ] **Code**: implement `DialogFacade` in `prettyplay/driver/page.py` per its algorithm table
+- [x] **Code**: implement `DialogFacade` in `prettyplay/driver/page.py` per its algorithm table
   (properties through `_call`; `accept(prompt_text="")` omits the kwarg when empty; `dismiss`).
-- [ ] **Code**: implement `FrameFacade` in `prettyplay/driver/page.py` per its algorithm table
+- [x] **Code**: implement `FrameFacade` in `prettyplay/driver/page.py` per its algorithm table
   (the `get_by_*` family with the empty-name omission rule for `get_by_role`; located locators
   wrap through the worker-inheriting wrap; `frame_locator` returns a nested `FrameFacade` with
   the worker attached).
-- [ ] **Code**: export both classes — `prettyplay/driver/__init__.py` imports them from
+- [x] **Code**: export both classes — `prettyplay/driver/__init__.py` imports them from
   `.page` and lists `DialogFacade`, `FrameFacade` in `__all__` (sorted per the existing style).
-- [ ] **Interface verification**: `pytest tests/driver/test_page.py -x -k "dialog or frame"` and
+- [x] **Interface verification**: `pytest tests/driver/test_page.py -x -k "dialog or frame"` and
   `python -c "from prettyplay.driver import DialogFacade, FrameFacade"` — all pass.
-- [ ] **Logic tests** (in `tests/driver/test_page.py`, from the design):
+- [x] **Logic tests** (in `tests/driver/test_page.py`, from the design):
   - `test_dialog_facade_members` — setup: `DialogFacade(FakeDialog(type="prompt",
     message="Name?", default_value="Ann"))`; input: properties + `accept("Bob")` + `dismiss()`;
     trace: `dialog.type` → `"prompt"`; `dialog.message` → `"Name?"`; `dialog.default_value` →
@@ -654,12 +654,12 @@ are the only initialization path.
     `fl.get_by_role(…)` → `LocatorFacade` (+worker); `frame.frame_locator("#inner")` →
     `fl.frame_locator("#inner")` → `FrameFacade`; assertions: mirror calls recorded; wrapped
     types correct; no raw object escapes.
-- [ ] **Debugging**: `pytest tests/driver/test_page.py -x` — fix implementation code until all
+- [x] **Debugging**: `pytest tests/driver/test_page.py -x` — fix implementation code until all
   tests pass (do NOT fix test code).
-- [ ] **Contract re-verification**: both facades importable from `prettyplay.driver` (`__all__`
+- [x] **Contract re-verification**: both facades importable from `prettyplay.driver` (`__all__`
   now `DriverSession`, `DialogFacade`, `FrameFacade`, `LocatorFacade`, `PageFacade`); no raw
   Playwright object crosses either facade; every call goes through `_call`.
-- [ ] **Lint**: `ruff check prettyplay/driver/ tests/driver/` — fix formatting, apply
+- [x] **Lint**: `ruff check prettyplay/driver/ tests/driver/` — fix formatting, apply
   decomposition if necessary.
 
 ### Task 5: `PageFacade` mirror rebuild — navigation, locating, expectations, page switching (TDD coding)
