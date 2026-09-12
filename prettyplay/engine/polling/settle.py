@@ -1,12 +1,10 @@
 """Execution of step code under the settle window: the re-execution loop of transient page-state failures."""
 
 import logging
+import time
 from collections.abc import Callable
 
-from ...driver import (  # noqa: F401 — the recognition point of the loop; the body follows the contract
-    PageFacade,
-    is_pollable_failure,
-)
+from ...driver import PageFacade, is_pollable_failure
 from .window import SettleWindow
 
 logger = logging.getLogger("prettyplay")
@@ -31,4 +29,23 @@ def settle(
         page: the page facade of the current test.
         window: the settle window of the current step execution.
     """
-    raise NotImplementedError
+    window.start()
+
+    attempt = 0
+
+    while True:
+        try:
+            execute(code, page)
+
+            return
+
+        except Exception as failure:
+            attempt += 1
+
+            if window.enabled and is_pollable_failure(failure) and window.has_remaining():
+                logger.info("settle_retry", extra={"attempt": attempt, "error": str(failure)})
+                time.sleep(window.delay)
+
+                continue
+
+            raise

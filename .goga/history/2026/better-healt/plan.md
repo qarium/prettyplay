@@ -749,14 +749,14 @@ window never kills a running attempt (`has_remaining` checked only before a repe
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: in the `tests/engine/polling/` package — `settle` importable and
+- [x] **Contract tests**: in the `tests/engine/polling/` package — `settle` importable and
   callable with the four contract parameters (expected to fail at this stage)
-- [ ] **Code**: implement `settle` in `prettyplay/engine/polling/settle.py` per the algorithm
+- [x] **Code**: implement `settle` in `prettyplay/engine/polling/settle.py` per the algorithm
   above — `window.start()` first, the loop catching `Exception` only, the three-part gate
   (enabled + pollable + has_remaining), the `settle_retry` INFO record, `time.sleep(window.delay)`,
   `raise` of the original object otherwise
-- [ ] **Interface verification**: `pytest tests/engine/polling/ -x` — all pass
-- [ ] **Logic tests**: add (fakes: `FakePage = SimpleNamespace(aria_snapshot=…, screenshot=…)`,
+- [x] **Interface verification**: `pytest tests/engine/polling/ -x` — all pass
+- [x] **Logic tests**: add (fakes: `FakePage = SimpleNamespace(aria_snapshot=…, screenshot=…)`,
   `PlaywrightError("Timeout 10000ms exceeded")` as the pollable failure)
   - `test_settle_retries_pollable_failure_until_success`: `window = SettleWindow(5.0, 0)`; a fake
     `execute` raising the timeout on the first two calls, succeeding on the third → no exception;
@@ -773,11 +773,11 @@ window never kills a running attempt (`has_remaining` checked only before a repe
   - `test_settle_disabled_window_single_execution` (edge): `SettleWindow(None, 0)`; `execute`
     raises a pollable timeout forever → `execute.call_count == 1`; the exception propagates; no
     `settle_retry` records
-- [ ] **Debugging**: `pytest tests/engine/polling/ -x` — fix implementation code until all tests pass
-- [ ] **Contract re-verification**: facade accessibility
+- [x] **Debugging**: `pytest tests/engine/polling/ -x` — fix implementation code until all tests pass
+- [x] **Contract re-verification**: facade accessibility
   `python -c "from prettyplay.engine.polling import settle"`; a `KeyboardInterrupt` raised by
   `execute` escapes uncaught (BaseException is never intercepted)
-- [ ] **Lint**: `ruff check prettyplay/ tests/` — fix formatting if necessary
+- [x] **Lint**: `ruff check prettyplay/ tests/` — fix formatting if necessary
 
 ### Task 10: `StepGenerator` — window threading, bounded healing and the code field (engine)
 
