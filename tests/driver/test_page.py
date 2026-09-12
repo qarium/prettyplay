@@ -1,6 +1,7 @@
 """Tests for the PageFacade and LocatorFacade page API of the prettyplay.driver cell."""
 
 import inspect
+import re
 import threading
 from collections.abc import Callable
 from typing import Any, get_type_hints
@@ -49,6 +50,20 @@ class FakeExpectation:
 
     def to_have_attribute(self, name: str, value: str) -> None:
         self._assertions.append(("to_have_attribute", name, value))
+
+
+class FakePageExpectation:
+    """Fake ``expect(page)`` result: records the received page and the assertion."""
+
+    def __init__(self, receiver: Any, assertions: list[tuple[Any, ...]]) -> None:
+        self._assertions = assertions
+        assertions.append(("received", receiver))
+
+    def to_have_url(self, url: str) -> None:
+        self._assertions.append(("to_have_url", url))
+
+    def to_have_title(self, title: Any) -> None:
+        self._assertions.append(("to_have_title", title))
 
 
 class FakeMouse:
@@ -217,13 +232,18 @@ class FakeFrameLocator:
 
 
 class FakeContext:
-    """Fake isolated browser context; ``close`` records the call."""
+    """Fake isolated browser context; lists pages, records ``close`` and ``on``."""
 
-    def __init__(self) -> None:
+    def __init__(self, pages: list["FakePage"] | None = None) -> None:
         self.close_calls = 0
+        self.pages: list[FakePage] = pages if pages is not None else []
+        self.on_calls: list[tuple[str, Any]] = []
 
     def close(self) -> None:
         self.close_calls += 1
+
+    def on(self, event: str, handler: Any) -> None:
+        self.on_calls.append((event, handler))
 
 
 class DetachedLocator(FakeLocator):
@@ -262,6 +282,24 @@ class FakePage:
         self.calls.append(("goto", url))
         self.url = url
 
+    def go_back(self) -> None:
+        self.calls.append(("go_back",))
+
+    def go_forward(self) -> None:
+        self.calls.append(("go_forward",))
+
+    def reload(self) -> None:
+        self.calls.append(("reload",))
+
+    def wait_for_url(self, url: str) -> None:
+        self.calls.append(("wait_for_url", url))
+
+    def wait_for_load_state(self, state: str) -> None:
+        self.calls.append(("wait_for_load_state", state))
+
+    def bring_to_front(self) -> None:
+        self.calls.append(("bring_to_front",))
+
     def evaluate(self, script: str, arg: Any = None) -> None:
         self.calls.append(("evaluate", script, arg))
         self.evaluate_calls.append((script, arg))
@@ -284,9 +322,41 @@ class FakePage:
         self.locators.append(locator)
         return locator
 
-    def locator(self, selector: str) -> FakeBodyLocator:
+    def get_by_placeholder(self, placeholder: str) -> FakeLocator:
+        locator = self._locator_factory()
+        self.calls.append(("get_by_placeholder", placeholder))
+        self.locators.append(locator)
+        return locator
+
+    def get_by_alt_text(self, alt: str) -> FakeLocator:
+        locator = self._locator_factory()
+        self.calls.append(("get_by_alt_text", alt))
+        self.locators.append(locator)
+        return locator
+
+    def get_by_title(self, title: str) -> FakeLocator:
+        locator = self._locator_factory()
+        self.calls.append(("get_by_title", title))
+        self.locators.append(locator)
+        return locator
+
+    def get_by_test_id(self, test_id: str) -> FakeLocator:
+        locator = self._locator_factory()
+        self.calls.append(("get_by_test_id", test_id))
+        self.locators.append(locator)
+        return locator
+
+    def locator(self, selector: str) -> FakeLocator:
         self.calls.append(("locator", selector))
-        return self._body
+        if selector == "body":  # the aria-snapshot path of the existing tests
+            return self._body
+        locator = self._locator_factory()
+        self.locators.append(locator)
+        return locator
+
+    def frame_locator(self, selector: str) -> FakeFrameLocator:
+        self.calls.append(("frame_locator", selector))
+        return FakeFrameLocator()
 
     def screenshot(self, full_page: bool = False) -> bytes:
         self.calls.append(("screenshot", full_page))
@@ -427,8 +497,8 @@ class TestPageFacadeContract:
         assert nested_hints["selector"] is str
         assert nested_hints["return"] is FrameFacade
 
-    def test_page_facade_surface_matches_contract(self) -> None:
-        surface = [
+    def test_retired_surface_is_gone(self) -> None:
+        retired = (
             "open",
             "find_by_role",
             "find_by_label",
@@ -436,9 +506,37 @@ class TestPageFacadeContract:
             "find_by_attribute",
             "find_by_css",
             "find_by_xpath",
+        )
+
+        for name in retired:
+            assert not hasattr(PageFacade, name), name  # deleted outright — no deprecation aliases
+
+    def test_page_surface_matches_the_contract(self) -> None:
+        expected = {
+            "url",
+            "pages",
+            "goto",
+            "go_back",
+            "go_forward",
+            "reload",
+            "wait_for_url",
+            "wait_for_load_state",
+            "expect_url",
+            "expect_title",
+            "get_by_role",
+            "get_by_label",
+            "get_by_text",
+            "get_by_placeholder",
+            "get_by_alt_text",
+            "get_by_title",
+            "get_by_test_id",
+            "locator",
+            "expect_dialog",
+            "expect_popup",
+            "bring_to_front",
+            "frame_locator",
             "aria_snapshot",
             "screenshot",
-            "url",
             "scroll_to_element",
             "scroll_down",
             "scroll_up",
@@ -448,17 +546,10 @@ class TestPageFacadeContract:
             "scroll_container_down",
             "scroll_container_up",
             "close",
-        ]
+        }
+        public = {name for name in dir(PageFacade) if not name.startswith("_")}
 
-        for name in surface:
-            assert hasattr(PageFacade, name), name
-
-    def test_universal_locators_declared_after_find_by_text(self) -> None:
-        declared = [name for name in vars(PageFacade) if not name.startswith("_")]
-
-        assert declared.index("find_by_text") < declared.index("find_by_attribute")
-        assert declared.index("find_by_attribute") < declared.index("find_by_css")
-        assert declared.index("find_by_css") < declared.index("find_by_xpath")
+        assert expected == public  # nothing extra, nothing missing
 
     def test_locator_facade_surface_matches_contract(self) -> None:
         surface = ["click", "fill", "select_option", "expect_visible", "expect_text", "expect_enabled"]
@@ -467,13 +558,25 @@ class TestPageFacadeContract:
             assert hasattr(LocatorFacade, name), name
 
     def test_page_facade_signatures_match_contract(self) -> None:
-        assert list(inspect.signature(PageFacade.open).parameters) == ["self", "url"]
-        assert list(inspect.signature(PageFacade.find_by_role).parameters) == ["self", "role", "name"]
-        assert list(inspect.signature(PageFacade.find_by_label).parameters) == ["self", "label"]
-        assert list(inspect.signature(PageFacade.find_by_text).parameters) == ["self", "text"]
-        assert list(inspect.signature(PageFacade.find_by_attribute).parameters) == ["self", "name", "value"]
-        assert list(inspect.signature(PageFacade.find_by_css).parameters) == ["self", "selector"]
-        assert list(inspect.signature(PageFacade.find_by_xpath).parameters) == ["self", "xpath"]
+        assert list(inspect.signature(PageFacade.goto).parameters) == ["self", "url"]
+        assert list(inspect.signature(PageFacade.go_back).parameters) == ["self"]
+        assert list(inspect.signature(PageFacade.go_forward).parameters) == ["self"]
+        assert list(inspect.signature(PageFacade.reload).parameters) == ["self"]
+        assert list(inspect.signature(PageFacade.wait_for_url).parameters) == ["self", "url"]
+        assert list(inspect.signature(PageFacade.wait_for_load_state).parameters) == ["self", "state"]
+        assert list(inspect.signature(PageFacade.expect_url).parameters) == ["self", "url"]
+        assert list(inspect.signature(PageFacade.expect_title).parameters) == ["self", "title"]
+        assert list(inspect.signature(PageFacade.get_by_role).parameters) == ["self", "role", "name"]
+        assert inspect.signature(PageFacade.get_by_role).parameters["name"].default == ""
+        assert list(inspect.signature(PageFacade.get_by_label).parameters) == ["self", "label"]
+        assert list(inspect.signature(PageFacade.get_by_text).parameters) == ["self", "text"]
+        assert list(inspect.signature(PageFacade.get_by_placeholder).parameters) == ["self", "placeholder"]
+        assert list(inspect.signature(PageFacade.get_by_alt_text).parameters) == ["self", "alt"]
+        assert list(inspect.signature(PageFacade.get_by_title).parameters) == ["self", "title"]
+        assert list(inspect.signature(PageFacade.get_by_test_id).parameters) == ["self", "test_id"]
+        assert list(inspect.signature(PageFacade.locator).parameters) == ["self", "selector"]
+        assert list(inspect.signature(PageFacade.bring_to_front).parameters) == ["self"]
+        assert list(inspect.signature(PageFacade.frame_locator).parameters) == ["self", "selector"]
         assert list(inspect.signature(PageFacade.aria_snapshot).parameters) == ["self"]
         assert list(inspect.signature(PageFacade.screenshot).parameters) == ["self"]
         assert list(inspect.signature(PageFacade.close).parameters) == ["self"]
@@ -569,26 +672,50 @@ class TestPageFacadeContract:
         assert attribute_hints["return"] is type(None)
 
     def test_page_facade_annotations_match_contract(self) -> None:
-        hints = get_type_hints(PageFacade.open)
-        assert hints["url"] is str
+        goto_hints = get_type_hints(PageFacade.goto)
+        assert goto_hints["url"] is str
+        assert goto_hints["return"] is type(None)
 
-        role_hints = get_type_hints(PageFacade.find_by_role)
+        wait_url_hints = get_type_hints(PageFacade.wait_for_url)
+        assert wait_url_hints["url"] is str
+        assert wait_url_hints["return"] is type(None)
+
+        load_state_hints = get_type_hints(PageFacade.wait_for_load_state)
+        assert load_state_hints["state"] is str
+        assert load_state_hints["return"] is type(None)
+
+        expect_url_hints = get_type_hints(PageFacade.expect_url)
+        assert expect_url_hints["url"] is str
+        assert expect_url_hints["return"] is type(None)
+
+        expect_title_hints = get_type_hints(PageFacade.expect_title)
+        assert expect_title_hints["title"] is str
+        assert expect_title_hints["return"] is type(None)
+
+        role_hints = get_type_hints(PageFacade.get_by_role)
         assert role_hints["role"] is str
         assert role_hints["name"] is str
         assert role_hints["return"] is LocatorFacade
 
-        attribute_hints = get_type_hints(PageFacade.find_by_attribute)
-        assert attribute_hints["name"] is str
-        assert attribute_hints["value"] is str
-        assert attribute_hints["return"] is LocatorFacade
+        for member, parameter in (
+            ("get_by_label", "label"),
+            ("get_by_text", "text"),
+            ("get_by_placeholder", "placeholder"),
+            ("get_by_alt_text", "alt"),
+            ("get_by_title", "title"),
+            ("get_by_test_id", "test_id"),
+            ("locator", "selector"),
+        ):
+            hints = get_type_hints(getattr(PageFacade, member))
+            assert hints[parameter] is str, member
+            assert hints["return"] is LocatorFacade, member
 
-        css_hints = get_type_hints(PageFacade.find_by_css)
-        assert css_hints["selector"] is str
-        assert css_hints["return"] is LocatorFacade
+        frame_hints = get_type_hints(PageFacade.frame_locator)
+        assert frame_hints["selector"] is str
+        assert frame_hints["return"] is FrameFacade
 
-        xpath_hints = get_type_hints(PageFacade.find_by_xpath)
-        assert xpath_hints["xpath"] is str
-        assert xpath_hints["return"] is LocatorFacade
+        assert get_type_hints(PageFacade.url.fget)["return"] is str
+        assert get_type_hints(PageFacade.pages.fget)["return"] == list[PageFacade]
 
     def test_scroll_method_annotations_match_contract(self) -> None:
         to_element = get_type_hints(PageFacade.scroll_to_element)
@@ -611,15 +738,21 @@ class TestPageFacadeContract:
 
     def test_no_raw_playwright_objects_escape(self) -> None:
         page = FakePage()
-        facade = make_page_facade(page)
+        facade = make_page_facade(page, FakeContext(pages=[page]))
 
-        assert isinstance(facade.open("https://example.com"), type(None))
-        assert isinstance(facade.find_by_role("button", name="Войти"), LocatorFacade)
-        assert isinstance(facade.find_by_label("Логин"), LocatorFacade)
-        assert isinstance(facade.find_by_text("Добро пожаловать"), LocatorFacade)
-        assert isinstance(facade.find_by_attribute("data-test-id", "submit"), LocatorFacade)
-        assert isinstance(facade.find_by_css("form > button.primary"), LocatorFacade)
-        assert isinstance(facade.find_by_xpath("//button[@type='submit']"), LocatorFacade)
+        assert isinstance(facade.goto("https://example.com"), type(None))
+        assert isinstance(facade.get_by_role("button", name="Войти"), LocatorFacade)
+        assert isinstance(facade.get_by_label("Логин"), LocatorFacade)
+        assert isinstance(facade.get_by_text("Добро пожаловать"), LocatorFacade)
+        assert isinstance(facade.get_by_placeholder("Поиск"), LocatorFacade)
+        assert isinstance(facade.get_by_alt_text("Логотип"), LocatorFacade)
+        assert isinstance(facade.get_by_title("Закрыть"), LocatorFacade)
+        assert isinstance(facade.get_by_test_id("submit"), LocatorFacade)
+        assert isinstance(facade.locator("form > button.primary"), LocatorFacade)
+        assert isinstance(facade.frame_locator("#frame"), FrameFacade)
+        assert all(isinstance(wrapped, PageFacade) for wrapped in facade.pages)
+        assert facade.bring_to_front() is None
+        assert facade.go_back() is None
         assert isinstance(facade.aria_snapshot(), str)
         assert isinstance(facade.screenshot(), bytes)
         assert isinstance(facade.url, str)
@@ -629,33 +762,120 @@ class TestPageFacadeContract:
 class TestPageFacadeLogic:
     """Logic tests: delegation of every PageFacade method to the wrapped page."""
 
-    def test_open_delegates_to_goto(self) -> None:
+    def test_navigation_members_delegate_to_playwright(self) -> None:
         page = FakePage()
         facade = make_page_facade(page)
 
-        facade.open("https://example.com")
+        facade.goto("https://example.com")
+        facade.go_back()
+        facade.go_forward()
+        facade.reload()
+        facade.wait_for_url("**/dashboard")
+        facade.wait_for_load_state("networkidle")
 
-        assert page.calls == [("goto", "https://example.com")]
+        assert page.calls == [
+            ("goto", "https://example.com"),
+            ("go_back",),
+            ("go_forward",),
+            ("reload",),
+            ("wait_for_url", "**/dashboard"),
+            ("wait_for_load_state", "networkidle"),
+        ]
 
-    def test_find_by_role_delegates_with_name_kwarg(self) -> None:
+    def test_get_by_family_delegates_and_wraps(self) -> None:
         page = FakePage()
         facade = make_page_facade(page)
 
-        element = facade.find_by_role("button", name="Войти")
+        by_role = facade.get_by_role("button", name="Sign in")
+        by_label = facade.get_by_label("Username")
+        by_text = facade.get_by_text("Welcome")
+        by_placeholder = facade.get_by_placeholder("Search")
+        by_alt_text = facade.get_by_alt_text("Logo")
+        by_title = facade.get_by_title("Close")
+        by_test_id = facade.get_by_test_id("submit")
+        by_selector = facade.locator("form > button")
 
-        assert page.calls == [("get_by_role", "button", "Войти")]
-        assert isinstance(element, LocatorFacade)
+        assert page.calls == [
+            ("get_by_role", "button", "Sign in"),
+            ("get_by_label", "Username"),
+            ("get_by_text", "Welcome"),
+            ("get_by_placeholder", "Search"),
+            ("get_by_alt_text", "Logo"),
+            ("get_by_title", "Close"),
+            ("get_by_test_id", "submit"),
+            ("locator", "form > button"),
+        ]
 
-    def test_find_by_label_and_text_delegate(self) -> None:
+        elements = (by_role, by_label, by_text, by_placeholder, by_alt_text, by_title, by_test_id, by_selector)
+        for element in elements:
+            assert isinstance(element, LocatorFacade)
+
+        for element, located in zip(elements, page.locators, strict=True):
+            assert element._locator is located  # each wraps the fake locator it asked for
+
+    def test_get_by_role_empty_name_matches_by_role_alone(self) -> None:
         page = FakePage()
         facade = make_page_facade(page)
 
-        by_label = facade.find_by_label("Логин")
-        by_text = facade.find_by_text("Добро пожаловать")
+        facade.get_by_role("button")
+        facade.get_by_role("button", name="")
 
-        assert page.calls == [("get_by_label", "Логин"), ("get_by_text", "Добро пожаловать")]
-        assert isinstance(by_label, LocatorFacade)
-        assert isinstance(by_text, LocatorFacade)
+        assert page.calls == [("get_by_role", "button", None), ("get_by_role", "button", None)]  # no name kwarg
+
+    def test_expect_title_builds_a_contains_pattern(self) -> None:
+        page = FakePage()
+        facade = make_page_facade(page)
+        assertions: list[tuple[Any, ...]] = []
+
+        recorder = lambda receiver: FakePageExpectation(receiver, assertions)  # noqa: E731
+        with mock.patch("prettyplay.driver.page.expect", side_effect=recorder):
+            facade.expect_title("Dashboard")
+
+        assert assertions[0] == ("received", page)  # the receiver is the wrapped page
+        kind, pattern = assertions[1]
+        assert kind == "to_have_title"
+        assert pattern.pattern == ".*Dashboard.*"  # the escaped input between .* bookends
+        assert pattern.flags & re.DOTALL
+
+    def test_expect_title_with_regex_metacharacters(self) -> None:
+        page = FakePage()
+        facade = make_page_facade(page)
+        assertions: list[tuple[Any, ...]] = []
+
+        recorder = lambda receiver: FakePageExpectation(receiver, assertions)  # noqa: E731
+        with mock.patch("prettyplay.driver.page.expect", side_effect=recorder):
+            facade.expect_title("C++ (2026)")
+
+        pattern = assertions[1][1]
+        assert pattern.pattern == f".*{re.escape('C++ (2026)')}.*"  # metacharacters escaped
+        assert pattern.search("Report C++ (2026) edition")  # the title is matched literally — contains semantics
+        assert pattern.search("C+ 2026") is None  # must not turn into an accidental regex
+
+    def test_expect_url_uses_glob_string(self) -> None:
+        page = FakePage()
+        facade = make_page_facade(page)
+        assertions: list[tuple[Any, ...]] = []
+
+        recorder = lambda receiver: FakePageExpectation(receiver, assertions)  # noqa: E731
+        with mock.patch("prettyplay.driver.page.expect", side_effect=recorder):
+            facade.expect_url("**/dashboard")
+
+        assert assertions == [("received", page), ("to_have_url", "**/dashboard")]  # the glob string verbatim
+
+    def test_pages_property_wraps_context_pages(self) -> None:
+        main = FakePage()
+        popup = FakePage()
+        context = FakeContext(pages=[main, popup])
+        facade = make_page_facade(main, context)
+        worker = RecordingWorker()
+        facade._worker = worker
+
+        result = facade.pages
+
+        assert len(result) == 2
+        assert all(isinstance(wrapped, PageFacade) for wrapped in result)
+        assert all(wrapped._worker is worker for wrapped in result)  # the session worker, inherited
+        assert [wrapped._page for wrapped in result] == [main, popup]
 
     def test_aria_snapshot_delegates_to_body_locator(self) -> None:
         page = FakePage(snapshot="- heading Профиль")
@@ -701,54 +921,29 @@ class TestPageFacadeLogic:
 
 
 class TestUniversalLocatorLogic:
-    """Logic tests: the attribute, CSS and XPath locating methods of the page facade."""
+    """Logic tests: the verbatim selector pass-through of the universal locating method."""
 
-    def test_find_by_attribute_builds_css_attribute_selector(self) -> None:
+    def test_locator_passes_selectors_verbatim(self) -> None:
         page = FakePage()
         facade = make_page_facade(page)
 
-        element = facade.find_by_attribute("data-test-id", "submit-button")
+        selectors = (
+            "form > button.primary",
+            "//button[@type='submit']",
+            "xpath=*[@id='main']",
+            "[data-qa='row'] > input",
+        )
 
-        assert page.calls == [("locator", '[data-test-id="submit-button"]')]
-        assert isinstance(element, LocatorFacade)
-
-    def test_find_by_css_passes_selector_verbatim(self) -> None:
-        page = FakePage()
-        facade = make_page_facade(page)
-
-        element = facade.find_by_css("form > button.primary")
-
-        assert page.calls == [("locator", "form > button.primary")]
-        assert isinstance(element, LocatorFacade)
-
-    def test_find_by_xpath_applies_xpath_engine_prefix(self) -> None:
-        page = FakePage()
-        facade = make_page_facade(page)
-
-        element = facade.find_by_xpath("*[@id='main']")
-
-        assert page.calls == [("locator", "xpath=*[@id='main']")]
-        assert isinstance(element, LocatorFacade)
-
-    def test_find_by_attribute_escapes_quotes_and_backslashes(self) -> None:
-        page = FakePage()
-        facade = make_page_facade(page)
-
-        element = facade.find_by_attribute("data-test-id", 'a"b\\c')
-
-        assert page.calls == [("locator", '[data-test-id="a\\"b\\\\c"]')]
-        assert isinstance(element, LocatorFacade)
-
-    def test_universal_locators_never_raise_eagerly(self) -> None:
-        page = FakePage()
-        facade = make_page_facade(page)
-
-        for element in (
-            facade.find_by_attribute("data-qa", "login"),
-            facade.find_by_css("#missing"),
-            facade.find_by_xpath("//never-resolves"),
-        ):
+        for selector in selectors:
+            element = facade.locator(selector)
             assert isinstance(element, LocatorFacade)
+
+        assert [call for call in page.calls if call[0] == "locator"] == [
+            ("locator", "form > button.primary"),
+            ("locator", "//button[@type='submit']"),
+            ("locator", "xpath=*[@id='main']"),  # the explicit engine prefix stays a selector form
+            ("locator", "[data-qa='row'] > input"),
+        ]  # byte-identical — no facade-side sniffing or rewriting
 
 
 class TestPageFacadeScrollLogic:
@@ -757,8 +952,8 @@ class TestPageFacadeScrollLogic:
     def test_scroll_primitives_delegate_to_playwright(self) -> None:
         page = FakePage()
         facade = make_page_facade(page)
-        element = facade.find_by_text("Fifth card")
-        container = facade.find_by_role("list", name="Recommendations")
+        element = facade.get_by_text("Fifth card")
+        container = facade.get_by_role("list", name="Recommendations")
         fake_element = element._locator
         fake_container = container._locator
 
@@ -794,8 +989,8 @@ class TestPageFacadeScrollLogic:
     def test_scroll_into_view_passes_live_handle_of_the_target(self) -> None:
         page = FakePage()
         facade = make_page_facade(page)
-        element = facade.find_by_text("Fifth card")
-        container = facade.find_by_role("region", name="Carousel")
+        element = facade.get_by_text("Fifth card")
+        container = facade.get_by_role("region", name="Carousel")
         fake_element = element._locator
         fake_container = container._locator
 
@@ -812,8 +1007,8 @@ class TestPageFacadeScrollLogic:
         page = FakePage()
         page._locator_factory = DetachedLocator  # the element handle resolves to None
         facade = make_page_facade(page)
-        element = facade.find_by_text("Detached card")
-        container = facade.find_by_role("region", name="Carousel")
+        element = facade.get_by_text("Detached card")
+        container = facade.get_by_role("region", name="Carousel")
 
         facade.scroll_into_view(element, container)
 
@@ -824,7 +1019,7 @@ class TestPageFacadeScrollLogic:
     def test_scroll_to_element_uses_nearest_scrollable_ancestor_primitive(self) -> None:
         page = FakePage()
         facade = make_page_facade(page)
-        element = facade.find_by_text("Load more")
+        element = facade.get_by_text("Load more")
 
         facade.scroll_to_element(element)
 
@@ -834,8 +1029,8 @@ class TestPageFacadeScrollLogic:
     def test_scroll_methods_never_sleep(self) -> None:
         page = FakePage()
         facade = make_page_facade(page)
-        element = facade.find_by_text("Footer")
-        container = facade.find_by_role("list", name="Results")
+        element = facade.get_by_text("Footer")
+        container = facade.get_by_role("list", name="Results")
 
         with mock.patch("time.sleep") as sleep:
             facade.scroll_down(600)
@@ -1031,7 +1226,7 @@ class TestFacadeThreadingBoundary:
         page.goto = recording_goto  # type: ignore[method-assign]
         facade = make_page_facade(page)
 
-        facade.open("https://example.com")
+        facade.goto("https://example.com")
 
         assert seen_threads == [threading.get_ident()]  # direct path: the same thread
 

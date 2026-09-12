@@ -645,7 +645,7 @@ class TestDriverSessionWorkerThread:
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
             session = DriverSession(Config(browser=BrowserConfig(name="chromium")))
             page = session.open_context()
-            page.open("https://example.com")
+            page.goto("https://example.com")
             session.close()
 
         main_thread = threading.get_ident()
@@ -661,10 +661,10 @@ class TestDriverSessionWorkerThread:
             page = session.open_context()
 
             assert page.url == "about:blank"
-            page.open("https://example.com")
-            page.find_by_role("button", name="Войти").click()
-            page.find_by_label("Логин").fill("user")
-            page.find_by_text("Добро пожаловать").select_option("one")
+            page.goto("https://example.com")
+            page.get_by_role("button", name="Войти").click()
+            page.get_by_label("Логин").fill("user")
+            page.get_by_text("Добро пожаловать").select_option("one")
             assert page.aria_snapshot() == "- heading Пример"
             assert page.screenshot() == b"png"
             session.close()
@@ -695,7 +695,7 @@ class TestDriverSessionWorkerThread:
             page._page.goto_error = AssertionError("элемент не стабилен")  # type: ignore[attr-defined]
 
             with pytest.raises(AssertionError, match="элемент не стабилен"):
-                page.open("https://example.com")
+                page.goto("https://example.com")
 
             session.close()
 
@@ -733,7 +733,7 @@ class TestDriverSessionWorkerThread:
 
             # deadlock guard: once stopped, the facade fails fast instead of waiting
             with pytest.raises(Error, match="Event loop is closed"):
-                page.open("https://example.com")
+                page.goto("https://example.com")
 
     def test_reopen_after_close_runs_in_new_worker_thread(self) -> None:
         factory = FakePlaywrightFactory()
@@ -746,7 +746,7 @@ class TestDriverSessionWorkerThread:
 
             page = session.open_context()
             second = session._worker._thread  # this session's thread
-            page.open("https://example.com")
+            page.goto("https://example.com")
             session.close()
 
         assert not first.is_alive()  # the first worker's thread is finished
@@ -773,7 +773,7 @@ class TestDriverSessionWorkerThread:
             assert threading.active_count() == before  # the failed-launch worker is stopped
 
             page = session.open_context()  # the retry starts from a clean state
-            page.open("https://example.com")
+            page.goto("https://example.com")
             session.close()
 
         assert factory.start_calls == 1  # exactly one successful start

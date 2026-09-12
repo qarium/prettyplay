@@ -1,17 +1,24 @@
-"""The narrow, stable facade of a single test page and of one located element.
+"""The Playwright-mirroring facade of a single test page and of one located element.
 
 The facade is the single page API the generated step code may work through —
-a backward-compatibility contract: it may only grow, never rename or remove.
-No raw Playwright object crosses the boundary; every return value is a plain
-``str``/``bytes`` or another facade. Auto-wait lives inside Playwright, so the
-facade never sleeps and never applies fixed delays. When the page belongs to a
-live driver session, every Playwright call is marshalled into the session's
-driver thread; a facade built without a worker (hand-built in tests) calls
-Playwright inline in the constructing thread.
+a mirror of the Playwright sync API at page/locator level. The declared
+non-mirror families: the prettyplay scroll extras kept under their own names,
+the method-style ``expect_*`` expectation names replacing Playwright's chained
+``expect(...).to_be_*()`` model, and the ``expect_dialog`` capture constructor
+(implemented over Playwright's ``expect_event("dialog")``). The excluded
+capabilities — routing, direct ``evaluate`` exposure, CDP, clock, HAR, tracing
+and raw input devices — are absent. No raw Playwright object crosses the
+boundary; every return value is a plain ``str``/``bytes`` or another facade.
+Auto-wait lives inside Playwright, so the facade never sleeps and never applies
+fixed delays. When the page belongs to a live driver session, every Playwright
+call is marshalled into the session's driver thread; a facade built without a
+worker (hand-built in tests) calls Playwright inline in the constructing
+thread.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from typing import TYPE_CHECKING, TypeVar
 
@@ -73,29 +80,85 @@ class PageFacade:
         """The current URL of the page."""
         return self._call(lambda: self._page.url)
 
-    def open(self, url: str) -> None:
-        """Navigate to the URL and wait for the load event.
+    @property
+    def pages(self) -> list[PageFacade]:
+        """The open pages of this page's context — popups and new tabs included."""
+        raw_pages = self._call(lambda: list(self._context.pages))
+        return [self._wrap_page(raw_page) for raw_page in raw_pages]
+
+    def goto(self, url: str) -> None:
+        """Navigate to the URL and wait for the load state.
 
         Args:
-            url: the address to open.
+            url: the address to navigate to.
         """
         self._call(lambda: self._page.goto(url))
 
-    def find_by_role(self, role: str, name: str) -> LocatorFacade:
-        """Find an element by its aria role and accessible name.
+    def go_back(self) -> None:
+        """Go back through the browser history and wait for the load state."""
+        self._call(self._page.go_back)
+
+    def go_forward(self) -> None:
+        """Go forward through the browser history and wait for the load state."""
+        self._call(self._page.go_forward)
+
+    def reload(self) -> None:
+        """Reload the page and wait for the load state."""
+        self._call(self._page.reload)
+
+    def wait_for_url(self, url: str) -> None:
+        """Wait until the page URL matches the glob pattern.
+
+        Args:
+            url: the glob pattern the URL must match, e.g. ``**/dashboard``.
+        """
+        self._call(lambda: self._page.wait_for_url(url))
+
+    def wait_for_load_state(self, state: str) -> None:
+        """Wait for the page to reach the load state.
+
+        Args:
+            state: the load state to wait for — ``load``, ``domcontentloaded``
+                or ``networkidle``.
+        """
+        self._call(lambda: self._page.wait_for_load_state(state))
+
+    def expect_url(self, url: str) -> None:
+        """Assert the URL matches the glob pattern — auto-waiting.
+
+        Args:
+            url: the glob pattern the URL must match.
+        """
+        self._call(lambda: expect(self._page).to_have_url(url))
+
+    def expect_title(self, title: str) -> None:
+        """Assert the title contains the text — auto-waiting.
+
+        Args:
+            title: the text the title must contain.
+        """
+        pattern = re.compile(f".*{re.escape(title)}.*", re.DOTALL)
+        self._call(lambda: expect(self._page).to_have_title(pattern))
+
+    def get_by_role(self, role: str, name: str = "") -> LocatorFacade:
+        """Locate an element by its aria role and accessible name.
 
         Args:
             role: the aria role of the element, e.g. ``button``.
-            name: the accessible name of the element.
+            name: the accessible name of the element; empty — match by role
+                alone.
 
         Returns:
             The facade of the located element.
         """
-        locator = self._call(lambda: self._page.get_by_role(role, name=name))
+        if name == "":
+            locator = self._call(lambda: self._page.get_by_role(role))
+        else:
+            locator = self._call(lambda: self._page.get_by_role(role, name=name))
         return self._wrap_locator(locator)
 
-    def find_by_label(self, label: str) -> LocatorFacade:
-        """Find a form element by its associated label.
+    def get_by_label(self, label: str) -> LocatorFacade:
+        """Locate a form element by its associated label.
 
         Args:
             label: the text of the label associated with the element.
@@ -106,8 +169,8 @@ class PageFacade:
         locator = self._call(lambda: self._page.get_by_label(label))
         return self._wrap_locator(locator)
 
-    def find_by_text(self, text: str) -> LocatorFacade:
-        """Find an element by its visible text.
+    def get_by_text(self, text: str) -> LocatorFacade:
+        """Locate an element by its visible text.
 
         Args:
             text: the visible text of the element.
@@ -118,32 +181,64 @@ class PageFacade:
         locator = self._call(lambda: self._page.get_by_text(text))
         return self._wrap_locator(locator)
 
-    def find_by_attribute(self, name: str, value: str) -> LocatorFacade:
-        """Find an element by the value of one of its attributes.
-
-        Intended for data-* attributes (e.g. ``data-test-id``); the CSS engine
-        handles the attribute selector natively and the returned handle
-        auto-waits exactly like the other locating methods.
+    def get_by_placeholder(self, placeholder: str) -> LocatorFacade:
+        """Locate an input element by its placeholder text.
 
         Args:
-            name: the full attribute name, e.g. ``data-test-id``.
-            value: the attribute value to match.
+            placeholder: the placeholder text of the input.
 
         Returns:
             The facade of the located element.
         """
-        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-        locator = self._call(lambda: self._page.locator(f'[{name}="{escaped}"]'))
+        locator = self._call(lambda: self._page.get_by_placeholder(placeholder))
         return self._wrap_locator(locator)
 
-    def find_by_css(self, selector: str) -> LocatorFacade:
-        """Find an element by a CSS selector.
-
-        The selector is passed through verbatim — escaping belongs to the
-        caller, a universal escaping would break ``>``/``+`` combinators.
+    def get_by_alt_text(self, alt: str) -> LocatorFacade:
+        """Locate an image element by its alt text.
 
         Args:
-            selector: a valid CSS selector expression, e.g. ``form > button.primary``.
+            alt: the alternative text of the image.
+
+        Returns:
+            The facade of the located element.
+        """
+        locator = self._call(lambda: self._page.get_by_alt_text(alt))
+        return self._wrap_locator(locator)
+
+    def get_by_title(self, title: str) -> LocatorFacade:
+        """Locate an element by its title attribute.
+
+        Args:
+            title: the value of the title attribute.
+
+        Returns:
+            The facade of the located element.
+        """
+        locator = self._call(lambda: self._page.get_by_title(title))
+        return self._wrap_locator(locator)
+
+    def get_by_test_id(self, test_id: str) -> LocatorFacade:
+        """Locate an element by its test id.
+
+        Args:
+            test_id: the value of the default ``data-testid`` attribute.
+
+        Returns:
+            The facade of the located element.
+        """
+        locator = self._call(lambda: self._page.get_by_test_id(test_id))
+        return self._wrap_locator(locator)
+
+    def locator(self, selector: str) -> LocatorFacade:
+        """Locate an element by any selector.
+
+        The selector passes through verbatim — CSS, XPath (including the
+        explicit ``xpath=`` form) and attribute selectors alike; no
+        facade-side sniffing or rewriting.
+
+        Args:
+            selector: any Playwright selector expression, e.g.
+                ``form > button.primary``.
 
         Returns:
             The facade of the located element.
@@ -151,22 +246,23 @@ class PageFacade:
         locator = self._call(lambda: self._page.locator(selector))
         return self._wrap_locator(locator)
 
-    def find_by_xpath(self, xpath: str) -> LocatorFacade:
-        """Find an element by an XPath expression.
+    def bring_to_front(self) -> None:
+        """Raise this page above the other pages of the context."""
+        self._call(self._page.bring_to_front)
 
-        The explicit ``xpath=`` engine prefix keeps every expression uniform:
-        Playwright sniffs XPath implicitly only via a ``//`` or ``..`` prefix,
-        so an expression such as ``*[@id='main']`` would otherwise silently go
-        to the CSS engine.
+    def frame_locator(self, selector: str) -> FrameFacade:
+        """Return the locating scope of one iframe of the page.
 
         Args:
-            xpath: a valid XPath expression, e.g. ``//button[@type='submit']``.
+            selector: the selector of the iframe element.
 
         Returns:
-            The facade of the located element.
+            The facade of the frame scope.
         """
-        locator = self._call(lambda: self._page.locator(f"xpath={xpath}"))
-        return self._wrap_locator(locator)
+        frame = self._call(lambda: self._page.frame_locator(selector))
+        facade = FrameFacade(frame)
+        facade._worker = self._worker
+        return facade
 
     def aria_snapshot(self) -> str:
         """Capture the accessibility-tree state of the page.
@@ -271,6 +367,20 @@ class PageFacade:
             The facade of the located element.
         """
         facade = LocatorFacade(locator)
+        facade._worker = self._worker
+
+        return facade
+
+    def _wrap_page(self, page: Page) -> PageFacade:
+        """Wrap a page of this context, inheriting the driver thread boundary.
+
+        Args:
+            page: the Playwright page object; never exposed through the facade.
+
+        Returns:
+            The facade of the page.
+        """
+        facade = PageFacade(page, self._context)
         facade._worker = self._worker
 
         return facade

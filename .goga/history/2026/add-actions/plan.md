@@ -729,7 +729,7 @@ Verified logic (transfer from the design traces):
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: in `tests/driver/test_page.py` — `test_retired_surface_is_gone`
+- [x] **Contract tests**: in `tests/driver/test_page.py` — `test_retired_surface_is_gone`
   (input: retired names; trace: `hasattr(PageFacade, name)` for `("open", "find_by_role",
   "find_by_label", "find_by_text", "find_by_attribute", "find_by_css", "find_by_xpath")` → all
   `False`; assertion: no retired member exists) and `test_page_surface_matches_the_contract`
@@ -745,22 +745,22 @@ Verified logic (transfer from the design traces):
   after this task it still fails on the two capture names (`expect_dialog` and `expect_popup`
   land in Task 6) — Task 6's contract-tests checkbox brings it green; the set-equality gate must
   be green before Task 7 starts.
-- [ ] **Code**: extend the `FakePage` recorder — rename `goto` recording (exists), add
+- [x] **Code**: extend the `FakePage` recorder — rename `goto` recording (exists), add
   `go_back()`, `go_forward()`, `reload()`, `wait_for_url(u)`, `wait_for_load_state(s)`,
   `get_by_placeholder`, `get_by_alt_text`, `get_by_title`, `get_by_test_id`, `bring_to_front()`,
   `frame_locator(selector)` (returns a `FakeFrameLocator`), and make `locator(selector)` record
   and return a fresh `FakeLocator` (keeping the `FakeBodyLocator` aria-snapshot path for
   `locator("body")` if the existing tests rely on it); `FakeContext` grows `pages` and `on`.
-- [ ] **Code**: implement the members in `prettyplay/driver/page.py` per the table above —
+- [x] **Code**: implement the members in `prettyplay/driver/page.py` per the table above —
   navigation family, wait family, `expect_url`/`expect_title`, the `get_by_*` family with the
   empty-name rule, `locator`, `pages` property, `bring_to_front`, `frame_locator` (wrapping into
   the Task 4 `FrameFacade` with worker attach).
-- [ ] **Code**: delete the retired members `open`, `find_by_role`, `find_by_label`,
+- [x] **Code**: delete the retired members `open`, `find_by_role`, `find_by_label`,
   `find_by_text`, `find_by_attribute`, `find_by_css`, `find_by_xpath` outright and replace the
   module docstring's backward-compatibility paragraph with the parity wording (mirror of the
   Playwright sync API at page/locator level; declared non-mirror families; excluded
   capabilities).
-- [ ] **Code**: update the existing tests of `tests/driver/test_page.py` that call the retired
+- [x] **Code**: update the existing tests of `tests/driver/test_page.py` that call the retired
   surface (`open`, `find_by_*`) to the mirror names — the assertion shape stays, only the
   recorded method names change; likewise the three step-code call sites of
   `tests/driver/test_session.py` that drive the real facade
@@ -768,10 +768,10 @@ Verified logic (transfer from the design traces):
   `test_facade_calls_execute_in_worker_thread`,
   `test_worker_exception_propagates_with_type_and_message`): `page.open` → `page.goto`,
   `find_by_role/label/text` → `get_by_role/label/text` — assertions unchanged.
-- [ ] **Interface verification**: `pytest tests/driver/test_page.py -x -k "not
+- [x] **Interface verification**: `pytest tests/driver/test_page.py -x -k "not
   test_page_surface_matches_the_contract"` — the delegation, rename and retirement tests pass;
   the excluded set-equality test stays red on the two capture names until Task 6 (by design).
-- [ ] **Logic tests** (in `tests/driver/test_page.py`, from the design):
+- [x] **Logic tests** (in `tests/driver/test_page.py`, from the design):
   - `test_navigation_members_delegate_to_playwright` — setup: `FakePage` records;
     `PageFacade(fake_page, fake_context)`; input: `goto("https://example.com")`, `go_back()`,
     `go_forward()`, `reload()`, `wait_for_url("**/dashboard")`,
@@ -808,19 +808,19 @@ Verified logic (transfer from the design traces):
     `_call` → `list(fake_context.pages)` → `PageFacade(main, ctx)`, `PageFacade(popup, ctx)` with
     worker attached; assertions: `len(result) == 2`; each `isinstance PageFacade`; each
     `._worker is` the session worker.
-- [ ] **Logic tests (edge)**: `test_expect_title_with_regex_metacharacters` — setup: patched
+- [x] **Logic tests (edge)**: `test_expect_title_with_regex_metacharacters` — setup: patched
   expect recorder; input: `facade.expect_title("C++ (2026)")`; trace: pattern source is
   `re.escape` of the input between `.*` bookends; assertion: metacharacters escaped — the title
   is matched literally (contains semantics must not turn into an accidental regex).
-- [ ] **Debugging**: `pytest tests/driver/test_page.py tests/driver/test_session.py -x -k "not
+- [x] **Debugging**: `pytest tests/driver/test_page.py tests/driver/test_session.py -x -k "not
   test_page_surface_matches_the_contract"` — fix implementation code until all tests pass (do
   NOT fix test code); the session tests keep passing (open_context still returns the facade;
   only wiring changes come in Task 7).
-- [ ] **Contract re-verification**: `PageFacade` public surface == the CODEMANIFEST member list
+- [x] **Contract re-verification**: `PageFacade` public surface == the CODEMANIFEST member list
   (the Task 6 capture members included by then); `prettyplay.driver` facade exports unchanged
   plus Task 4's additions; no raw Playwright object returned (`pages` returns facades,
   `frame_locator` returns `FrameFacade`, locating returns `LocatorFacade`).
-- [ ] **Lint**: `ruff check prettyplay/driver/ tests/driver/` — fix formatting, apply
+- [x] **Lint**: `ruff check prettyplay/driver/ tests/driver/` — fix formatting, apply
   decomposition if necessary.
 
 ### Task 6: `_DialogRouter` and the captures — `expect_dialog` / `expect_popup` (TDD coding)
