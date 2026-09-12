@@ -142,10 +142,12 @@ def _parse_env_scalar(setting: str, raw: str) -> object:
     """
     if setting in _BOOL_ENV_SETTINGS:
         lowered = raw.lower()
+
         if lowered in ("true", "1"):
             return True
         if lowered in ("false", "0"):
             return False
+
         raise ConfigurationError(f"{setting}: received {raw!r} — allowed: a boolean (true/false/1/0)")
 
     if setting in _INT_ENV_SETTINGS:
@@ -189,9 +191,11 @@ def _render_validation(error: ValidationError) -> str:
     for entry in error.errors():
         field = ".".join(str(part) for part in entry["loc"])
         received = entry.get("input")
+
         if entry.get("type") == "extra_forbidden":
             lines.append(f"{field}: received {received!r} — not a prettyplay setting")
             continue
+
         allowed = _ALLOWED_TEXT.get(field, entry["msg"])
         lines.append(f"{field}: received {received!r} — allowed: {allowed}")
 
@@ -215,6 +219,7 @@ def _reject_flat_keys(section: dict) -> None:
         for key in _FLAT_KEY_HOMES
         if key in section and not (key == "browser" and isinstance(section[key], dict))
     ]
+
     if flat_old:
         lines = [
             f"{key}: removed — its new home is [tool.prettyplay.browser] {_FLAT_KEY_HOMES[key]}" for key in flat_old
@@ -239,6 +244,7 @@ def _apply_overrides(file_config: Config, overrides: Config) -> Config:
         file group, untouched group defaults never overwrite it.
     """
     update: dict[str, object] = {}
+
     for name, value in overrides:
         if name not in overrides.model_fields_set:
             continue
@@ -315,10 +321,12 @@ def load_config(pyproject_path: str | None = None, overrides: Config | None = No
 
     merged = {**section, **{setting: value for setting, value in env.items() if "." not in setting}}
     group_env = {setting.split(".", 1)[1]: value for setting, value in env.items() if "." in setting}
+
     if group_env:
         merged["browser"] = {**(merged.get("browser") or {}), **group_env}
 
     browser_section = merged.get("browser")
+
     if isinstance(browser_section, dict) and browser_section.get("name") == "":
         # empty means unset only in the programmatic overlay; from the file or
         # env layer an empty name is an invalid value, not an omission
