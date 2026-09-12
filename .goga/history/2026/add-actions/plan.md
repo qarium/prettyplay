@@ -431,25 +431,25 @@ the field: the condition `(group_value or not isinstance(group_value, str))` inc
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: in `tests/config/test_loader.py` extend the existing
+- [x] **Contract tests**: in `tests/config/test_loader.py` extend the existing
   `test_every_setting_has_an_env_override` — trace: `_ENV_NAMES` values ⊇
   {PRETTYPLAY_PROVIDER, PRETTYPLAY_MODEL, …, PRETTYPLAY_BROWSER_NAME, PRETTYPLAY_BROWSER_SCREEN,
   PRETTYPLAY_BROWSER_HEADLESS, PRETTYPLAY_BROWSER_ENDPOINT, PRETTYPLAY_BROWSER_ACCEPT_DIALOGS,
   PRETTYPLAY_STRICT, PRETTYPLAY_CLASSIFICATION_PROMPT}; assertions: all five browser variables
   and every scalar setting present; count matches the model fields. Expected to fail (the entry
   is absent).
-- [ ] **Code**: append `"browser.accept_dialogs"` to the settings tuple of `_ENV_NAMES` in
+- [x] **Code**: append `"browser.accept_dialogs"` to the settings tuple of `_ENV_NAMES` in
   `prettyplay/config/loader.py` (the dict comprehension derives
   `PRETTYPLAY_BROWSER_ACCEPT_DIALOGS`).
-- [ ] **Code**: add `"browser.accept_dialogs"` to `_BOOL_ENV_SETTINGS`.
-- [ ] **Code**: add `"browser.accept_dialogs": "a boolean"` to `_ALLOWED_TEXT`.
-- [ ] **Code**: extend the flat group env-names mention
+- [x] **Code**: add `"browser.accept_dialogs"` to `_BOOL_ENV_SETTINGS`.
+- [x] **Code**: add `"browser.accept_dialogs": "a boolean"` to `_ALLOWED_TEXT`.
+- [x] **Code**: extend the flat group env-names mention
   (`PRETTYPLAY_BROWSER_{NAME|SCREEN|HEADLESS|ENDPOINT}` →
   `PRETTYPLAY_BROWSER_{NAME|SCREEN|HEADLESS|ENDPOINT|ACCEPT_DIALOGS}`) in **both** places
   carrying it — the loader module docstring and the `load_config` docstring.
-- [ ] **Interface verification**: `pytest tests/config/test_loader.py -x` — the registry test
+- [x] **Interface verification**: `pytest tests/config/test_loader.py -x` — the registry test
   passes; the override exists and parses by field type.
-- [ ] **Logic tests** (all in `tests/config/test_loader.py`, from the design):
+- [x] **Logic tests** (all in `tests/config/test_loader.py`, from the design):
   - `test_env_override_parses_accept_dialogs_by_type` — setup: tmp_path pyproject.toml with
     `[tool.prettyplay]` `model = "m"` and a browser group without `accept_dialogs`;
     monkeypatch env; input: parametrized `("true", True)`, `("1", True)`, `("false", False)`,
@@ -470,12 +470,12 @@ the field: the condition `(group_value or not isinstance(group_value, str))` inc
     `False` → bool participates → `False` wins; assertions: unset override →
     `config.browser.accept_dialogs is True`; explicit False → `is False`. ("an explicit False
     overrides too".)
-- [ ] **Debugging**: `pytest tests/config/ -x` — fix implementation code until all tests pass
+- [x] **Debugging**: `pytest tests/config/ -x` — fix implementation code until all tests pass
   (do NOT fix test code).
-- [ ] **Contract re-verification**: `load_config` signature unchanged; a raw
+- [x] **Contract re-verification**: `load_config` signature unchanged; a raw
   `pydantic.ValidationError` never leaves the loader (the new render line flows through
   `_render_validation` via `_ALLOWED_TEXT`); facade `prettyplay.config` exports unchanged.
-- [ ] **Lint**: `ruff check prettyplay/config/ tests/config/` — fix formatting if necessary.
+- [x] **Lint**: `ruff check prettyplay/config/ tests/config/` — fix formatting if necessary.
 
 ### Task 3: `LocatorFacade` mirror extension — interactions and expectations (TDD coding)
 

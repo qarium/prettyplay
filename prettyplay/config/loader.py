@@ -5,8 +5,8 @@ the current working directory. Environment overrides win over the file
 whenever the variable is set — including when it is set to an empty string:
 ``PRETTYPLAY_<SETTING_UPPER>`` for every scalar setting (including
 ``PRETTYPLAY_STRICT`` and ``PRETTYPLAY_CLASSIFICATION_PROMPT``) and the flat
-group names ``PRETTYPLAY_BROWSER_{NAME|SCREEN|HEADLESS|ENDPOINT}`` for the
-nested browser group. Scalar env values parse by the field type — booleans
+group names ``PRETTYPLAY_BROWSER_{NAME|SCREEN|HEADLESS|ENDPOINT|ACCEPT_DIALOGS}``
+for the nested browser group. Scalar env values parse by the field type — booleans
 accept true/false/1/0 case-insensitively, integers parse as decimal — and an
 unparseable value fails loudly naming the setting, the received value and the
 accepted form. The removed legacy name ``PRETTYPLAY_BROWSER`` and the removed
@@ -56,11 +56,12 @@ _ENV_NAMES: dict[str, str] = {
         "browser.screen",
         "browser.headless",
         "browser.endpoint",
+        "browser.accept_dialogs",
     )
 }
 
 #: The settings whose env values parse as booleans.
-_BOOL_ENV_SETTINGS = frozenset({"strict", "send_screenshots", "browser.headless"})
+_BOOL_ENV_SETTINGS = frozenset({"strict", "send_screenshots", "browser.headless", "browser.accept_dialogs"})
 
 #: The settings whose env values parse as decimal integers.
 _INT_ENV_SETTINGS = frozenset({"generation_attempts", "healing_attempts"})
@@ -79,6 +80,7 @@ _ALLOWED_TEXT: dict[str, str] = {
     "generation_attempts": "a positive integer",
     "healing_attempts": "a positive integer",
     "browser.headless": "a boolean",
+    "browser.accept_dialogs": "a boolean",
     "strict": "a boolean",
     "send_screenshots": "a boolean",
     "model": "a non-empty string",
@@ -263,8 +265,8 @@ def load_config(pyproject_path: str | None = None, overrides: Config | None = No
     The section is optional: a missing ``[tool.prettyplay]`` yields defaults.
     Environment variables override the file value whenever they are set, empty
     string included: the browser group reads the flat
-    ``PRETTYPLAY_BROWSER_{NAME|SCREEN|HEADLESS|ENDPOINT}`` names, ``strict``
-    reads ``PRETTYPLAY_STRICT``, ``classification_prompt`` reads
+    ``PRETTYPLAY_BROWSER_{NAME|SCREEN|HEADLESS|ENDPOINT|ACCEPT_DIALOGS}``
+    names, ``strict`` reads ``PRETTYPLAY_STRICT``, ``classification_prompt`` reads
     ``PRETTYPLAY_CLASSIFICATION_PROMPT`` and every other setting reads
     ``PRETTYPLAY_<SETTING_UPPER>``. Scalar env values parse by the field type
     and an unparseable value fails loudly. The removed legacy name

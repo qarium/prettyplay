@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 from prettyplay.config import BrowserConfig, Config, ConfigurationError, PrettyConfig, load_config
+from prettyplay.config import loader as _loader
 from prettyplay.failures import PrettyplayError
 from pydantic import ValidationError
 
@@ -15,6 +16,7 @@ _ALL_ENV_FIELDS = (
     "BROWSER_SCREEN",
     "BROWSER_HEADLESS",
     "BROWSER_ENDPOINT",
+    "BROWSER_ACCEPT_DIALOGS",
     "MODEL",
     "GENERATION_MODEL",
     "CLASSIFICATION_MODEL",
@@ -58,6 +60,15 @@ PYPROJECT_WITHOUT_SECTION = """\
 name = "sandbox"
 """
 
+#: A browser group without the dialog switch — the env layer supplies it.
+PYPROJECT_WITH_BROWSER_GROUP = """\
+[tool.prettyplay]
+model = "m"
+
+[tool.prettyplay.browser]
+name = "chromium"
+"""
+
 
 class TestLoadConfigContract:
     """Contract tests: facade, signature shape, return type."""
@@ -88,6 +99,34 @@ class TestLoadConfigContract:
         assert list(parameters) == ["pyproject_path", "overrides"]
         assert parameters["pyproject_path"].default is None
         assert parameters["overrides"].default is None
+
+    def test_every_setting_has_an_env_override(self) -> None:
+        """Every scalar setting and every browser-group field maps to a PRETTYPLAY_* variable."""
+        expected = {
+            "PRETTYPLAY_PROVIDER",
+            "PRETTYPLAY_MODEL",
+            "PRETTYPLAY_GENERATION_MODEL",
+            "PRETTYPLAY_CLASSIFICATION_MODEL",
+            "PRETTYPLAY_BASE_URL",
+            "PRETTYPLAY_CACHE_ROOT",
+            "PRETTYPLAY_GENERATION_PROMPT",
+            "PRETTYPLAY_CLASSIFICATION_PROMPT",
+            "PRETTYPLAY_STRICT",
+            "PRETTYPLAY_GENERATION_ATTEMPTS",
+            "PRETTYPLAY_HEALING_ATTEMPTS",
+            "PRETTYPLAY_SEND_SCREENSHOTS",
+            "PRETTYPLAY_BROWSER_NAME",
+            "PRETTYPLAY_BROWSER_SCREEN",
+            "PRETTYPLAY_BROWSER_HEADLESS",
+            "PRETTYPLAY_BROWSER_ENDPOINT",
+            "PRETTYPLAY_BROWSER_ACCEPT_DIALOGS",
+        }
+
+        values = set(_loader._ENV_NAMES.values())
+
+        assert expected <= values  # every setting present — all five browser variables included
+        # one entry per top-level scalar field (the group itself excluded) plus per group field
+        assert len(_loader._ENV_NAMES) == len(Config.model_fields) - 1 + len(BrowserConfig.model_fields)
 
 
 class TestLoadConfigLogic:
@@ -460,6 +499,20 @@ class TestLoadConfigOverlay:
 
         assert config.browser.headless is False
 
+    def test_programmatic_accept_dialogs_merges_into_group(self, tmp_path) -> None:
+        """The dialog switch follows the group merge: unset skips, an explicit False wins too."""
+        path = write_section(tmp_path, "[tool.prettyplay.browser]\naccept_dialogs = true\n")
+
+        # unset override — the file True survives
+        config = load_config(path, PrettyConfig(browser=BrowserConfig()))
+
+        assert config.browser.accept_dialogs is True
+
+        # an explicit False participates in the merge — bool is not str, it overrides
+        config = load_config(path, PrettyConfig(browser=BrowserConfig(accept_dialogs=False)))
+
+        assert config.browser.accept_dialogs is False
+
     def test_load_config_env_value_loses_to_explicit_override(self, tmp_path, monkeypatch) -> None:
         path = write_section(tmp_path, '[tool.prettyplay.browser]\nname = "chromium"\n')
         monkeypatch.setenv("PRETTYPLAY_BROWSER_NAME", "webkit")
@@ -528,3 +581,33 @@ class TestLoadConfigNewEnvNames:
 
         line = next(line for line in str(excinfo.value).splitlines() if line.startswith("browser.endpoint:"))
         assert line.endswith("allowed: a valid ws/wss URL")
+
+    @pytest.mark.parametrize(
+        ("env_value", "expected"),
+        [("true", True), ("1", True), ("false", False), ("0", False)],
+        ids=["true", "one", "false", "zero"],
+    )
+    def test_env_override_parses_accept_dialogs_by_type(
+        self, tmp_path, monkeypatch, env_value: str, expected: bool
+    ) -> None:
+        """The dialog switch parses as a boolean by its field type — like browser.headless."""
+        path = write_section(tmp_path, PYPROJECT_WITH_BROWSER_GROUP)
+
+        monkeypatch.setenv("PRETTYPLAY_BROWSER_ACCEPT_DIALOGS", env_value)
+
+        config = load_config(pyproject_path=path)
+
+        assert config.browser.accept_dialogs is expected
+
+    def test_env_override_rejects_unparseable_accept_dialogs(self, tmp_path, monkeypatch) -> None:
+        """Negative: a bool-like-but-unparseable value fails loudly — never a silent ignore."""
+        path = write_section(tmp_path, PYPROJECT_WITH_BROWSER_GROUP)
+        monkeypatch.setenv("PRETTYPLAY_BROWSER_ACCEPT_DIALOGS", "yes")
+
+        with pytest.raises(ConfigurationError) as excinfo:
+            load_config(pyproject_path=path)
+
+        assert "browser.accept_dialogs: received 'yes' — allowed: a boolean (true/false/1/0)" in str(
+            excinfo.value
+        ).splitlines()
+        assert isinstance(excinfo.value, PrettyplayError)
