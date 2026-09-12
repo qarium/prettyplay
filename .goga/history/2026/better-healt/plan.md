@@ -453,16 +453,16 @@ participate (explicit disable/off wins over the file layer — bools have no "em
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: in `tests/config/test_loader.py` add — the loader accepts env
+- [x] **Contract tests**: in `tests/config/test_loader.py` add — the loader accepts env
   `PRETTYPLAY_POLLING_TIMEOUT` / `PRETTYPLAY_POLLING_DELAY` / `PRETTYPLAY_INTERACTIVE` (expected
   to fail at this stage)
-- [ ] **Code**: `_ENV_NAMES` += the three settings; `_FLOAT_ENV_SETTINGS = {"polling_timeout",
+- [x] **Code**: `_ENV_NAMES` += the three settings; `_FLOAT_ENV_SETTINGS = {"polling_timeout",
   "polling_delay"}` with `float(raw)` parsing and the loud failure; `interactive` added to
   `_BOOL_ENV_SETTINGS`
-- [ ] **Code**: `_apply_overrides` — insert `if value is None: continue` before the
+- [x] **Code**: `_apply_overrides` — insert `if value is None: continue` before the
   string-emptiness check (binding decision 6 of the design; keep the emptiness clause after it)
-- [ ] **Interface verification**: `pytest tests/config/test_loader.py -x` — all pass
-- [ ] **Logic tests**: in `tests/config/test_loader.py` add:
+- [x] **Interface verification**: `pytest tests/config/test_loader.py -x` — all pass
+- [x] **Logic tests**: in `tests/config/test_loader.py` add:
   - `test_load_config_env_parses_polling_and_interactive`: `write_pyproject()` empty section;
     env `PRETTYPLAY_POLLING_TIMEOUT=8`, `PRETTYPLAY_POLLING_DELAY=0.25`,
     `PRETTYPLAY_INTERACTIVE=true` → `config.polling_timeout == 8.0`,
@@ -480,10 +480,10 @@ participate (explicit disable/off wins over the file layer — bools have no "em
   - `test_explicit_none_polling_timeout_is_indistinguishable_from_unset`:
     `write_pyproject(polling_timeout=8.0)` + `overrides=PrettyConfig(polling_timeout=None)` →
     `config.polling_timeout == 8.0` (the None is skipped by the merge)
-- [ ] **Debugging**: `pytest tests/config/ -x` — fix implementation code until all tests pass
-- [ ] **Contract re-verification**: an env override exists for every setting (spot-check
+- [x] **Debugging**: `pytest tests/config/ -x` — fix implementation code until all tests pass
+- [x] **Contract re-verification**: an env override exists for every setting (spot-check
   `PRETTYPLAY_STRICT` still works); a raw pydantic ValidationError still never leaves the loader
-- [ ] **Lint**: `ruff check prettyplay/ tests/` — fix formatting if necessary
+- [x] **Lint**: `ruff check prettyplay/ tests/` — fix formatting if necessary
 
 ### Task 5: `is_pollable_failure` — the fixed pollable map (driver)
 

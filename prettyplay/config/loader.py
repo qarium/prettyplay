@@ -7,15 +7,16 @@ whenever the variable is set — including when it is set to an empty string:
 ``PRETTYPLAY_STRICT`` and ``PRETTYPLAY_CLASSIFICATION_PROMPT``) and the flat
 group names ``PRETTYPLAY_BROWSER_{NAME|SCREEN|HEADLESS|ENDPOINT|ACCEPT_DIALOGS}``
 for the nested browser group. Scalar env values parse by the field type — booleans
-accept true/false/1/0 case-insensitively, integers parse as decimal — and an
+accept true/false/1/0 case-insensitively, integers parse as decimal, floats
+(``polling_timeout``/``polling_delay``) as decimal floats — and an
 unparseable value fails loudly naming the setting, the received value and the
 accepted form. The removed legacy name ``PRETTYPLAY_BROWSER`` and the removed
 flat keys ``browser``/``headless``/``browser_endpoint`` of the
 ``[tool.prettyplay]`` level fail loudly before merging. Explicitly set
-programmatic values (``PrettyConfig`` fields passed at construction,
-non-empty for strings) win over the pyproject+env layer — the merge reaches
-inside the browser group. LLM API keys are never read here: they come only
-from the provider clients themselves.
+programmatic values (``PrettyConfig`` fields passed at construction, not
+None, non-empty for strings) win over the pyproject+env layer — the merge
+reaches inside the browser group. LLM API keys are never read here: they come
+only from the provider clients themselves.
 """
 
 import os
@@ -49,6 +50,9 @@ _ENV_NAMES: dict[str, str] = {
         "generation_prompt",
         "classification_prompt",
         "strict",
+        "polling_timeout",
+        "polling_delay",
+        "interactive",
         "generation_attempts",
         "healing_attempts",
         "send_screenshots",
@@ -61,10 +65,15 @@ _ENV_NAMES: dict[str, str] = {
 }
 
 #: The settings whose env values parse as booleans.
-_BOOL_ENV_SETTINGS = frozenset({"strict", "send_screenshots", "browser.headless", "browser.accept_dialogs"})
+_BOOL_ENV_SETTINGS = frozenset(
+    {"strict", "interactive", "send_screenshots", "browser.headless", "browser.accept_dialogs"}
+)
 
 #: The settings whose env values parse as decimal integers.
 _INT_ENV_SETTINGS = frozenset({"generation_attempts", "healing_attempts"})
+
+#: The settings whose env values parse as decimal floats.
+_FLOAT_ENV_SETTINGS = frozenset({"polling_timeout", "polling_delay"})
 
 #: The removed flat keys of the [tool.prettyplay] level and their new group homes.
 _FLAT_KEY_HOMES: dict[str, str] = {
@@ -137,7 +146,7 @@ def _parse_env_scalar(setting: str, raw: str) -> object:
         raw: the raw environment value.
 
     Returns:
-        The parsed value: a bool, a decimal int or the verbatim string.
+        The parsed value: a bool, a decimal int, a float or the verbatim string.
 
     Raises:
         ConfigurationError: when the value does not parse — the message names
@@ -158,6 +167,12 @@ def _parse_env_scalar(setting: str, raw: str) -> object:
             return int(raw)
         except ValueError:
             raise ConfigurationError(f"{setting}: received {raw!r} — allowed: a decimal integer") from None
+
+    if setting in _FLOAT_ENV_SETTINGS:
+        try:
+            return float(raw)
+        except ValueError:
+            raise ConfigurationError(f"{setting}: received {raw!r} — allowed: a decimal float") from None
 
     return raw
 
@@ -236,9 +251,9 @@ def _apply_overrides(file_config: Config, overrides: Config) -> Config:
     Args:
         file_config: the validated pyproject+env layer.
         overrides: the programmatic layer; a field participates when it was
-            passed at construction and is non-empty for strings — explicitly
-            set values win, untouched model defaults and empty strings never
-            overwrite the file layer.
+            passed at construction, is not None and is non-empty for strings —
+            explicitly set values win, untouched model defaults, None and empty
+            strings never overwrite the file layer.
 
     Returns:
         The effective configuration: ``file_config`` with the participating
@@ -250,6 +265,8 @@ def _apply_overrides(file_config: Config, overrides: Config) -> Config:
 
     for name, value in overrides:
         if name not in overrides.model_fields_set:
+            continue
+        if value is None:  # None means unset (e.g. polling_timeout) — indistinguishable from untouched
             continue
         if isinstance(value, str) and not value:
             continue
@@ -285,12 +302,12 @@ def load_config(pyproject_path: str | None = None, overrides: Config | None = No
     directory of the run, wherever the pyproject.toml was found.
 
     The programmatic layer wins last: a field of ``overrides`` participates
-    when it was passed at construction (``model_fields_set``) and is non-empty
-    for strings — explicitly set values win, untouched model defaults and
-    empty strings never overwrite the pyproject+env values. The merge reaches
-    inside the browser group: explicitly set fields of a passed
-    :class:`~prettyplay.config.models.BrowserConfig` win over the file group,
-    untouched group defaults never overwrite it.
+    when it was passed at construction (``model_fields_set``), is not None and
+    is non-empty for strings — explicitly set values win, untouched model
+    defaults, None and empty strings never overwrite the pyproject+env values.
+    The merge reaches inside the browser group: explicitly set fields of a
+    passed :class:`~prettyplay.config.models.BrowserConfig` win over the file
+    group, untouched group defaults never overwrite it.
 
     Args:
         pyproject_path: explicit pyproject.toml path; ``None`` auto-searches

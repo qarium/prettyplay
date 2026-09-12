@@ -28,6 +28,9 @@ _ALL_ENV_FIELDS = (
     "GENERATION_PROMPT",
     "CLASSIFICATION_PROMPT",
     "STRICT",
+    "POLLING_TIMEOUT",
+    "POLLING_DELAY",
+    "INTERACTIVE",
     "BROWSER",
 )
 
@@ -112,6 +115,9 @@ class TestLoadConfigContract:
             "PRETTYPLAY_GENERATION_PROMPT",
             "PRETTYPLAY_CLASSIFICATION_PROMPT",
             "PRETTYPLAY_STRICT",
+            "PRETTYPLAY_POLLING_TIMEOUT",
+            "PRETTYPLAY_POLLING_DELAY",
+            "PRETTYPLAY_INTERACTIVE",
             "PRETTYPLAY_GENERATION_ATTEMPTS",
             "PRETTYPLAY_HEALING_ATTEMPTS",
             "PRETTYPLAY_SEND_SCREENSHOTS",
@@ -125,11 +131,21 @@ class TestLoadConfigContract:
         values = set(_loader._ENV_NAMES.values())
 
         assert expected <= values  # every setting present — all five browser variables included
-        # one entry per top-level scalar field (the group itself excluded) plus per group field;
-        # the polling/interactive settings join the env map in their own loader task
-        pending = {"polling_timeout", "polling_delay", "interactive"}
-        wired = [name for name in Config.model_fields if name not in pending and name != "browser"]
+        # one entry per top-level scalar field (the group itself excluded) plus per group field
+        wired = [name for name in Config.model_fields if name != "browser"]
         assert len(_loader._ENV_NAMES) == len(wired) + len(BrowserConfig.model_fields)
+
+    def test_loader_accepts_polling_and_interactive_env(self, write_pyproject, monkeypatch) -> None:
+        """Contract: the three settings carry env overrides the loader parses by field type."""
+        monkeypatch.setenv("PRETTYPLAY_POLLING_TIMEOUT", "8")
+        monkeypatch.setenv("PRETTYPLAY_POLLING_DELAY", "0.25")
+        monkeypatch.setenv("PRETTYPLAY_INTERACTIVE", "true")
+
+        config = load_config(pyproject_path=write_pyproject())
+
+        assert config.polling_timeout == 8.0
+        assert config.polling_delay == 0.25
+        assert config.interactive is True
 
 
 class TestLoadConfigLogic:
@@ -541,6 +557,23 @@ class TestLoadConfigOverlay:
 
         assert config.browser.accept_dialogs is False
 
+    def test_explicit_zero_and_false_override_the_file_layer(self, write_pyproject) -> None:
+        """Explicit disable/off participates in the merge — bools and 0.0 have no empty form."""
+        path = write_pyproject(polling_timeout=8.0, interactive=True)
+
+        config = load_config(path, PrettyConfig(polling_timeout=0.0, interactive=False))
+
+        assert config.polling_timeout == 0.0
+        assert config.interactive is False
+
+    def test_explicit_none_polling_timeout_is_indistinguishable_from_unset(self, write_pyproject) -> None:
+        """A passed None skips the merge — indistinguishable from never passing the field."""
+        path = write_pyproject(polling_timeout=8.0)
+
+        config = load_config(path, PrettyConfig(polling_timeout=None))
+
+        assert config.polling_timeout == 8.0
+
     def test_load_config_env_value_loses_to_explicit_override(self, tmp_path, monkeypatch) -> None:
         path = write_section(tmp_path, '[tool.prettyplay.browser]\nname = "chromium"\n')
         monkeypatch.setenv("PRETTYPLAY_BROWSER_NAME", "webkit")
@@ -638,4 +671,45 @@ class TestLoadConfigNewEnvNames:
         assert "browser.accept_dialogs: received 'yes' — allowed: a boolean (true/false/1/0)" in str(
             excinfo.value
         ).splitlines()
+        assert isinstance(excinfo.value, PrettyplayError)
+
+    def test_load_config_env_parses_polling_and_interactive(self, write_pyproject, monkeypatch) -> None:
+        """Positive: the polling floats and the interactive bool parse from their env variables."""
+        monkeypatch.setenv("PRETTYPLAY_POLLING_TIMEOUT", "8")
+        monkeypatch.setenv("PRETTYPLAY_POLLING_DELAY", "0.25")
+        monkeypatch.setenv("PRETTYPLAY_INTERACTIVE", "true")
+
+        config = load_config(pyproject_path=write_pyproject())
+
+        assert config.polling_timeout == 8.0
+        assert config.polling_delay == 0.25
+        assert config.interactive is True
+
+        # boundary row: the explicit disable parses to the float zero, not None
+        monkeypatch.setenv("PRETTYPLAY_POLLING_TIMEOUT", "0")
+
+        config = load_config(pyproject_path=write_pyproject())
+
+        assert config.polling_timeout == 0.0
+
+    @pytest.mark.parametrize(
+        ("raw", "expected_fragments"),
+        [
+            ("soon", ("polling_timeout", "received 'soon'", "a decimal float")),
+            ("inf", ("polling_timeout", "inf", "non-negative")),
+        ],
+        ids=["unparseable", "non-finite"],
+    )
+    def test_load_config_env_rejects_unparseable_float(
+        self, write_pyproject, monkeypatch, raw: str, expected_fragments: tuple[str, ...]
+    ) -> None:
+        """Negative: 'soon' dies in the float parser; 'inf' parses then dies in the validator."""
+        monkeypatch.setenv("PRETTYPLAY_POLLING_TIMEOUT", raw)
+
+        with pytest.raises(ConfigurationError) as excinfo:
+            load_config(pyproject_path=write_pyproject())
+
+        message = str(excinfo.value)
+        for fragment in expected_fragments:
+            assert fragment in message
         assert isinstance(excinfo.value, PrettyplayError)
