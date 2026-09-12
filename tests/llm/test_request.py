@@ -1,6 +1,13 @@
 """Tests for the shared request-field helpers of the prettyplay.llm cell."""
 
-from prettyplay.llm._request import build_classification_fields, build_fields_text, extract_code_block
+from prettyplay.llm._request import (
+    CATEGORIES,
+    build_classification_fields,
+    build_fields_text,
+    extract_code_block,
+    parse_classification_line,
+    unparsable_classification,
+)
 
 FENCED_CODE = "def step(page) -> None:\n    page.goto('https://example.com')\n"
 USER_INSTRUCTIONS = "prefer data-test-id"
@@ -45,6 +52,9 @@ class TestBuildFieldsTextUserInstructions:
             "page.get_by_role(role, name)",
             "def step(page) -> None:\n    pass\n",
             "AssertionError: boom",
+            recommendation=None,
+            guidance=None,
+            guidance_history=[],
         )
 
         assert text.index("PAGE API:") < text.index("USER INSTRUCTIONS:") < text.index("CODE:")
@@ -59,6 +69,9 @@ class TestBuildFieldsTextUserInstructions:
             "page.get_by_role(role, name)",
             "def step(page) -> None:\n    pass\n",
             "AssertionError: boom",
+            recommendation=None,
+            guidance=None,
+            guidance_history=[],
         )
 
         assert "USER INSTRUCTIONS" not in text
@@ -87,3 +100,65 @@ class TestBuildClassificationFieldsUserInstructions:
 
         assert "USER INSTRUCTIONS" not in text
         assert text.endswith("- button 'Войти'")  # the snapshot section stays the closing section
+
+
+class TestBuildFieldsTextSteeringInputs:
+    """Logic tests: the RECOMMENDATION / USER GUIDANCE / HISTORY blocks after ERROR."""
+
+    def test_build_fields_renders_new_blocks_in_fixed_order(self) -> None:
+        text = build_fields_text(
+            "style",
+            "нажать Войти",
+            ["открыть страницу"],
+            "- button 'Войти'",
+            "page.get_by_role(role, name)",
+            "old code",
+            "err",
+            recommendation="rec",
+            guidance="do this",
+            guidance_history=["h1", "h2"],
+        )
+
+        assert (
+            text.index("PAGE API:")
+            < text.index("USER INSTRUCTIONS:")
+            < text.index("CODE:")
+            < text.index("ERROR:")
+            < text.index("RECOMMENDATION:")
+            < text.index("USER GUIDANCE:")
+            < text.index("HISTORY:")
+        )
+        assert "HISTORY:\nh1\nh2" in text  # entries joined with newlines
+
+    def test_build_fields_omits_the_new_blocks_when_inputs_empty(self) -> None:
+        text = build_fields_text(
+            "",
+            "нажать Войти",
+            [],
+            "- button 'Войти'",
+            "page.get_by_role(role, name)",
+            "old code",
+            "err",
+            recommendation=None,
+            guidance=None,
+            guidance_history=[],
+        )
+
+        assert "RECOMMENDATION" not in text
+        assert "USER GUIDANCE" not in text
+        assert "HISTORY" not in text
+        assert text.index("ERROR:") == text.rindex("ERROR:")  # ERROR stays the closing block
+
+
+class TestParseClassificationFixableLabel:
+    """Logic tests: the fixable label parses; unrecognized labels stay unparsable."""
+
+    def test_parse_classification_accepts_fixable_label(self) -> None:
+        parsed = parse_classification_line("fixable | ambiguous locator | use role locator")
+
+        assert parsed == ("fixable", "ambiguous locator", "use role locator")
+        assert "fixable" in CATEGORIES
+
+    def test_unrecognized_label_still_falls_back_to_incurable(self) -> None:
+        assert parse_classification_line("mystery | why | do something") is None
+        assert unparsable_classification()["category"] == "incurable"

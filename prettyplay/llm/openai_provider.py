@@ -87,6 +87,9 @@ class OpenAIProvider(LLMProvider):
         page_api: str,
         existing_code: str | None,
         error: str | None,
+        recommendation: str | None,
+        guidance: str | None,
+        guidance_history: list[str],
     ) -> str:
         """Generate step code of the fixed form working only through the driver facade.
 
@@ -110,6 +113,16 @@ class OpenAIProvider(LLMProvider):
                 on regeneration requests.
             error: the failure description of the existing code; non-empty
                 only on regeneration requests.
+            recommendation: the diagnosis of the classification that preceded
+                the regeneration; non-empty — rendered as a separate
+                RECOMMENDATION block after the CODE and ERROR blocks,
+                None — no block.
+            guidance: the engineer guidance message of the interactive
+                steering; non-empty — rendered as a separate USER GUIDANCE
+                block, None — no block.
+            guidance_history: the accumulated steering turns — each a rendered
+                guidance-and-outcome line; non-empty — rendered as a separate
+                HISTORY block after the USER GUIDANCE block, empty — no block.
 
         Returns:
             The generated step code of the fixed form.
@@ -118,7 +131,18 @@ class OpenAIProvider(LLMProvider):
             LLMUnavailableError: the SDK client is unavailable or the
                 service request failed.
         """
-        text = build_fields_text(user_instructions, step_text, previous_steps, snapshot, page_api, existing_code, error)
+        text = build_fields_text(
+            user_instructions,
+            step_text,
+            previous_steps,
+            snapshot,
+            page_api,
+            existing_code,
+            error,
+            recommendation,
+            guidance,
+            guidance_history,
+        )
         messages = [
             {"role": "system", "content": prompt},
             {"role": "user", "content": openai_user_content(text, screenshot)},

@@ -21,6 +21,9 @@ GENERATE_STEP_CODE_PARAMS = [
     "page_api",
     "existing_code",
     "error",
+    "recommendation",
+    "guidance",
+    "guidance_history",
 ]
 CLASSIFY_FAILURE_PARAMS = [
     "self",
@@ -107,6 +110,9 @@ class TestOpenAIProviderLogic:
                 page_api="page.goto(...)",
                 existing_code=None,
                 error=None,
+                recommendation=None,
+                guidance=None,
+                guidance_history=[],
             )
 
         assert "openai" in str(excinfo.value)
@@ -167,6 +173,9 @@ class TestOpenAIProviderLogic:
                 page_api="page.goto(...)",
                 existing_code=None,
                 error=None,
+                recommendation=None,
+                guidance=None,
+                guidance_history=[],
             )
 
         assert code == WORKING_CODE
@@ -198,6 +207,9 @@ class TestOpenAIProviderLogic:
                 page_api="page.goto(...)",
                 existing_code=None,
                 error=None,
+                recommendation=None,
+                guidance=None,
+                guidance_history=[],
             )
 
         assert code == WORKING_CODE  # fence stripped — provider parity
@@ -218,6 +230,9 @@ class TestOpenAIProviderLogic:
                 page_api="page.goto(...)",
                 existing_code="def step(page) -> None:\n    pass\n",
                 error="AssertionError: boom",
+                recommendation=None,
+                guidance=None,
+                guidance_history=[],
             )
 
         user = requests[0]["messages"][1]["content"]
@@ -240,6 +255,9 @@ class TestOpenAIProviderLogic:
                 page_api="page.goto(...)",
                 existing_code=None,
                 error=None,
+                recommendation=None,
+                guidance=None,
+                guidance_history=[],
             )
 
         user_content = requests[0]["messages"][1]["content"]
@@ -288,6 +306,9 @@ class TestOpenAIProviderLogic:
                 page_api="page.goto(...)",
                 existing_code=None,
                 error=None,
+                recommendation=None,
+                guidance=None,
+                guidance_history=[],
             )
 
         sdk.assert_called_once()
@@ -415,6 +436,9 @@ class TestOpenAIProviderLogic:
                 page_api="page.goto(...)",
                 existing_code=None,
                 error=None,
+                recommendation=None,
+                guidance=None,
+                guidance_history=[],
             )
 
         assert "empty completion" in str(excinfo.value)
@@ -442,6 +466,9 @@ class TestOpenAIProviderLogic:
                 page_api="page.goto(...)",
                 existing_code=None,
                 error=None,
+                recommendation=None,
+                guidance=None,
+                guidance_history=[],
             )
 
         assert "empty completion" in str(excinfo.value)
@@ -464,6 +491,9 @@ class TestOpenAIProviderLogic:
                 page_api="page.goto(...)",
                 existing_code=None,
                 error=None,
+                recommendation=None,
+                guidance=None,
+                guidance_history=[],
             )
 
         assert code == WORKING_CODE  # fenced block unwrapped

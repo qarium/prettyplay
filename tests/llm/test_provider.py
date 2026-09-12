@@ -19,6 +19,9 @@ GENERATE_STEP_CODE_PARAMS = [
     "page_api",
     "existing_code",
     "error",
+    "recommendation",
+    "guidance",
+    "guidance_history",
 ]
 CLASSIFY_FAILURE_PARAMS = [
     "self",
@@ -61,6 +64,19 @@ class TestLLMProviderContract:
             assert names[names.index("prompt") + 1] == "user_instructions", owner.__name__
             assert parameters["user_instructions"].annotation is str, owner.__name__
 
+    def test_generate_step_code_signature_carries_the_steering_inputs(self) -> None:
+        for owner in (LLMProvider, OpenAIProvider, AnthropicProvider):
+            parameters = inspect.signature(owner.generate_step_code).parameters
+            names = list(parameters)
+
+            expected_tail = ["recommendation", "guidance", "guidance_history"]
+            assert names[names.index("error") + 1 :] == expected_tail, owner.__name__
+            assert parameters["recommendation"].annotation == parameters["existing_code"].annotation, owner.__name__
+            assert parameters["guidance"].annotation == parameters["existing_code"].annotation, owner.__name__
+            assert parameters["guidance_history"].annotation == parameters["previous_steps"].annotation, owner.__name__
+            for name in ("recommendation", "guidance", "guidance_history"):
+                assert parameters[name].default is inspect.Signature.empty, (owner.__name__, name)
+
     def test_base_methods_raise_not_implemented(self) -> None:
         port = LLMProvider()
 
@@ -75,6 +91,9 @@ class TestLLMProviderContract:
                 page_api="page.goto(...)",
                 existing_code=None,
                 error=None,
+                recommendation=None,
+                guidance=None,
+                guidance_history=[],
             )
 
         with pytest.raises(NotImplementedError):
@@ -251,7 +270,52 @@ class TestClassificationInstructionsPlacement:
                     page_api="page.goto(...)",
                     existing_code="def step(page) -> None:\n    pass\n",
                     error="err",
+                    recommendation=None,
+                    guidance=None,
+                    guidance_history=[],
                 )
 
             gen_user = gen_requests[0]["messages"][-1]["content"]
             assert gen_user.index("PAGE API:") < gen_user.index("USER INSTRUCTIONS:") < gen_user.index("CODE:")
+
+
+class TestSteeringInputsParity:
+    """Logic tests: both providers forward the three steering inputs to one builder output."""
+
+    def test_providers_render_identical_user_text_from_the_steering_inputs(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "test")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+
+        user_texts = []
+
+        for provider, make_client in (
+            (OpenAIProvider(Config(model="gpt-5")), _openai_client),
+            (AnthropicProvider(Config(model="claude-sonnet-4-5")), _anthropic_client),
+        ):
+            client, requests = make_client(GENERATION_ANSWER)
+
+            with mock.patch.object(provider, "_get_client", return_value=client):
+                provider.generate_step_code(
+                    prompt="sys",
+                    user_instructions="be terse",
+                    step_text="s",
+                    previous_steps=["step one"],
+                    snapshot="snap",
+                    screenshot=None,
+                    page_api="page.goto(...)",
+                    existing_code="old code",
+                    error="err",
+                    recommendation="use a role locator",
+                    guidance="dismiss the modal first",
+                    guidance_history=["hover first => Timeout 10000ms exceeded"],
+                )
+
+            user_texts.append(requests[0]["messages"][-1]["content"])
+
+        # parity: one shared builder — identical inputs render identical user text
+        assert user_texts[0] == user_texts[1]
+        assert "RECOMMENDATION:\nuse a role locator" in user_texts[0]
+        assert "USER GUIDANCE:\ndismiss the modal first" in user_texts[0]
+        assert "HISTORY:\nhover first => Timeout 10000ms exceeded" in user_texts[0]

@@ -22,6 +22,9 @@ GENERATE_STEP_CODE_PARAMS = [
     "page_api",
     "existing_code",
     "error",
+    "recommendation",
+    "guidance",
+    "guidance_history",
 ]
 CLASSIFY_FAILURE_PARAMS = [
     "self",
@@ -111,6 +114,9 @@ class TestAnthropicProviderLogic:
                 page_api="page.goto(...)",
                 existing_code=None,
                 error=None,
+                recommendation=None,
+                guidance=None,
+                guidance_history=[],
             )
 
         assert "anthropic" in str(excinfo.value)
@@ -135,6 +141,9 @@ class TestAnthropicProviderLogic:
                 page_api="page.goto(...)",
                 existing_code=None,
                 error=None,
+                recommendation=None,
+                guidance=None,
+                guidance_history=[],
             )
 
         assert "empty completion" in str(excinfo.value)
@@ -157,6 +166,9 @@ class TestAnthropicProviderLogic:
                 page_api="page.goto(...)",
                 existing_code=None,
                 error=None,
+                recommendation=None,
+                guidance=None,
+                guidance_history=[],
             )
 
         assert code == WORKING_CODE  # a non-text first block does not break extraction
@@ -238,6 +250,9 @@ class TestAnthropicProviderLogic:
                 page_api="page.goto(...)",
                 existing_code=None,
                 error=None,
+                recommendation=None,
+                guidance=None,
+                guidance_history=[],
             )
 
         assert code == WORKING_CODE
@@ -270,6 +285,9 @@ class TestAnthropicProviderLogic:
                 page_api="page.goto(...)",
                 existing_code=None,
                 error=None,
+                recommendation=None,
+                guidance=None,
+                guidance_history=[],
             )
 
         assert code == WORKING_CODE  # fence stripped — fixed-form code
@@ -290,6 +308,9 @@ class TestAnthropicProviderLogic:
                 page_api="page.goto(...)",
                 existing_code="def step(page) -> None:\n    pass\n",
                 error="AssertionError: boom",
+                recommendation=None,
+                guidance=None,
+                guidance_history=[],
             )
 
         user = requests[0]["messages"][0]["content"]
@@ -348,6 +369,9 @@ class TestAnthropicProviderLogic:
                 page_api="page.goto(...)",
                 existing_code=None,
                 error=None,
+                recommendation=None,
+                guidance=None,
+                guidance_history=[],
             )
 
         user_content = requests[0]["messages"][0]["content"]
@@ -375,6 +399,9 @@ class TestAnthropicProviderLogic:
                 page_api="page.goto(...)",
                 existing_code=None,
                 error=None,
+                recommendation=None,
+                guidance=None,
+                guidance_history=[],
             )
 
         sdk.assert_called_once()
@@ -397,6 +424,9 @@ class TestAnthropicProviderLogic:
                 page_api="page.goto(...)",
                 existing_code=None,
                 error=None,
+                recommendation=None,
+                guidance=None,
+                guidance_history=[],
             )
 
         assert sdk.call_args.kwargs["api_key"] == "test"
@@ -481,6 +511,9 @@ class TestAnthropicProviderLogic:
                 page_api="page.goto(...)",
                 existing_code=None,
                 error=None,
+                recommendation=None,
+                guidance=None,
+                guidance_history=[],
             )
 
         user = requests[0]["messages"][0]["content"]

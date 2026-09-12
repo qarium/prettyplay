@@ -10,7 +10,10 @@ class FailureClassification(BaseModel):
     should do about it.
 
     Attributes:
-        category: the classification label: rot, product_defect or incurable.
+        category: the classification label: rot, product_defect, fixable or
+            incurable — fixable: the step code is at fault (an ambiguous or
+            wrong locator or strategy) while the intent stays satisfiable;
+            regeneration for the same intent can help.
         explanation: why the failure got this category.
         recommendation: the recommended engineer action.
     """

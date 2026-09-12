@@ -580,30 +580,30 @@ addressing lives in `StepIdentity`/`StepCache` from the step triple only).
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: in `tests/llm/test_provider.py` (or the existing per-provider test
+- [x] **Contract tests**: in `tests/llm/test_provider.py` (or the existing per-provider test
   files) add — the protocol signature accepts the three new keyword arguments on both
   `OpenAIProvider` and `AnthropicProvider` (inspect signatures or call with a mocked SDK);
   `CATEGORIES`-facing models importable (expected to fail at this stage)
-- [ ] **Code**: `prettyplay/llm/_request.py` — `build_fields_text` gains the three parameters
+- [x] **Code**: `prettyplay/llm/_request.py` — `build_fields_text` gains the three parameters
   and appends the three optional blocks after ERROR in the fixed order (RECOMMENDATION, USER
   GUIDANCE, HISTORY — history entries joined with newlines; a non-empty input renders its named
   block, empty/None renders nothing)
-- [ ] **Code**: `prettyplay/llm/provider.py` — widen the port protocol signature; docstrings for
+- [x] **Code**: `prettyplay/llm/provider.py` — widen the port protocol signature; docstrings for
   the three parameters (RECOMMENDATION — the diagnosis that preceded the regeneration, rendered
   after CODE and ERROR; USER GUIDANCE — the steering message; HISTORY — the accumulated turns)
-- [ ] **Code**: `prettyplay/llm/openai_provider.py` and `prettyplay/llm/anthropic_provider.py` —
+- [x] **Code**: `prettyplay/llm/openai_provider.py` and `prettyplay/llm/anthropic_provider.py` —
   accept the three parameters and forward verbatim to the shared builder (both call sites stay
   byte-identical in structure)
-- [ ] **Code**: `prettyplay/llm/_request.py` — `CATEGORIES` grows `fixable`
+- [x] **Code**: `prettyplay/llm/_request.py` — `CATEGORIES` grows `fixable`
   (`{"rot", "product_defect", "fixable", "incurable"}`); `parse_classification_line` accepts the
   label (no other change — the unrecognized fallback stays)
-- [ ] **Code**: `prettyplay/llm/models.py` — update the `FailureClassification` class docstring:
+- [x] **Code**: `prettyplay/llm/models.py` — update the `FailureClassification` class docstring:
   the category Attributes line grows the four-label set (rot, product_defect, fixable, incurable —
   the fixable gloss mirrors the contract annotation: the step code is at fault while the intent
   stays satisfiable)
-- [ ] **Interface verification**: `pytest tests/llm/ -x` — all pass (existing tests updated to
+- [x] **Interface verification**: `pytest tests/llm/ -x` — all pass (existing tests updated to
   the new explicit-kwargs call shape where they call the port directly)
-- [ ] **Logic tests**: add
+- [x] **Logic tests**: add
   - `test_build_fields_renders_new_blocks_in_fixed_order` (in `tests/llm/test_request.py`):
     direct call with all blocks non-empty — `user_instructions="style"`, `existing_code="old"`,
     `error="err"`, `recommendation="rec"`, `guidance="do this"`,
@@ -618,10 +618,10 @@ addressing lives in `StepIdentity`/`StepCache` from the step triple only).
   - parity: both providers forward the three inputs to the same builder output — one test
     calling each provider's request-building path with identical inputs yields identical user
     text (mocked SDK clients)
-- [ ] **Debugging**: `pytest tests/llm/ -x` — fix implementation code until all tests pass
-- [ ] **Contract re-verification**: both providers expose the identical widened signature
+- [x] **Debugging**: `pytest tests/llm/ -x` — fix implementation code until all tests pass
+- [x] **Contract re-verification**: both providers expose the identical widened signature
   (parity); the fence unwrapping and error mapping are untouched
-- [ ] **Lint**: `ruff check prettyplay/ tests/` — fix formatting if necessary
+- [x] **Lint**: `ruff check prettyplay/ tests/` — fix formatting if necessary
 
 ### Task 7: the `engine/polling` cell skeleton and facade (infrastructure)
 

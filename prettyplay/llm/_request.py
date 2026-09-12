@@ -8,10 +8,11 @@ from ..failures import LLMUnavailableError
 #: The labels a classification category may take.
 CATEGORY_ROT = "rot"
 CATEGORY_PRODUCT_DEFECT = "product_defect"
+CATEGORY_FIXABLE = "fixable"
 CATEGORY_INCURABLE = "incurable"
 
-#: The frozen set of the three classification labels.
-CATEGORIES = frozenset({CATEGORY_ROT, CATEGORY_PRODUCT_DEFECT, CATEGORY_INCURABLE})
+#: The frozen set of the four classification labels.
+CATEGORIES = frozenset({CATEGORY_ROT, CATEGORY_PRODUCT_DEFECT, CATEGORY_FIXABLE, CATEGORY_INCURABLE})
 
 #: Field count of the one-line classification verdict.
 VERDICT_FIELD_COUNT = 3
@@ -73,6 +74,9 @@ def build_fields_text(  # noqa: PLR0913, PLR0917 — the parameters mirror the f
     page_api: str,
     existing_code: str | None,
     error: str | None,
+    recommendation: str | None,
+    guidance: str | None,
+    guidance_history: list[str],
 ) -> str:
     """Build the plain-text generation request fields shared by both providers.
 
@@ -90,11 +94,23 @@ def build_fields_text(  # noqa: PLR0913, PLR0917 — the parameters mirror the f
             regeneration requests.
         error: the failure description of the existing code; non-empty only on
             regeneration requests.
+        recommendation: the diagnosis of the classification that preceded the
+            regeneration; non-empty — rendered as a separate RECOMMENDATION
+            block after the CODE and ERROR blocks, None — no block.
+        guidance: the engineer guidance message of the interactive steering;
+            non-empty — rendered as a separate USER GUIDANCE block, None — no
+            block.
+        guidance_history: the accumulated steering turns — each a rendered
+            guidance-and-outcome line; non-empty — rendered as a separate
+            HISTORY block after the USER GUIDANCE block with the entries
+            joined by newlines, empty — no block.
 
     Returns:
         The request fields as one text with STEP / PREVIOUS STEPS /
         PAGE SNAPSHOT / PAGE API sections, the optional USER INSTRUCTIONS
-        section and, on regeneration requests, CODE / ERROR sections.
+        section and, on regeneration and steering requests, CODE / ERROR /
+        RECOMMENDATION / USER GUIDANCE / HISTORY sections — a non-empty input
+        renders its named block.
     """
     sections = [
         f"STEP:\n{step_text}",
@@ -109,6 +125,12 @@ def build_fields_text(  # noqa: PLR0913, PLR0917 — the parameters mirror the f
         sections.append(f"CODE:\n{existing_code}")
     if error is not None:
         sections.append(f"ERROR:\n{error}")
+    if recommendation:
+        sections.append(f"RECOMMENDATION:\n{recommendation}")
+    if guidance:
+        sections.append(f"USER GUIDANCE:\n{guidance}")
+    if guidance_history:
+        sections.append("HISTORY:\n" + "\n".join(guidance_history))
 
     return "\n\n".join(sections)
 
