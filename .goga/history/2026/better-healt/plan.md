@@ -1218,17 +1218,17 @@ replay-strict settle included ("re-executing cached code is execution, not gener
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: in `tests/test_executor.py` add — `StepExecutor` accepts the `steering`
+- [x] **Contract tests**: in `tests/test_executor.py` add — `StepExecutor` accepts the `steering`
   parameter (contract position); `execute(step_text, step_type, page)` unchanged shape (expected
   to fail at this stage)
-- [ ] **Code**: wire the constructor (`steering` param stored) and implement `execute` per the
+- [x] **Code**: wire the constructor (`steering` param stored) and implement `execute` per the
   algorithm — the window from `config.polling_timeout`/`config.polling_delay`, `settle` on the
   cached hit, `_steer_or_raise` with the gate `config.interactive and not config.strict`,
   `on_step_finished` in `finally` with the outcome flag, the `code` fields on the strict paths
   (miss `""`, failure `step.code`)
-- [ ] **Code**: thread `window` into `healer.heal(...)` and `generator.generate(...)` calls
-- [ ] **Interface verification**: `pytest tests/test_executor.py -x` — all pass
-- [ ] **Logic tests**: in `tests/test_executor.py` add (executor with fakes; recording hooks;
+- [x] **Code**: thread `window` into `healer.heal(...)` and `generator.generate(...)` calls
+- [x] **Interface verification**: `pytest tests/test_executor.py -x` — all pass
+- [x] **Logic tests**: in `tests/test_executor.py` add (executor with fakes; recording hooks;
   `Config(strict=False, interactive=True, polling_timeout=None)` unless stated)
   - `test_execute_steering_intercept_healed_continues_as_success`: cache hit whose code always
     fails; healer fake raises `IncurableStepError`; steering fake returns a healed `CachedStep` →
@@ -1264,11 +1264,11 @@ replay-strict settle included ("re-executing cached code is execution, not gener
     code="def step(page): boom()", verdict=None)` through an executor failure →
     `"def step(page): boom()" not in str(exc)`; not in the `on_step_failed` hook payload;
     `exc.code == "def step(page): boom()"`
-- [ ] **Debugging**: `pytest tests/test_executor.py -x` — fix implementation code until all tests pass
-- [ ] **Contract re-verification**: one render per terminal failure (message, `on_step_failed`
+- [x] **Debugging**: `pytest tests/test_executor.py -x` — fix implementation code until all tests pass
+- [x] **Contract re-verification**: one render per terminal failure (message, `on_step_failed`
   payload, log record carry the same text); a cached step executes with no LLM involvement
   (settle absorbed); strict mode consumes no budgets; `on_step_finished` exactly once per step
-- [ ] **Lint**: `ruff check prettyplay/ tests/` — fix formatting if necessary
+- [x] **Lint**: `ruff check prettyplay/ tests/` — fix formatting if necessary
 
 ### Task 14: `PrettyPlay` composes `StepSteering` (facade)
 

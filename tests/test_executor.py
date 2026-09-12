@@ -3,8 +3,10 @@
 import inspect
 import logging
 from pathlib import Path
+from unittest import mock
 
 import pytest
+from playwright.sync_api import Error as PlaywrightError
 from prettyplay import StepExecutor
 from prettyplay.cache import CachedStep, RunBudgets, StepCache, StepIdentity, normalize_step_text
 from prettyplay.config import Config
@@ -125,6 +127,34 @@ class RaisingHealer:
     ) -> CachedStep:
         self.calls += 1
         raise self.error
+
+
+class RecordingSteering:
+    """Stub steering dialog: records steer requests, returns the scripted outcome."""
+
+    def __init__(self, healed: CachedStep | None = None, error: BaseException | None = None) -> None:
+        self.healed = healed
+        self.error = error
+        self.calls: list[dict[str, object]] = []
+
+    def steer(
+        self,
+        failure: IncurableStepError,
+        identity: StepIdentity,
+        previous_steps: list[str],
+        page: FakePage,
+    ) -> CachedStep | None:
+        self.calls.append(
+            {
+                "failure": failure,
+                "identity": identity,
+                "previous_steps": list(previous_steps),  # snapshot: the live list grows after the call
+                "page": page,
+            }
+        )
+        if self.error is not None:
+            raise self.error
+        return self.healed
 
 
 class ScriptedProvider(LLMProvider):
@@ -262,6 +292,11 @@ class RecorderHook(StepHooks):
             )
         )
 
+    def on_step_finished(self, step_text: str, step_type: str, outcome: str) -> None:
+        self.events.append(
+            ("on_step_finished", {"step_text": step_text, "step_type": step_type, "outcome": outcome})
+        )
+
 
 class ExecutorFixture:
     """Executor assembled on a tmp cache with recording visibility, for logic tests."""
@@ -274,6 +309,7 @@ class ExecutorFixture:
         cache_key: str = "login-flow",
         config: Config | None = None,
         provider: LLMProvider | None = None,
+        steering: object | None = None,
     ) -> None:
         self.recorder = RecorderHook()
         self.reporter = StepReporter(hooks=[self.recorder])
@@ -282,12 +318,14 @@ class ExecutorFixture:
         self.budgets = RunBudgets(3, 2)
         self.generator = generator
         self.healer = healer
+        self.steering = steering if steering is not None else RecordingSteering()
         self.provider = provider if provider is not None else ScriptedProvider()
         self.executor = StepExecutor(
             cache_key,
             self.cache,
             generator,
             healer,
+            self.steering,
             self.budgets,
             self.reporter,
             self.config,
@@ -345,6 +383,7 @@ class TestStepExecutorContract:
             "cache",
             "generator",
             "healer",
+            "steering",
             "budgets",
             "reporter",
             "config",
@@ -598,7 +637,14 @@ class TestStepExecutorLogic:
             fixture.executor.execute("нажать Войти", "action", page)
 
         assert excinfo.value is failure  # re-raised as the same object, unwrapped
-        assert [event for event, _payload in fixture.recorder.events] == ["on_step_started", "on_step_failed"]
+        assert [event for event, _payload in fixture.recorder.events] == [
+            "on_step_started",
+            "on_step_failed",
+            "on_step_finished",
+        ]
+        assert events_named(fixture.recorder, "on_step_finished") == [
+            {"step_text": "нажать Войти", "step_type": "action", "outcome": "failed"}
+        ]
         assert not events_named(fixture.recorder, "on_step_passed")
         assert fixture.executor._scenario == []  # failure does not grow the scenario context
 
@@ -687,6 +733,7 @@ class TestStepExecutorStrictMode:
             "on_step_started",
             "on_step_failed",
             "on_step_verdict",
+            "on_step_finished",
         ]
 
     def test_executor_strict_error_field_full_text_by_exception_kind(self, tmp_path: Path) -> None:
@@ -770,3 +817,212 @@ class TestStepExecutorStrictMode:
             {"step_text": "нажать Войти", "step_type": "action", "error": "classification crashed"}
         ]
         assert not events_named(fixture.recorder, "on_step_verdict")  # no verdict for a crashed classification
+
+
+def interactive_fixture(
+    tmp_path: Path,
+    generator: object,
+    healer: object,
+    steering: object | None = None,
+    provider: LLMProvider | None = None,
+) -> ExecutorFixture:
+    """Assemble a non-strict interactive executor — the steering gate is open."""
+    return ExecutorFixture(
+        tmp_path,
+        generator,
+        healer,
+        config=Config(cache_root=str(tmp_path), strict=False, interactive=True, polling_timeout=None),
+        provider=provider,
+        steering=steering,
+    )
+
+
+class TestStepExecutorSteeringAndClosingEvent:
+    """Logic tests: the steering intercept, the settle wiring and the closing event."""
+
+    def test_execute_steering_intercept_healed_continues_as_success(self, tmp_path: Path) -> None:
+        failure = IncurableStepError("нажать войти", "budget exhausted", "Timeout …", verdict=None)
+        healed = CachedStep(
+            identity=StepIdentity(cache_key="login-flow", step_type="action", normalized_text="нажать войти"),
+            code=CACHED_CODE,
+            created_at="2026-09-08",
+        )
+        steering = RecordingSteering(healed=healed)
+        fixture = interactive_fixture(tmp_path, RecordingGenerator(), RaisingHealer(failure), steering=steering)
+        seed_cached_step(fixture, "нажать войти")
+        page = FakePage()
+
+        fixture.executor.execute("нажать Войти", "action", page)  # healed — no raise
+
+        assert len(steering.calls) == 1
+        assert steering.calls[0]["failure"] is failure  # the exact instance the healer raised
+        assert [event for event, _payload in fixture.recorder.events] == [
+            "on_step_started",
+            "on_step_passed",
+            "on_step_finished",
+        ]
+        assert events_named(fixture.recorder, "on_step_finished") == [
+            {"step_text": "нажать Войти", "step_type": "action", "outcome": "passed"}
+        ]
+        assert not events_named(fixture.recorder, "on_step_failed")  # healed before any failure event fires
+
+    def test_execute_reports_on_step_finished_last_on_failure_with_verdict(self, tmp_path: Path) -> None:
+        failure = IncurableStepError(
+            "open the docs",
+            "generation attempt budget exhausted",
+            "",
+            verdict=FailureVerdict("incurable", "the page moved", "reword the step"),
+        )
+        fixture = ExecutorFixture(tmp_path, RaisingGenerator(failure), RecordingHealer())
+        page = FakePage()
+
+        with pytest.raises(IncurableStepError):
+            fixture.executor.execute("open the docs", "action", page)
+
+        assert [event for event, _payload in fixture.recorder.events] == [
+            "on_step_started",
+            "on_step_failed",
+            "on_step_verdict",
+            "on_step_finished",
+        ]
+        assert fixture.recorder.events[-1] == (
+            "on_step_finished",
+            {"step_text": "open the docs", "step_type": "action", "outcome": "failed"},
+        )
+
+    @pytest.mark.parametrize(
+        "case",
+        ["product-defect", "llm-unavailable", "strict", "interactive-off"],
+    )
+    def test_execute_steering_intercept_never_on_product_defect_llm_strict_or_off(
+        self, tmp_path: Path, case: str
+    ) -> None:
+        healed = CachedStep(
+            identity=StepIdentity(cache_key="login-flow", step_type="action", normalized_text="s"),
+            code=CACHED_CODE,
+            created_at="2026-09-08",
+        )
+        steering = RecordingSteering(healed=healed)  # the dialog would heal — the gate must refuse first
+
+        if case == "product-defect":
+            failure = ProductDefectError("s", "the banner is gone", "", FailureVerdict("product_defect", "e", "r"))
+            fixture = interactive_fixture(tmp_path, RecordingGenerator(), RaisingHealer(failure), steering=steering)
+            seed_cached_step(fixture, "s")
+            expected = ProductDefectError
+        elif case == "llm-unavailable":
+            failure = LLMUnavailableError("llm unavailable: openai request failed")
+            fixture = interactive_fixture(tmp_path, RaisingGenerator(failure), RecordingHealer(), steering=steering)
+            expected = LLMUnavailableError
+        elif case == "strict":
+            provider = ScriptedProvider(
+                verdict=FailureClassification(category="rot", explanation="e", recommendation="r")
+            )
+            fixture = ExecutorFixture(
+                tmp_path,
+                RecordingGenerator(),
+                RecordingHealer(),
+                config=Config(cache_root=str(tmp_path), strict=True, interactive=True),
+                provider=provider,
+                steering=steering,
+            )
+            seed_cached_step(fixture, "s")
+            expected = IncurableStepError
+        else:  # interactive-off
+            failure = IncurableStepError("s", "budget exhausted", "Timeout …", verdict=None)
+            fixture = ExecutorFixture(tmp_path, RecordingGenerator(), RaisingHealer(failure), steering=steering)
+            seed_cached_step(fixture, "s")
+            expected = IncurableStepError
+
+        with pytest.raises(expected):
+            fixture.executor.execute("s", "action", FakePage())
+
+        assert steering.calls == []  # the gate never opens the dialog
+        assert events_named(fixture.recorder, "on_step_finished")[-1]["outcome"] == "failed"
+
+    @pytest.mark.parametrize(
+        ("seed", "expected_code"),
+        [("cached-failure", "cached"), ("cache-miss", "")],
+    )
+    def test_strict_failure_carries_cached_code_and_miss_carries_empty(
+        self, tmp_path: Path, seed: str, expected_code: str
+    ) -> None:
+        provider = ScriptedProvider(
+            verdict=FailureClassification(category="rot", explanation="expl", recommendation="rec")
+        )
+        fixture = strict_fixture(tmp_path, RecordingGenerator(), RecordingHealer(), provider)
+        page = FakePage()
+
+        if seed == "cached-failure":
+            identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="нажать войти")
+            seed_cached_step(fixture, "нажать войти")
+            expected_code = fixture.cache.load(identity).code  # the cached code, exactly as stored
+
+        with pytest.raises(IncurableStepError) as excinfo:
+            fixture.executor.execute("нажать Войти", "action", page)
+
+        assert excinfo.value.code == expected_code
+
+    def test_execute_step_finished_fires_on_keyboard_interrupt(self, tmp_path: Path) -> None:
+        failure = IncurableStepError("click Pay", "budget exhausted", "Timeout …", verdict=None)
+        steering = RecordingSteering(error=KeyboardInterrupt())  # a SIGINT inside the dialog
+        fixture = interactive_fixture(
+            tmp_path, RaisingGenerator(failure), RecordingHealer(), steering=steering
+        )
+        page = FakePage()
+
+        with pytest.raises(KeyboardInterrupt):
+            fixture.executor.execute("click Pay", "action", page)
+
+        assert fixture.recorder.events[-1] == (
+            "on_step_finished",
+            {"step_text": "click Pay", "step_type": "action", "outcome": "failed"},
+        )
+        assert not events_named(fixture.recorder, "on_step_failed")  # the interrupt is not a step failure
+
+    def test_strict_replay_settle_absorbs_transient_cached_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        provider = ScriptedProvider()
+        fixture = ExecutorFixture(
+            tmp_path,
+            RecordingGenerator(),
+            RecordingHealer(),
+            config=Config(cache_root=str(tmp_path), strict=True, polling_timeout=10.0, polling_delay=0),
+            provider=provider,
+        )
+        seed_cached_step(fixture, "нажать войти")
+        page = FakePage()
+
+        transient = PlaywrightError("Timeout 10000ms exceeded")
+        monkeypatch.setattr(
+            "prettyplay.executor.run_step_code",
+            mock.Mock(side_effect=[transient, None]),  # fails once, passes on the re-execution
+        )
+
+        with caplog.at_level(logging.INFO, logger="prettyplay"):
+            fixture.executor.execute("нажать Войти", "action", page)  # absorbed — no raise
+
+        assert [event for event, _payload in fixture.recorder.events] == [
+            "on_step_started",
+            "on_step_passed",
+            "on_step_finished",
+        ]
+        retries = [record for record in caplog.records if record.getMessage() == "settle_retry"]
+        assert len(retries) == 1  # exactly one repetition of the cached execution
+        assert provider.generation_calls == 0
+        assert provider.classification_calls == 0  # a cached step executes with no LLM involvement
+
+    def test_incurable_code_field_absent_from_render_and_hook_payload(self, tmp_path: Path) -> None:
+        failed_code = "def step(page): boom()"
+        failure = IncurableStepError("click Pay", "budget exhausted", "Timeout …", code=failed_code, verdict=None)
+        fixture = ExecutorFixture(tmp_path, RaisingGenerator(failure), RecordingHealer())
+        page = FakePage()
+
+        with pytest.raises(IncurableStepError) as excinfo:
+            fixture.executor.execute("click Pay", "action", page)
+
+        assert excinfo.value.code == failed_code  # programmatic consumers read it here
+        assert failed_code not in str(excinfo.value)  # never rendered
+        failed = events_named(fixture.recorder, "on_step_failed")
+        assert failed == [{"step_text": "click Pay", "step_type": "action", "error": str(failure)}]
+        assert failed_code not in failed[0]["error"]  # never carried by the hook payload
