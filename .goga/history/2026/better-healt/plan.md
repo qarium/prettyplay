@@ -689,14 +689,14 @@ guarantee finite non-negative inputs — the window trusts the validated config.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: create `tests/engine/polling/` package (`__init__.py` + test module) —
+- [x] **Contract tests**: create `tests/engine/polling/` package (`__init__.py` + test module) —
   `SettleWindow` importable from `prettyplay.engine.polling`; constructs with
   `(timeout, delay)`; exposes `timeout`/`delay`/`enabled` and the two methods (expected to fail
   at this stage)
-- [ ] **Code**: implement `SettleWindow` in `prettyplay/engine/polling/window.py` per the
+- [x] **Code**: implement `SettleWindow` in `prettyplay/engine/polling/window.py` per the
   algorithm above (monotonic clock; idempotent start; strict `<`)
-- [ ] **Interface verification**: `pytest tests/engine/polling/ -x` — all pass
-- [ ] **Logic tests**: add (monkeypatched monotonic clock)
+- [x] **Interface verification**: `pytest tests/engine/polling/ -x` — all pass
+- [x] **Logic tests**: add (monkeypatched monotonic clock)
   - `test_window_state_table` (parametrized): `SettleWindow(None, 0.5)` — `enabled` False,
     `has_remaining` False before and after `start`; `SettleWindow(0, 0.5)` — `enabled` False
     (explicit disable); `SettleWindow(5.0, 0.5)` — not started → `has_remaining` False; started,
@@ -704,11 +704,11 @@ guarantee finite non-negative inputs — the window trusts the validated config.
     False (expired)
   - `test_window_start_is_idempotent`: monkeypatched monotonic returning 1.0 then 9.0;
     `start(); start()` → `_started_at == 1.0` — the second call never shifts the window start
-- [ ] **Debugging**: `pytest tests/engine/polling/ -x` — fix implementation code until all tests pass
-- [ ] **Contract re-verification**: facade accessibility
+- [x] **Debugging**: `pytest tests/engine/polling/ -x` — fix implementation code until all tests pass
+- [x] **Contract re-verification**: facade accessibility
   `python -c "from prettyplay.engine.polling import SettleWindow"`; property/method set matches
   the contract
-- [ ] **Lint**: `ruff check prettyplay/ tests/` — fix formatting if necessary
+- [x] **Lint**: `ruff check prettyplay/ tests/` — fix formatting if necessary
 
 ### Task 9: `settle` — the re-execution loop (engine/polling)
 

@@ -1,5 +1,7 @@
 """The settle window of one step execution: the re-execution horizon of step code."""
 
+import time
+
 
 class SettleWindow:
     """The settle horizon of one step execution.
@@ -29,6 +31,7 @@ class SettleWindow:
         """
         self.timeout = timeout
         self.delay = delay
+        self._started_at: float | None = None
 
     @property
     def enabled(self) -> bool:
@@ -37,7 +40,7 @@ class SettleWindow:
         Returns:
             True when the window carries a positive timeout.
         """
-        raise NotImplementedError
+        return self.timeout is not None and self.timeout > 0
 
     def start(self) -> None:
         """Mark the window start at the first execution of the step code.
@@ -45,7 +48,8 @@ class SettleWindow:
         Idempotent: only the first call wins — later executions of the same
         step never shift the start.
         """
-        raise NotImplementedError
+        if self._started_at is None:
+            self._started_at = time.monotonic()
 
     def has_remaining(self) -> bool:
         """Whether the window still allows a repetition.
@@ -58,4 +62,6 @@ class SettleWindow:
             False when disabled, not started or expired — the first
             execution may consume the whole window.
         """
-        raise NotImplementedError
+        if not self.enabled or self._started_at is None:
+            return False
+        return (time.monotonic() - self._started_at) < self.timeout
