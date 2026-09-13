@@ -30,7 +30,7 @@ the browser group — the facade surface itself is identical in every mode.
 | `page.wait_for_url(url)` | wait until the URL matches a glob pattern |
 | `page.wait_for_load_state(state)` | wait for load, domcontentloaded or networkidle |
 | `page.expect_url(url)` | assert the URL matches a glob pattern |
-| `page.expect_title(title)` | assert the title contains |
+| `page.expect_title(title, ignore_case)` | assert the title contains; `ignore_case=true` — case-insensitive |
 | `page.get_by_role(role, name)` | element by aria role and accessible name |
 | `page.get_by_label(label)` | element by associated label |
 | `page.get_by_text(text)` | element by visible text |
@@ -98,7 +98,7 @@ the browser group — the facade surface itself is identical in every mode.
 | `element.set_input_files(path)` | upload one file by filesystem path |
 | `element.expect_visible()` | assert visible |
 | `element.expect_hidden()` | assert hidden |
-| `element.expect_text(text)` | assert text contains (substring, whitespace-normalized) |
+| `element.expect_text(text, ignore_case)` | assert text contains (substring, whitespace-normalized); `ignore_case=true` — case-insensitive |
 | `element.expect_enabled()` | assert enabled |
 | `element.expect_value(value)` | assert the input value |
 | `element.expect_checked()` | assert the checkbox/radio state |

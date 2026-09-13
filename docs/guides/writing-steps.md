@@ -103,15 +103,22 @@ against the live page:
   is spent, never the whole budget
 - Other candidate failures (element not found, timeouts) retry with the fresh
   error and snapshot
-- Only a success is stored in the cache
+- Only a success is stored in the cache — and only after it passes the
+  instruction compliance gate (`generation_approve`, default on): a `high`
+  finding of the verdict fails the attempt and the retry carries the
+  violation, `medium` and `low` findings pass with a `WARNING`, a malformed
+  verdict is a loud `ComplianceVerdictError`. See
+  [Configuration](../configuration.md#the-instruction-compliance-gate)
 - Provider unavailability of a generation request raises
   `LLMUnavailableError` immediately — no retry on it
 
 A non-empty `generation_prompt` setting adds a `USER INSTRUCTIONS` block to
 every generation and regeneration request — the project's code style guidance
-(e.g. `prefer data-test-id attributes`); classification requests never carry
+(e.g. `prefer data-test-id attributes`), binding for the generated code while
+the compliance gate is on; classification requests never carry
 it. The instructions are not part of the cache address: changing them never
-invalidates cached steps.
+invalidates cached steps — replayed code is never re-gated, so changed
+instructions need a manual cache purge to take effect.
 
 ## What you see
 

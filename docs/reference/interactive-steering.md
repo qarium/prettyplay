@@ -55,7 +55,12 @@ live page, every turn ends green or red.
 ## Effects
 
 - A green turn writes the healed step back to the cache — only after the
-  successful execution — and reports `on_healed` with an explanation naming
+  successful execution and the instruction compliance gate: `medium` and `low`
+  findings pass with a `WARNING`, a `high` finding never reaches the cache
+  (the violation joins the history and the prompt reopens), and a gate hard
+  failure — the provider unavailable or a malformed verdict — ends the dialog
+  declined, the original terminal failure propagating. A passed turn reports
+  `on_healed` with an explanation naming
   the interactive healing (see [Hooks and logging](hooks.md)); the test
   continues
 - Guidance is one-shot: it lands in the log, never in the cache file

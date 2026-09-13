@@ -830,17 +830,25 @@ class TestStepSteeringLogic:
         assert passed[0].findings == ["medium: Prefer id attributes — minor"]
         assert "compliance violation" not in capsys.readouterr().out  # the passing path prints no blocking line
 
+    @pytest.mark.parametrize(
+        "outage",
+        [
+            ComplianceVerdictError("compliance verdict unparsable — received fragment: nope"),
+            LLMUnavailableError("llm unavailable: openai request failed"),
+        ],
+        ids=["malformed-verdict", "provider-outage"],
+    )
     def test_steer_gate_hard_failure_ends_dialog_returning_none(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
         caplog: pytest.LogCaptureFixture,
+        outage: Exception,
     ) -> None:
-        """A malformed verdict ends the dialog declined — the green candidate stays unchecked, nothing cached."""
+        """A gate hard failure ends the dialog declined — the green candidate stays unchecked, nothing cached."""
         from prettyplay.engine.steering import StepSteering  # noqa: PLC0415 — cell facade check
 
-        outage = ComplianceVerdictError("compliance verdict unparsable — received fragment: nope")
         provider = FakeProvider(answers=[GENERATED_CODE], compliance_verdicts=[outage])
         fixture = SteeringFixture(provider, tmp_path)
         fixture.config = Config(cache_root=str(tmp_path), generation_prompt=INSTRUCTIONS)
@@ -859,8 +867,8 @@ class TestStepSteeringLogic:
         assert len(failed) == 1
         assert failed[0].levelno == logging.WARNING
         assert failed[0].step_text == "click Pay"
-        assert failed[0].gate_failure == "compliance verdict unparsable — received fragment: nope"
+        assert failed[0].gate_failure == str(outage)
         out = capsys.readouterr().out
         assert "compliance gate failed" in out
-        assert "nope" in out  # the raw answer fragment shows in the dialog
+        assert str(outage) in out  # the gate failure text shows in the dialog
         assert "compliance violation" not in out  # the dialog ended before any verdict handling

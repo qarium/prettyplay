@@ -425,7 +425,27 @@ def test_per_test_generation_prompt_reaches_the_provider_request(tmp_path: Path,
             test.close()
 
     assert provider.generation_requests[0]["user_instructions"] == "prefer data-test-id"
+    # the gate-on generation made exactly one verdict request carrying the instructions and the executed code
+    assert len(provider.compliance_requests) == 1
+    assert provider.compliance_requests[0]["user_instructions"] == "prefer data-test-id"
+    assert provider.compliance_requests[0]["code"] == WORKING_CODE
     assert page.calls == [("goto", "https://app.example.com")]  # generated code executed
+
+
+def test_replayed_cached_step_never_runs_the_gate(tmp_path: Path) -> None:
+    """The gate never runs on replayed cached code — even with the compliance gate switched on."""
+    provider = ForbiddenProvider()  # any gate call would fail the run the moment it happens
+    page = FakePage()
+    seed_step(tmp_path, "открыть страницу логина", OPEN_LOGIN_CODE, cache_key="login-flow")
+
+    with configured_test(
+        Config(cache_root=str(tmp_path), generation_prompt="prefer data-test-id"), provider, page
+    ) as test:
+        test.step("открыть страницу логина")
+        test.close()
+
+    assert page.calls == [("goto", "https://login.example.com")]  # the cached code replayed
+    assert provider.calls == 0  # replay never touches the LLM boundary — the compliance gate included
 
 
 def test_rot_healing_regenerates_rewrites_cache_and_passes(tmp_path: Path) -> None:

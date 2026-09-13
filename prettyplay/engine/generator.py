@@ -486,7 +486,8 @@ class StepGenerator:
             # quiet skip keeps the contract wording; an assertion repeat names the failed check
             repeat_reason = f"candidate check failed — {_first_line(failure_text)}"
         else:
-            repeat_reason = f"candidate failed — {_first_line(failure_text)}"
+            # the violation text of a compliance block carries colons — the first-line contract forbids them
+            repeat_reason = f"candidate failed — {_reason_safe(failure_text)}"
         raise IncurableStepError(step_text, repeat_reason, failure_text, code=failed_code, verdict=final) from None
 
     def _exhaustion_outcome(  # noqa: PLR0913, PLR0917 — the decision table of the refused generation pool
@@ -499,7 +500,7 @@ class StepGenerator:
         error: str | None,
         window: SettleWindow,
         attempt: int,
-        standing: ComplianceFinding | None = None,
+        standing: ComplianceFinding | None,
     ) -> CachedStep:
         """Decide the outcome of a refused generation attempt.
 

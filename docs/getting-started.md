@@ -148,8 +148,10 @@ see [Settle polling](reference/settle-polling.md).
 override) arms the steering REPL for local generation sessions: when a step
 terminally fails with `IncurableStepError` on a non-strict run, a terminal
 dialog opens and every engineer message drives one regeneration executed
-against the live page. A green turn heals the step and writes it back to the
-cache; a red turn feeds the next request; quit, EOF, SIGINT or an unreadable
+against the live page. A green turn passes the instruction compliance gate
+before the write-back (a `high` finding never reaches the cache — the dialog
+shows the violation and re-prompts) and heals the step; a red turn feeds the
+next request; quit, EOF, SIGINT or an unreadable
 stdin raises the original terminal failure. The dialog never opens on
 `product_defect`, in strict mode, or without LLM access, and consumes no
 budgets. Keep it off in CI — an accidentally opened dialog would hang the
@@ -175,13 +177,14 @@ synchronously. See [Hooks and logging](reference/hooks.md).
 
 ## Failures
 
-Four kinds reach the runner — see [Failure taxonomy](reference/failure-taxonomy.md):
+Five kinds reach the runner — see [Failure taxonomy](reference/failure-taxonomy.md):
 
 | Kind | Meaning | Reaction |
 |---|---|---|
 | `ProductDefectError` | a real regression — also an `AssertionError` | treat as a bug — this failure is the value of the suite |
 | `IncurableStepError` | the step cannot be generated or healed — in strict mode also: the cache miss | follow the carried recommendation |
 | `LLMUnavailableError` | the LLM is down | only generation and healing are blocked; cached steps keep running |
+| `ComplianceVerdictError` | the instruction compliance gate could not parse the verdict model's answer | rerun the step — the candidate was never cached; a repeatedly malformed verdict points at the verdict model |
 | `ConfigurationError` | the settings are invalid | fix the named setting — the message lists the allowed values |
 
 ## Interactive sessions (IPython, Jupyter)

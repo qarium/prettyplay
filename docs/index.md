@@ -43,7 +43,8 @@ closes the page and stops the whole browser of that test.
 
 - **cache hit** — the cached code runs; no LLM is contacted
 - **cache miss** — the step code is generated (a candidate that must actually
-  work on the page), then cached; only successes are cached
+  work on the page), then cached; only successes are cached — after the
+  instruction compliance gate
 - **cached failure** — the failure is classified:
     - `rot` (the UI changed) — the step is regenerated and the cache rewritten
     - `fixable` (the step code is at fault, the intent stays satisfiable) — regenerated for the same intent
@@ -62,7 +63,7 @@ and [Step cache](reference/step-cache.md).
 - [Writing steps](guides/writing-steps.md) — authoring tests as scenarios
 - [Configuration](configuration.md) — pyproject.toml settings, env overrides, the PrettyConfig API
 - [Browser setup](guides/browser-setup.md) — engines, screen modes, remote browsers
-- [Failure taxonomy](reference/failure-taxonomy.md) — the four failure kinds and the structured message
+- [Failure taxonomy](reference/failure-taxonomy.md) — the five failure kinds and the structured message
 - [Hooks and logging](reference/hooks.md) — event callbacks for custom reporting
 - [Step cache](reference/step-cache.md) — addressing, storage, attempt budgets, CI workflow
 - [LLM providers](reference/llm-providers.md) — openai and anthropic parity, model settings

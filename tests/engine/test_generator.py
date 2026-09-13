@@ -953,7 +953,8 @@ class TestStepGeneratorLogic:
         with pytest.raises(IncurableStepError) as excinfo:
             fixture.generator.generate(make_identity(), "click Pay", [], page, fixture.window)
 
-        assert excinfo.value.reason == "candidate failed — TypeError: bad code"  # not "candidate check failed"
+        # not "candidate check failed"; the first-line contract strips the colon of the embedded text
+        assert excinfo.value.reason == "candidate failed — TypeError  bad code"
         assert excinfo.value.verdict is not None
         assert excinfo.value.verdict.explanation == "still renamed"
         assert excinfo.value.code == TYPING_BROKEN_CODE
@@ -1299,6 +1300,155 @@ class TestStepGeneratorComplianceGate:
         assert fixture.cache.load(identity) is None  # the cache is untouched
         assert excinfo.value.verdict is not None
         assert excinfo.value.verdict.category == "incurable"
+        # the repeat reason embeds the violation text first-line safe — the colon is stripped
+        assert excinfo.value.reason == "candidate failed — violated instruction  Prefer id attributes — locates by text"
+        assert ":" not in excinfo.value.reason.split("\n")[0]  # the first-line contract holds
+
+    def test_regenerate_gate_hard_failure_propagates_and_caches_nothing(self, tmp_path: Path) -> None:
+        """A malformed verdict of a green healed candidate propagates — never swallowed into a retry."""
+        outage = ComplianceVerdictError("compliance verdict unparsable — received fragment: nope")
+        provider = StubProvider([WORKING_CODE], compliance_verdicts=[outage])
+        fixture = GeneratorFixture(tmp_path, provider, generation_prompt="Prefer id attributes")
+        identity = make_identity()
+        page = FakePage()
+
+        with pytest.raises(ComplianceVerdictError) as excinfo:
+            fixture.generator.regenerate(
+                identity,
+                "click Sign in",
+                [],
+                page,
+                existing_code=BROKEN_CODE,
+                error="TimeoutError",
+                recommendation="retry with an id locator",
+                window=fixture.window,
+            )
+
+        assert excinfo.value is outage  # propagates — the loop's except Exception never sees the gate
+        assert len(provider.calls) == 1  # exactly one healing request — no retry after the hard failure
+        assert len(provider.compliance_calls) == 1
+        assert fixture.cache.load(identity) is None  # the unchecked candidate is never cached
+
+    def test_funded_regeneration_gate_hard_failure_propagates_and_caches_nothing(self, tmp_path: Path) -> None:
+        """A malformed verdict of the funded candidate propagates — no final classification, nothing cached."""
+        outage = ComplianceVerdictError("compliance verdict unparsable — received fragment: nope")
+        provider = StubProvider(
+            [CHECK_CODE, WORKING_CODE],  # the entry candidate fails the check; the funded one is green
+            verdicts=[
+                FailureClassification(category="rot", explanation="the button was renamed", recommendation="id"),
+            ],
+            compliance_verdicts=[outage],
+        )
+        fixture = GeneratorFixture(tmp_path, provider, generation_prompt="Prefer id attributes")
+        identity = make_identity()
+        page = FakePage(assertion_message="button is hidden")
+
+        with pytest.raises(ComplianceVerdictError) as excinfo:
+            fixture.generator.generate(identity, "click Pay", [], page, fixture.window)
+
+        assert excinfo.value is outage  # propagates — the settle try never swallows the gate
+        assert len(provider.calls) == 2  # the failed candidate + the one funded request that turned green
+        assert len(provider.compliance_calls) == 1
+        assert len(provider.classify_failure_calls) == 1  # the entry classification only — no final one
+        assert fixture.cache.load(identity) is None
+
+    def test_generate_candidate_failure_replaces_the_standing_violation(self, tmp_path: Path) -> None:
+        """A real candidate failure drops the standing high finding — the exhaustion follows the normal table."""
+        provider = StubProvider(
+            [WORKING_CODE, BROKEN_CODE],  # candidate 1 green but high; candidate 2 dies on the page
+            verdict=ROT_VERDICT,
+            compliance_verdicts=[[HIGH_FINDING]],  # candidate 2 never reaches the gate
+        )
+        fixture = GeneratorFixture(tmp_path, provider, limits=(2, 0), generation_prompt="Prefer id attributes")
+        identity = make_identity()
+        page = FakePage()  # no get_by_role — candidate 2 fails with a non-assertion AttributeError
+
+        with pytest.raises(IncurableStepError) as excinfo:
+            fixture.generator.generate(identity, "click Pay", [], page, fixture.window)
+
+        assert excinfo.value.reason == "healing attempt budget exhausted"  # the refused funding of the rot verdict
+        assert "violated instruction" not in excinfo.value.reason  # the reset standing finding no longer names it
+        assert excinfo.value.verdict is not None
+        assert excinfo.value.verdict.category == "rot"  # the classification verdict, never the standing-built one
+        assert len(provider.classify_failure_calls) == 1  # the exhaustion classified — the standing branch never does
+        assert len(provider.compliance_calls) == 1  # only the first green candidate was gated
+
+    def test_generate_standing_high_instruction_with_colon_and_newline_stays_reason_safe(
+        self, tmp_path: Path
+    ) -> None:
+        """A colon-bearing multi-line instruction stays first-line safe in the authored standing reason."""
+        instruction = "Use page.locator: prefer ids\nalways narrow positionally"
+        finding = ComplianceFinding(instruction=instruction, priority="high", explanation="locates by text")
+        provider = StubProvider(
+            [WORKING_CODE, WORKING_CODE], compliance_verdicts=[[finding], [finding]]
+        )
+        fixture = GeneratorFixture(tmp_path, provider, limits=(2, 2), generation_prompt="Use page.locator: prefer ids")
+        identity = make_identity()
+        page = FakePage()
+
+        with pytest.raises(IncurableStepError) as excinfo:
+            fixture.generator.generate(identity, "click Sign in", [], page, fixture.window)
+
+        assert (
+            excinfo.value.reason
+            == "generation attempt budget exhausted — violated instruction Use page.locator  prefer ids"
+        )
+        assert ":" not in excinfo.value.reason.split("\n")[0]  # the first-line contract holds through the colon
+        assert "\n" not in excinfo.value.reason  # the newline of the instruction is cut at the first line
+        assert excinfo.value.error == f"violated instruction: {instruction} — locates by text"  # the error keeps it all
+
+    def test_regenerate_medium_findings_pass_with_warning(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Non-blocking findings of a healed candidate pass with a WARNING — the heal is written back."""
+        findings = [ComplianceFinding(instruction="Prefer id attributes", priority="medium", explanation="partial")]
+        provider = StubProvider([WORKING_CODE], compliance_verdicts=[findings])
+        fixture = GeneratorFixture(tmp_path, provider, generation_prompt="Prefer id attributes")
+        identity = make_identity()
+        page = FakePage()
+
+        with caplog.at_level(logging.WARNING, logger="prettyplay"):
+            step = fixture.generator.regenerate(
+                identity,
+                "click Sign in",
+                [],
+                page,
+                existing_code=BROKEN_CODE,
+                error="TimeoutError",
+                recommendation="retry with an id locator",
+                window=fixture.window,
+            )
+
+        assert step.code == WORKING_CODE  # non-blocking findings never fail the heal
+        assert fixture.cache.load(identity) is not None
+        passed = [record for record in caplog.records if record.message == "compliance findings passed"]
+        assert len(passed) == 1
+        assert passed[0].step_text == "click Sign in"
+
+    def test_funded_regeneration_medium_findings_pass_with_warning(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Non-blocking findings of the funded candidate pass with a WARNING — the heal is stored."""
+        findings = [ComplianceFinding(instruction="Prefer id attributes", priority="medium", explanation="partial")]
+        provider = StubProvider(
+            [CHECK_CODE, WORKING_CODE],  # the entry candidate fails the check; the funded one is green
+            verdicts=[
+                FailureClassification(category="rot", explanation="the button was renamed", recommendation="id"),
+            ],
+            compliance_verdicts=[findings],
+        )
+        fixture = GeneratorFixture(tmp_path, provider, generation_prompt="Prefer id attributes")
+        identity = make_identity()
+        page = FakePage(assertion_message="button is hidden")
+
+        with caplog.at_level(logging.WARNING, logger="prettyplay"):
+            step = fixture.generator.generate(identity, "click Pay", [], page, fixture.window)
+
+        assert step.code == WORKING_CODE  # the funded regeneration healed through the warning
+        assert fixture.cache.load(identity) is not None
+        passed = [record for record in caplog.records if record.message == "compliance findings passed"]
+        assert len(passed) == 1
+        assert passed[0].step_text == "click Pay"
 
 
 class TestPromptConstants:

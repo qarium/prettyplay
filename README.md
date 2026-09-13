@@ -79,7 +79,8 @@ t.save_screenshot("artifacts/home.png")   # write full-page PNG to a file
 
 - **cache hit** — the cached code runs; no LLM is contacted
 - **cache miss** — the step code is generated (a candidate that must actually
-  work on the page), then cached; only successes are cached. A candidate
+  work on the page), then cached; only successes are cached — after the
+  instruction compliance gate. A candidate
   assertion that legitimately fails stops the retries at once and is
   classified: a real defect fails as `product_defect`; a `rot` or `fixable`
   verdict grants exactly one healing-funded regeneration carrying the
@@ -132,7 +133,9 @@ drives one regeneration executed against the live page. Local commands
 serve the context without an LLM request: `snapshot` (the full
 accessibility snapshot), `screenshot` (a full PNG written to a temporary
 file, path printed), `error` and `code` (the stored texts) and `quit`. A
-green turn heals the step and writes it back to the cache; a red turn is
+green turn heals the step and writes it back to the cache — only after the
+instruction compliance gate passes (a `high` finding never reaches the cache:
+the violation joins the history and the prompt reopens); a red turn is
 one bare execution — the settle window never re-arms inside the dialog —
 and its outcome joins the history of the next request; quit, EOF, SIGINT
 or an unreadable stdin raises the original terminal failure. The dialog
@@ -171,6 +174,7 @@ classification_model = ""        # optional: empty -> model
 base_url = ""
 cache_root = ""                  # empty -> <cwd>/.prettyplay/cache/
 generation_prompt = ""           # user instructions for generation; empty -> no instructions block
+generation_approve = true        # the instruction compliance gate before caching; false -> the gate never runs
 classification_prompt = ""       # user instructions for classification; empty -> no instructions block
 strict = false                   # true -> replay-only mode (no generation, no healing)
 interactive = false              # true -> the steering dialog on a terminally stuck step (local sessions)
@@ -216,8 +220,18 @@ The `screen` setting of the browser group decides the context size:
 A non-empty `generation_prompt` is sent verbatim as a `USER INSTRUCTIONS`
 block with every generation and regeneration request — it steers the style of
 the generated code (e.g. `prefer data-test-id attributes`), never the failure
-classification. The instructions are not part of the cache address: changing
-them never invalidates cached steps — a cached step runs unchanged.
+classification. The instructions are binding, not advisory: while the
+instruction compliance gate is on (`generation_approve`, default `true`),
+every successfully generated candidate passes an independent compliance check
+before it is cached — one extra LLM call through the effective generation
+model; a `high` finding fails the attempt and the retry carries the violation,
+`medium` and `low` findings pass with a `WARNING`, and a malformed verdict is
+a loud `ComplianceVerdictError` (the candidate is never cached unchecked).
+`generation_approve = false` (env `PRETTYPLAY_GENERATION_APPROVE`) removes the
+gate entirely — the old behavior. The instructions are not part of the cache
+address: changing them never invalidates cached steps — a cached step runs
+unchanged and is never re-gated, so changed instructions need a manual cache
+purge to take effect.
 
 A non-empty `classification_prompt` works the same way for classification
 requests only — it steers the verdict explanations (e.g. `answer in Russian`),
@@ -274,6 +288,7 @@ Every library failure derives from `PrettyplayError`:
 | ProductDefectError | real product regression | treat as a bug: this failure is the value of the suite |
 | IncurableStepError | the step cannot be (re)generated — budget exhausted, step text stale, or a strict-mode cache miss | follow `recommendation`: reword the step or refresh the cache |
 | LLMUnavailableError | LLM infrastructure down | restore provider access; cached steps are unaffected |
+| ComplianceVerdictError | the instruction compliance gate could not obtain a usable verdict | rerun the step to retry generation; the candidate was never cached |
 | ConfigurationError | invalid `[tool.prettyplay]` settings | fix the named setting — the message lists received and allowed values |
 
 `ProductDefectError` and `IncurableStepError` render one structured terminal

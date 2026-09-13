@@ -1,5 +1,7 @@
 """Tests for the instruction compliance gate of the prettyplay.engine cell."""
 
+import re
+import textwrap
 from pathlib import Path
 
 from prettyplay.config import Config
@@ -84,16 +86,13 @@ class TestCheckStepComplianceLogic:
 
 
 class TestCompliancePromptMirror:
-    """Mirror test: the constant carries the calibration lines of the CODEMANIFEST practice."""
+    """Mirror test: the constant is the byte-equal copy of the CODEMANIFEST practice."""
 
     def test_compliance_prompt_mirror_matches_the_code_manifest_practice(self) -> None:
         manifest = ENGINE_CODEMANIFEST.read_text(encoding="utf-8")
+        block = re.search(r"^  compliance_prompt: \|\n((?:    .*\n|\n)+)", manifest, flags=re.MULTILINE)
+        assert block is not None  # the practice block exists
 
-        for line in (
-            "only high blocks the",
-            "when in doubt, never high",
-            "an empty list [] means the code complies",
-            "Output only the JSON list, no other text",
-        ):
-            assert line in manifest  # the practice is the source
-            assert line in COMPLIANCE_PROMPT  # the mirror copies it
+        practice = textwrap.dedent(block.group(1)).strip()
+
+        assert practice == COMPLIANCE_PROMPT  # the frozen mirror — the constant changes only together with the manifest

@@ -120,6 +120,9 @@ class TestParseComplianceVerdict:
             '[{"priority": "high", "explanation": "e"}]',
             '[{"instruction": "i", "priority": "critical", "explanation": "e"}]',
             '[{"instruction": 7, "priority": "high", "explanation": "e"}]',
+            # a fenced answer is malformed too — the strict parse does no fence unwrapping
+            "```json\n[]\n```",
+            '```json\n[{"instruction": "i", "priority": "high", "explanation": "e"}]\n```',
         ],
     )
     def test_parse_compliance_verdict_malformed_variants(self, verdict_text: str) -> None:
