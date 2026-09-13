@@ -52,7 +52,9 @@ budget is consumed. Locator ambiguity and Python-level errors of the step code n
 `interactive = true` (env PRETTYPLAY_INTERACTIVE, per-test override) arms the steering REPL for local generation
 sessions: when a step terminally fails with IncurableStepError, a terminal dialog opens — step, failed code, error,
 verdict, snapshot fragment, screenshot path — and every engineer message drives one regeneration executed against the
-live page. A green turn heals the step and writes it back to the cache; quit/EOF/SIGINT/unreadable stdin raises the
+live page. A green turn heals the step and writes it back to the cache — only after the instruction compliance gate
+passes (a high finding never reaches the cache: the violation joins the history and the prompt reopens);
+quit/EOF/SIGINT/unreadable stdin raises the
 original terminal failure. The dialog opens only on IncurableStepError of a non-strict run — an LLMUnavailableError
 leaving the engine never reaches it (with a dead provider the dialog still opens and its local commands work; the
 first guidance message then declines and the original failure propagates) — and consumes no budgets.
@@ -64,13 +66,14 @@ Implement the StepHooks callback contract and register the implementation — ei
 
 ## Failures
 
-Four kinds reach the runner:
+Five kinds reach the runner:
 
 | Kind | Meaning | Reaction |
 |---|---|---|
 | ProductDefectError | a real regression — also an AssertionError: runners show a failure, not an error; the traceback is folded to the library boundary | treat as a bug — this failure is the value of the suite |
 | IncurableStepError | the step cannot be generated or healed — in strict mode also: the cache miss | follow the carried recommendation |
 | LLMUnavailableError | the LLM is down | only generation and healing are blocked; cached steps keep running |
+| ComplianceVerdictError | the instruction compliance gate could not obtain a usable verdict — the executed candidate is never cached unchecked | rerun the step to retry generation; a repeatedly malformed verdict points at the verdict model |
 | ConfigurationError | the settings are invalid | fix the named setting — the message lists the allowed values |
 
 ProductDefectError and IncurableStepError render one structured message — the primary reason line, the `---` separated step/error block with the full underlying error, the column-aligned verdict block — and the same text reaches the exception message, the on_step_failed hook event and the log. When the LLM is unavailable the verdict is skipped quietly; the failure itself never waits for it.
