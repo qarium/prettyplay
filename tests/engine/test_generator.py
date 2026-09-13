@@ -1304,6 +1304,36 @@ class TestStepGeneratorComplianceGate:
         assert excinfo.value.reason == "candidate failed — violated instruction  Prefer id attributes — locates by text"
         assert ":" not in excinfo.value.reason.split("\n")[0]  # the first-line contract holds
 
+    def test_funded_regeneration_compliance_block_quiet_skip_keeps_candidate_failure_reason(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A quiet skip of the final classification never relabels a compliance block as a check."""
+        provider = StubProvider(
+            [CHECK_CODE, WORKING_CODE],  # the entry candidate fails the check; the funded one is green but high
+            verdicts=[
+                FailureClassification(category="rot", explanation="the button was renamed", recommendation="id"),
+                LLMUnavailableError("llm unavailable: openai request failed"),
+            ],
+            compliance_verdicts=[[HIGH_FINDING]],
+        )
+        fixture = GeneratorFixture(tmp_path, provider, generation_prompt="Prefer id attributes")
+        identity = make_identity()
+        page = FakePage(assertion_message="button is hidden")  # the entry candidate's check fails
+
+        with caplog.at_level(logging.WARNING, logger="prettyplay"), pytest.raises(IncurableStepError) as excinfo:
+            fixture.generator.generate(identity, "click Pay", [], page, fixture.window)
+
+        assert excinfo.value.verdict is None  # the quiet skip — never an infrastructure failure
+        assert excinfo.value.error == VIOLATION_TEXT
+        assert len(provider.calls) == 2  # the failed candidate + exactly one funded request
+        assert fixture.cache.load(identity) is None  # nothing is cached on the blocked path
+        # the label stays "candidate failed" — a compliance block is never a check — and the
+        # first-line contract holds even without a final verdict to carry the wording
+        assert excinfo.value.reason == "candidate failed — violated instruction  Prefer id attributes — locates by text"
+        assert ":" not in excinfo.value.reason.split("\n")[0]
+        warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
+        assert any("verdict skipped" in record.message for record in warnings)
+
     def test_regenerate_gate_hard_failure_propagates_and_caches_nothing(self, tmp_path: Path) -> None:
         """A malformed verdict of a green healed candidate propagates — never swallowed into a retry."""
         outage = ComplianceVerdictError("compliance verdict unparsable — received fragment: nope")

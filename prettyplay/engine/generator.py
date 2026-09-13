@@ -482,11 +482,12 @@ class StepGenerator:
         final = self._classify(step_text, failed_code, failure_text, page)
         if final is not None and final.category == "product_defect":
             raise ProductDefectError(step_text, final.explanation, failure_text, final) from None
-        if final is None or repeat_was_check:
-            # quiet skip keeps the contract wording; an assertion repeat names the failed check
+        if repeat_was_check:
+            # an assertion repeat names the failed check
             repeat_reason = f"candidate check failed — {_first_line(failure_text)}"
         else:
-            # the violation text of a compliance block carries colons — the first-line contract forbids them
+            # a compliance block or a failed execution is a candidate failure, quiet skip or
+            # not — the violation text carries colons; the first-line contract forbids them
             repeat_reason = f"candidate failed — {_reason_safe(failure_text)}"
         raise IncurableStepError(step_text, repeat_reason, failure_text, code=failed_code, verdict=final) from None
 
