@@ -241,6 +241,11 @@ class TestStepSteeringContract:
         assert SYSTEM_PROMPT == ENGINE_SYSTEM_PROMPT  # the two frozen copies agree — no one-sided edit
         assert PAGE_API_SURFACE == ENGINE_PAGE_API_SURFACE
 
+        # the ignore_case capability rows are mirrored in both constants — the equality above
+        # carries them to the engine copy; assert them on the steering copy explicitly
+        assert "page.expect_title(title, ignore_case)" in PAGE_API_SURFACE
+        assert "element.expect_text(text, ignore_case)" in PAGE_API_SURFACE
+
 
 class TestStepSteeringLogic:
     """Logic tests: green and red turns, exit paths, local commands, dead pages."""

@@ -155,13 +155,17 @@ class PageFacade:
         """
         self._call(lambda: expect(self._page).to_have_url(url))
 
-    def expect_title(self, title: str) -> None:
+    def expect_title(self, title: str, ignore_case: bool = False) -> None:
         """Assert the title contains the text — auto-waiting.
 
         Args:
             title: the text the title must contain.
+            ignore_case: False (the default) — the check stays case-sensitive,
+                the behavior unchanged; True — the title pattern compiles with
+                the case-insensitive regex flag.
         """
-        pattern = re.compile(f".*{re.escape(title)}.*", re.DOTALL)
+        flags = re.DOTALL | re.IGNORECASE if ignore_case else re.DOTALL
+        pattern = re.compile(f".*{re.escape(title)}.*", flags)
         self._call(lambda: expect(self._page).to_have_title(pattern))
 
     def get_by_role(self, role: str, name: str = "") -> LocatorFacade:
@@ -677,13 +681,16 @@ class LocatorFacade:
         """Assert the element is hidden."""
         self._call(lambda: expect(self._locator).to_be_hidden())
 
-    def expect_text(self, text: str) -> None:
+    def expect_text(self, text: str, ignore_case: bool = False) -> None:
         """Assert the element contains the text.
 
         Args:
             text: the text the element must contain.
+            ignore_case: False (the default) — the check stays case-sensitive,
+                the behavior unchanged; True — the substring check matches
+                case-insensitively through the Playwright ignore_case flag.
         """
-        self._call(lambda: expect(self._locator).to_contain_text(text))
+        self._call(lambda: expect(self._locator).to_contain_text(text, ignore_case=ignore_case))
 
     def expect_enabled(self) -> None:
         """Assert the element is enabled."""

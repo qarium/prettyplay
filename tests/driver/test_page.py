@@ -33,8 +33,8 @@ class FakeExpectation:
     def to_be_visible(self) -> None:
         self._assertions.append("to_be_visible")
 
-    def to_contain_text(self, text: str) -> None:
-        self._assertions.append(("to_contain_text", text))
+    def to_contain_text(self, text: str, ignore_case: bool = False) -> None:
+        self._assertions.append(("to_contain_text", text, {"ignore_case": ignore_case}))
 
     def to_be_enabled(self) -> None:
         self._assertions.append("to_be_enabled")
@@ -666,7 +666,8 @@ class TestPageFacadeContract:
         assert list(inspect.signature(PageFacade.wait_for_url).parameters) == ["self", "url"]
         assert list(inspect.signature(PageFacade.wait_for_load_state).parameters) == ["self", "state"]
         assert list(inspect.signature(PageFacade.expect_url).parameters) == ["self", "url"]
-        assert list(inspect.signature(PageFacade.expect_title).parameters) == ["self", "title"]
+        assert list(inspect.signature(PageFacade.expect_title).parameters) == ["self", "title", "ignore_case"]
+        assert inspect.signature(PageFacade.expect_title).parameters["ignore_case"].default is False
         assert list(inspect.signature(PageFacade.get_by_role).parameters) == ["self", "role", "name"]
         assert inspect.signature(PageFacade.get_by_role).parameters["name"].default == ""
         assert list(inspect.signature(PageFacade.get_by_label).parameters) == ["self", "label"]
@@ -704,7 +705,8 @@ class TestPageFacadeContract:
         assert list(inspect.signature(LocatorFacade.fill).parameters) == ["self", "value"]
         assert list(inspect.signature(LocatorFacade.select_option).parameters) == ["self", "value"]
         assert list(inspect.signature(LocatorFacade.expect_visible).parameters) == ["self"]
-        assert list(inspect.signature(LocatorFacade.expect_text).parameters) == ["self", "text"]
+        assert list(inspect.signature(LocatorFacade.expect_text).parameters) == ["self", "text", "ignore_case"]
+        assert inspect.signature(LocatorFacade.expect_text).parameters["ignore_case"].default is False
         assert list(inspect.signature(LocatorFacade.expect_enabled).parameters) == ["self"]
 
     def test_locator_facade_interaction_surface_matches_contract(self) -> None:
@@ -761,6 +763,11 @@ class TestPageFacadeContract:
 
         hidden_hints = get_type_hints(LocatorFacade.expect_hidden)
         assert hidden_hints["return"] is type(None)
+
+        text_hints = get_type_hints(LocatorFacade.expect_text)
+        assert text_hints["text"] is str
+        assert text_hints["ignore_case"] is bool
+        assert text_hints["return"] is type(None)
 
         value_hints = get_type_hints(LocatorFacade.expect_value)
         assert value_hints["value"] is str
@@ -842,6 +849,7 @@ class TestPageFacadeContract:
 
         expect_title_hints = get_type_hints(PageFacade.expect_title)
         assert expect_title_hints["title"] is str
+        assert expect_title_hints["ignore_case"] is bool
         assert expect_title_hints["return"] is type(None)
 
         role_hints = get_type_hints(PageFacade.get_by_role)
@@ -1002,6 +1010,30 @@ class TestPageFacadeLogic:
         assert pattern.pattern == f".*{re.escape('C++ (2026)')}.*"  # metacharacters escaped
         assert pattern.search("Report C++ (2026) edition")  # the title is matched literally — contains semantics
         assert pattern.search("C+ 2026") is None  # must not turn into an accidental regex
+
+    def test_expect_title_compiles_case_insensitive_pattern(self) -> None:
+        page = FakePage()
+        facade = make_page_facade(page)
+        assertions: list[tuple[Any, ...]] = []
+
+        recorder = lambda receiver: FakePageExpectation(receiver, assertions)  # noqa: E731
+        with mock.patch("prettyplay.driver.page.expect", side_effect=recorder):
+            facade.expect_title("dashboard", ignore_case=True)
+
+        kind, pattern = assertions[1]
+        assert kind == "to_have_title"  # the page records the compiled pattern
+        assert pattern.flags & re.IGNORECASE  # the case-insensitive flag rides the regex
+        assert pattern.match("My Dashboard") is not None  # case no longer matters
+        assert pattern.pattern == ".*dashboard.*"  # the text itself stays literal
+
+        default_assertions: list[tuple[Any, ...]] = []
+        default_recorder = lambda receiver: FakePageExpectation(receiver, default_assertions)  # noqa: E731
+        with mock.patch("prettyplay.driver.page.expect", side_effect=default_recorder):
+            facade.expect_title("dashboard")  # the default path stays case-sensitive
+
+        default_pattern = default_assertions[1][1]
+        assert not default_pattern.flags & re.IGNORECASE
+        assert default_pattern.match("DASHBOARD") is None  # the old behavior unchanged
 
     def test_expect_url_uses_glob_string(self) -> None:
         page = FakePage()
@@ -1363,7 +1395,7 @@ class TestLocatorFacadeLogic:
             ("received", locator),
             "to_be_visible",
             ("received", locator),
-            ("to_contain_text", "Добро пожаловать"),
+            ("to_contain_text", "Добро пожаловать", {"ignore_case": False}),
             ("received", locator),
             "to_be_enabled",
         ]
@@ -1379,6 +1411,19 @@ class TestLocatorFacadeLogic:
 
         assert assertions.calls[0] == ("received", locator)
         assert assertions.calls[0][1] is locator
+
+    def test_expect_text_passes_ignore_case_to_playwright(self) -> None:
+        locator = FakeLocator()
+        element = make_locator_facade(locator)
+        assertions = RecordingAssertions()
+
+        recorder = lambda loc: FakeExpectation(loc, assertions.calls)  # noqa: E731
+        with mock.patch("prettyplay.driver.page.expect", side_effect=recorder):
+            element.expect_text("SUCCESS", ignore_case=True)
+            element.expect_text("SUCCESS")  # the default stays case-sensitive
+
+        assert assertions.calls[1] == ("to_contain_text", "SUCCESS", {"ignore_case": True})
+        assert assertions.calls[3] == ("to_contain_text", "SUCCESS", {"ignore_case": False})
 
     def test_expectation_family_uses_the_full_set(self) -> None:
         locator = FakeLocator()
@@ -1401,7 +1446,7 @@ class TestLocatorFacadeLogic:
             ("received", locator),
             "to_be_visible",
             ("received", locator),
-            ("to_contain_text", "Добро пожаловать"),
+            ("to_contain_text", "Добро пожаловать", {"ignore_case": False}),
             ("received", locator),
             "to_be_enabled",
             ("received", locator),

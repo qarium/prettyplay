@@ -1113,7 +1113,7 @@ class TestPromptConstants:
     def test_system_prompt_documents_user_instructions_input(self) -> None:
         # the USER INSTRUCTIONS input line sits right after the PAGE API input line
         page_api_input = SYSTEM_PROMPT.index("- PAGE API: the exact surface listing")
-        user_instructions_input = SYSTEM_PROMPT.index("- USER INSTRUCTIONS: the project's code style guidance")
+        user_instructions_input = SYSTEM_PROMPT.index("- USER INSTRUCTIONS: the project's binding code style guidance")
         code_input = SYSTEM_PROMPT.index("- CODE: the existing step code that failed")
         assert page_api_input < user_instructions_input < code_input
 
@@ -1170,7 +1170,7 @@ class TestPromptConstants:
             "page.wait_for_url(url)",
             "page.wait_for_load_state(state)",
             "page.expect_url(url)",
-            "page.expect_title(title)",
+            "page.expect_title(title, ignore_case)",
             "page.get_by_role(role, name)",
             "page.get_by_label(label)",
             "page.get_by_text(text)",
@@ -1222,7 +1222,7 @@ class TestPromptConstants:
             "element.set_input_files(path)",
             "element.expect_visible()",
             "element.expect_hidden()",
-            "element.expect_text(text)",
+            "element.expect_text(text, ignore_case)",
             "element.expect_enabled()",
             "element.expect_value(value)",
             "element.expect_checked()",

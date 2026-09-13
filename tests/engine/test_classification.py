@@ -163,7 +163,10 @@ class TestClassifyStepFailureLogic:
 
         recorded = provider.classify_failure_calls[0]
         assert recorded["user_instructions"] == "answer in Russian"
-        assert "- USER INSTRUCTIONS: the project's classification guidance, when configured" in recorded["prompt"]
+        assert (
+            "- USER INSTRUCTIONS: the project's binding classification guidance, when configured — "
+            "follow it; it never overrides the fixed answer format above" in recorded["prompt"]
+        )
 
         empty = ClassificationProvider(
             FailureClassification(category="rot", explanation="e", recommendation="r")

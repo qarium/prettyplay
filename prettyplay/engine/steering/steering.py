@@ -29,7 +29,7 @@ Input you receive:
 - PAGE SNAPSHOT: the accessibility snapshot of the current page
 - SCREENSHOT: an image of the page, when attached
 - PAGE API: the exact surface listing of the page facade — call nothing outside it
-- USER INSTRUCTIONS: the project's code style guidance, when configured
+- USER INSTRUCTIONS: the project's binding code style guidance, when configured
 - CODE: the existing step code that failed (regeneration requests only)
 - ERROR: the failure description of the existing code (regeneration requests only)
 - RECOMMENDATION: the diagnosis of the classification that preceded this regeneration, when present
@@ -52,6 +52,15 @@ Rules:
 - Scroll abilities exist for scenario scrolling: bring an element into view, scroll by an amount, to the page end or start, inside a scrollable container
 - No fixed delays, no sleeps, no explicit waits — the facade waits itself
 - RECOMMENDATION and USER GUIDANCE carry the diagnosis and the engineer's intent — follow them when they conflict with your first instinct
+- USER INSTRUCTIONS are binding for everything below the safety core of these Rules:
+  follow them when configured; silently ignoring an instruction is a violation
+- The safety core of these Rules always outranks the instructions: the fixed function
+  form, no imports, facade-only calls, expectations-only assertions, no fixed delays.
+  An instruction conflicting with a Rule or naming a call outside the page API surface
+  is unfollowable: never implement it silently — raise in the step code with the message
+  "instruction conflicts with rule Y" naming the conflict, so the failure surfaces loudly
+- Prefer-type instructions are conditional by their own wording: follow them when the
+  page offers the option — best-effort with a graceful fallback is compliance
 - The step must complete exactly what STEP says — nothing more, nothing less
 - Output only the code block, no explanations"""
 
@@ -68,7 +77,7 @@ page.reload()                                 — reload and wait for the load s
 page.wait_for_url(url)                        — wait until the URL matches a glob pattern
 page.wait_for_load_state(state)               — wait for load, domcontentloaded or networkidle
 page.expect_url(url)                          — assert the URL matches a glob pattern
-page.expect_title(title)                      — assert the title contains
+page.expect_title(title, ignore_case)         — assert the title contains; ignore_case=true — case-insensitive
 page.get_by_role(role, name)                  — element by aria role and accessible name
 page.get_by_label(label)                      — element by associated label
 page.get_by_text(text)                        — element by visible text
@@ -120,7 +129,7 @@ element.drag_to(target)               — drag onto another element
 element.set_input_files(path)         — upload one file by filesystem path
 element.expect_visible()              — assert visible
 element.expect_hidden()               — assert hidden
-element.expect_text(text)             — assert text contains (substring, whitespace-normalized)
+element.expect_text(text, ignore_case) — assert text contains (substring, whitespace-normalized); ignore_case=true — case-insensitive
 element.expect_enabled()              — assert enabled
 element.expect_value(value)           — assert the input value
 element.expect_checked()              — assert the checkbox/radio state

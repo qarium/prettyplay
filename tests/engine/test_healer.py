@@ -573,7 +573,8 @@ class TestStepHealerLogic:
         # the USER INSTRUCTIONS input line sits right after the SCREENSHOT input line
         screenshot_input = CLASSIFICATION_PROMPT.index("- SCREENSHOT: an image of the page, when attached")
         user_instructions_input = CLASSIFICATION_PROMPT.index(
-            "- USER INSTRUCTIONS: the project's classification guidance, when configured"
+            "- USER INSTRUCTIONS: the project's binding classification guidance, when configured — follow it; "
+            "it never overrides the fixed answer format above"
         )
         answer_line = CLASSIFICATION_PROMPT.index("Answer with exactly one line")
         assert screenshot_input < user_instructions_input < answer_line

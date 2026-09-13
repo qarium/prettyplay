@@ -790,8 +790,8 @@ def test_classification_instructions_reach_only_classification_requests(tmp_path
     assert [request["user_instructions"] for request in provider.generation_requests] == ["prefer data-test-id"]
     assert [request["user_instructions"] for request in provider.classification_requests] == ["answer in Russian"]
     assert (
-        "- USER INSTRUCTIONS: the project's classification guidance, when configured"
-        in provider.classification_requests[0]["prompt"]
+        "- USER INSTRUCTIONS: the project's binding classification guidance, when configured — follow it; "
+        "it never overrides the fixed answer format above" in provider.classification_requests[0]["prompt"]
     )
     # no cross-contamination between the two configured texts and the request kinds
     assert "answer in Russian" not in provider.generation_requests[0]["prompt"]

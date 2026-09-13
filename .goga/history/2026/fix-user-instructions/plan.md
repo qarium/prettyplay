@@ -753,22 +753,22 @@ boundary. Text *locating* is untouched (`get_by_text`, `filter(has_text=…)`).
 
 **CRITICAL: `prettyplay/driver/CODEMANIFEST`, `prettyplay/engine/CODEMANIFEST`, `prettyplay/engine/steering/CODEMANIFEST` — read-only. Do NOT modify them, and do NOT modify `.goga/usages/**` (already at the target state).**
 
-- [ ] **Contract tests** (in `tests/driver/test_page.py`, extend the existing
+- [x] **Contract tests** (in `tests/driver/test_page.py`, extend the existing
       fake-locator/fake-page idiom; expected to fail now): signature shape —
       `PageFacade.expect_title` and `LocatorFacade.expect_text` accept the
       `ignore_case` keyword.
-- [ ] **Code** (driver): `expect_title(self, title: str, ignore_case: bool =
+- [x] **Code** (driver): `expect_title(self, title: str, ignore_case: bool =
       False)` in `prettyplay/driver/page.py` — `flags = re.DOTALL |
       re.IGNORECASE if ignore_case else re.DOTALL`;
       `pattern = re.compile(f".*{re.escape(title)}.*", flags)`; keep
       `to_have_title(pattern)` behind `self._call`; update the docstring with
       the `ignore_case` arg.
-- [ ] **Code** (driver): `expect_text(self, text: str, ignore_case: bool =
+- [x] **Code** (driver): `expect_text(self, text: str, ignore_case: bool =
       False)` — `self._call(lambda: expect(self._locator).to_contain_text(text,
       ignore_case=ignore_case))`; update the docstring.
-- [ ] **Interface verification**: `python3 -m pytest tests/driver/ -q` — the
+- [x] **Interface verification**: `python3 -m pytest tests/driver/ -q` — the
       contract tests pass.
-- [ ] **Logic tests** (driver): `test_expect_text_passes_ignore_case_to_playwright`
+- [x] **Logic tests** (driver): `test_expect_text_passes_ignore_case_to_playwright`
       — fake locator wrapped in `LocatorFacade` records
       `("expect_text", "SUCCESS", {"ignore_case": True})`; the default call
       `expect_text("SUCCESS")` records `{"ignore_case": False}` (folds in the
@@ -777,7 +777,7 @@ boundary. Text *locating* is untouched (`get_by_text`, `filter(has_text=…)`).
       `("expect_title", pattern)`; assert `pattern.flags & re.IGNORECASE` and
       `pattern.match("My Dashboard") is not None`; the default-path pattern has
       no IGNORECASE flag and `pattern.match("DASHBOARD")` is None.
-- [ ] **Code** (mirrors — engine): set `SYSTEM_PROMPT` in
+- [x] **Code** (mirrors — engine): set `SYSTEM_PROMPT` in
       `prettyplay/engine/generator.py` to the byte-exact section after the first
       `---` of `.goga/usages/prompts/generation.md` (the USER INSTRUCTIONS input
       line now says "binding code style guidance"; three binding rules are
@@ -786,20 +786,20 @@ boundary. Text *locating* is untouched (`get_by_text`, `filter(has_text=…)`).
       "instruction conflicts with rule Y" loud raise for unfollowable ones /
       prefer-type instructions are conditional with graceful-fallback
       compliance).
-- [ ] **Code** (mirrors — engine): update the two `PAGE_API_SURFACE` rows in
+- [x] **Code** (mirrors — engine): update the two `PAGE_API_SURFACE` rows in
       `prettyplay/engine/generator.py` — `page.expect_title(title, ignore_case)`
       and `element.expect_text(text, ignore_case)` — keeping the
       aligned-column style.
-- [ ] **Code** (mirrors — engine): update the `CLASSIFICATION_PROMPT` input line
+- [x] **Code** (mirrors — engine): update the `CLASSIFICATION_PROMPT` input line
       in `prettyplay/engine/classification.py` to "- USER INSTRUCTIONS: the
       project's binding classification guidance, when configured — follow it; it
       never overrides the fixed answer format above".
-- [ ] **Code** (mirrors — steering): apply the same two updates to
+- [x] **Code** (mirrors — steering): apply the same two updates to
       `SYSTEM_PROMPT` and `PAGE_API_SURFACE` in
       `prettyplay/engine/steering/steering.py` — the local copies stay
       byte-equal to the engine's (frozen mirrors stay cell-owned; no runtime
       read of `.goga/`, no import between the cells).
-- [ ] **Code** (tests updated to the new mirrors): in
+- [x] **Code** (tests updated to the new mirrors): in
       `tests/engine/test_generator.py::test_page_api_surface_lists_every_facade_call`
       — the two rows become `page.expect_title(title, ignore_case)` and
       `element.expect_text(text, ignore_case)`; in
@@ -810,21 +810,21 @@ boundary. Text *locating* is untouched (`get_by_text`, `filter(has_text=…)`).
       `page.expect_title(title, ignore_case)` and
       `element.expect_text(text, ignore_case)` present in BOTH
       `PAGE_API_SURFACE` constants.
-- [ ] **Interface verification**: `python3 -m pytest
+- [x] **Interface verification**: `python3 -m pytest
       tests/engine/test_generator.py::TestPromptConstants
       tests/engine/steering/test_steering.py::TestStepSteeringContract
       tests/engine/test_classification.py -q` — the previously-red
       `test_system_prompt_mirrors_the_generation_practice` and
       `test_steering_mirrors_the_practices` now pass (byte equality restored).
-- [ ] **Debugging**: `python3 -m pytest tests/ -x -q` — the WHOLE suite is green
+- [x] **Debugging**: `python3 -m pytest tests/ -x -q` — the WHOLE suite is green
       from this task onward (723 + the new tests); fix implementation code until
       all tests pass (do NOT fix test code — the sync tests are the authority).
-- [ ] **Contract re-verification**: driver signatures match the CODEMANIFEST
+- [x] **Contract re-verification**: driver signatures match the CODEMANIFEST
       (`expect_title(title: str, ignore_case: bool = False)`,
       `expect_text(text: str, ignore_case: bool = False)`); both mirror pairs
       byte-equal; the capability rides the existing mirror names — no new
       non-mirror family.
-- [ ] **Lint**: `python3 -m ruff check prettyplay tests` — fix formatting if
+- [x] **Lint**: `python3 -m ruff check prettyplay tests` — fix formatting if
       necessary.
 
 ### Task 4: the compliance verdict operation of the LLM port (llm cell, TDD)
