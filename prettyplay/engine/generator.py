@@ -7,9 +7,10 @@ from ..cache import CachedStep, RunBudgets, StepCache, StepIdentity
 from ..config import Config
 from ..driver import PageFacade
 from ..failures import FailureVerdict, IncurableStepError, LLMUnavailableError, ProductDefectError
-from ..llm import FailureClassification, LLMProvider
+from ..llm import ComplianceFinding, FailureClassification, LLMProvider
 from ..reporting import StepReporter
 from .classification import classify_step_failure
+from .compliance import check_step_compliance
 from .execution import run_step_code
 from .polling import SettleWindow, settle
 from .text import format_step_error
@@ -209,6 +210,8 @@ class StepGenerator:
                 incurable, or the healing funding refused; the code field
                 carries the failed step code.
             LLMUnavailableError: the provider service failed; no retry.
+            ComplianceVerdictError: the compliance verdict of a green
+                candidate did not parse; nothing is cached.
         """
         return self._generation_loop(identity, step_text, previous_steps, page, window)
 
@@ -251,6 +254,8 @@ class StepGenerator:
                 verdict stays None — the calling healer attaches its entry
                 verdict — and the code field carries the last candidate.
             LLMUnavailableError: the provider service failed; no retry.
+            ComplianceVerdictError: the compliance verdict of a green
+                candidate did not parse; nothing is cached.
         """
         return self._healing_loop(identity, step_text, previous_steps, page, existing_code, error, recommendation, window)
 
@@ -269,9 +274,14 @@ class StepGenerator:
         classification decides between a terminal kind and exactly one
         healing-funded regeneration carrying the recommendation. Any other
         candidate failure is retried as a regeneration request carrying the
-        code and its error. Budget exhaustion classifies the last candidate
-        and follows the same table — the rot and fixable verdicts grant one
-        extra funded regeneration there too.
+        code and its error. A green candidate is gated through
+        ``check_step_compliance`` before it is cached: a high finding fails
+        the attempt and the retry carries the violation text, medium and low
+        findings pass with a WARNING, the gate hard failures propagate.
+        Budget exhaustion classifies the last candidate and follows the same
+        table — the rot and fixable verdicts grant one extra funded
+        regeneration there too; a standing high finding raises carrying the
+        verdict built from the finding, with no classification.
 
         Args:
             identity: the address of the step.
@@ -289,15 +299,20 @@ class StepGenerator:
             IncurableStepError: the generation attempt budget is exhausted,
                 or a failure classified incurable.
             LLMUnavailableError: the provider service failed; no retry.
+            ComplianceVerdictError: the compliance verdict of a green
+                candidate did not parse; nothing is cached.
         """
         attempt = 0  # every LLM request of this pool run — loop attempts and funded regenerations
         existing_code: str | None = None
         error: str | None = None
         code = ""
+        standing: ComplianceFinding | None = None  # the high finding the retries still carry
 
         while True:
             if not self._budgets.try_generation(identity):
-                return self._exhaustion_outcome(identity, step_text, previous_steps, page, code, error, window, attempt)
+                return self._exhaustion_outcome(
+                    identity, step_text, previous_steps, page, code, error, window, attempt, standing
+                )
 
             attempt += 1
             self._emit_generation_started(step_text, attempt)
@@ -313,9 +328,20 @@ class StepGenerator:
                     identity, step_text, previous_steps, page, code, error_field, window, attempt
                 )
             except Exception as candidate_error:  # other candidate failures heal via retry
+                standing = None  # a real candidate failure replaces the standing violation
                 existing_code = code
                 error = format_step_error(candidate_error)
             else:
+                # the gate sits outside every exception-swallowing try: its hard failures propagate
+                findings = check_step_compliance(self._config, self._provider, step_text, code)
+                high = _high_finding(findings)
+                if high is not None:  # the attempt failed on the violation — retry targeted at it
+                    existing_code = code
+                    error = _violation_text(high)
+                    standing = high
+                    continue
+                if findings:
+                    _medium_warning(step_text, findings)
                 return self._store(identity, code)
 
     def _healing_loop(  # noqa: PLR0913, PLR0917 — the shared attempt loop with its fixed inputs
@@ -334,9 +360,13 @@ class StepGenerator:
         Every failed attempt — a failed check included — takes the retry
         branch with the fresh failure description and snapshot while attempts
         remain: the entry classification already guards the anti-masking, so
-        no per-attempt classification happens inside the loop. Exhaustion
-        raises without a classification — the calling healer attaches the
-        verdict it already holds.
+        no per-attempt classification happens inside the loop. Every green
+        candidate is gated through ``check_step_compliance`` before it is
+        cached — the same semantics as the generation loop minus the standing
+        state: a high finding fails the attempt and the retry carries the
+        violation text, the gate hard failures propagate. Exhaustion raises
+        without a classification — the calling healer attaches the verdict it
+        already holds.
 
         Args:
             identity: the address of the step.
@@ -355,6 +385,8 @@ class StepGenerator:
         Raises:
             IncurableStepError: the healing attempt budget is exhausted.
             LLMUnavailableError: the provider service failed; no retry.
+            ComplianceVerdictError: the compliance verdict of a green
+                candidate did not parse; nothing is cached.
         """
         attempt = 0
         code = existing_code
@@ -375,6 +407,15 @@ class StepGenerator:
                 existing_code = code
                 error = format_step_error(candidate_error)
             else:
+                # the gate sits outside every exception-swallowing try: its hard failures propagate
+                findings = check_step_compliance(self._config, self._provider, step_text, code)
+                high = _high_finding(findings)
+                if high is not None:  # the attempt failed on the violation — retry targeted at it
+                    existing_code = code
+                    error = _violation_text(high)
+                    continue
+                if findings:
+                    _medium_warning(step_text, findings)
                 return self._store(identity, code)
 
     def _failed_check_outcome(  # noqa: PLR0913, PLR0917 — the decision table of one failed candidate check
@@ -458,15 +499,19 @@ class StepGenerator:
         error: str | None,
         window: SettleWindow,
         attempt: int,
+        standing: ComplianceFinding | None = None,
     ) -> CachedStep:
         """Decide the outcome of a refused generation attempt.
 
-        No candidate ever existed — the plain budget failure with an empty
-        error. Otherwise the last candidate is classified and follows the
-        decision table: the rot and fixable verdicts grant one extra
-        healing-funded regeneration carrying the recommendation; a repeat
-        failure is terminal without reclassification, carrying the verdict of
-        the entry classification.
+        A standing high compliance finding raises first, carrying the verdict
+        built from the finding itself — no LLM classification, no
+        healing-funded regeneration: the standing violation already consumed
+        the failed attempt and the pool is exhausted. Otherwise: no candidate
+        ever existed — the plain budget failure with an empty error; else the
+        last candidate is classified and follows the decision table: the rot
+        and fixable verdicts grant one extra healing-funded regeneration
+        carrying the recommendation; a repeat failure is terminal without
+        reclassification, carrying the verdict of the entry classification.
 
         Args:
             identity: the address of the step — the healing funding key.
@@ -478,16 +523,34 @@ class StepGenerator:
                 candidate ever existed.
             window: the settle window of the current step execution.
             attempt: the number of LLM requests the pool run made so far.
+            standing: the high compliance finding the last retries carried;
+                None — the exhaustion is not a standing violation.
 
         Returns:
             The healed step when the funded regeneration worked.
 
         Raises:
             ProductDefectError: the verdict says product defect.
-            IncurableStepError: the generation attempt budget is exhausted,
-                the verdict says incurable, or the healing funding is
+            IncurableStepError: the generation attempt budget is exhausted —
+                with the violated instruction named when a high finding
+                stands, the verdict says incurable, or the healing funding is
                 refused — the code field carries the failed step code.
         """
+        if standing is not None:
+            # the verdict is built from the finding — no classification, no regrant of a funded attempt
+            verdict = FailureVerdict(
+                category="incurable",
+                explanation=f"{standing.instruction} — {standing.explanation}",
+                recommendation=f"follow the violated instruction in the step code: {standing.instruction}",
+            )
+            raise IncurableStepError(
+                step_text,
+                f"generation attempt budget exhausted — violated instruction {_reason_safe(standing.instruction)}",
+                _violation_text(standing),
+                code=code,
+                verdict=verdict,
+            ) from None
+
         reason = "generation attempt budget exhausted"
         if error is None:
             raise IncurableStepError(step_text, reason, "", code="") from None  # nothing to classify
@@ -533,7 +596,11 @@ class StepGenerator:
         propagates immediately — no retry, no final classification; only the
         execution of the funded candidate can fail softly, yielding the
         failed code and its formatted error for the caller's terminal
-        handling.
+        handling. A green candidate is gated through
+        ``check_step_compliance`` before it is stored; a high finding is a
+        repeat failure of the funded attempt — a candidate failure, never a
+        check — so the caller runs its one final classification on the
+        violation text.
 
         Args:
             identity: the address of the step — the identity of the stored step.
@@ -555,6 +622,8 @@ class StepGenerator:
         Raises:
             LLMUnavailableError: the provider request failed; no retry, no
                 final classification.
+            ComplianceVerdictError: the compliance verdict of a green funded
+                candidate did not parse; nothing is cached.
         """
         attempt += 1
         self._emit_generation_started(step_text, attempt)
@@ -566,6 +635,14 @@ class StepGenerator:
             return None, code, str(check_failure), True
         except Exception as failure:
             return None, code, format_step_error(failure), False
+
+        # the gate sits outside the settle try: its hard failures propagate
+        findings = check_step_compliance(self._config, self._provider, step_text, code)
+        high = _high_finding(findings)
+        if high is not None:  # a compliance block is a candidate failure, not a check
+            return None, code, _violation_text(high), False
+        if findings:
+            _medium_warning(step_text, findings)
 
         return self._store(identity, code), code, "", False
 
@@ -676,6 +753,62 @@ def _first_line(text: str) -> str:
         The text up to the first newline; the whole text when single-line.
     """
     return text.partition("\n")[0]
+
+
+def _reason_safe(instruction: str) -> str:
+    """Make an instruction quote safe for an authored reason — the first-line contract.
+
+    Args:
+        instruction: the violated instruction text, quoted from the project's
+            user configuration; may contain colons and newlines.
+
+    Returns:
+        The first line of the instruction with every colon replaced by a
+        space — the reason line stays colon-free.
+    """
+    return _first_line(instruction).replace(":", " ")
+
+
+def _high_finding(findings: list[ComplianceFinding]) -> ComplianceFinding | None:
+    """Return the first high finding of a compliance verdict.
+
+    Args:
+        findings: the findings of the verdict, in the verdict's own ordering.
+
+    Returns:
+        The first finding of priority high, or ``None`` when the verdict
+        holds none — the gate re-runs on the next candidate and catches any
+        remaining violation.
+    """
+    return next((finding for finding in findings if finding.priority == "high"), None)
+
+
+def _violation_text(finding: ComplianceFinding) -> str:
+    """Render the violation text of a high finding — the ERROR block of the failed attempt.
+
+    Args:
+        finding: the high finding that blocked the candidate.
+
+    Returns:
+        The instruction and its explanation in the fixed violation wording.
+    """
+    return f"violated instruction: {finding.instruction} — {finding.explanation}"
+
+
+def _medium_warning(step_text: str, findings: list[ComplianceFinding]) -> None:
+    """Log the medium and low findings a green candidate passed with.
+
+    Args:
+        step_text: the sentence of the gated step.
+        findings: the non-blocking findings of the verdict.
+    """
+    logger.warning(
+        "compliance findings passed",
+        extra={
+            "step_text": step_text,
+            "findings": [f"{finding.priority}: {finding.instruction} — {finding.explanation}" for finding in findings],
+        },
+    )
 
 
 def _verdict(classification: FailureClassification) -> FailureVerdict:

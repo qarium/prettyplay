@@ -654,6 +654,7 @@ class TestEngineCellFacade:
         assert sorted(engine.__all__) == [
             "StepGenerator",
             "StepHealer",
+            "check_step_compliance",
             "classify_step_failure",
             "format_step_error",
             "run_step_code",

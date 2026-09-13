@@ -17,8 +17,8 @@ from prettyplay.engine import StepGenerator
 from prettyplay.engine import generator as generator_module  # to verify the CLASSIFICATION_PROMPT move
 from prettyplay.engine.generator import PAGE_API_SURFACE, SYSTEM_PROMPT
 from prettyplay.engine.polling import SettleWindow
-from prettyplay.failures import IncurableStepError, LLMUnavailableError, ProductDefectError
-from prettyplay.llm import FailureClassification
+from prettyplay.failures import ComplianceVerdictError, IncurableStepError, LLMUnavailableError, ProductDefectError
+from prettyplay.llm import ComplianceFinding, FailureClassification
 from prettyplay.reporting import StepHooks, StepReporter
 
 WORKING_CODE = "def step(page) -> None:\n    page.goto('https://example.com')\n"
@@ -106,12 +106,15 @@ class StubProvider:
         answers: list[str | Exception],
         verdict: FailureClassification | None = None,
         verdicts: list[FailureClassification | Exception | None] | None = None,
+        compliance_verdicts: list[list[ComplianceFinding] | Exception] | None = None,
     ) -> None:
         self.answers = list(answers)
         self.verdict = verdict
         self.verdicts = list(verdicts) if verdicts is not None else None
+        self.compliance_verdicts = list(compliance_verdicts) if compliance_verdicts is not None else None
         self.calls: list[dict[str, object]] = []
         self.classify_failure_calls: list[dict[str, object]] = []
+        self.compliance_calls: list[dict[str, object]] = []
 
     def generate_step_code(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
@@ -155,6 +158,13 @@ class StubProvider:
         self.classify_failure_calls.append(dict(kwargs))
         outcome = self.verdicts.pop(0) if self.verdicts is not None else self.verdict
         if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    def check_instruction_compliance(self, **kwargs: object) -> list[ComplianceFinding]:
+        self.compliance_calls.append(dict(kwargs))
+        outcome = self.compliance_verdicts.pop(0) if self.compliance_verdicts else []
+        if isinstance(outcome, Exception):  # a scripted gate failure plays itself
             raise outcome
         return outcome
 
@@ -303,10 +313,12 @@ class GeneratorFixture:
         tmp_path: Path,
         provider: object,
         limits: tuple[int, int] = (3, 2),
+        generation_prompt: str = "",
     ) -> None:
         self.recorder = RecorderHook()
         self.reporter = StepReporter(hooks=[self.recorder])
-        self.config = Config(cache_root=str(tmp_path))
+        # a non-empty generation_prompt switches the instruction compliance gate on
+        self.config = Config(cache_root=str(tmp_path), generation_prompt=generation_prompt)
         self.cache = StepCache(self.config, None, self.reporter)
         self.budgets = RunBudgets(*limits)
         self.window = SettleWindow(None, 0.5)  # polling off — one execution per candidate
@@ -318,6 +330,12 @@ ROT_VERDICT = FailureClassification(
     explanation="the button was renamed",
     recommendation="refresh the cache",
 )
+
+#: the standing high finding of the gate tests — the violated instruction and its explanation
+HIGH_FINDING = ComplianceFinding(instruction="Prefer id attributes", priority="high", explanation="locates by text")
+
+#: the fixed violation wording of HIGH_FINDING — the ERROR block of the failed attempt
+VIOLATION_TEXT = "violated instruction: Prefer id attributes — locates by text"
 
 
 def facade_surface_rows(practice: str, prefix: str) -> list[str]:
@@ -1093,6 +1111,194 @@ class TestStepGeneratorLogic:
 
         assert exhausted.value.error == "TimeoutError: navigation timed out"  # the last candidate full text
         assert exhausted.value.reason == "generation attempt budget exhausted"  # no colon, no embedded error
+
+
+class TestStepGeneratorComplianceGate:
+    """Logic tests: the instruction compliance gate on every caching path of the generator."""
+
+    def test_generate_gates_candidate_and_stores_on_compliant(self, tmp_path: Path) -> None:
+        provider = StubProvider([WORKING_CODE])  # the default compliance verdict is [] — compliant
+        fixture = GeneratorFixture(tmp_path, provider, generation_prompt="Prefer id attributes")
+        identity = make_identity()
+        page = FakePage()
+
+        step = fixture.generator.generate(identity, "open the page", [], page, fixture.window)
+
+        assert step.code == WORKING_CODE
+        assert fixture.cache.load(identity) is not None  # the cache file exists
+        assert len(provider.calls) == 1  # one generation call
+        assert len(provider.compliance_calls) == 1  # one compliance call
+        assert provider.compliance_calls[0]["code"] == WORKING_CODE  # the green candidate is the gated one
+
+    def test_generate_high_finding_fails_attempt_and_retry_carries_violation(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        provider = StubProvider(
+            [CHECK_CODE, WORKING_CODE],  # CHECK_CODE is green on a plain page — it violates the instructions
+            compliance_verdicts=[[HIGH_FINDING], []],
+        )
+        fixture = GeneratorFixture(tmp_path, provider, generation_prompt="Prefer id attributes")
+        identity = make_identity()
+        page = FakePage()
+
+        with caplog.at_level(logging.WARNING, logger="prettyplay"):
+            step = fixture.generator.generate(identity, "click Sign in", [], page, fixture.window)
+
+        assert step.code == WORKING_CODE
+        second = provider.calls[1]
+        assert second["error"] == VIOLATION_TEXT  # the retry targets the violation
+        assert second["existing_code"] == CHECK_CODE  # the violating candidate rides the request
+        assert len(provider.calls) == 2  # exactly 2 generation calls
+        assert len(provider.compliance_calls) == 2  # exactly 2 compliance calls
+        loaded = fixture.cache.load(identity)
+        assert loaded is not None
+        assert loaded.code.rstrip("\n") == WORKING_CODE.rstrip("\n")  # only the compliant code is stored
+        # nothing passed with findings — no WARNING on the retry path
+        assert not [record for record in caplog.records if "compliance" in record.message]
+
+    def test_generate_medium_low_findings_pass_with_warning(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        findings = [
+            ComplianceFinding(instruction="Prefer id attributes", priority="medium", explanation="partial"),
+            ComplianceFinding(instruction="Avoid fixed delays", priority="low", explanation="note"),
+        ]
+        provider = StubProvider([WORKING_CODE], compliance_verdicts=[findings])
+        fixture = GeneratorFixture(tmp_path, provider, generation_prompt="Prefer id attributes")
+        identity = make_identity()
+        page = FakePage()
+
+        with caplog.at_level(logging.WARNING, logger="prettyplay"):
+            step = fixture.generator.generate(identity, "click Sign in", [], page, fixture.window)
+
+        assert step.code == WORKING_CODE  # non-blocking findings never fail the attempt
+        assert fixture.cache.load(identity) is not None  # the step is stored and returned
+        passed = [record for record in caplog.records if record.message == "compliance findings passed"]
+        assert len(passed) == 1
+        assert passed[0].step_text == "click Sign in"  # the structured extra names the step
+        assert any(rendered.startswith("medium:") for rendered in passed[0].findings)
+        assert any(rendered.startswith("low:") for rendered in passed[0].findings)
+
+    def test_generate_budget_exhaustion_with_standing_high_names_instruction(self, tmp_path: Path) -> None:
+        provider = StubProvider(
+            [WORKING_CODE, WORKING_CODE],  # every candidate is green — the gate is what fails them
+            compliance_verdicts=[[HIGH_FINDING], [HIGH_FINDING]],
+        )
+        fixture = GeneratorFixture(tmp_path, provider, limits=(2, 2), generation_prompt="Prefer id attributes")
+        identity = make_identity()
+        page = FakePage()
+
+        with pytest.raises(IncurableStepError) as excinfo:
+            fixture.generator.generate(identity, "click Sign in", [], page, fixture.window)
+
+        assert excinfo.value.verdict is not None
+        assert excinfo.value.verdict.category == "incurable"  # built from the finding — no classification call
+        assert excinfo.value.verdict.explanation == "Prefer id attributes — locates by text"
+        assert "Prefer id attributes" in excinfo.value.verdict.recommendation
+        assert excinfo.value.reason == "generation attempt budget exhausted — violated instruction Prefer id attributes"
+        assert ":" not in excinfo.value.reason.split("\n")[0]  # the first-line contract holds
+        assert excinfo.value.error == VIOLATION_TEXT  # the violation text rides the error field
+        assert excinfo.value.code == WORKING_CODE
+        assert provider.classify_failure_calls == []  # zero classifications on the standing-high branch
+        assert fixture.cache.load(identity) is None  # nothing in the cache
+
+    def test_generate_gate_hard_failure_propagates_and_caches_nothing(self, tmp_path: Path) -> None:
+        outage = ComplianceVerdictError("compliance verdict unparsable — received fragment: nope")
+        provider = StubProvider([WORKING_CODE], compliance_verdicts=[outage])
+        fixture = GeneratorFixture(tmp_path, provider, generation_prompt="Prefer id attributes")
+        identity = make_identity()
+        page = FakePage()
+
+        with pytest.raises(ComplianceVerdictError) as excinfo:
+            fixture.generator.generate(identity, "click Sign in", [], page, fixture.window)
+
+        assert excinfo.value is outage  # propagates — no retry, no budget table
+        assert len(provider.calls) == 1  # exactly one generation call
+        assert fixture.cache.load(identity) is None  # the unchecked candidate is never cached
+
+    def test_regenerate_gates_healed_candidate_before_write_back(self, tmp_path: Path) -> None:
+        provider = StubProvider(
+            [CHECK_CODE, WORKING_CODE],
+            compliance_verdicts=[[HIGH_FINDING], []],
+        )
+        fixture = GeneratorFixture(tmp_path, provider, generation_prompt="Prefer id attributes")
+        identity = make_identity()
+        page = FakePage()
+
+        step = fixture.generator.regenerate(
+            identity,
+            "click Sign in",
+            [],
+            page,
+            existing_code=BROKEN_CODE,
+            error="TimeoutError",
+            recommendation="retry with an id locator",
+            window=fixture.window,
+        )
+
+        assert step.code == WORKING_CODE
+        assert provider.calls[1]["error"] == VIOLATION_TEXT  # the healing retry targets the violation
+        assert provider.calls[1]["existing_code"] == CHECK_CODE
+        assert len(provider.compliance_calls) == 2  # the healed candidate is gated too
+        loaded = fixture.cache.load(identity)
+        assert loaded is not None
+        assert loaded.code.rstrip("\n") == WORKING_CODE.rstrip("\n")  # only the compliant heal is written back
+
+    def test_regenerate_high_finding_exhaustion_carries_violation_and_entry_verdict(
+        self, tmp_path: Path
+    ) -> None:
+        provider = StubProvider(
+            [WORKING_CODE],
+            compliance_verdicts=[[HIGH_FINDING]],
+        )
+        fixture = GeneratorFixture(tmp_path, provider, limits=(3, 1), generation_prompt="Prefer id attributes")
+        identity = make_identity()
+        page = FakePage()
+
+        with pytest.raises(IncurableStepError) as excinfo:
+            fixture.generator.regenerate(
+                identity,
+                "click Sign in",
+                [],
+                page,
+                existing_code=BROKEN_CODE,
+                error="TimeoutError",
+                recommendation="retry with an id locator",
+                window=fixture.window,
+            )
+
+        assert excinfo.value.error == VIOLATION_TEXT
+        assert excinfo.value.reason == "healing attempt budget exhausted"  # the unchanged exhaustion raise
+        assert excinfo.value.verdict is None  # the healer reattaches the entry verdict — not built inside the loop
+        assert excinfo.value.code == WORKING_CODE  # the last gated candidate
+        assert len(provider.calls) == 1  # exactly 1 generation call
+        assert len(provider.compliance_calls) == 1
+        assert provider.classify_failure_calls == []
+        assert fixture.cache.load(identity) is None
+
+    def test_funded_regeneration_gates_before_store(self, tmp_path: Path) -> None:
+        """The funded candidate is gated too — a high block is a repeat candidate failure, not a check."""
+        provider = StubProvider(
+            [CHECK_CODE, WORKING_CODE],  # the entry candidate fails the check; the funded one is green but high
+            verdicts=[
+                FailureClassification(category="rot", explanation="the button was renamed", recommendation="id"),
+                FailureClassification(category="incurable", explanation="e", recommendation="r"),
+            ],
+            compliance_verdicts=[[HIGH_FINDING]],
+        )
+        fixture = GeneratorFixture(tmp_path, provider, generation_prompt="Prefer id attributes")
+        identity = make_identity()
+        page = FakePage(assertion_message="button is hidden")  # the entry candidate's check fails
+
+        with pytest.raises(IncurableStepError) as excinfo:
+            fixture.generator.generate(identity, "click Pay", [], page, fixture.window)
+
+        assert provider.classify_failure_calls[1]["error"] == VIOLATION_TEXT  # the final classification sees it
+        assert len(provider.calls) == 2  # the failed candidate + exactly one funded request
+        assert len(provider.compliance_calls) == 1  # the gate ran on the funded green candidate only
+        assert fixture.cache.load(identity) is None  # the cache is untouched
+        assert excinfo.value.verdict is not None
+        assert excinfo.value.verdict.category == "incurable"
 
 
 class TestPromptConstants:

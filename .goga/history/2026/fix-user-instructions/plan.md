@@ -1030,22 +1030,22 @@ the CODEMANIFEST practice (the `CLASSIFICATION_PROMPT` pattern).
 
 **CRITICAL: `prettyplay/engine/CODEMANIFEST` — read-only. Do NOT modify it.**
 
-- [ ] **Contract tests** (expected to fail now): `from prettyplay.engine import
+- [x] **Contract tests** (expected to fail now): `from prettyplay.engine import
       check_step_compliance` succeeds; the `__all__` assertion in
       `tests/engine/test_healer.py::test_engine_facade_reexports_all_entities`
       is updated to include `"check_step_compliance"`; `COMPLIANCE_PROMPT`
       importable from `prettyplay.engine.compliance`.
-- [ ] **Code**: create `prettyplay/engine/compliance.py` — module docstring
+- [x] **Code**: create `prettyplay/engine/compliance.py` — module docstring
       (the mirror rule), `COMPLIANCE_PROMPT` (text above, verbatim),
       `check_step_compliance` with the two-step algorithm and a full Google
       docstring (Args: config — the gate switch and the generation instructions,
       provider, step_text, code; Returns: the findings; empty — compliant or the
       gate is off; Raises: both hard failures propagate).
-- [ ] **Code**: add `check_step_compliance` to the import and `__all__` of
+- [x] **Code**: add `check_step_compliance` to the import and `__all__` of
       `prettyplay/engine/__init__.py`.
-- [ ] **Interface verification**: `python3 -m pytest tests/engine/test_compliance.py
+- [x] **Interface verification**: `python3 -m pytest tests/engine/test_compliance.py
       tests/engine/test_healer.py -q` — the contract tests pass.
-- [ ] **Logic tests — the gate routine** (new `tests/engine/test_compliance.py`;
+- [x] **Logic tests — the gate routine** (new `tests/engine/test_compliance.py`;
       extend the existing `StubProvider` idiom of `tests/engine/test_generator.py`
       with a compliance-recording stub: `check_instruction_compliance(**kwargs)`
       appends to `compliance_calls`, returns a scripted verdict — a list of
@@ -1066,34 +1066,34 @@ the CODEMANIFEST practice (the `CLASSIFICATION_PROMPT` pattern).
       [] means the code complies"`, `"Output only the JSON list, no other
       text"`) is present both in the CODEMANIFEST text and in
       `COMPLIANCE_PROMPT`.
-- [ ] **Code — generator integration**: in `prettyplay/engine/generator.py`
+- [x] **Code — generator integration**: in `prettyplay/engine/generator.py`
       import `ComplianceFinding` (from `..llm`) and
       `check_step_compliance` (from `.compliance`); add the four module-level
       helpers `_high_finding`, `_violation_text`, `_medium_warning`,
       `_reason_safe` (exact texts in the Contract Surface above).
-- [ ] **Code — `_generation_loop`**: add `standing: ComplianceFinding | None =
+- [x] **Code — `_generation_loop`**: add `standing: ComplianceFinding | None =
       None` to the loop state; replace the bare `else: return
       self._store(identity, code)` with the gate sequence (findings → high →
       retry with violation as `error`, `standing = high`, `continue`; findings →
       `_medium_warning` → `_store`; empty → `_store`); on the `except Exception`
       retry branch set `standing = None`; pass `standing` into
       `_exhaustion_outcome` at the loop top.
-- [ ] **Code — `_exhaustion_outcome`**: new first branch (before the
+- [x] **Code — `_exhaustion_outcome`**: new first branch (before the
       `error is None` check) — `standing is not None` → build the
       `FailureVerdict(category="incurable", explanation=…, recommendation=…)`
       from the finding and `raise IncurableStepError(step_text, f"generation
       attempt budget exhausted — violated instruction
       {_reason_safe(standing.instruction)}", error=violation_text, code=code,
       verdict=verdict)`; no classification call.
-- [ ] **Code — `_healing_loop`**: same green-branch gate minus `standing`
+- [x] **Code — `_healing_loop`**: same green-branch gate minus `standing`
       (high → `existing_code = code; error = _violation_text(high); continue`);
       exhaustion raise unchanged (verdict stays None — the healer reattaches).
-- [ ] **Code — `_funded_regeneration`**: after the settle try/except, in the
+- [x] **Code — `_funded_regeneration`**: after the settle try/except, in the
       implicit `else` — gate; high → `return None, code, _violation_text(high),
       False`; findings → `_medium_warning`; else `_store`. The existing
       docstring gains the gate note (a compliance block is a repeat failure of
       the funded attempt, not a check).
-- [ ] **Logic tests — the generator gate** (in `tests/engine/test_generator.py`,
+- [x] **Logic tests — the generator gate** (in `tests/engine/test_generator.py`,
       extend `StubProvider` with the compliance recording/scripting):
       `test_generate_gates_candidate_and_stores_on_compliant` — compliance `[]`;
       returned `CachedStep.code == WORKING_CODE`; cache file exists;
@@ -1141,14 +1141,14 @@ the CODEMANIFEST practice (the `CLASSIFICATION_PROMPT` pattern).
       green but high; full `generate(...)` loop; raises
       `IncurableStepError`; the final classification request's `error` carries
       the violation text; cache untouched; exactly one funded request.
-- [ ] **Debugging**: `python3 -m pytest tests/ -x -q` — fix implementation code
+- [x] **Debugging**: `python3 -m pytest tests/ -x -q` — fix implementation code
       until all tests pass (do NOT fix test code).
-- [ ] **Contract re-verification**: gate outside every exception-swallowing try
+- [x] **Contract re-verification**: gate outside every exception-swallowing try
       (the only candidate-failure handlers wrap `settle`, not the `else`
       branch); gate consumes no budget; no new hook events; facade export
       complete; standing-high invariant (standing non-None ⟺ `error` is its
       violation text) across all loop branches.
-- [ ] **Lint**: `python3 -m ruff check prettyplay/engine tests/engine` — fix
+- [x] **Lint**: `python3 -m ruff check prettyplay/engine tests/engine` — fix
       formatting, apply decomposition if necessary.
 
 ### Task 6: the steering write-back gate (engine/steering cell, TDD)

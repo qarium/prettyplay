@@ -14,7 +14,7 @@ from prettyplay import BrowserConfig, PrettyPlay
 from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step_text
 from prettyplay.config import Config, load_config
 from prettyplay.failures import IncurableStepError, ProductDefectError
-from prettyplay.llm import FailureClassification, LLMProvider
+from prettyplay.llm import ComplianceFinding, FailureClassification, LLMProvider
 from prettyplay.reporting import StepHooks, StepReporter
 
 OPEN_LOGIN_CODE = "def step(page) -> None:\n    page.goto('https://login.example.com')\n"
@@ -103,6 +103,7 @@ class StubProvider(LLMProvider):
         self.verdict = verdict
         self.generation_requests: list[dict[str, object]] = []
         self.classification_requests: list[dict[str, object]] = []
+        self.compliance_requests: list[dict[str, object]] = []
 
     def generate_step_code(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
@@ -162,6 +163,23 @@ class StubProvider(LLMProvider):
         )
         return self.verdict
 
+    def check_instruction_compliance(
+        self,
+        prompt: str,
+        user_instructions: str,
+        step_text: str,
+        code: str,
+    ) -> list[ComplianceFinding]:
+        self.compliance_requests.append(
+            {
+                "prompt": prompt,
+                "user_instructions": user_instructions,
+                "step_text": step_text,
+                "code": code,
+            }
+        )
+        return []  # compliant by default — the gate passes, the generation assertions hold
+
 
 class ForbiddenProvider(LLMProvider):
     """Stub provider failing the run the moment a cached path touches the LLM boundary."""
@@ -197,6 +215,16 @@ class ForbiddenProvider(LLMProvider):
         snapshot: str,
         screenshot: bytes | None,
     ) -> FailureClassification:
+        self.calls += 1
+        raise AssertionError("provider must not be called")
+
+    def check_instruction_compliance(
+        self,
+        prompt: str,
+        user_instructions: str,
+        step_text: str,
+        code: str,
+    ) -> list[ComplianceFinding]:
         self.calls += 1
         raise AssertionError("provider must not be called")
 
