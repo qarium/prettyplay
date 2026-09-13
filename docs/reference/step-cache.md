@@ -73,6 +73,23 @@ never invalidated by a library upgrade.
   atomic replace; the last writer wins, a partial file never becomes visible
 - `load` always works, in every environment
 
+### The compliance gate before caching
+
+Every successfully executed candidate — generation, healing, funded
+regeneration and the steering write-back alike — passes the instruction
+compliance check (`check_step_compliance`) against the project's user
+instructions before the cache save: an unchecked candidate is never stored. A
+`high` finding fails the attempt and the retry carries the violation text; a
+malformed verdict or a provider failure is a loud hard failure — the gate
+never degrades into a silent pass.
+
+Replayed cached code is never re-gated: the step address takes no part of the
+instructions, so changing `generation_prompt` does not invalidate cached
+steps — purge the cache manually when the instructions change. The
+`generation_approve` switch (or an empty `generation_prompt`) restores the old
+behavior with zero extra LLM calls. See
+[Configuration](../configuration.md#the-instruction-compliance-gate).
+
 ## Attempt budgets
 
 Generation and healing attempts are budgeted per step per test.

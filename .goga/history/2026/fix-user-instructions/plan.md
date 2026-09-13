@@ -1305,7 +1305,7 @@ audience) from the practices named below. Zero contract impact.
 task — the practices are read as sources; the docs pages under `docs/` are the
 only files changed.**
 
-- [ ] **Code** (docs): `docs/configuration.md` — add the `generation_approve`
+- [x] **Code** (docs): `docs/configuration.md` — add the `generation_approve`
       row to the TOML settings table after `generation_prompt` (default true —
       the opt-out default; false — the gate never runs, fully the old
       behavior); the env override row `PRETTYPLAY_GENERATION_APPROVE`
@@ -1318,7 +1318,7 @@ only files changed.**
       malformed verdict is a loud hard failure (`ComplianceVerdictError`), the
       gate never runs on replayed cached code, instructions take no part in the
       step address (changing them requires a manual cache purge).
-- [ ] **Code** (docs): `docs/reference/llm-providers.md` — document the third
+- [x] **Code** (docs): `docs/reference/llm-providers.md` — document the third
       port operation `check_instruction_compliance(prompt, user_instructions,
       step_text, code)`: full parity between the providers, the gate model is
       the effective generation model, the fixed INSTRUCTIONS/STEP/CODE user
@@ -1326,14 +1326,14 @@ only files changed.**
       raises `ComplianceVerdictError` — never a silent pass), SDK errors map to
       `LLMUnavailableError`, one request per call with no retry inside the
       provider, no screenshot input on this operation.
-- [ ] **Code** (docs): `docs/reference/step-cache.md` — document the
+- [x] **Code** (docs): `docs/reference/step-cache.md` — document the
       gate-before-caching invariant: every successfully executed candidate
       (generation, healing, funded regeneration, steering write-back) passes
       `check_step_compliance` before the cache save; an unchecked candidate is
       never stored; replayed cached code is never re-gated; the off switch or
       an empty `generation_prompt` restores the old behavior with zero extra
       LLM calls.
-- [ ] **Verify**: the three pages mention `generation_approve` /
+- [x] **Verify**: the three pages mention `generation_approve` /
       `check_instruction_compliance` / the gate invariant respectively; the
       docs changes touch no code — `python3 -m pytest tests/ -q` stays green
       and `goga lint` stays at 10 cells, 0 errors.
@@ -1357,49 +1357,49 @@ only files changed.**
 
 ## Completion Criteria
 
-- [ ] Every contract entity is implemented in the correct `location`
+- [x] Every contract entity is implemented in the correct `location`
       (`errors.py`, `models.py`×2, `loader.py`, `page.py`, `provider.py`,
       `openai_provider.py`, `anthropic_provider.py`, `_request.py`,
       `compliance.py`, `generator.py`, `steering.py`, `executor.py`,
       `scenario.py`)
-- [ ] Every contract entity is accessible from the facade
+- [x] Every contract entity is accessible from the facade
       (`prettyplay.failures`, `prettyplay.llm`, `prettyplay.engine`)
-- [ ] Properties and methods match the declared API (`ignore_case: bool =
+- [x] Properties and methods match the declared API (`ignore_case: bool =
       False` defaults; the port signature; `check_step_compliance` signature)
-- [ ] Descriptions are reflected in behavior (the gate-before-cache invariant on
+- [x] Descriptions are reflected in behavior (the gate-before-cache invariant on
       all four paths; the standing-high exhaustion verdict; the steering
       decline semantics; the strict parse; the loud env override)
-- [ ] Contract dependencies are met (engine→llm `ComplianceFinding` import;
+- [x] Contract dependencies are met (engine→llm `ComplianceFinding` import;
       steering→engine `check_step_compliance` import; llm→failures
       `ComplianceVerdictError` import)
-- [ ] Re-exports are accessible from the facade (`PrettyConfig`,
+- [x] Re-exports are accessible from the facade (`PrettyConfig`,
       `BrowserConfig`, `StepHooks` — unchanged, verified by the existing tests)
-- [ ] Every coding task followed the TDD workflow (contract tests → code →
+- [x] Every coding task followed the TDD workflow (contract tests → code →
       verification → logic tests → debugging → re-verification → lint)
-- [ ] Contract tests and logic tests cover facade, API, and behavior within each
+- [x] Contract tests and logic tests cover facade, API, and behavior within each
       coding task (31 named scenarios: 1 + 4 + 2 + 8 + 12 + 3 + 1)
-- [ ] Integration tests exist where cross-entity scenarios require them
+- [x] Integration tests exist where cross-entity scenarios require them
       (`test_step_surfaces_compliance_verdict_error`; the six data flows each
       covered by at least one test)
-- [ ] No package boundary was expanded (no new cells; `prettyplay/cache`,
+- [x] No package boundary was expanded (no new cells; `prettyplay/cache`,
       `prettyplay/reporting`, `prettyplay/engine/polling` untouched;
       `example/.prettyplay/cache/**` untouched)
-- [ ] `CODEMANIFEST` files were not modified (contract is read-only); the
+- [x] `CODEMANIFEST` files were not modified (contract is read-only); the
       `.goga/usages/**` practices and cooks stay at their already-materialized
       target state
-- [ ] All validation commands pass (`pytest`, `ruff`, the facade import check,
+- [x] All validation commands pass (`pytest`, `ruff`, the facade import check,
       `goga lint` — 10 cells, 0 errors)
-- [ ] The three docs pages named by the design are updated (Task 8:
+- [x] The three docs pages named by the design are updated (Task 8:
       `docs/configuration.md`, `docs/reference/llm-providers.md`,
       `docs/reference/step-cache.md`) — content synchronized with the
       materialized cell practices
-- [ ] Every Usages entry is mentioned in at least one task (`conventions`,
+- [x] Every Usages entry is mentioned in at least one task (`conventions`,
       `compliance_prompt`, `system_prompt`, `classification_prompt`, `facade`,
       `classification`, `openai`, `anthropic`, `playwright`, `pydantic`,
       `taxonomy`, `configuration`, `providers`/`generation`/`healing`/`steering`
       cell practices — all referenced in their owning tasks)
-- [ ] The frozen mirrors are byte-equal to their practices (both sync tests
+- [x] The frozen mirrors are byte-equal to their practices (both sync tests
       green; `COMPLIANCE_PROMPT` mirror test green)
-- [ ] No `on_generation_started` events or attempt ordinals were added for gate
+- [x] No `on_generation_started` events or attempt ordinals were added for gate
       requests; the request shape of generation/classification and the text
       locating semantics are unchanged

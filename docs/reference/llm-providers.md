@@ -26,15 +26,19 @@ on the first request.
 | `generation_model` | code generation only | `model` |
 | `classification_model` | failure classification only | `model` |
 
+The instruction compliance gate runs on the effective generation model
+(`generation_model` or `model`).
+
 `base_url` overrides the provider endpoint when set.
 
 ## Parity
 
-Both providers expose the same two operations — `generate_step_code` and
-`classify_failure` — with identical inputs, identical output shapes and the
-identical failure taxonomy: a provider service failure raises
-`LLMUnavailableError`; cached step code never depends on the provider. One
-request per attempt; attempt budgets belong to the calling engine.
+Both providers expose the same three operations — `generate_step_code`,
+`classify_failure` and `check_instruction_compliance` — with identical inputs,
+identical output shapes and the identical failure taxonomy: a provider service
+failure raises `LLMUnavailableError`; cached step code never depends on the
+provider. One request per attempt; attempt budgets belong to the calling
+engine.
 
 User instructions parity: each operation carries its own instructions —
 generation requests render the `generation_prompt` setting, classification
@@ -89,3 +93,34 @@ The classification categories — `rot`, `product_defect`, `fixable`,
 A non-empty `user_instructions` renders as a separate `USER INSTRUCTIONS`
 block in the request — the final block of the user content, after all
 classification inputs.
+
+## The compliance operation
+
+`check_instruction_compliance` is the verdict request of the instruction
+compliance gate (see [Configuration](../configuration.md#the-instruction-compliance-gate)):
+the engine calls it once per successfully executed candidate before caching —
+never for replayed cached code, never when `generation_approve` is off or
+`generation_prompt` is empty (zero calls).
+
+```python
+findings = provider.check_instruction_compliance(
+    prompt=system_prompt,           # the gate system prompt text comes from the calling engine
+    user_instructions=instructions, # the project's user instructions (the generation_prompt setting)
+    step_text="click the «Sign in» button",
+    code=step_code,
+)
+```
+
+- full parity between the providers: the user content carries three blocks in
+  the fixed order — `INSTRUCTIONS`, `STEP`, `CODE` — built identically by both
+  through one shared builder; no screenshot input on this operation
+- the gate model is the effective generation model (`generation_model` or
+  `model`)
+- the answer parses strictly: a JSON list of findings, each with `instruction`,
+  `priority` (`high|medium|low`) and `explanation`; an empty list `[]` means
+  compliant; a malformed verdict raises `ComplianceVerdictError` — never a
+  silent pass. Only a `high` finding blocks the candidate, and that decision
+  belongs to the calling engine, not the provider
+- SDK errors map to `LLMUnavailableError` exactly like the other operations —
+  `llm unavailable: {provider} request failed`
+- one request per call, no retry inside the provider

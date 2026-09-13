@@ -15,6 +15,7 @@ classification_model = ""        # optional: empty -> model
 base_url = ""
 cache_root = ""                  # empty -> <cwd>/.prettyplay/cache/
 generation_prompt = ""           # user instructions for generation; empty -> no instructions block
+generation_approve = true        # the instruction compliance gate before caching; false -> the gate never runs (the old behavior)
 classification_prompt = ""       # user instructions for classification; empty -> no instructions block
 strict = false                   # true -> replay-only mode (no generation, no healing)
 interactive = false              # true -> the steering dialog on a terminally stuck step (local sessions)
@@ -61,6 +62,7 @@ upper case; the browser group keeps flat env names:
 | send_screenshots | `PRETTYPLAY_SEND_SCREENSHOTS` |
 | strict | `PRETTYPLAY_STRICT` |
 | generation_prompt | `PRETTYPLAY_GENERATION_PROMPT` |
+| generation_approve | `PRETTYPLAY_GENERATION_APPROVE` |
 | classification_prompt | `PRETTYPLAY_CLASSIFICATION_PROMPT` |
 
 Env values parse by the field type: booleans accept `true/false/1/0`
@@ -103,8 +105,8 @@ test = PrettyPlay(
   `BrowserConfig` win over the file layer; untouched group defaults never
   overwrite file values — set only `screen` and the file's `name`,
   `headless`, `endpoint`, `accept_dialogs` keep working
-- `strict` participates when passed explicitly — an explicit `False` overrides
-  the file value too
+- `strict`, `interactive` and `generation_approve` participate when passed
+  explicitly — an explicit `False` overrides the file value too
 - `polling_timeout` merges by skip-when-`None`: a `PrettyConfig` that leaves
   it `None` (the default) resolves from the file layer, while an explicit
   `0.0` participates in the merge as an explicit disable — indistinguishable
@@ -140,6 +142,7 @@ fields, which is what makes the layered merge above possible.
 | `base_url` | str | `""` | custom LLM API endpoint |
 | `cache_root` | str | `""` | empty → `<cwd>/.prettyplay/cache/` resolved at load |
 | `generation_prompt` | str | `""` | user instructions for generation requests; empty → no block |
+| `generation_approve` | bool | `True` | run the instruction compliance gate before caching a generated step; `False` — the gate never runs |
 | `classification_prompt` | str | `""` | user instructions for classification requests; empty → no block |
 | `strict` | bool | `False` | replay-only mode: no generation, no healing |
 | `interactive` | bool | `False` | arm the steering dialog for terminally stuck steps (local sessions) |
@@ -251,7 +254,58 @@ A non-empty `classification_prompt` works the same way for classification
 requests only — it steers the verdict explanations (e.g. `answer in Russian`),
 never generation.
 
+The generation instructions are binding, not advisory — see
+[The instruction compliance gate](#the-instruction-compliance-gate) below.
+
 Neither ever invalidates cached steps — a cached step runs unchanged.
+
+## The instruction compliance gate
+
+The user instructions of `generation_prompt` are binding for generated step
+code: every successfully executed candidate passes an independent compliance
+check before it is cached. The gate is the default — the deliberate opt-out
+default keeps loud errors instead of silent ignoring; switch it off
+consciously when the extra LLM call per successful generation matters more
+than the enforcement.
+
+```toml
+[tool.prettyplay]
+generation_prompt = "Prefer id attributes for locating elements"
+generation_approve = true   # default; false -> the gate never runs (the old behavior)
+```
+
+Env override — booleans parse `true/false/1/0` case-insensitively; an
+unparseable value fails loudly with a `ConfigurationError` naming the setting,
+the received value and the accepted form:
+
+```bash
+export PRETTYPLAY_GENERATION_APPROVE=false
+```
+
+Per-test override — an explicit `False` wins over the file layer (the
+`strict`/`interactive` pattern):
+
+```python
+config = PrettyConfig(generation_approve=False)
+scenario = PrettyPlay(cache_key="smoke", config=config)
+```
+
+While the gate is on:
+
+- every successful generation costs one extra LLM call — the verdict request,
+  through the effective generation model
+- a `high` finding fails the attempt and the retry carries the violation text
+  as its error, so the model fixes it targeted
+- `medium` and `low` findings pass with a `WARNING` naming the instructions
+- a malformed verdict is a loud hard failure (`ComplianceVerdictError`) — a
+  candidate is never cached unchecked
+- the gate never runs on replayed cached code: the instructions take no part
+  in the step address, so changing them requires a manual cache purge
+- the gate never runs when `generation_prompt` is empty, regardless of the
+  switch
+
+See [Step cache](reference/step-cache.md) for the gate-before-caching
+invariant across all caching paths.
 
 ## Dialogs
 
