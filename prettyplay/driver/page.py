@@ -21,7 +21,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from types import TracebackType
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from playwright.sync_api import BrowserContext, Dialog, FrameLocator, Locator, Page, expect
 
@@ -489,6 +489,116 @@ class LocatorFacade:
             return fn()
 
         return self._worker.run(fn)
+
+    def _wrap_locator(self, locator: Locator) -> LocatorFacade:
+        """Wrap a narrowed locator, inheriting the driver thread boundary.
+
+        Args:
+            locator: the Playwright locator object; never exposed.
+
+        Returns:
+            The facade of the narrowed locator.
+        """
+        facade = LocatorFacade(locator)
+        facade._worker = self._worker
+
+        return facade
+
+    @property
+    def first(self) -> LocatorFacade:
+        """The first match of this locator in document order.
+
+        Returns:
+            The facade of the first match — the positional narrowing selecting
+            one element among many.
+        """
+        return self._wrap_locator(self._call(lambda: self._locator.first))
+
+    @property
+    def last(self) -> LocatorFacade:
+        """The last match of this locator in document order.
+
+        Returns:
+            The facade of the last match — the positional narrowing.
+        """
+        return self._wrap_locator(self._call(lambda: self._locator.last))
+
+    def nth(self, index: int) -> LocatorFacade:
+        """Select the match at the index.
+
+        Args:
+            index: 0-based position; negative counts from the end.
+
+        Returns:
+            The facade of the selected match — the positional narrowing.
+        """
+        return self._wrap_locator(self._call(lambda: self._locator.nth(index)))
+
+    def filter(
+        self,
+        *,
+        has_text: str = "",
+        has_not_text: str = "",
+        has: LocatorFacade | None = None,
+        has_not: LocatorFacade | None = None,
+    ) -> LocatorFacade:
+        """Narrow this locator by element content.
+
+        Args:
+            has_text: keep elements whose text contains this string; empty —
+                not applied.
+            has_not_text: drop elements whose text contains this string;
+                empty — not applied.
+            has: keep elements containing a match of this inner locator;
+                None — not applied.
+            has_not: drop elements containing a match of this inner locator;
+                None — not applied.
+
+        Returns:
+            The facade narrowed by the applied predicates; the predicates are
+            optional and combine as a logical and.
+        """
+
+        def narrow() -> Locator:
+            applied: dict[str, Any] = {}
+            if has_text:
+                applied["has_text"] = has_text
+            if has_not_text:
+                applied["has_not_text"] = has_not_text
+            if has is not None:
+                applied["has"] = has._locator
+            if has_not is not None:
+                applied["has_not"] = has_not._locator
+            return self._locator.filter(**applied)
+
+        return self._wrap_locator(self._call(narrow))
+
+    def or_(self, other: LocatorFacade) -> LocatorFacade:
+        """The union locator — matches what this locator or other matches.
+
+        An action or expectation over a composition matching elements of both
+        branches raises the strict-mode violation like any multi-match
+        locator; positional narrowing over the composition is the canonical
+        guard.
+
+        Args:
+            other: the alternative locator facade.
+
+        Returns:
+            The facade of the union locator.
+        """
+        return self._wrap_locator(self._call(lambda: self._locator.or_(other._locator)))
+
+    def and_(self, other: LocatorFacade) -> LocatorFacade:
+        """The intersection locator — matches elements matching both this locator and other.
+
+        Args:
+            other: the intersecting locator facade.
+
+        Returns:
+            The facade of the intersection locator.
+        """
+        return self._wrap_locator(self._call(lambda: self._locator.and_(other._locator)))
 
     def click(self, button: str = "") -> None:
         """Click the element, waiting for actionability.

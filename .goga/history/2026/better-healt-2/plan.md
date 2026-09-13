@@ -230,7 +230,7 @@ or_(other) / and_(other):
 
 **Placement** (design instruction): `first`/`last` properties and the private `_wrap_locator` right after `_call`; then `nth`, `filter`, `or_`, `and_` before `click` — mirroring the CODEMANIFEST ordering (locating family first, uniform with `PageFacade`). **`filter` is keyword-only** (`*` in the signature) with defaults `has_text=""`, `has_not_text=""`, `has=None`, `has_not=None` — upstream shape; the DSL signature does not encode keyword-onlyness and the practice row shows keyword usage.
 
-- [ ] **Contract tests** (add to `tests/driver/test_page.py`, class `TestPageFacadeContract`; expected to fail at this stage):
+- [x] **Contract tests** (add to `tests/driver/test_page.py`, class `TestPageFacadeContract`; expected to fail at this stage):
 
   `test_narrowing_surface_matches_contract` — **Setup**: import `LocatorFacade` from `prettyplay.driver`. **Input**: surface list `["first", "last", "nth", "filter", "or_", "and_"]`. **Trace**:
   ```
@@ -260,14 +260,14 @@ or_(other) / and_(other):
     get_type_hints(LocatorFacade.first.fget)["return"] is LocatorFacade (last symmetric)
   ```
   **Assertions**: every line above holds. **Sufficiency**: the contract signatures are the API — parameter order, defaults, keyword-onlyness and types are what generated code compiles against.
-- [ ] **Interface verification (red first)**: run the two new tests against the unchanged class — `.venv/bin/pytest tests/driver/test_page.py -k narrowing -x` — both fail (`AttributeError`/missing members); this is the expected TDD state
-- [ ] **Code**: add private `_wrap_locator` to `LocatorFacade` right after `_call` (construct `LocatorFacade(raw)`, inherit `_worker` — the `PageFacade._wrap_locator` pattern)
-- [ ] **Code**: add `first` and `last` properties (`self._call(lambda: self._locator.first)` / `...last`, wrap the result) per the algorithm; Google docstrings in the file's voice
-- [ ] **Code**: add `nth(index: int) -> LocatorFacade` — `self._call(lambda: self._locator.nth(index))`, index passes verbatim, wrap
-- [ ] **Code**: add `filter` keyword-only (`*, has_text: str = "", has_not_text: str = "", has: LocatorFacade | None = None, has_not: LocatorFacade | None = None`) — build the applied kwargs inside ONE driver-thread closure (non-empty strings and non-`None` facades only; unwrap `has._locator`/`has_not._locator` at the boundary), call upstream `filter(**applied)`, wrap
-- [ ] **Code**: add `or_(other)` / `and_(other)` — `self._call(lambda: self._locator.or_(other._locator))` (symmetric for `and_`), wrap; upstream errors propagate untouched — NO facade-side strict-mode handling, validation, or error wrapping (P3)
-- [ ] **Interface verification**: `.venv/bin/pytest tests/driver/test_page.py -k narrowing -x` — both contract tests pass
-- [ ] **Logic tests** (extend the test-local `FakeLocator` in `tests/driver/test_page.py` with the narrowing members — record-and-return-self: `first`/`last` properties recording `("first",)`/`("last",)` and returning `self`; `nth(index)` recording `("nth", index)`; `filter(**kwargs)` recording `("filter", kwargs)`; `or_(target)` recording `("or_", target)`; `and_(target)` recording `("and_", target)`; optionally a fake whose `or_` raises the real `Error`):
+- [x] **Interface verification (red first)**: run the two new tests against the unchanged class — `.venv/bin/pytest tests/driver/test_page.py -k narrowing -x` — both fail (`AttributeError`/missing members); this is the expected TDD state
+- [x] **Code**: add private `_wrap_locator` to `LocatorFacade` right after `_call` (construct `LocatorFacade(raw)`, inherit `_worker` — the `PageFacade._wrap_locator` pattern)
+- [x] **Code**: add `first` and `last` properties (`self._call(lambda: self._locator.first)` / `...last`, wrap the result) per the algorithm; Google docstrings in the file's voice
+- [x] **Code**: add `nth(index: int) -> LocatorFacade` — `self._call(lambda: self._locator.nth(index))`, index passes verbatim, wrap
+- [x] **Code**: add `filter` keyword-only (`*, has_text: str = "", has_not_text: str = "", has: LocatorFacade | None = None, has_not: LocatorFacade | None = None`) — build the applied kwargs inside ONE driver-thread closure (non-empty strings and non-`None` facades only; unwrap `has._locator`/`has_not._locator` at the boundary), call upstream `filter(**applied)`, wrap
+- [x] **Code**: add `or_(other)` / `and_(other)` — `self._call(lambda: self._locator.or_(other._locator))` (symmetric for `and_`), wrap; upstream errors propagate untouched — NO facade-side strict-mode handling, validation, or error wrapping (P3)
+- [x] **Interface verification**: `.venv/bin/pytest tests/driver/test_page.py -k narrowing -x` — both contract tests pass
+- [x] **Logic tests** (extend the test-local `FakeLocator` in `tests/driver/test_page.py` with the narrowing members — record-and-return-self: `first`/`last` properties recording `("first",)`/`("last",)` and returning `self`; `nth(index)` recording `("nth", index)`; `filter(**kwargs)` recording `("filter", kwargs)`; `or_(target)` recording `("or_", target)`; `and_(target)` recording `("and_", target)`; optionally a fake whose `or_` raises the real `Error`):
 
   `test_first_and_last_delegate_and_wrap` (`TestPageFacadeLogic`) — **Setup**: `fake = FakeLocator(); element = LocatorFacade(fake)` (hand-built, `_worker=None` → inline). **Input**: `element.first`, then `.last` on the result. **Trace**:
   ```
@@ -326,9 +326,9 @@ or_(other) / and_(other):
   format_step_error(exc) == "Error: Locators must belong to the same frame."  # the typed render of the Errors section
   ```
   **Sufficiency**: pins the only eagerly-raised composition error of the family with three invariants at once — untouched propagation (P3 zero-wrapping), non-pollable classification (the frame-mismatch path of the pollable map), and the exact `format_step_error` render. Regression: wrapping/translating the error or accidentally adding it to the pollable map fails these asserts loudly (verified: no existing test covers "same frame" anywhere in the suite).
-- [ ] **Debugging**: `.venv/bin/pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code)
-- [ ] **Contract re-verification**: facade accessibility (`LocatorFacade` importable from `prettyplay.driver`; `__all__` unchanged), API shape (the two contract tests green), no raw Playwright object crosses the boundary (every narrowing member wraps before returning)
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/ tests/` — fix formatting, apply decomposition if necessary
+- [x] **Debugging**: `.venv/bin/pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code)
+- [x] **Contract re-verification**: facade accessibility (`LocatorFacade` importable from `prettyplay.driver`; `__all__` unchanged), API shape (the two contract tests green), no raw Playwright object crosses the boundary (every narrowing member wraps before returning)
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/ tests/` — fix formatting, apply decomposition if necessary
 
 ### Task 2: The frozen mirrors in `prettyplay/engine/generator.py` — `SYSTEM_PROMPT` and `PAGE_API_SURFACE` (TDD coding)
 

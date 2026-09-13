@@ -10,8 +10,9 @@ from unittest import mock
 import prettyplay.driver
 import pytest
 from playwright.sync_api import Error
-from prettyplay.driver import DialogFacade, FrameFacade, LocatorFacade, PageFacade
+from prettyplay.driver import DialogFacade, FrameFacade, LocatorFacade, PageFacade, is_pollable_failure
 from prettyplay.driver.page import _DialogRouter
+from prettyplay.engine import format_step_error
 
 
 class RecordingAssertions:
@@ -102,6 +103,32 @@ class FakeLocator:
         self.scroll_into_view_called = False
         self.element_handle_returns_self_locator = True
         self.fail_on_click = False
+
+    @property
+    def first(self) -> "FakeLocator":
+        self.calls.append(("first",))
+        return self
+
+    @property
+    def last(self) -> "FakeLocator":
+        self.calls.append(("last",))
+        return self
+
+    def nth(self, index: int) -> "FakeLocator":
+        self.calls.append(("nth", index))
+        return self
+
+    def filter(self, **kwargs: Any) -> "FakeLocator":
+        self.calls.append(("filter", kwargs))
+        return self
+
+    def or_(self, target: "FakeLocator") -> "FakeLocator":
+        self.calls.append(("or_", target))
+        return self
+
+    def and_(self, target: "FakeLocator") -> "FakeLocator":
+        self.calls.append(("and_", target))
+        return self
 
     def click(self, button: str = "left") -> None:
         self.calls.append(("click", button))
@@ -288,6 +315,13 @@ class FakeBodyLocator(FakeLocator):
     def aria_snapshot(self) -> str:
         self.calls.append(("aria_snapshot",))
         return self._snapshot
+
+
+class FrameMismatchLocator(FakeLocator):
+    """Fake locator composed across frames: ``or_`` fails like the upstream driver."""
+
+    def or_(self, target: "FakeLocator") -> "FakeLocator":
+        raise Error("Locators must belong to the same frame.")
 
 
 class FakePage:
@@ -744,6 +778,51 @@ class TestPageFacadeContract:
         assert attribute_hints["value"] is str
         assert attribute_hints["return"] is type(None)
 
+    def test_narrowing_surface_matches_contract(self) -> None:
+        surface = ["first", "last", "nth", "filter", "or_", "and_"]
+
+        for name in surface:
+            assert hasattr(LocatorFacade, name), name
+
+        assert isinstance(LocatorFacade.first, property)  # P1: property shape
+        assert isinstance(LocatorFacade.last, property)  # P1: property shape
+        for name in ("nth", "filter", "or_", "and_"):
+            assert not isinstance(getattr(LocatorFacade, name), property)  # method shape, upstream-parity
+
+    def test_narrowing_signatures_and_annotations_match_contract(self) -> None:
+        assert list(inspect.signature(LocatorFacade.nth).parameters) == ["self", "index"]
+
+        filter_parameters = inspect.signature(LocatorFacade.filter).parameters
+        assert list(filter_parameters) == ["self", "has_text", "has_not_text", "has", "has_not"]
+        assert filter_parameters["has_text"].default == ""
+        assert filter_parameters["has_not_text"].default == ""
+        assert filter_parameters["has"].default is None
+        assert filter_parameters["has_not"].default is None
+        assert filter_parameters["has_text"].kind is inspect.Parameter.KEYWORD_ONLY  # upstream shape
+
+        assert list(inspect.signature(LocatorFacade.or_).parameters) == ["self", "other"]
+        assert list(inspect.signature(LocatorFacade.and_).parameters) == ["self", "other"]
+
+        nth_hints = get_type_hints(LocatorFacade.nth)
+        assert nth_hints["index"] is int
+        assert nth_hints["return"] is LocatorFacade
+
+        filter_hints = get_type_hints(LocatorFacade.filter)
+        assert filter_hints["has_text"] is str
+        assert filter_hints["has"] == (LocatorFacade | None)  # equality — holds for `X | None` and `Optional[X]`
+        assert filter_hints["return"] is LocatorFacade
+
+        or_hints = get_type_hints(LocatorFacade.or_)
+        assert or_hints["other"] is LocatorFacade
+        assert or_hints["return"] is LocatorFacade
+
+        and_hints = get_type_hints(LocatorFacade.and_)
+        assert and_hints["other"] is LocatorFacade
+        assert and_hints["return"] is LocatorFacade
+
+        assert get_type_hints(LocatorFacade.first.fget)["return"] is LocatorFacade
+        assert get_type_hints(LocatorFacade.last.fget)["return"] is LocatorFacade
+
     def test_page_facade_annotations_match_contract(self) -> None:
         goto_hints = get_type_hints(PageFacade.goto)
         assert goto_hints["url"] is str
@@ -996,6 +1075,96 @@ class TestPageFacadeLogic:
         assert page.context.close_calls == 1
         assert page.calls == []  # no page calls — only context.close()
         assert next_page.calls == [("goto", "https://example.com/next")]  # the browser still works
+
+    def test_first_and_last_delegate_and_wrap(self) -> None:
+        fake = FakeLocator()
+        element = LocatorFacade(fake)
+
+        narrowed = element.first
+        tail = narrowed.last
+
+        assert fake.calls == [("first",), ("last",)]  # delegation order, single recording chain
+        for result in (narrowed, tail):
+            assert isinstance(result, LocatorFacade)
+            assert result is not element  # a fresh facade object per composition
+            assert result._locator is fake
+            assert result._worker is element._worker  # the worker is inherited — chains compose
+
+    def test_nth_delegates_the_index_verbatim(self) -> None:
+        fake = FakeLocator()
+        element = LocatorFacade(fake)
+
+        picked = element.nth(2)
+
+        assert isinstance(picked, LocatorFacade)
+        assert fake.calls == [("nth", 2)]  # the index passes through — no clamping, no rewriting
+
+        negative_fake = FakeLocator()
+        element = LocatorFacade(negative_fake)
+        element.nth(-1)
+
+        assert negative_fake.calls == [("nth", -1)]  # negative counts from the end, upstream semantics
+
+    def test_filter_applies_only_the_given_predicates(self) -> None:
+        fake = FakeLocator()
+        fake_other = FakeLocator()
+        element = LocatorFacade(fake)
+        other = LocatorFacade(fake_other)
+
+        results = [
+            element.filter(has_text="Product X"),
+            element.filter(has_not_text="Draft"),
+            element.filter(has=other),
+            element.filter(has_text="X", has_not_text="Y", has=other, has_not=other),
+            element.filter(),
+        ]
+
+        assert ("filter", {"has_text": "Product X"}) in fake.calls  # empty defaults stay absent
+        assert ("filter", {"has_not_text": "Draft"}) in fake.calls
+        assert ("filter", {"has": fake_other}) in fake.calls  # the RAW inner locator, unwrapped at the boundary
+        combined = {"has_text": "X", "has_not_text": "Y", "has": fake_other, "has_not": fake_other}
+        assert ("filter", combined) in fake.calls  # the applied predicates combine as a logical and
+        assert ("filter", {}) in fake.calls  # identity narrowing
+        for result in results:
+            assert isinstance(result, LocatorFacade)
+            assert result._locator is fake
+
+    def test_or_and_delegate_the_raw_locator(self) -> None:
+        fake = FakeLocator()
+        fake_other = FakeLocator()
+        element = LocatorFacade(fake)
+        other = LocatorFacade(fake_other)
+
+        union = element.or_(other)
+        intersection = element.and_(other)
+
+        assert fake.calls == [("or_", fake_other), ("and_", fake_other)]
+        for result in (union, intersection):
+            assert isinstance(result, LocatorFacade)
+            assert result is not element
+            assert result._worker is element._worker  # the combinator result marshals to the same thread
+
+    def test_narrowing_members_marshal_through_the_driver_thread(self) -> None:
+        worker = RecordingWorker()
+        fake = FakeLocator()
+        fake_other = FakeLocator()
+        element = LocatorFacade(fake)
+        element._worker = worker
+        other = LocatorFacade(fake_other)
+        other._worker = worker
+
+        results = [
+            element.first,
+            element.last,
+            element.nth(1),
+            element.filter(has_text="x"),
+            element.or_(other),
+            element.and_(other),
+        ]
+
+        assert len(worker.calls) == 6  # one run per member — the boundary invariant
+        for result in results:
+            assert isinstance(result, LocatorFacade)  # results still wrap correctly
 
 
 class TestUniversalLocatorLogic:
@@ -1262,6 +1431,54 @@ class TestLocatorFacadeLogic:
                 pass
             else:
                 raise AssertionError("expect_visible must propagate AssertionError")
+
+    def test_or_composition_green_and_both_present_strict_mode(self) -> None:
+        # P3: or_ keeps pure union semantics — the positional narrowing is the green guard
+        fake = FakeLocator()
+        fake_other = FakeLocator()
+        element = LocatorFacade(fake)
+        other = LocatorFacade(fake_other)
+
+        class GreenExpectation:
+            def to_be_visible(self) -> None:
+                return None
+
+        with mock.patch("prettyplay.driver.page.expect", return_value=GreenExpectation()):
+            element.or_(other).first.expect_visible()
+
+        assert fake.calls == [("or_", fake_other), ("first",)]  # the canonical guard composes over the union
+
+        # both branches present — the strict-mode violation surfaces untouched, classification-bound
+        fake = FakeLocator()
+        fake_other = FakeLocator()
+        element = LocatorFacade(fake)
+        other = LocatorFacade(fake_other)
+
+        class StrictModeExpectation:
+            def to_be_visible(self) -> None:
+                raise AssertionError("strict mode violation: locator resolved to 2 elements")
+
+        with (
+            mock.patch("prettyplay.driver.page.expect", return_value=StrictModeExpectation()),
+            pytest.raises(AssertionError, match="strict mode violation") as raised,
+        ):
+            element.or_(other).expect_visible()
+
+        assert is_pollable_failure(raised.value) is False  # deterministic — never absorbed by a settle window
+
+    def test_or_frame_mismatch_propagates_untouched(self) -> None:
+        # zero-wrapping (P3): the only eagerly-raised composition error crosses the facade as-is
+        fake = FrameMismatchLocator()
+        fake_other = FakeLocator()
+        element = LocatorFacade(fake)
+        other = LocatorFacade(fake_other)
+
+        with pytest.raises(Error, match=r"Locators must belong to the same frame\.") as raised:
+            element.or_(other)
+
+        assert type(raised.value).__name__ == "Error"  # untouched type — no wrapper added
+        assert is_pollable_failure(raised.value) is False  # deterministic → classification, never the settle window
+        assert format_step_error(raised.value) == "Error: Locators must belong to the same frame."  # the typed render
 
     def test_locator_actions_never_return_raw_objects(self) -> None:
         element = make_locator_facade(FakeLocator())
