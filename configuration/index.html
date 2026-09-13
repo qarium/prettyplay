@@ -1,0 +1,1818 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Tools for ui tests">
+      
+      
+      
+        <link rel="canonical" href="https://qarium.github.io/prettyplay/configuration/">
+      
+      
+        <link rel="prev" href="../guides/browser-setup/">
+      
+      
+        <link rel="next" href="../reference/failure-taxonomy/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Configuration - Prettyplay</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  
+  <style>
+    /* Dark navbar — override palette in both themes */
+    [data-md-color-scheme=default][data-md-color-primary=custom],
+    [data-md-color-scheme=slate][data-md-color-primary=custom] {
+      --md-primary-fg-color: #0a0a13;
+      --md-primary-fg-color--light: #0a0a13cc;
+      --md-primary-bg-color: #ffffff;
+    }
+
+    .md-header__button.md-logo img,
+    .md-header__button.md-logo svg {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+    }
+
+    /* Search form — visible on dark header */
+    .md-search__overlay {
+      background-color: transparent !important;
+    }
+    [data-md-toggle=search]:checked~.md-header .md-search__overlay {
+      background-color: #0000008a !important;
+    }
+    .md-search__inner {
+      background-color: transparent !important;
+    }
+    .md-search__form {
+      background-color: #3a3a3a !important;
+      border-radius: 0.5rem;
+    }
+    .md-search__form:hover {
+      background-color: #4a4a4a !important;
+    }
+    .md-search__input {
+      color: #e0e0e0 !important;
+    }
+    .md-search__input::placeholder {
+      color: #999999 !important;
+    }
+    .md-search__icon {
+      color: #999999 !important;
+    }
+    .md-search__form:hover .md-search__icon,
+    .md-search__input:focus-visible ~ .md-search__icon {
+      color: #e0e0e0 !important;
+    }
+
+    /* Links in dark theme — readable on dark background */
+    [data-md-color-scheme=slate] .md-nav__link,
+    [data-md-color-scheme=slate] .md-toc__link,
+    [data-md-color-scheme=slate] article a {
+      color: #cbd5e0 !important;
+    }
+    [data-md-color-scheme=slate] .md-nav__link--passed,
+    [data-md-color-scheme=slate] .md-toc__link--passed {
+      color: #718096 !important;
+    }
+    [data-md-color-scheme=slate] .md-nav__link:hover,
+    [data-md-color-scheme=slate] .md-toc__link:hover,
+    [data-md-color-scheme=slate] article a:hover {
+      color: var(--md-accent-fg-color) !important;
+    }
+  </style>
+
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#configuration" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Prettyplay" class="md-header__button md-logo" aria-label="Prettyplay" data-md-component="logo">
+      
+  <img src="https://avatars.githubusercontent.com/u/262344922?s=200&v=4" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Prettyplay
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Configuration
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/qarium/prettyplay" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../getting-started/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Getting started
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../guides/writing-steps/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Configuration
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../reference/failure-taxonomy/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Prettyplay" class="md-nav__button md-logo" aria-label="Prettyplay" data-md-component="logo">
+      
+  <img src="https://avatars.githubusercontent.com/u/262344922?s=200&v=4" alt="logo">
+
+    </a>
+    Prettyplay
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/qarium/prettyplay" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/writing-steps/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Writing steps
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/browser-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Browser setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#environment-overrides" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment overrides
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#old-flat-keys-are-gone-hard-break" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Old flat keys are gone — hard break
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#per-test-overrides-layered-merge" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-test overrides — layered merge
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-prettyconfig-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The PrettyConfig API
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The PrettyConfig API">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#prettyconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PrettyConfig
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#browserconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BrowserConfig
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#load_config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configurationerror" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ConfigurationError
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#instructions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Instructions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dialogs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dialogs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#strict-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Strict mode
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rules
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/failure-taxonomy/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Failure taxonomy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/hooks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hooks and logging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/step-cache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Step cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/llm-providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LLM providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/settle-polling/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Settle polling
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/self-healing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Self-healing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/interactive-steering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interactive steering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/driver-facade/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Driver facade
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#environment-overrides" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment overrides
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#old-flat-keys-are-gone-hard-break" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Old flat keys are gone — hard break
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#per-test-overrides-layered-merge" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-test overrides — layered merge
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-prettyconfig-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The PrettyConfig API
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The PrettyConfig API">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#prettyconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PrettyConfig
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#browserconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BrowserConfig
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#load_config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load_config
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configurationerror" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ConfigurationError
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#instructions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Instructions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dialogs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dialogs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#strict-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Strict mode
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rules
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="configuration">Configuration</h1>
+<p>PrettyPlay settings. For integrators configuring a test project and CI.</p>
+<p>The immutable part of the settings lives in the <code>[tool.prettyplay]</code> section of
+pyproject.toml. Load it once per test; a test can additionally override
+specific values programmatically through <code>PrettyConfig</code>.</p>
+<pre><code class="language-toml">[tool.prettyplay]
+provider = &quot;openai&quot;              # openai | anthropic
+model = &quot;gpt-5&quot;
+generation_model = &quot;&quot;            # optional: empty -&gt; model
+classification_model = &quot;&quot;        # optional: empty -&gt; model
+base_url = &quot;&quot;
+cache_root = &quot;&quot;                  # empty -&gt; &lt;cwd&gt;/.prettyplay/cache/
+generation_prompt = &quot;&quot;           # user instructions for generation; empty -&gt; no instructions block
+classification_prompt = &quot;&quot;       # user instructions for classification; empty -&gt; no instructions block
+strict = false                   # true -&gt; replay-only mode (no generation, no healing)
+interactive = false              # true -&gt; the steering dialog on a terminally stuck step (local sessions)
+generation_attempts = 3
+healing_attempts = 2
+polling_timeout = 6.0            # settle window seconds; omit -&gt; off, 0.0 -&gt; explicit disable
+polling_delay = 0.5              # pause between settle re-executions
+send_screenshots = false
+
+[tool.prettyplay.browser]
+name = &quot;chromium&quot;                # chromium | firefox | webkit | chrome | msedge
+screen = &quot;&quot;                      # &quot;&quot; | WxH | fullscreen | Playwright device name
+headless = true                  # false -&gt; run with a visible browser window
+endpoint = &quot;&quot;                    # ws:// endpoint of a remote browser; empty -&gt; local launch
+accept_dialogs = false           # true -&gt; automatically accept dialogs outside step-captured dialogs
+</code></pre>
+<p>The browser group settings — engines, screen modes, remote endpoints — are
+covered in detail in <a href="../guides/browser-setup/">Browser setup</a>.</p>
+<h2 id="environment-overrides">Environment overrides</h2>
+<p>Every setting has an override for CI — env variable <code>PRETTYPLAY_&lt;SETTING&gt;</code> in
+upper case; the browser group keeps flat env names:</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Env override</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>provider</td>
+<td><code>PRETTYPLAY_PROVIDER</code></td>
+</tr>
+<tr>
+<td>browser.name</td>
+<td><code>PRETTYPLAY_BROWSER_NAME</code></td>
+</tr>
+<tr>
+<td>browser.screen</td>
+<td><code>PRETTYPLAY_BROWSER_SCREEN</code></td>
+</tr>
+<tr>
+<td>browser.headless</td>
+<td><code>PRETTYPLAY_BROWSER_HEADLESS</code></td>
+</tr>
+<tr>
+<td>browser.endpoint</td>
+<td><code>PRETTYPLAY_BROWSER_ENDPOINT</code></td>
+</tr>
+<tr>
+<td>browser.accept_dialogs</td>
+<td><code>PRETTYPLAY_BROWSER_ACCEPT_DIALOGS</code></td>
+</tr>
+<tr>
+<td>model</td>
+<td><code>PRETTYPLAY_MODEL</code></td>
+</tr>
+<tr>
+<td>generation_model</td>
+<td><code>PRETTYPLAY_GENERATION_MODEL</code></td>
+</tr>
+<tr>
+<td>classification_model</td>
+<td><code>PRETTYPLAY_CLASSIFICATION_MODEL</code></td>
+</tr>
+<tr>
+<td>base_url</td>
+<td><code>PRETTYPLAY_BASE_URL</code></td>
+</tr>
+<tr>
+<td>cache_root</td>
+<td><code>PRETTYPLAY_CACHE_ROOT</code></td>
+</tr>
+<tr>
+<td>generation_attempts</td>
+<td><code>PRETTYPLAY_GENERATION_ATTEMPTS</code></td>
+</tr>
+<tr>
+<td>healing_attempts</td>
+<td><code>PRETTYPLAY_HEALING_ATTEMPTS</code></td>
+</tr>
+<tr>
+<td>polling_timeout</td>
+<td><code>PRETTYPLAY_POLLING_TIMEOUT</code></td>
+</tr>
+<tr>
+<td>polling_delay</td>
+<td><code>PRETTYPLAY_POLLING_DELAY</code></td>
+</tr>
+<tr>
+<td>interactive</td>
+<td><code>PRETTYPLAY_INTERACTIVE</code></td>
+</tr>
+<tr>
+<td>send_screenshots</td>
+<td><code>PRETTYPLAY_SEND_SCREENSHOTS</code></td>
+</tr>
+<tr>
+<td>strict</td>
+<td><code>PRETTYPLAY_STRICT</code></td>
+</tr>
+<tr>
+<td>generation_prompt</td>
+<td><code>PRETTYPLAY_GENERATION_PROMPT</code></td>
+</tr>
+<tr>
+<td>classification_prompt</td>
+<td><code>PRETTYPLAY_CLASSIFICATION_PROMPT</code></td>
+</tr>
+</tbody>
+</table>
+<p>Env values parse by the field type: booleans accept <code>true/false/1/0</code>
+case-insensitively, integers parse as decimals, floats (the polling settings)
+parse as decimal floats, and an unparseable value fails
+loudly with a <code>ConfigurationError</code> naming the setting, the received value and
+the accepted form.</p>
+<h2 id="old-flat-keys-are-gone-hard-break">Old flat keys are gone — hard break</h2>
+<p><code>browser</code>, <code>headless</code> and <code>browser_endpoint</code> at the <code>[tool.prettyplay]</code> level
+no longer exist (pre-1.0 break). A config carrying them fails loudly at load:
+the error names each old key and its new home — <code>browser</code> →
+<code>[tool.prettyplay.browser] name</code>, <code>headless</code> → <code>[tool.prettyplay.browser]
+headless</code>, <code>browser_endpoint</code> → <code>[tool.prettyplay.browser] endpoint</code>. The
+removed legacy env name <code>PRETTYPLAY_BROWSER</code> fails the same way with a hint to
+use <code>PRETTYPLAY_BROWSER_NAME</code>. Migrate before upgrading.</p>
+<h2 id="per-test-overrides-layered-merge">Per-test overrides — layered merge</h2>
+<p><code>PrettyConfig</code> is the public name of the full settings model. A config passed
+to the test object carries only the explicitly set values; everything else
+resolves from pyproject+env:</p>
+<pre><code class="language-python">from prettyplay import BrowserConfig, PrettyConfig, PrettyPlay
+
+test = PrettyPlay(
+    cache_key=&quot;login-flow&quot;,
+    config=PrettyConfig(
+        strict=True,
+        browser=BrowserConfig(screen=&quot;fullscreen&quot;, headless=False),
+    ),
+)
+</code></pre>
+<ul>
+<li>An explicitly set field wins over pyproject+env; a field left at its default
+  falls back to the file layer</li>
+<li>The merge reaches inside the nested group: explicitly set fields of a passed
+  <code>BrowserConfig</code> win over the file layer; untouched group defaults never
+  overwrite file values — set only <code>screen</code> and the file's <code>name</code>,
+  <code>headless</code>, <code>endpoint</code>, <code>accept_dialogs</code> keep working</li>
+<li><code>strict</code> participates when passed explicitly — an explicit <code>False</code> overrides
+  the file value too</li>
+<li><code>polling_timeout</code> merges by skip-when-<code>None</code>: a <code>PrettyConfig</code> that leaves
+  it <code>None</code> (the default) resolves from the file layer, while an explicit
+  <code>0.0</code> participates in the merge as an explicit disable — indistinguishable
+  from unset only at the <code>None</code> default, never at the value</li>
+<li>File values you did not touch survive: <code>base_url</code> and <code>model</code> set only in
+  pyproject.toml keep working when a config is passed</li>
+<li>One model — one place of validation: file and programmatic values validate
+  identically</li>
+</ul>
+<h2 id="the-prettyconfig-api">The PrettyConfig API</h2>
+<p><code>PrettyConfig</code> is the public name of the validated settings model (<code>Config</code>
+internally, <code>prettyplay.config.Config</code>); re-exported from the package root
+together with the nested browser group:</p>
+<pre><code class="language-python">from prettyplay import BrowserConfig, PrettyConfig
+</code></pre>
+<p>Both models are pydantic v2 with keyword-only construction; every field
+carries an empty or neutral default — an empty string means unset for string
+fields, which is what makes the layered merge above possible.</p>
+<h3 id="prettyconfig">PrettyConfig</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>provider</code></td>
+<td>str</td>
+<td><code>"openai"</code></td>
+<td>LLM provider: <code>openai</code> or <code>anthropic</code></td>
+</tr>
+<tr>
+<td><code>browser</code></td>
+<td>BrowserConfig</td>
+<td>neutral group</td>
+<td>the nested browser settings group</td>
+</tr>
+<tr>
+<td><code>model</code></td>
+<td>str</td>
+<td><code>""</code></td>
+<td>the main LLM model name</td>
+</tr>
+<tr>
+<td><code>generation_model</code></td>
+<td>str</td>
+<td><code>""</code></td>
+<td>generation-only override; empty → <code>model</code></td>
+</tr>
+<tr>
+<td><code>classification_model</code></td>
+<td>str</td>
+<td><code>""</code></td>
+<td>classification-only override; empty → <code>model</code></td>
+</tr>
+<tr>
+<td><code>base_url</code></td>
+<td>str</td>
+<td><code>""</code></td>
+<td>custom LLM API endpoint</td>
+</tr>
+<tr>
+<td><code>cache_root</code></td>
+<td>str</td>
+<td><code>""</code></td>
+<td>empty → <code>&lt;cwd&gt;/.prettyplay/cache/</code> resolved at load</td>
+</tr>
+<tr>
+<td><code>generation_prompt</code></td>
+<td>str</td>
+<td><code>""</code></td>
+<td>user instructions for generation requests; empty → no block</td>
+</tr>
+<tr>
+<td><code>classification_prompt</code></td>
+<td>str</td>
+<td><code>""</code></td>
+<td>user instructions for classification requests; empty → no block</td>
+</tr>
+<tr>
+<td><code>strict</code></td>
+<td>bool</td>
+<td><code>False</code></td>
+<td>replay-only mode: no generation, no healing</td>
+</tr>
+<tr>
+<td><code>interactive</code></td>
+<td>bool</td>
+<td><code>False</code></td>
+<td>arm the steering dialog for terminally stuck steps (local sessions)</td>
+</tr>
+<tr>
+<td><code>generation_attempts</code></td>
+<td>int</td>
+<td><code>3</code></td>
+<td>generation attempt budget per step per test</td>
+</tr>
+<tr>
+<td><code>healing_attempts</code></td>
+<td>int</td>
+<td><code>2</code></td>
+<td>healing attempt budget per step per test</td>
+</tr>
+<tr>
+<td><code>polling_timeout</code></td>
+<td>float | None</td>
+<td><code>None</code></td>
+<td>settle window seconds per step execution; <code>None</code>/<code>0</code> — polling off</td>
+</tr>
+<tr>
+<td><code>polling_delay</code></td>
+<td>float</td>
+<td><code>0.5</code></td>
+<td>pause between settle re-executions</td>
+</tr>
+<tr>
+<td><code>send_screenshots</code></td>
+<td>bool</td>
+<td><code>False</code></td>
+<td>attach screenshots to LLM requests</td>
+</tr>
+</tbody>
+</table>
+<p>Read-only effective-model properties resolve the per-operation fallback:</p>
+<pre><code class="language-python">config.effective_generation_model      # generation_model when non-empty, otherwise model
+config.effective_classification_model  # classification_model when non-empty, otherwise model
+</code></pre>
+<h3 id="browserconfig">BrowserConfig</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td>str</td>
+<td><code>"chromium"</code></td>
+<td><code>chromium</code>, <code>firefox</code>, <code>webkit</code>, <code>chrome</code>, <code>msedge</code></td>
+</tr>
+<tr>
+<td><code>screen</code></td>
+<td>str</td>
+<td><code>""</code></td>
+<td><code>""</code> — Playwright default; WxH — fixed viewport; <code>fullscreen</code>; Playwright device name</td>
+</tr>
+<tr>
+<td><code>headless</code></td>
+<td>bool</td>
+<td><code>True</code></td>
+<td>windowless local launch; ignored on a remote connect</td>
+</tr>
+<tr>
+<td><code>endpoint</code></td>
+<td>str</td>
+<td><code>""</code></td>
+<td>ws endpoint of a remote browser; empty — local launch</td>
+</tr>
+<tr>
+<td><code>accept_dialogs</code></td>
+<td>bool</td>
+<td><code>False</code></td>
+<td>automatically accept dialogs no step-captured <code>expect_dialog</code> block claims</td>
+</tr>
+</tbody>
+</table>
+<p>Fields inside the group carry no <code>browser_</code> prefix — the group name scopes
+them; env overrides stay flat (<code>PRETTYPLAY_BROWSER_NAME</code>, ...). Validation:
+<code>name</code> against the five-value set, a non-empty <code>endpoint</code> as a ws/wss URL,
+positive integers for the attempts, <code>screen</code> at format level only (a WxH-shaped
+value must carry positive integers; everything else — including <code>fullscreen</code>
+and device names — passes through unresolved, because the device registry
+belongs to the running Playwright).</p>
+<h3 id="load_config">load_config</h3>
+<pre><code class="language-python">from prettyplay.config import load_config
+
+config = load_config(pyproject_path=None, overrides=None)
+</code></pre>
+<ul>
+<li><code>pyproject_path</code> — optional explicit path to pyproject.toml; <code>None</code> — the
+  first pyproject.toml found upwards from the current directory</li>
+<li><code>overrides</code> — programmatically passed values, the same full model; <code>None</code> —
+  no programmatic layer, the file layer resolves everything</li>
+<li>returns the fully resolved and validated <code>Config</code></li>
+</ul>
+<p>Resolution order: TOML file → environment overrides (<code>PRETTYPLAY_*</code>) →
+explicitly set fields of <code>overrides</code> (the merge reaches inside the browser
+group — see
+<a href="#per-test-overrides-layered-merge">Per-test overrides</a>).</p>
+<h3 id="examples">Examples</h3>
+<pre><code class="language-python">from prettyplay import BrowserConfig, PrettyConfig, PrettyPlay
+
+# no programmatic layer — everything resolves from pyproject+env
+t1 = PrettyPlay(&quot;smoke&quot;)
+
+# per-test: strict replay with a visible fullscreen window
+t2 = PrettyPlay(
+    &quot;login-flow&quot;,
+    config=PrettyConfig(
+        strict=True,
+        browser=BrowserConfig(screen=&quot;fullscreen&quot;, headless=False),
+    ),
+)
+
+# override one field of the browser group — file values for the rest keep working
+t3 = PrettyPlay(&quot;login-flow&quot;, config=PrettyConfig(browser=BrowserConfig(name=&quot;firefox&quot;)))
+
+# dedicated models per operation, one main fallback
+cfg = PrettyConfig(
+    model=&quot;claude-sonnet-4-5&quot;,
+    generation_model=&quot;claude-opus-4-7&quot;,               # generation requests only
+    classification_model=&quot;claude-haiku-4-5-20251001&quot;,  # classification requests only
+)
+</code></pre>
+<p>Inspecting the effective config of a project:</p>
+<pre><code class="language-python">from prettyplay.config import load_config
+
+config = load_config()  # locates pyproject.toml upwards from the current directory
+print(config.browser.name, config.browser.screen, config.strict)
+print(config.effective_generation_model, config.effective_classification_model)
+</code></pre>
+<h3 id="configurationerror">ConfigurationError</h3>
+<p>An invalid configuration never surfaces as a raw pydantic error: the loader
+wraps it into <code>ConfigurationError</code> (<code>from prettyplay.config import
+ConfigurationError</code> — derives from <code>PrettyplayError</code>, so the single library
+except clause catches it; a configuration failure is not a step failure and
+never carries a verdict). The message is actionable — one line per invalid
+setting: the setting name, the received value and the allowed values; the
+original pydantic <code>ValidationError</code> stays chained for debugging.</p>
+<h2 id="instructions">Instructions</h2>
+<p>A non-empty <code>generation_prompt</code> is sent verbatim as a <code>USER INSTRUCTIONS</code>
+block with every generation and regeneration request — it steers the style of
+the generated code, never the failure classification.</p>
+<p>A non-empty <code>classification_prompt</code> works the same way for classification
+requests only — it steers the verdict explanations (e.g. <code>answer in Russian</code>),
+never generation.</p>
+<p>Neither ever invalidates cached steps — a cached step runs unchanged.</p>
+<h2 id="dialogs">Dialogs</h2>
+<p><code>accept_dialogs</code> of the browser group controls the automatic dialog handling
+of the driver:</p>
+<ul>
+<li><code>true</code> — every dialog that no step-captured <code>expect_dialog</code> block claims
+  is accepted automatically</li>
+<li><code>false</code> (default) — unclaimed dialogs are dismissed (the Playwright
+  default; nothing blocks)</li>
+<li>A dialog captured by a step's <code>expect_dialog</code> block is accepted or
+  dismissed by the step itself — the setting does not apply to captured
+  dialogs</li>
+</ul>
+<h2 id="strict-mode">Strict mode</h2>
+<p><code>strict = true</code> (env <code>PRETTYPLAY_STRICT</code>, per-test override) switches the run
+to replay-only: cached code executes honestly and nothing is ever
+(re)generated. A cache miss fails as an incurable step; a failed cached step
+is at most classified — never regenerated. Classification is the only LLM call
+strict mode makes; without LLM access the failure raises immediately by step
+type — see <a href="../reference/failure-taxonomy/">Failure taxonomy</a> and
+<a href="../getting-started/#strict-mode-replay-only-ci-runs">Getting started</a>.</p>
+<h2 id="rules">Rules</h2>
+<ul>
+<li>LLM API keys are never stored in the config file — secrets come only from
+  environment variables: <code>OPENAI_API_KEY</code> for openai, <code>ANTHROPIC_API_KEY</code> for
+  anthropic</li>
+<li>Invalid configuration fails loudly: <code>ConfigurationError</code> names the setting,
+  the received value and the allowed values; the raw pydantic error stays
+  chained for debugging</li>
+<li>The provider set: <code>openai</code>, <code>anthropic</code>; the browser name set: <code>chromium</code>,
+  <code>firefox</code>, <code>webkit</code>, <code>chrome</code>, <code>msedge</code></li>
+<li>A non-empty <code>browser.endpoint</code> must be a valid ws/wss URL</li>
+<li>The cache root default: <code>&lt;cwd&gt;/.prettyplay/cache/</code> — anchored at the working
+  directory of the run, wherever the pyproject.toml was found</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.indexes", "search.suggest", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
