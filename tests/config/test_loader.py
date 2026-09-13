@@ -25,6 +25,7 @@ _ALL_ENV_FIELDS = (
     "GENERATION_ATTEMPTS",
     "HEALING_ATTEMPTS",
     "SEND_SCREENSHOTS",
+    "GENERATION_APPROVE",
     "GENERATION_PROMPT",
     "CLASSIFICATION_PROMPT",
     "STRICT",
@@ -121,6 +122,7 @@ class TestLoadConfigContract:
             "PRETTYPLAY_GENERATION_ATTEMPTS",
             "PRETTYPLAY_HEALING_ATTEMPTS",
             "PRETTYPLAY_SEND_SCREENSHOTS",
+            "PRETTYPLAY_GENERATION_APPROVE",
             "PRETTYPLAY_BROWSER_NAME",
             "PRETTYPLAY_BROWSER_SCREEN",
             "PRETTYPLAY_BROWSER_HEADLESS",
@@ -134,6 +136,14 @@ class TestLoadConfigContract:
         # one entry per top-level scalar field (the group itself excluded) plus per group field
         wired = [name for name in Config.model_fields if name != "browser"]
         assert len(_loader._ENV_NAMES) == len(wired) + len(BrowserConfig.model_fields)
+
+    def test_loader_accepts_generation_approve_env(self, write_pyproject, monkeypatch) -> None:
+        """Contract: the gate switch reads PRETTYPLAY_GENERATION_APPROVE — set, load, no crash."""
+        monkeypatch.setenv("PRETTYPLAY_GENERATION_APPROVE", "false")
+
+        config = load_config(pyproject_path=write_pyproject())
+
+        assert config.generation_approve is False
 
     def test_loader_accepts_polling_and_interactive_env(self, write_pyproject, monkeypatch) -> None:
         """Contract: the three settings carry env overrides the loader parses by field type."""
@@ -576,6 +586,17 @@ class TestLoadConfigOverlay:
         assert config.polling_timeout == 0.0
         assert config.interactive is False
 
+    def test_generation_approve_explicit_false_overrides_the_file_layer(self, write_pyproject) -> None:
+        """A per-test gate opt-out wins over the file layer — the strict/interactive pattern."""
+        path = write_pyproject(generation_approve=True)
+
+        config = load_config(path, overrides=PrettyConfig(generation_approve=False))
+
+        assert config.generation_approve is False
+
+        # untouched default never overwrites the file layer
+        assert load_config(path, PrettyConfig()).generation_approve is True
+
     def test_explicit_none_polling_timeout_is_indistinguishable_from_unset(self, write_pyproject) -> None:
         """A passed None skips the merge — indistinguishable from never passing the field."""
         path = write_pyproject(polling_timeout=8.0)
@@ -730,4 +751,31 @@ class TestLoadConfigNewEnvNames:
         message = str(excinfo.value)
         for fragment in expected_fragments:
             assert fragment in message
+        assert isinstance(excinfo.value, PrettyplayError)
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [("true", True), ("FALSE", False), ("1", True), ("0", False), ("True", True)],
+        ids=["true", "FALSE", "one", "zero", "True"],
+    )
+    def test_generation_approve_env_override_parses_booleans(
+        self, write_pyproject, monkeypatch, raw: str, expected: bool
+    ) -> None:
+        """The gate switch parses true/false/1/0 case-insensitively — like every boolean."""
+        monkeypatch.setenv("PRETTYPLAY_GENERATION_APPROVE", raw)
+
+        config = load_config(pyproject_path=write_pyproject())
+
+        assert config.generation_approve is expected
+
+    def test_generation_approve_env_unparseable_fails_loudly(self, write_pyproject, monkeypatch) -> None:
+        """Negative: a bool-like-but-unparseable value fails loudly — never a silent ignore."""
+        monkeypatch.setenv("PRETTYPLAY_GENERATION_APPROVE", "yes")
+
+        with pytest.raises(ConfigurationError) as excinfo:
+            load_config(pyproject_path=write_pyproject())
+
+        assert str(excinfo.value).splitlines() == [
+            "generation_approve: received 'yes' — allowed: a boolean (true/false/1/0)"
+        ]
         assert isinstance(excinfo.value, PrettyplayError)

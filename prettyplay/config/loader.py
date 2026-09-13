@@ -4,7 +4,8 @@ The pyproject.toml path is either given explicitly or auto-searched upward from
 the current working directory. Environment overrides win over the file
 whenever the variable is set — including when it is set to an empty string:
 ``PRETTYPLAY_<SETTING_UPPER>`` for every scalar setting (including
-``PRETTYPLAY_STRICT`` and ``PRETTYPLAY_CLASSIFICATION_PROMPT``) and the flat
+``PRETTYPLAY_STRICT``, ``PRETTYPLAY_CLASSIFICATION_PROMPT`` and
+``PRETTYPLAY_GENERATION_APPROVE``) and the flat
 group names ``PRETTYPLAY_BROWSER_{NAME|SCREEN|HEADLESS|ENDPOINT|ACCEPT_DIALOGS}``
 for the nested browser group. Scalar env values parse by the field type — booleans
 accept true/false/1/0 case-insensitively, integers parse as decimal, floats
@@ -56,6 +57,7 @@ _ENV_NAMES: dict[str, str] = {
         "generation_attempts",
         "healing_attempts",
         "send_screenshots",
+        "generation_approve",
         "browser.name",
         "browser.screen",
         "browser.headless",
@@ -66,7 +68,14 @@ _ENV_NAMES: dict[str, str] = {
 
 #: The settings whose env values parse as booleans.
 _BOOL_ENV_SETTINGS = frozenset(
-    {"strict", "interactive", "send_screenshots", "browser.headless", "browser.accept_dialogs"}
+    {
+        "strict",
+        "interactive",
+        "send_screenshots",
+        "generation_approve",
+        "browser.headless",
+        "browser.accept_dialogs",
+    }
 )
 
 #: The settings whose env values parse as decimal integers.
@@ -95,6 +104,7 @@ _ALLOWED_TEXT: dict[str, str] = {
     "polling_delay": "a non-negative number",
     "interactive": "a boolean",
     "send_screenshots": "a boolean",
+    "generation_approve": "a boolean",
     "model": "a non-empty string",
     "generation_model": "a non-empty string",
     "classification_model": "a non-empty string",
@@ -293,7 +303,10 @@ def load_config(pyproject_path: str | None = None, overrides: Config | None = No
     string included: the browser group reads the flat
     ``PRETTYPLAY_BROWSER_{NAME|SCREEN|HEADLESS|ENDPOINT|ACCEPT_DIALOGS}``
     names, ``strict`` reads ``PRETTYPLAY_STRICT``, ``classification_prompt`` reads
-    ``PRETTYPLAY_CLASSIFICATION_PROMPT`` and every other setting reads
+    ``PRETTYPLAY_CLASSIFICATION_PROMPT``, ``generation_approve`` reads
+    ``PRETTYPLAY_GENERATION_APPROVE`` — booleans parse true/false/1/0
+    case-insensitively; an unparseable value raises the loud actionable
+    ``ConfigurationError`` — and every other setting reads
     ``PRETTYPLAY_<SETTING_UPPER>``. Scalar env values parse by the field type
     and an unparseable value fails loudly. The removed legacy name
     ``PRETTYPLAY_BROWSER`` and the removed flat keys of the

@@ -26,7 +26,7 @@ class TestConfigContract:
         with pytest.raises(TypeError):
             Config("openai")  # type: ignore[misc]
 
-    def test_all_eighteen_properties_accessible(self) -> None:
+    def test_all_nineteen_properties_accessible(self) -> None:
         config = Config()
         expected = [
             "provider",
@@ -45,13 +45,14 @@ class TestConfigContract:
             "generation_attempts",
             "healing_attempts",
             "send_screenshots",
+            "generation_approve",
             "effective_generation_model",
             "effective_classification_model",
         ]
         for name in expected:
             assert hasattr(config, name), f"missing property: {name}"
 
-    def test_signature_declares_sixteen_fields_in_contract_order(self) -> None:
+    def test_signature_declares_seventeen_fields_in_contract_order(self) -> None:
         fields = Config.model_fields
         assert list(fields.keys()) == [
             "provider",
@@ -70,7 +71,13 @@ class TestConfigContract:
             "generation_attempts",
             "healing_attempts",
             "send_screenshots",
+            "generation_approve",
         ]
+
+    def test_generation_approve_is_a_declared_field(self) -> None:
+        """Contract: the compliance gate switch is a model field in the last position."""
+        assert "generation_approve" in Config.model_fields
+        assert list(Config.model_fields)[-1] == "generation_approve"
 
     def test_config_defaults_polling_and_interactive_settings(self) -> None:
         """The three new settings: polling off, half-second pause, steering off."""
@@ -154,6 +161,11 @@ class TestConfigLogic:
         assert config.send_screenshots is False
         assert config.strict is False
         assert config.effective_generation_model == config.model == ""
+
+    def test_generation_approve_defaults_true(self) -> None:
+        """The gate switch carries the opt-out default — loud errors unless disabled."""
+        assert Config().generation_approve is True
+        assert Config(generation_approve=False).generation_approve is False
 
     def test_config_invalid_provider_fails_loudly(self) -> None:
         with pytest.raises(pydantic.ValidationError) as excinfo:

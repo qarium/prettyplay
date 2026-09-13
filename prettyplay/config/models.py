@@ -171,6 +171,12 @@ class Config(BaseModel):
         generation_attempts: generation attempt budget per step per test; default 3.
         healing_attempts: healing attempt budget per step per test; default 2.
         send_screenshots: whether screenshots are attached to LLM requests.
+        generation_approve: whether the instruction compliance gate runs before
+            caching a generated step; True — every successfully executed
+            generation and regeneration candidate is verified against the user
+            instructions (the non-empty generation_prompt) before it is cached;
+            False — the gate never runs, fully the old behavior; default True
+            (the opt-out default).
     """
 
     model_config = ConfigDict(kw_only=True, extra="forbid")
@@ -191,6 +197,7 @@ class Config(BaseModel):
     generation_attempts: PositiveInt = 3
     healing_attempts: PositiveInt = 2
     send_screenshots: bool = False
+    generation_approve: bool = True
 
     @field_validator("polling_timeout")
     @classmethod

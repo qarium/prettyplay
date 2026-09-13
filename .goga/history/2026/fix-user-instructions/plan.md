@@ -673,21 +673,21 @@ explicitly passed False participate (not None, not a str) — the
 
 **CRITICAL: `prettyplay/config/CODEMANIFEST` — read-only. Do NOT modify it.**
 
-- [ ] **Contract tests** (expected to fail now): in `tests/config/test_models.py`
+- [x] **Contract tests** (expected to fail now): in `tests/config/test_models.py`
       — `generation_approve in Config.model_fields`; in
       `tests/config/test_loader.py` — the env override reads
       `PRETTYPLAY_GENERATION_APPROVE` (set it, `load_config`, assert no crash).
-- [ ] **Code**: add `generation_approve: bool = True` to `Config` in
+- [x] **Code**: add `generation_approve: bool = True` to `Config` in
       `prettyplay/config/models.py` (last position) + Attributes docstring
       entry: "whether the instruction compliance gate runs before caching a
       generated step; default True (the opt-out default)".
-- [ ] **Code**: add `"generation_approve"` to `_ENV_NAMES`,
+- [x] **Code**: add `"generation_approve"` to `_ENV_NAMES`,
       `_BOOL_ENV_SETTINGS` and `_ALLOWED_TEXT` (`"a boolean"`) in
       `prettyplay/config/loader.py`; add the module docstring line naming
       `PRETTYPLAY_GENERATION_APPROVE`.
-- [ ] **Interface verification**: `python3 -m pytest tests/config/ -q` — the
+- [x] **Interface verification**: `python3 -m pytest tests/config/ -q` — the
       contract tests pass.
-- [ ] **Logic tests**:
+- [x] **Logic tests**:
       `test_generation_approve_defaults_true` (tests/config/test_models.py) —
       `Config().generation_approve is True`.
       `test_generation_approve_env_override_parses_booleans`
@@ -705,13 +705,13 @@ explicitly passed False participate (not None, not a str) — the
       tests/config/test_loader.py) — env `"yes"` → `pytest.raises(
       ConfigurationError)` with message
       `generation_approve: received 'yes' — allowed: a boolean (true/false/1/0)`.
-- [ ] **Debugging**: `python3 -m pytest tests/ -x -q` (same two known-red
+- [x] **Debugging**: `python3 -m pytest tests/ -x -q` (same two known-red
       mirror-sync tests excluded as in Task 1) — fix implementation code until
       all tests pass (do NOT fix test code).
-- [ ] **Contract re-verification**: field in the last signature position, default
+- [x] **Contract re-verification**: field in the last signature position, default
       True, merge participation identical to `strict`/`interactive`, env
       override present.
-- [ ] **Lint**: `python3 -m ruff check prettyplay/config tests/config` — fix
+- [x] **Lint**: `python3 -m ruff check prettyplay/config tests/config` — fix
       formatting if necessary.
 
 ### Task 3: the coordinated mirror change + the `ignore_case` capability (driver cell + the frozen mirrors, TDD)
