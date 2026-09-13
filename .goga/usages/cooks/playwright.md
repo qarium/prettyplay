@@ -4,6 +4,10 @@ Practices for the `playwright` library within prettyplay. Target audience: imple
 
 prettyplay drives the browser exclusively through Playwright's **sync API** (ADR-1, ADR-2). Playwright is a hard dependency of the package.
 
+## Generated step code — the standard API contour
+
+The whole step executes inside the driver worker thread as one unit; the step function receives the genuine sync `Page` — never a wrapper; imports restricted to `from playwright.sync_api import ...` (a prompt rule, no hard gate); safety core — the fixed form `def step(page) -> None:`, no fixed delays or sleeps, no `page.close()`/`context.close()` (the runtime owns the page lifecycle); stateful actions excluded from generated code (`page.route`, `page.clock`, `add_init_script`, tracing, HAR, CDP) — the author performs them explicitly through the escape hatch; waiting `expect(...)` chains advised for dynamic content, immediate reads with plain Python asserts allowed (`assert locator.count() > 1`); scrolling and dialogs through stock means; everything standard stays allowed — the cheat-sheet carried by every request is guidance, not an allowlist; the error-driven regeneration loop is the second line of defense.
+
 ## Lifecycle — one browser process per test
 
 `sync_playwright()` starts the driver. Every test owns its runtime: its own **browser process** and its own **isolated browser context** — no browser state is shared between tests through the library. Browser processes start lazily on the first step; every session registers its close with atexit, so all browsers stop before the process exits.
@@ -135,24 +139,23 @@ page.get_by_label("Avatar").set_input_files("avatar.png")
 
 Rules:
 - `press` targets a located element — key names and combinations ("Enter", "Control+A") both work
-- raw input devices (page.keyboard, page.mouse) are outside the facade surface — keys go through element press
+- raw input devices (`page.keyboard`, `page.mouse`) are standard Playwright — reachable in generated code; element press stays the default guidance
 - `drag_to` auto-waits for both endpoints; `set_input_files` takes a filesystem path
 
 ## Dialogs — routing and auto-accept
 
-Dialog handling is a setting of the browser group of the configuration. The driver registers one routing handler per page of the context before any step code runs:
+Dialog handling is a setting of the browser group of the configuration. The per-page dialog routing handler stays runtime behavior — the resolver of last resort: an in-step stock capture wins, the handler never touches a dialog a capture handled; every unclaimed dialog is resolved exactly once — accept when the setting is on, an explicit dismiss when off. The driver registers one routing handler per page of the context before any step code runs.
 
 ```python
-context.on("page", lambda page: page.on("dialog", route))
-# route(dialog): an armed capture on this page claims it (skip);
-#                else accept when the setting is on; else explicit dismiss
+with page.expect_event("dialog") as info:
+    ...  # the triggering action inside the block
+dialog = info.value
+dialog.accept() / dialog.dismiss() / dialog.accept("the answer")
 ```
 
 Rules:
 - Registering any `dialog` listener disables Playwright's implicit auto-dismiss — the handler itself resolves every uncaptured dialog: accept when the setting is on, an explicit dismiss when off (the same observable default)
 - The handler is unconditional — never accept-only: a capture-armed step must keep control of its dialog
-- An armed event waiter (`page.expect_event("dialog")`) claims the dialog on its page first; the Python client ships no `expect_dialog`
-- Scenario-level dialog verification constructs belong to the facade contract design, not to this usage
 
 ## Popups and new tabs
 
@@ -167,12 +170,12 @@ popup = popup_info.value
 
 Rules:
 - `expect_popup` waits for the popup event fired by the action inside the with-block
-- Switching between the pages of the context goes through facade-wrapped pages; `bring_to_front()` activates a page
-- Pages of one context share the browser process but stay separate facades
+- The opened page is a genuine Page, usable directly; `bring_to_front()` activates a page
+- Pages of one context share the browser process
 
 ## Frames and iframes
 
-Frame content is reached through frame locators scoped by the frame selector — no raw frame objects cross the facade boundary:
+Frame content is reached through frame locators scoped by the frame selector:
 
 ```python
 checkout = page.frame_locator("#checkout")
@@ -303,3 +306,4 @@ png_bytes = page.screenshot()
 - All waits go through locators/expectations; `time.sleep` and fixed delays are forbidden
 - `aria_snapshot()` is the default page representation sent to the LLM
 - Browser binaries come from `playwright install` on user infrastructure; the package never bundles browsers
+- Generated step code uses the genuine sync Page inside the worker thread; the import rule and the stateful exclusions are prompt rules; the runtime owns the page lifecycle

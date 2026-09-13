@@ -29,6 +29,21 @@ with PrettyPlay("login-flow") as t:
 - step(text) — performs what the sentence says
 - expect(text) — verifies what the sentence says; a legitimately failed expectation fails the test as a product defect
 
+## Author page access
+
+The excluded-from-generation stateful actions are performed explicitly by the author — the callable runs wholly
+inside the driver worker thread and receives the genuine sync Page:
+
+    with PrettyPlay("videos-flow") as t:
+        t.step("open the videos page")
+        t.run_on_page(lambda page: page.route("**/api/videos", lambda route: route.fulfill(json={"items": []})))
+        t.expect("the page shows a list of videos")
+
+- Requires an opened page: call it after the first step — a loud error otherwise
+- The callable returns plain data; Playwright objects (locators, handles, pages) never cross back to the calling thread
+- Prompt rules do not bind the author: page.route, page.clock, tracing, HAR, CDP are the author's explicit tools
+- The callable runs sequentially with the steps — the shared worker takes one unit at a time
+
 ## Screenshots
 
 Two author-facing abilities on the test object:

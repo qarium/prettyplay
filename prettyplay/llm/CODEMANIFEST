@@ -19,6 +19,7 @@ Annotations: |
   Provider parity is absolute: both providers expose the same operations, accept the same inputs, return the same output shapes and map failures to the same taxonomy; the provider choice is a configuration decision, never a capability difference.
   The one SDK-forced asymmetry: the anthropic Messages API requires max_tokens on every request, so the anthropic implementation carries a fixed completion cap (4096 tokens — sized so a full multi-step step-code response never truncates) the openai side has no analogue of; the openai SDK sends no cap and defaults to the model maximum. A transport requirement of the SDK, not a capability difference of the port.
   The user instructions input participates in both provider implementations with identical semantics: generation requests render the generation instructions, classification requests render the classification instructions — each verbatim as a separate USER INSTRUCTIONS block; classification requests never carry the generation instructions and generation requests never carry the classification instructions; a parity requirement, not a capability difference.
+  The cheat-sheet input participates in both provider implementations with identical semantics: every generation request renders the CHEAT SHEET block after the scenario inputs and immediately before the USER INSTRUCTIONS block — the compact standard Playwright sync API reference supplied by the calling engine; guidance, not an allowlist; a parity requirement, not a capability difference.
   API keys come only from environment variables; never log keys or payloads containing secrets.
   One completion request per attempt: attempt budgets are owned by the calling engine, never by a provider.
   Cached step code never depends on the provider: the provider serves generation, classification and the compliance verdict only.
@@ -32,7 +33,7 @@ Annotations: |
   annotations: |
     The unified LLM port of the library: code generation for a step, failure classification for healing and the compliance verdict of the gate. One contract, two interchangeable implementations selected by configuration.
   methods:
-    "generate_step_code(prompt: str, user_instructions: str, step_text: str, previous_steps: list[str], snapshot: str, screenshot: bytes | None, page_api: str, existing_code: str | None, error: str | None, recommendation: str | None, guidance: str | None, guidance_history: list[str]) -> code: str": |
+    "generate_step_code(prompt: str, user_instructions: str, step_text: str, previous_steps: list[str], snapshot: str, screenshot: bytes | None, cheat_sheet: str, existing_code: str | None, error: str | None, recommendation: str | None, guidance: str | None, guidance_history: list[str]) -> code: str": |
       Generate step code of the fixed form.
 
       `prompt`: the system prompt text supplied by the calling engine — applied verbatim as the system message.
@@ -41,18 +42,18 @@ Annotations: |
       `previous_steps`: the sentences of the previous steps of the test, in execution order — scenario context.
       `snapshot`: the accessibility snapshot of the current page.
       `screenshot`: an optional PNG image of the page; passed only when the project enables screenshots.
-      `page_api`: the exact page facade surface listing — the list of calls the model may use.
+      `cheat_sheet`: the compact standard Playwright sync API reference supplied by the calling engine — rendered by the provider implementations as the leading CHEAT SHEET block of the user content, identically in both; guidance, not an allowlist — everything standard stays allowed.
       `existing_code`: the existing step code that failed; non-empty only on regeneration requests.
       `error`: the failure description of the existing code; non-empty only on regeneration requests.
       `recommendation`: the diagnosis of the classification that preceded the regeneration; non-empty — rendered as a separate RECOMMENDATION block after the CODE and ERROR blocks: regeneration starts from the diagnosis, not the raw error; None — no block.
       `guidance`: the engineer guidance message of the interactive steering; non-empty — rendered as a separate USER GUIDANCE block; None — no block.
       `guidance_history`: the accumulated steering turns — each a rendered guidance-and-outcome line; non-empty — rendered as a separate HISTORY block after the USER GUIDANCE block; empty — no block.
-      `code`: the generated step code of the fixed form, working only through the driver facade; the first markdown-fenced block of the answer is unwrapped — an answer with no closed fence returns verbatim.
+      `code`: the generated step code of the fixed form, working through the standard Playwright sync API — imports from playwright.sync_api only; the first markdown-fenced block of the answer is unwrapped — an answer with no closed fence returns verbatim.
 
       Requirements:
       - A provider service failure (connectivity, timeout, rate limit, authentication) raises `LLMUnavailableError` naming the provider
       - The generated code contains no provider-specific constructs
-      - The block order of a regeneration request is fixed: page API, user instructions, CODE, ERROR, RECOMMENDATION, USER GUIDANCE, HISTORY — a non-empty input renders its named block, identically in both implementations
+      - The block order of a generation request is fixed: CHEAT SHEET, user instructions, CODE, ERROR, RECOMMENDATION, USER GUIDANCE, HISTORY — a non-empty input renders its named block, identically in both implementations
       - The new inputs take no part in step addressing: a cached step never regenerates because they changed
     "classify_failure(prompt: str, user_instructions: str, step_text: str, code: str, error: str, snapshot: str, screenshot: bytes | None) -> classification: FailureClassification": |
       Classify a failed cached step.
@@ -99,7 +100,7 @@ Annotations: |
     `config`: project settings; the generation model is the effective_generation_model of `config`, the classification model is the effective_classification_model of `config`; the base_url setting of `config` overrides the endpoint when set.
 
     Algorithm (all three operations):
-    1. Build the request: the prompt text as the system message, the user content carrying the inputs — a non-empty user_instructions of a generation request renders as a separate USER INSTRUCTIONS block placed after the page API block; the regeneration-only blocks render in the fixed order CODE, ERROR, RECOMMENDATION, USER GUIDANCE, HISTORY — a non-empty input renders its named block, identically in both implementations; a non-empty user_instructions of a classification request renders as the separate USER INSTRUCTIONS block placed last in the user content, after all classification inputs (STEP, CODE, ERROR, PAGE SNAPSHOT)
+    1. Build the request: the prompt text as the system message, the user content carrying the inputs — the CHEAT SHEET block renders after the scenario inputs; a non-empty user_instructions of a generation request renders as a separate USER INSTRUCTIONS block placed immediately after the CHEAT SHEET block; the regeneration-only blocks render in the fixed order CODE, ERROR, RECOMMENDATION, USER GUIDANCE, HISTORY — a non-empty input renders its named block, identically in both implementations; a non-empty user_instructions of a classification request renders as the separate USER INSTRUCTIONS block placed last in the user content, after all classification inputs (STEP, CODE, ERROR, PAGE SNAPSHOT)
     2. Send one completion request via the SDK
     3. Extract the text answer; a generation answer unwraps its first markdown-fenced block — an unfenced answer passes through verbatim
     4. An SDK error maps to `LLMUnavailableError` (see `openai`)
@@ -114,7 +115,7 @@ Annotations: |
     `config`: the same settings semantics as the openai implementation.
 
     Algorithm (all three operations):
-    1. Build the request: the prompt text as the system message, the user content carrying the inputs — a non-empty user_instructions of a generation request renders as a separate USER INSTRUCTIONS block placed after the page API block; the regeneration-only blocks render in the fixed order CODE, ERROR, RECOMMENDATION, USER GUIDANCE, HISTORY — a non-empty input renders its named block, identically in both implementations; a non-empty user_instructions of a classification request renders as the separate USER INSTRUCTIONS block placed last in the user content, after all classification inputs (STEP, CODE, ERROR, PAGE SNAPSHOT)
+    1. Build the request: the prompt text as the system message, the user content carrying the inputs — the CHEAT SHEET block renders after the scenario inputs; a non-empty user_instructions of a generation request renders as a separate USER INSTRUCTIONS block placed immediately after the CHEAT SHEET block; the regeneration-only blocks render in the fixed order CODE, ERROR, RECOMMENDATION, USER GUIDANCE, HISTORY — a non-empty input renders its named block, identically in both implementations; a non-empty user_instructions of a classification request renders as the separate USER INSTRUCTIONS block placed last in the user content, after all classification inputs (STEP, CODE, ERROR, PAGE SNAPSHOT)
     2. Send one message request via the SDK
     3. Extract the text answer; a generation answer unwraps its first markdown-fenced block — an unfenced answer passes through verbatim
     4. An SDK error maps to `LLMUnavailableError` (see `anthropic`)
@@ -208,4 +209,4 @@ Annotations: |
 Author: Goga
 CreatedAt: 10/09/26
 Description: |
-  The LLM port of prettyplay: one contract, the openai and anthropic SDK implementations in full parity — generation, classification and compliance verdict operations with identical user-instructions semantics — the failure classification verdict and the instruction compliance findings.
+  The LLM port of prettyplay: one contract, the openai and anthropic SDK implementations in full parity — generation, classification and compliance verdict operations with identical user-instructions and cheat-sheet semantics — the failure classification verdict and the instruction compliance findings.

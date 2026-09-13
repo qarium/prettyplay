@@ -18,8 +18,6 @@ Imports:
     From: prettyplay/reporting
   - Types:
       - PageFacade
-    Usages:
-      - facade
     From: prettyplay/driver
   - Types:
       - run_step_code
@@ -29,13 +27,14 @@ Imports:
 Usages:
   conventions: .goga/usages/conventions.md
   system_prompt: .goga/usages/prompts/generation.md
+  cheat_sheet: .goga/usages/prompts/cheatsheet.md
 
 Annotations: |
   Use `conventions` for code writing rules and testing.
   Use `system_prompt` as the system prompt of every guided regeneration request.
-  Use `facade` from Imports as the single source of the page API surface for regeneration requests.
+  Use `cheat_sheet` from Usages as the single source of the standard Playwright API reference for regeneration requests — the listing and the practice change together; guidance, never an allowlist.
   The system prompt sent to the provider is the frozen local mirror of `system_prompt` — the mirror and the practice change together.
-  The page API surface listing sent to the provider is the frozen local mirror of `facade` from Imports — the listing and the practice change together.
+  The cheat-sheet sent to the provider mirrors `cheat_sheet` from Usages exactly — the listing and the practice change together.
 
   The opt-in human-in-the-loop escape hatch of a terminally stuck step: opened by the step executor exactly at the moment an IncurableStepError would propagate — never on product_defect, never in replay-strict, never when the LLM is unavailable.
   Every guidance turn is a regeneration request carrying a USER GUIDANCE block plus the conversation history; the result executes against the live page — every turn has a measurable green or red outcome; no free-form conversation.
@@ -68,8 +67,8 @@ Annotations: |
       1. Render the context banner: the step sentence, the failed code, the underlying error, the verdict (explanation and recommendation), a fragment of the fresh accessibility snapshot, a screenshot path
       2. Read the guidance line; quit, EOF, SIGINT or an unreadable stdin — return None
       3. A local command runs without the LLM: snapshot — the full accessibility snapshot; screenshot — a full PNG written to a temporary file with the path printed; error and code — the stored texts; back to step 2
-      4. A guidance message builds one regeneration request via the provider: `system_prompt` as the system prompt, the page API surface from `facade`, the step sentence of `failure` and `previous_steps` as the scenario context, the fresh accessibility snapshot plus the screenshot when the project settings enable screenshots, the user instructions — the effective config generation_prompt — when non-empty, existing_code from the failed code of `failure`, error from its underlying error, the message as the guidance and the accumulated turns as the guidance history
-      5. Execute the regenerated code via `run_step_code` against `page`
+      4. A guidance message builds one regeneration request via the provider: `system_prompt` as the system prompt, the cheat-sheet from `cheat_sheet`, the step sentence of `failure` and `previous_steps` as the scenario context, the fresh accessibility snapshot plus the screenshot when the project settings enable screenshots, the user instructions — the effective config generation_prompt — when non-empty, existing_code from the failed code of `failure`, error from its underlying error, the message as the guidance and the accumulated turns as the guidance history
+      5. Execute the regenerated code via `run_step_code` against `page` — the whole step runs inside the driver worker thread through the run primitive of the page handle
       6. Success: gate the executed candidate through `check_step_compliance` — the gate
       switch off or empty generation instructions yield an empty findings list with zero
       provider calls. An empty findings list: build `CachedStep` with `identity`, save it
@@ -100,4 +99,4 @@ Annotations: |
 Author: Goga
 CreatedAt: 12/09/26
 Description: |
-  The interactive steering of prettyplay: the opt-in terminal REPL taking engineer guidance over a terminally stuck step — guided regeneration, live execution, the compliance-gated healed write-back or honest decline.
+  The interactive steering of prettyplay: the opt-in terminal REPL taking engineer guidance over a terminally stuck step — guided regeneration against the standard Playwright API, live execution inside the driver worker thread, the compliance-gated healed write-back or honest decline.

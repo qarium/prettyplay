@@ -18,6 +18,14 @@ step = generator.generate(
 - Every candidate execution runs under the settle window: transient failures re-execute the same code inside the window (settle_retry log records), no LLM budget consumed; deterministic failures go to the next request or classification
 - A non-empty generation_prompt setting adds a USER INSTRUCTIONS block to every generation and regeneration request; classification requests never carry it; changing the instructions never invalidates the cache — cached steps run as stored
 - A non-empty classification_prompt setting adds a USER INSTRUCTIONS block to classification requests only; generation requests never carry it
+- Every generation and regeneration request carries the CHEAT SHEET block right before the USER INSTRUCTIONS block — the compact standard Playwright sync API reference carried by every request; guidance, not an allowlist: everything standard stays allowed, the error-driven regeneration loop is the second line of defense
+
+## The execution boundary
+
+The whole step executes inside the driver worker thread as one unit: compile and resolve stay on the calling thread,
+the step call itself runs in the worker and receives the genuine sync Page — the calling thread never touches
+Playwright, so interactive hosts keep working. An AssertionError of a step — a failed expect chain or a plain assert
+on an immediate read — reaches failure classification untouched.
 
 ## The decision table
 
@@ -83,4 +91,13 @@ The routine collects the fresh page snapshot (plus the screenshot when enabled) 
 
 ## The fixed form
 
-Generated code is one function receiving exactly one argument — the page facade — and working only through the facade surface: `page.get_by_role(...).click()`, `page.get_by_test_id("submit").click()`, `page.locator("form > button.primary")`, `page.locator("//button[@type='submit']")`, `page.get_by_role("row").first.expect_text("Paid")`, `page.get_by_role("listitem").filter(has_text="Product X").expect_visible()`, `element.expect_visible()`, `element.press("Enter")`, `with page.expect_dialog() as dialog: ...`, `with page.expect_popup() as popup: ...`, `page.frame_locator("#checkout").get_by_role("button", name="Pay").click()`, `page.scroll_down(600)` and alike. No provider constructs, no direct driver imports, no fixed delays.
+Generated code is one function receiving exactly one argument — the genuine Playwright sync Page — importing only
+from playwright.sync_api and working through the standard API: `page.get_by_role("button", name="Sign in").click()`,
+`page.locator("form > button.primary")`, `videos = page.get_by_role("listitem")` with
+`expect(videos.first).to_be_visible()` and `assert videos.count() > 1`,
+`with page.expect_event("dialog") as info: ... info.value.accept()`,
+`with page.expect_popup() as popup_info: ... popup_info.value`,
+`page.frame_locator("#checkout").get_by_role("button", name="Pay").click()`,
+`locator.scroll_into_view_if_needed()`, `page.mouse.wheel(0, 600)`. No provider constructs, no fixed delays, no
+page.close()/context.close(), no stateful actions (route, clock, add_init_script, tracing, HAR, CDP) — the prompt
+rules; the runtime never enforces them.

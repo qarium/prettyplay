@@ -82,6 +82,8 @@ ProductDefectError and IncurableStepError render one structured message — the 
 
 The Playwright session lives in a background driver thread owned by the library: the thread that executes the steps never holds a running asyncio loop, so interactive hosts that drive their own prompt through asyncio (IPython, Jupyter) keep working after every step — passed or failed.
 
+The author escape hatch run_on_page crosses the same worker boundary the same way: the author callable executes wholly inside the worker thread with the genuine Page — the host thread keeps driving its own prompt loop.
+
 Each test owns its browser process: it starts on the first step of the test and stops when the test closes. In scripts every runtime stops automatically at process exit through its atexit hook. In an interactive session the process keeps living between cells, so close the test object explicitly when the interactive exploration is over:
 
 ```python

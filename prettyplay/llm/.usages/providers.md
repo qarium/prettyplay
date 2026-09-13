@@ -35,6 +35,11 @@ User instructions parity: each operation carries its own instructions — genera
 
 Regeneration block parity: a regeneration request may carry extra blocks after CODE and ERROR — RECOMMENDATION (the classification diagnosis), USER GUIDANCE (the engineer message of the interactive steering) and HISTORY (the accumulated steering turns), in this fixed order. Both providers render every non-empty block identically at the same position. A parity requirement, not a capability difference.
 
+Cheat-sheet parity: every generation request renders the CHEAT SHEET block after the scenario inputs and
+immediately before the USER INSTRUCTIONS block — the compact standard Playwright sync API reference supplied by
+the calling engine; guidance, not an allowlist. Both providers render it identically at the same position.
+A parity requirement, not a capability difference.
+
 ## The compliance operation
 
 check_instruction_compliance is the verdict request of the instruction compliance gate:
