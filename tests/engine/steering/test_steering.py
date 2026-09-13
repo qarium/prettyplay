@@ -11,12 +11,14 @@ from unittest import mock
 
 import pytest
 from playwright.sync_api import Error as PlaywrightError
-from prettyplay.cache import CachedStep, StepIdentity
+from prettyplay.cache import CachedStep, StepCache, StepIdentity
 from prettyplay.config import Config
+from prettyplay.engine.compliance import COMPLIANCE_PROMPT
 from prettyplay.engine.generator import PAGE_API_SURFACE as ENGINE_PAGE_API_SURFACE
 from prettyplay.engine.generator import SYSTEM_PROMPT as ENGINE_SYSTEM_PROMPT
 from prettyplay.engine.steering.steering import PAGE_API_SURFACE, SYSTEM_PROMPT
-from prettyplay.failures import FailureVerdict, IncurableStepError, LLMUnavailableError
+from prettyplay.failures import ComplianceVerdictError, FailureVerdict, IncurableStepError, LLMUnavailableError
+from prettyplay.llm import ComplianceFinding
 from prettyplay.reporting import StepHooks, StepReporter
 
 STEPPING_MODULE = "prettyplay.engine.steering.steering"
@@ -26,6 +28,10 @@ GENERATION_PROMPT_PRACTICE = Path(__file__).resolve().parents[3] / ".goga" / "us
 
 GENERATED_CODE = "def step(page) -> None:\n    page.get_by_label('Close').click()\n"
 REGENERATED_CODE = "def step(page) -> None:\n    page.get_by_role('button', name='Pay').click()\n"
+
+INSTRUCTIONS = "Prefer id attributes"
+HIGH_FINDING = ComplianceFinding(instruction="Prefer id attributes", priority="high", explanation="locates by text")
+MEDIUM_FINDING = ComplianceFinding(instruction="Prefer id attributes", priority="medium", explanation="minor")
 
 
 def facade_surface_rows(practice: str, prefix: str) -> list[str]:
@@ -80,10 +86,17 @@ class TallSnapshotPage:
 class FakeProvider:
     """Fake provider boundary: scripted candidates with recorded requests."""
 
-    def __init__(self, answers: list[str] | None = None, failure: Exception | None = None) -> None:
+    def __init__(
+        self,
+        answers: list[str] | None = None,
+        failure: Exception | None = None,
+        compliance_verdicts: list[list[ComplianceFinding] | Exception] | None = None,
+    ) -> None:
         self.answers = list(answers or [])
         self.failure = failure
+        self.compliance_verdicts = list(compliance_verdicts) if compliance_verdicts is not None else None
         self.calls: list[dict[str, object]] = []
+        self.compliance_calls: list[dict[str, object]] = []
 
     @property
     def call_count(self) -> int:
@@ -123,6 +136,13 @@ class FakeProvider:
         if self.failure is not None:
             raise self.failure
         return self.answers.pop(0)
+
+    def check_instruction_compliance(self, **kwargs: object) -> list[ComplianceFinding]:
+        self.compliance_calls.append(dict(kwargs))
+        outcome = self.compliance_verdicts.pop(0) if self.compliance_verdicts else []
+        if isinstance(outcome, Exception):  # a scripted gate failure plays itself
+            raise outcome
+        return outcome
 
 
 class SpyCache:
@@ -245,6 +265,52 @@ class TestStepSteeringContract:
         # carries them to the engine copy; assert them on the steering copy explicitly
         assert "page.expect_title(title, ignore_case)" in PAGE_API_SURFACE
         assert "element.expect_text(text, ignore_case)" in PAGE_API_SURFACE
+
+    def test_steer_green_turn_with_default_verdict_heals_with_the_gate_on(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A gate-on config with the default empty verdict heals — one gate request, then the write-back."""
+        from prettyplay.engine.steering import StepSteering  # noqa: PLC0415 — cell facade check
+
+        provider = FakeProvider(answers=[GENERATED_CODE])  # the default compliance verdict is [] — compliant
+        fixture = SteeringFixture(provider, tmp_path)
+        fixture.config = Config(cache_root=str(tmp_path), generation_prompt=INSTRUCTIONS)
+        steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
+        _script_input(monkeypatch, ["dismiss the modal first"])
+        monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
+
+        healed = steering.steer(_failure(), _identity(), [], FakePage())
+
+        assert healed is not None
+        assert healed.code == GENERATED_CODE
+        assert len(provider.compliance_calls) == 1  # one gate request per green turn, no more
+        call = provider.compliance_calls[0]
+        assert call["prompt"] == COMPLIANCE_PROMPT  # the frozen mirror of the compliance practice
+        assert call["user_instructions"] == INSTRUCTIONS
+        assert call["step_text"] == "click Pay"
+        assert call["code"] == GENERATED_CODE
+        assert len(fixture.cache.save_calls) == 1  # the compliant candidate reached the cache
+
+    def test_steer_gate_off_config_makes_zero_compliance_calls(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A gate-off config (no generation instructions) heals with zero compliance calls — the old behavior."""
+        from prettyplay.engine.steering import StepSteering  # noqa: PLC0415 — cell facade check
+
+        provider = FakeProvider(answers=[GENERATED_CODE])
+        fixture = SteeringFixture(provider, tmp_path)  # the default config holds no generation instructions
+        steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
+        _script_input(monkeypatch, ["dismiss the modal first"])
+        monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
+
+        healed = steering.steer(_failure(), _identity(), [], FakePage())
+
+        assert healed is not None
+        assert provider.compliance_calls == []  # the gate never ran — fully the old behavior
 
 
 class TestStepSteeringLogic:
@@ -692,3 +758,109 @@ class TestStepSteeringLogic:
         out = capsys.readouterr().out
         assert "cache write skipped (read-only cache)" in out
         assert "written to the cache" not in out  # the success line is never printed on a skipped write
+
+    def test_steer_high_finding_never_reaches_cache(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """A high finding blocks the write-back: the violation shows, joins the history, the next guidance heals."""
+        from prettyplay.engine.steering import StepSteering  # noqa: PLC0415 — cell facade check
+
+        provider = FakeProvider(  # candidate 1 green but high, candidate 2 green and compliant
+            answers=[GENERATED_CODE, REGENERATED_CODE], compliance_verdicts=[[HIGH_FINDING], []]
+        )
+        fixture = SteeringFixture(provider, tmp_path)
+        fixture.config = Config(cache_root=str(tmp_path), generation_prompt=INSTRUCTIONS)
+        steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
+        _script_input(monkeypatch, ["use the id attribute", "now click the button"])
+        monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
+
+        healed = steering.steer(_failure(), _identity(), [], FakePage())
+
+        assert healed is not None
+        assert healed.code == REGENERATED_CODE
+        assert [step.code for step in fixture.cache.save_calls] == [REGENERATED_CODE]  # candidate 1 never cached
+        assert provider.call_count == 2  # the violation re-prompted — a second guided request ran
+        assert provider.calls[1]["guidance_history"] == [
+            "use the id attribute => instruction violated: Prefer id attributes"
+        ]
+        assert len(provider.compliance_calls) == 2  # every green candidate is gated
+        out = capsys.readouterr().out
+        assert "compliance violation — not written back" in out  # the violation line of the dialog
+        assert "violated instruction: Prefer id attributes — locates by text" in out
+        assert fixture.recorder.events == [
+            ("on_healed", {"step_text": "click Pay", "explanation": "healed interactively by engineer guidance"})
+        ]  # on_healed fired for the compliant candidate only; no budgets exist here — the dialog consumes none
+
+    def test_steer_medium_findings_pass_with_warning_and_write_back(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Medium findings pass with a WARNING naming the step — the candidate still heals and writes back."""
+        from prettyplay.engine.steering import StepSteering  # noqa: PLC0415 — cell facade check
+
+        provider = FakeProvider(answers=[GENERATED_CODE], compliance_verdicts=[[MEDIUM_FINDING]])
+        fixture = SteeringFixture(provider, tmp_path)
+        fixture.config = Config(cache_root=str(tmp_path), generation_prompt=INSTRUCTIONS)
+        cache = StepCache(fixture.config)
+        steering = StepSteering(fixture.config, fixture.provider, cache, fixture.reporter)
+        _script_input(monkeypatch, ["dismiss the modal first"])
+        monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
+
+        with caplog.at_level(logging.WARNING, logger="prettyplay"):
+            healed = steering.steer(_failure(), _identity(), [], FakePage())
+
+        assert healed is not None
+        assert healed.code == GENERATED_CODE
+        stored = cache.load(_identity())  # the real cache — the file exists after the write-back
+        assert stored is not None
+        assert stored.code.rstrip("\n") == GENERATED_CODE.rstrip("\n")  # the serializer appends a trailing \n
+        assert fixture.recorder.events == [
+            ("on_healed", {"step_text": "click Pay", "explanation": "healed interactively by engineer guidance"})
+        ]
+        passed = [record for record in caplog.records if record.getMessage() == "compliance findings passed"]
+        assert len(passed) == 1
+        assert passed[0].levelno == logging.WARNING
+        assert passed[0].step_text == "click Pay"
+        assert passed[0].findings == ["medium: Prefer id attributes — minor"]
+        assert "compliance violation" not in capsys.readouterr().out  # the passing path prints no blocking line
+
+    def test_steer_gate_hard_failure_ends_dialog_returning_none(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A malformed verdict ends the dialog declined — the green candidate stays unchecked, nothing cached."""
+        from prettyplay.engine.steering import StepSteering  # noqa: PLC0415 — cell facade check
+
+        outage = ComplianceVerdictError("compliance verdict unparsable — received fragment: nope")
+        provider = FakeProvider(answers=[GENERATED_CODE], compliance_verdicts=[outage])
+        fixture = SteeringFixture(provider, tmp_path)
+        fixture.config = Config(cache_root=str(tmp_path), generation_prompt=INSTRUCTIONS)
+        cache = StepCache(fixture.config)
+        steering = StepSteering(fixture.config, fixture.provider, cache, fixture.reporter)
+        _script_input(monkeypatch, ["dismiss the modal first"])
+        monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
+
+        with caplog.at_level(logging.WARNING, logger="prettyplay"):
+            healed = steering.steer(_failure(), _identity(), [], FakePage())
+
+        assert healed is None  # the dialog ended — the original terminal failure propagates at the caller
+        assert cache.load(_identity()) is None  # the cache file is absent
+        assert fixture.recorder.events == []  # no on_healed
+        failed = [record for record in caplog.records if record.getMessage() == "compliance gate failed"]
+        assert len(failed) == 1
+        assert failed[0].levelno == logging.WARNING
+        assert failed[0].step_text == "click Pay"
+        assert failed[0].gate_failure == "compliance verdict unparsable — received fragment: nope"
+        out = capsys.readouterr().out
+        assert "compliance gate failed" in out
+        assert "nope" in out  # the raw answer fragment shows in the dialog
+        assert "compliance violation" not in out  # the dialog ended before any verdict handling

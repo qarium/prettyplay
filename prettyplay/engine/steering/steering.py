@@ -9,9 +9,10 @@ from pathlib import Path
 from ...cache import CachedStep, StepCache, StepIdentity
 from ...config import Config
 from ...driver import PageFacade
-from ...failures import IncurableStepError, LLMUnavailableError
+from ...failures import ComplianceVerdictError, IncurableStepError, LLMUnavailableError
 from ...llm import LLMProvider
 from ...reporting import StepReporter
+from ..compliance import check_step_compliance
 from ..execution import run_step_code
 
 logger = logging.getLogger("prettyplay")
@@ -156,12 +157,15 @@ class StepSteering:
     the exact moment an ``IncurableStepError`` would propagate. The dialog
     shows the full failure context, takes one guidance line at a time and
     turns each into a regeneration request executed against the live page:
-    every turn ends green — the healed step is written back to the cache and
-    reported — or red — the outcome joins the history of the next request.
+    every turn ends green — the candidate passes the instruction compliance
+    gate, then the healed step is written back to the cache and reported —
+    or red — the outcome joins the history of the next request. A high
+    compliance finding is a red turn of its own: the violation joins the
+    history and the prompt reopens, the candidate never reaches the cache.
     Local commands serve the context without the LLM; quit, EOF, SIGINT and
     an unreadable stdin at the prompt end the dialog declined, a provider
-    failure ends it, and no budget is ever consumed: the human in the loop
-    is the bound.
+    failure and a gate hard failure end it, and no budget is ever consumed:
+    the human in the loop is the bound.
 
     Attributes:
         _config: project settings; the generation instructions and the
@@ -206,6 +210,16 @@ class StepSteering:
         page: PageFacade,
     ) -> CachedStep | None:
         """Run the steering dialog over a terminal failure.
+
+        The dialog renders the context banner once, then takes one guidance
+        line at a time: local commands serve the context without the LLM, and
+        every guidance message becomes one regeneration request executed
+        against the live page. A green turn passes the instruction compliance
+        gate before the write-back: an empty findings list heals; medium and
+        low findings pass with a WARNING; a high finding never reaches the
+        cache — the violation joins the history and the prompt reopens; a
+        gate hard failure (the provider unavailable or a malformed verdict)
+        ends the dialog declined after the gate failure line.
 
         Args:
             failure: the terminal failure about to propagate — the source of
@@ -259,6 +273,36 @@ class StepSteering:
                 history.append(f"{message} => {_first_line(str(outcome))}")
                 continue
 
+            # the gate sits outside the execution try/except: its hard failures end the
+            # dialog, they never degrade into a red turn of the executed candidate
+            try:
+                findings = check_step_compliance(self._config, self._provider, failure.step_text, code)
+            except (LLMUnavailableError, ComplianceVerdictError) as gate_failure:
+                print(f"compliance gate failed: {gate_failure}")
+                logger.warning(
+                    "compliance gate failed",
+                    extra={"step_text": failure.step_text, "gate_failure": str(gate_failure)},
+                )
+                return None  # the green candidate stays unchecked — the original failure propagates
+
+            high = next((finding for finding in findings if finding.priority == "high"), None)
+            if high is not None:  # the violation never reaches the cache — steer the fix
+                violation = f"violated instruction: {high.instruction} — {high.explanation}"
+                print(f"compliance violation — not written back: {violation}")
+                history.append(f"{message} => instruction violated: {_first_line(high.instruction)}")
+                continue
+
+            if findings:  # medium and low findings are visible, never blocking
+                logger.warning(
+                    "compliance findings passed",
+                    extra={
+                        "step_text": failure.step_text,
+                        "findings": [
+                            f"{finding.priority}: {finding.instruction} — {finding.explanation}"
+                            for finding in findings
+                        ],
+                    },
+                )
             return self._write_back(failure, identity, code)
 
     def _render_banner(self, failure: IncurableStepError, page: PageFacade) -> None:

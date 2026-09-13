@@ -1180,13 +1180,13 @@ implementation import). Interactive attempts stay budget-free.
 
 **CRITICAL: `prettyplay/engine/steering/CODEMANIFEST` — read-only. Do NOT modify it.**
 
-- [ ] **Contract tests** (expected to fail now): the `FakeProvider` test double
+- [x] **Contract tests** (expected to fail now): the `FakeProvider` test double
       of `tests/engine/steering/test_steering.py` gains
       `check_instruction_compliance` (records kwargs into `compliance_calls`,
       returns a scripted verdict, default `[]`) — a green turn with the default
       `[]` still heals (the off-switch behavior is unchanged for the gate-off
       config).
-- [ ] **Code**: in `prettyplay/engine/steering/steering.py` — add the imports
+- [x] **Code**: in `prettyplay/engine/steering/steering.py` — add the imports
       (`from ..compliance import check_step_compliance`;
       `from ...failures import ComplianceVerdictError` alongside
       `LLMUnavailableError`); in `steer`, after the green execution (the current
@@ -1204,10 +1204,10 @@ implementation import). Interactive attempts stay budget-free.
       failure.step_text, "findings": [...]})` → `_write_back`; empty →
       `_write_back`. Update the `steer` docstring (step 6 of the contract
       Algorithm).
-- [ ] **Interface verification**: `python3 -m pytest
+- [x] **Interface verification**: `python3 -m pytest
       tests/engine/steering/ -q` — the contract tests pass (the gate-off and
       `[]`-default paths heal exactly as before).
-- [ ] **Logic tests**:
+- [x] **Logic tests**:
       `test_steer_high_finding_never_reaches_cache` — stdin scripted with two
       guidances; guided candidate 1 green with a high finding, candidate 2 green
       with `[]`; returns a `CachedStep` with candidate 2; the cache holds
@@ -1224,13 +1224,13 @@ implementation import). Interactive attempts stay budget-free.
       unparsable — … fragment: 'nope'")` after a green execution; result `is
       None`; cache file absent; `caplog` has `"compliance gate failed"` with the
       step extra; stdout contains "compliance gate failed" and the fragment.
-- [ ] **Debugging**: `python3 -m pytest tests/ -x -q` — fix implementation code
+- [x] **Debugging**: `python3 -m pytest tests/ -x -q` — fix implementation code
       until all tests pass (do NOT fix test code).
-- [ ] **Contract re-verification**: the gate sits outside the generic
+- [x] **Contract re-verification**: the gate sits outside the generic
       `except Exception as outcome` of the execution block (otherwise hard
       failures would degrade into red turns); every exit path either heals or
       returns None; nothing cached on block/hard-failure; no budget consumed.
-- [ ] **Lint**: `python3 -m ruff check prettyplay/engine/steering
+- [x] **Lint**: `python3 -m ruff check prettyplay/engine/steering
       tests/engine/steering` — fix formatting if necessary.
 
 ### Task 7: root by-kind enumerations + the end-to-end loud surface (root cell + integration test)
