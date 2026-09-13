@@ -80,10 +80,15 @@ class FailureMonitor(StepHooks):
 
 Visibility goes through the standard logging library: the logger is named
 `prettyplay`; the library configures no handlers. Step lifecycle events —
-including the verdict event — are logged at INFO; a skipped cache write and a
-failed hook call — WARNING. The steering dialog logs its openings, guidance
-lines and declines at INFO as `steering_opened`, `steering_guidance` and
-`steering_declined`; settle re-executions log at INFO as `settle_retry`. The
+including the verdict event — are logged at INFO; a skipped cache write, a
+failed hook call and the non-blocking compliance outcomes — WARNING. The
+steering dialog logs its openings, guidance lines and declines at INFO as
+`steering_opened`, `steering_guidance` and `steering_declined`; settle
+re-executions log at INFO as `settle_retry`. The instruction compliance gate
+logs its outcomes at WARNING: `compliance findings passed` — the medium and
+low findings a green candidate passed with, on the generation path and in the
+steering dialog alike — and `compliance gate failed` — a gate hard failure
+that ends a steering dialog before the original failure propagates. The
 error field of the `on_step_failed` event and
 its log record carry the full structured render of the terminal failure;
 integrators display it verbatim.

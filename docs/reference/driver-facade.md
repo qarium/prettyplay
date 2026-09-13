@@ -195,6 +195,20 @@ page.get_by_label("Avatar").set_input_files("avatar.png")
 page.get_by_role("button", name="Options").click(button="right")
 ```
 
+Case-insensitive text assertions:
+
+```python
+page.get_by_text("status").expect_text("success", ignore_case=True)
+page.expect_title("dashboard", ignore_case=True)
+
+# default (False) — the check stays case-sensitive, the behavior unchanged
+page.get_by_text("status").expect_text("success")
+```
+
+The flag belongs to the assertion family only: text locating (`get_by_text`,
+`filter(has_text=...)`) already matches case-insensitively through Playwright
+defaults.
+
 Scroll scenarios:
 
 ```python

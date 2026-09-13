@@ -105,7 +105,7 @@ provider state and the model behind the effective generation model; a
 repeatedly malformed verdict points at a model unable to follow the verdict
 format
 - switching `generation_approve` off removes the gate entirely (the old
-behavior) — see [Configuration](configuration.md#the-instruction-compliance-gate)
+behavior) — see [Configuration](../configuration.md#the-instruction-compliance-gate)
 
 ## Assertion semantics
 
