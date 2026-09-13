@@ -1,4 +1,4 @@
-"""The failure taxonomy of prettyplay: three distinct kinds, one library base.
+"""The failure taxonomy of prettyplay: four distinct kinds, one library base.
 
 Every failure the library raises derives from :class:`PrettyplayError`, so a
 test suite catches any prettyplay failure with a single ``except`` clause at
@@ -213,6 +213,22 @@ class LLMUnavailableError(PrettyplayError):
 
     Args:
         message: the failure description naming the provider.
+    """
+
+    def __init__(self, message: str) -> None:
+        self.message = message
+
+        super().__init__(message)
+
+
+class ComplianceVerdictError(PrettyplayError):
+    """The compliance gate could not obtain a usable verdict: the provider answer did not
+    parse into findings. The successfully executed candidate stays unchecked and is never
+    cached — a loud hard failure, never a silent pass.
+
+    Args:
+        message: the rendered actionable text — names the compliance gate, the
+            parse failure and a fragment of the raw verdict answer.
     """
 
     def __init__(self, message: str) -> None:

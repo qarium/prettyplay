@@ -4,6 +4,7 @@ import inspect
 
 import pytest
 from prettyplay.failures import (
+    ComplianceVerdictError,
     FailureVerdict,
     IncurableStepError,
     LLMUnavailableError,
@@ -17,8 +18,15 @@ from prettyplay.failures import (
 class TestFailuresContract:
     """Contract tests: facade import, subclassing, constructor signatures, fields."""
 
-    def test_all_six_names_importable_from_facade(self) -> None:
-        for name in (PrettyplayError, ProductDefectError, IncurableStepError, LLMUnavailableError, FailureVerdict):
+    def test_all_seven_names_importable_from_facade(self) -> None:
+        for name in (
+            PrettyplayError,
+            ProductDefectError,
+            IncurableStepError,
+            LLMUnavailableError,
+            ComplianceVerdictError,
+            FailureVerdict,
+        ):
             assert isinstance(name, type)
 
         assert callable(render_terminal_message)
@@ -27,6 +35,7 @@ class TestFailuresContract:
         assert issubclass(ProductDefectError, PrettyplayError)
         assert issubclass(IncurableStepError, PrettyplayError)
         assert issubclass(LLMUnavailableError, PrettyplayError)
+        assert issubclass(ComplianceVerdictError, PrettyplayError)
 
     def test_base_is_an_exception(self) -> None:
         assert issubclass(PrettyplayError, Exception)
@@ -102,6 +111,18 @@ class TestFailuresContract:
 
         assert [parameter.name for parameter in parameters] == ["message"]
 
+    def test_compliance_verdict_error_importable_from_facade(self) -> None:
+        # the module-level import above proves the facade import; the contract pins the export list
+        assert "ComplianceVerdictError" in __all__
+
+    def test_compliance_verdict_signature_is_single_message(self) -> None:
+        parameters = list(inspect.signature(ComplianceVerdictError.__init__).parameters.values())[1:]
+
+        assert [parameter.name for parameter in parameters] == ["message"]
+
+    def test_compliance_verdict_api_shape_exposes_the_message_property(self) -> None:
+        assert ComplianceVerdictError("m").message == "m"
+
     def test_product_defect_is_assertion_and_library_error(self) -> None:
         assert issubclass(ProductDefectError, AssertionError)
         assert issubclass(ProductDefectError, PrettyplayError)
@@ -125,8 +146,9 @@ class TestFailuresContract:
 
         assert error.message == "llm unavailable: openai: OPENAI_API_KEY is not set"
 
-    def test_facade_all_lists_six_names(self) -> None:
+    def test_facade_all_lists_seven_names(self) -> None:
         assert __all__ == [
+            "ComplianceVerdictError",
             "FailureVerdict",
             "IncurableStepError",
             "LLMUnavailableError",
@@ -308,6 +330,16 @@ class TestFailuresLogic:
 
         assert LLMUnavailableError(message).message == message
         assert "openai" in str(LLMUnavailableError(message))
+
+    def test_compliance_verdict_error_is_a_library_failure(self) -> None:
+        message = "compliance verdict unparsable — expected a JSON list of findings; received fragment: []"
+        error = ComplianceVerdictError(message)
+
+        assert isinstance(error, PrettyplayError)
+        assert not isinstance(error, AssertionError)  # a gate failure is an error, never a failed check
+        assert error.message == message
+        assert str(error) == message
+        assert not hasattr(error, "verdict")  # a verdict parse failure is not a step failure classification
 
     def test_base_message_stored_as_attribute(self) -> None:
         error = PrettyplayError("something broke")

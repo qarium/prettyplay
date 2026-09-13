@@ -1,6 +1,7 @@
 """Facade of the prettyplay.failures cell: the failure taxonomy of the library."""
 
 from .errors import (
+    ComplianceVerdictError,
     FailureVerdict,
     IncurableStepError,
     LLMUnavailableError,
@@ -10,6 +11,7 @@ from .errors import (
 )
 
 __all__ = [
+    "ComplianceVerdictError",
     "FailureVerdict",
     "IncurableStepError",
     "LLMUnavailableError",

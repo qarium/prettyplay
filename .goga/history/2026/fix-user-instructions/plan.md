@@ -610,39 +610,39 @@ error, not a check).
 
 **CRITICAL: `prettyplay/failures/CODEMANIFEST` — read-only. Do NOT modify it.**
 
-- [ ] **Contract tests** (in `tests/failures/test_errors.py`, next to the
+- [x] **Contract tests** (in `tests/failures/test_errors.py`, next to the
       existing `LLMUnavailableError` tests; expected to fail now):
       facade accessibility — `from prettyplay.failures import ComplianceVerdictError`
       succeeds and `ComplianceVerdictError` is in
       `prettyplay.failures.__all__`; API shape — `ComplianceVerdictError("m")`
       exposes the `message` property.
-- [ ] **Code**: create the class in `prettyplay/failures/errors.py` after
+- [x] **Code**: create the class in `prettyplay/failures/errors.py` after
       `LLMUnavailableError`: docstring ("The compliance gate could not obtain a
       usable verdict: the provider answer did not parse into findings. The
       successfully executed candidate stays unchecked and is never cached — a
       loud hard failure, never a silent pass." + Args), `__init__` per the
       mirror algorithm.
-- [ ] **Code**: add `ComplianceVerdictError` to the imports and `__all__` of
+- [x] **Code**: add `ComplianceVerdictError` to the imports and `__all__` of
       `prettyplay/failures/__init__.py`.
-- [ ] **Code**: update the `errors.py` module docstring "three distinct kinds" →
+- [x] **Code**: update the `errors.py` module docstring "three distinct kinds" →
       "four distinct kinds".
-- [ ] **Interface verification**: `python3 -m pytest tests/failures/ -q` — the
+- [x] **Interface verification**: `python3 -m pytest tests/failures/ -q` — the
       contract tests pass.
-- [ ] **Logic tests** (write now, after implementation):
+- [x] **Logic tests** (write now, after implementation):
       `test_compliance_verdict_error_is_a_library_failure` —
       `ComplianceVerdictError("compliance verdict unparsable — … fragment: []")`
       is `isinstance` of `PrettyplayError` and **not** of `AssertionError`;
       `err.message == message` and `str(err) == message`;
       `not hasattr(err, "verdict")` (it is not a terminal step classification).
-- [ ] **Debugging**: `python3 -m pytest tests/ -x -q` — fix implementation code
+- [x] **Debugging**: `python3 -m pytest tests/ -x -q` — fix implementation code
       until all tests pass (the two known-red mirror-sync tests are expected to
       fail; they stay red until Task 3 — run `python3 -m pytest tests/ -q
       --deselect tests/engine/test_generator.py::TestPromptConstants::test_system_prompt_mirrors_the_generation_practice
       --deselect tests/engine/steering/test_steering.py::TestStepSteeringContract::test_steering_mirrors_the_practices`
       for the green gate; do NOT fix test code).
-- [ ] **Contract re-verification**: facade importable, `__all__` complete,
+- [x] **Contract re-verification**: facade importable, `__all__` complete,
       message-only surface, no verdict attribute.
-- [ ] **Lint**: `python3 -m ruff check prettyplay/failures tests/failures` — fix
+- [x] **Lint**: `python3 -m ruff check prettyplay/failures tests/failures` — fix
       formatting if necessary.
 
 ### Task 2: `Config.generation_approve` — the gate switch (config cell, TDD)
