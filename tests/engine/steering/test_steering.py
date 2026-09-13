@@ -13,14 +13,24 @@ import pytest
 from playwright.sync_api import Error as PlaywrightError
 from prettyplay.cache import CachedStep, StepIdentity
 from prettyplay.config import Config
+from prettyplay.engine.generator import PAGE_API_SURFACE as ENGINE_PAGE_API_SURFACE
+from prettyplay.engine.generator import SYSTEM_PROMPT as ENGINE_SYSTEM_PROMPT
 from prettyplay.engine.steering.steering import PAGE_API_SURFACE, SYSTEM_PROMPT
 from prettyplay.failures import FailureVerdict, IncurableStepError, LLMUnavailableError
 from prettyplay.reporting import StepHooks, StepReporter
 
 STEPPING_MODULE = "prettyplay.engine.steering.steering"
 
+FACADE_PRACTICE = Path(__file__).resolve().parents[3] / "prettyplay" / "driver" / ".usages" / "facade.md"
+GENERATION_PROMPT_PRACTICE = Path(__file__).resolve().parents[3] / ".goga" / "usages" / "prompts" / "generation.md"
+
 GENERATED_CODE = "def step(page) -> None:\n    page.get_by_label('Close').click()\n"
 REGENERATED_CODE = "def step(page) -> None:\n    page.get_by_role('button', name='Pay').click()\n"
+
+
+def facade_surface_rows(practice: str, prefix: str) -> list[str]:
+    """Extract the ordered call column of one facade practice surface table."""
+    return re.findall(rf"^\| ({prefix}\.[a-z_]+(?:\([^)]*\))?)", practice, flags=re.MULTILINE)
 
 
 def _steering_screenshots() -> set[Path]:
@@ -162,7 +172,7 @@ class SteeringFixture:
 
 
 class TestStepSteeringContract:
-    """Contract tests: facade import, constructor substitution, steer call shape."""
+    """Contract tests: facade import, constructor substitution, steer call shape, frozen mirrors."""
 
     def test_step_steering_is_importable_from_facade(self) -> None:
         from prettyplay.engine.steering import StepSteering  # noqa: PLC0415 — cell facade check
@@ -206,6 +216,20 @@ class TestStepSteeringContract:
         import prettyplay.engine.steering  # noqa: PLC0415 — cell facade check
 
         assert prettyplay.engine.steering.__all__ == ["StepSteering"]
+
+    def test_steering_mirrors_the_practices(self) -> None:
+        prompt_practice = GENERATION_PROMPT_PRACTICE.read_text(encoding="utf-8")
+        prompt = prompt_practice.split("---", 1)[1].strip()  # the section after the separator is the prompt itself
+
+        assert prompt == SYSTEM_PROMPT  # the frozen mirror of the generation practice
+
+        element_rows = facade_surface_rows(FACADE_PRACTICE.read_text(encoding="utf-8"), "element")
+        assert element_rows  # the practice table parsed — a broken extraction never passes silently
+        for row in element_rows:
+            assert row.split("(", 1)[0] in PAGE_API_SURFACE  # every element row of the practice is listed
+
+        assert SYSTEM_PROMPT == ENGINE_SYSTEM_PROMPT  # the two frozen copies agree — no one-sided edit
+        assert PAGE_API_SURFACE == ENGINE_PAGE_API_SURFACE
 
 
 class TestStepSteeringLogic:

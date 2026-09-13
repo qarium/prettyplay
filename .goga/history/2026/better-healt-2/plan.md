@@ -514,7 +514,7 @@ Keep `page.close` out (the standing exclusion).
 
 The verified trace is the Task 2 trace with «steering symmetric»: `StepSteering._guided_request` passes the steering-local `SYSTEM_PROMPT`/`PAGE_API_SURFACE` to `LLMProvider.generate_step_code`; the steering copies equal the practice (and the engine copies). The steering cell contract lines (verbatim): «The system prompt sent to the provider is the frozen local mirror of `system_prompt` — the mirror and the practice change together.» / «The page API surface listing sent to the provider is the frozen local mirror of `facade` from Imports — the listing and the practice change together.»
 
-- [ ] **Contract tests**: add `test_steering_mirrors_the_practices` to `tests/engine/steering/test_steering.py` (new). **Setup**: read `.goga/usages/prompts/generation.md` and `prettyplay/driver/.usages/facade.md` from the repo (the `Path(__file__).resolve().parents[…]` pattern of the engine tests; a local copy of the row-extraction helper `facade_surface_rows`). **Input**: steering `SYSTEM_PROMPT`, steering `PAGE_API_SURFACE`. **Trace**:
+- [x] **Contract tests**: add `test_steering_mirrors_the_practices` to `tests/engine/steering/test_steering.py` (new). **Setup**: read `.goga/usages/prompts/generation.md` and `prettyplay/driver/.usages/facade.md` from the repo (the `Path(__file__).resolve().parents[…]` pattern of the engine tests; a local copy of the row-extraction helper `facade_surface_rows`). **Input**: steering `SYSTEM_PROMPT`, steering `PAGE_API_SURFACE`. **Trace**:
   ```
   practice = read generation.md → practice.split("---", 1)[1].strip()
   assert practice == steering SYSTEM_PROMPT
@@ -524,14 +524,14 @@ The verified trace is the Task 2 trace with «steering symmetric»: `StepSteerin
   assert steering PAGE_API_SURFACE == engine PAGE_API_SURFACE
   ```
   **Assertions**: the steering cell's own local copies equal the practices (and the engine copies) — closing the AC4 gap: only the engine had mirror-equality coverage before. **Sufficiency**: steering holds independent copies by design; without a local mirror test a one-sided edit would leave the dialog steering the model with a stale prompt silently.
-- [ ] **Interface verification (red first)**: `.venv/bin/pytest tests/engine/steering/test_steering.py -k mirrors -x` — the new test fails against the still-old steering constants (TDD red)
-- [ ] **Code**: apply the identical `SYSTEM_PROMPT` edit (two deletions, one insertion) to `prettyplay/engine/steering/steering.py` — the local copy equals the practice after `---` verbatim and the engine constant; the docstring comment above the constant (the frozen-mirror statement, «A local copy of the engine constant, not an import») stays as-is
-- [ ] **Code**: insert the same six element rows at the head of the element section of the steering `PAGE_API_SURFACE`; `page.close` stays out
-- [ ] **Interface verification**: `.venv/bin/pytest tests/engine/steering/test_steering.py -x` — the mirror test and the whole steering suite pass
-- [ ] **Logic tests**: covered by `test_steering_mirrors_the_practices` (equality against practice, per-row membership, engine-parity) — an editorial constant has no further behavioral surface; the steering dialog logic tests are untouched and stay green
-- [ ] **Debugging**: `.venv/bin/pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code)
-- [ ] **Contract re-verification**: steering constants == practices == engine constants; `_guided_request` path untouched; no runtime read of `.goga/`; the steering CODEMANIFEST untouched
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/ tests/` — fix formatting if necessary
+- [x] **Interface verification (red first)**: `.venv/bin/pytest tests/engine/steering/test_steering.py -k mirrors -x` — the new test fails against the still-old steering constants (TDD red)
+- [x] **Code**: apply the identical `SYSTEM_PROMPT` edit (two deletions, one insertion) to `prettyplay/engine/steering/steering.py` — the local copy equals the practice after `---` verbatim and the engine constant; the docstring comment above the constant (the frozen-mirror statement, «A local copy of the engine constant, not an import») stays as-is
+- [x] **Code**: insert the same six element rows at the head of the element section of the steering `PAGE_API_SURFACE`; `page.close` stays out
+- [x] **Interface verification**: `.venv/bin/pytest tests/engine/steering/test_steering.py -x` — the mirror test and the whole steering suite pass
+- [x] **Logic tests**: covered by `test_steering_mirrors_the_practices` (equality against practice, per-row membership, engine-parity) — an editorial constant has no further behavioral surface; the steering dialog logic tests are untouched and stay green
+- [x] **Debugging**: `.venv/bin/pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code)
+- [x] **Contract re-verification**: steering constants == practices == engine constants; `_guided_request` path untouched; no runtime read of `.goga/`; the steering CODEMANIFEST untouched
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/ tests/` — fix formatting if necessary
 
 ### Task 5: `docs/reference/driver-facade.md` — public doc parity (infrastructure)
 

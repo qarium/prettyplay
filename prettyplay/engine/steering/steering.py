@@ -45,8 +45,7 @@ Rules:
 - The function receives exactly one argument: the page facade — the Playwright-mirroring page API. Never import anything, never use other libraries
 - Work only through the page API: the request carries the exact surface listing of the page facade — call nothing outside it
 - For an assertion sentence end with an expectation call; for an action sentence perform the actions
-- Locating by role and accessible name is preferred; by visible text next; by label or placeholder for form fields
-- get_by_test_id and locator(selector) exist for elements without accessible names — the accessibility-first priority stands unless USER INSTRUCTIONS say otherwise
+- Assertions happen only through the expectation calls of the facade — never a Python assert on a locator, never SDK-style state reads
 - Dialogs: when the step verifies or steers a dialog, capture it — with page.expect_dialog() as dialog: — perform the triggering action inside the block, read dialog.message and dialog.type, then dialog.accept() or dialog.dismiss()
 - Popups and new tabs: capture the opened page — with page.expect_popup() as popup: — trigger the opening action inside the block, work through the popup facade; bring_to_front() raises a page above the others
 - Content inside an iframe goes through page.frame_locator(selector) — locate elements within the returned frame
@@ -102,6 +101,12 @@ dialog.default_value       — the prompt prefill of a prompt dialog
 frame.get_by_role(role, name) — and the whole get_by_* family — locate inside the iframe
 frame.locator(selector)                                       — any selector inside the iframe
 frame.frame_locator(selector)                                 — the scope of a nested iframe
+element.first                         — the first match — positional narrowing
+element.last                          — the last match — positional narrowing
+element.nth(index)                    — the match at a 0-based index; negative counts from the end
+element.filter(has_text=..., has_not_text=..., has=..., has_not=...) — narrow by content — all predicates optional
+element.or_(other)                    — union locator — matches either; when both branches may match, compose positional narrowing (first, last, nth) to satisfy strict mode
+element.and_(other)                   — intersection locator — matches both
 element.click(button)                 — click; empty button = left, "right" = right button
 element.dblclick()                    — double click
 element.fill(value)                   — set input text
