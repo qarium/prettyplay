@@ -151,11 +151,16 @@ override) arms the steering REPL for local generation sessions: when a step
 terminally fails with `IncurableStepError` on a non-strict run, a terminal
 dialog opens — step, failed code, error, verdict, snapshot fragment,
 screenshot path — and every engineer message drives one regeneration executed
-against the live page. A green turn heals the step and writes it back to the
-cache; quit, EOF, SIGINT or an unreadable stdin raises the original terminal
-failure. The dialog never opens on `product_defect`, in strict mode, or
-without LLM access, and consumes no budgets. Keep it off in CI — an accidentally opened dialog would
-hang the run.
+against the live page. Local commands serve the context without an LLM
+request: `snapshot` (the full accessibility snapshot), `screenshot` (a full
+PNG written to a temporary file, path printed), `error` and `code` (the
+stored texts) and `quit`. A green turn heals the step and writes it back to
+the cache; a red turn is one bare execution — the settle window never
+re-arms inside the dialog — and its outcome joins the history of the next
+request; quit, EOF, SIGINT or an unreadable stdin raises the original
+terminal failure. The dialog never opens on `product_defect`, in strict
+mode, or without LLM access, and consumes no budgets. Keep it off in CI — an
+accidentally opened dialog would hang the run.
 
 ```python
 from prettyplay import PrettyConfig, PrettyPlay

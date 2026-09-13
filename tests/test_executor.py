@@ -10,7 +10,7 @@ from playwright.sync_api import Error as PlaywrightError
 from prettyplay import StepExecutor
 from prettyplay.cache import CachedStep, RunBudgets, StepCache, StepIdentity, normalize_step_text
 from prettyplay.config import Config
-from prettyplay.engine.polling import SettleWindow
+from prettyplay.engine.polling import SettleWindow, settle
 from prettyplay.failures import FailureVerdict, IncurableStepError, LLMUnavailableError, ProductDefectError
 from prettyplay.llm import FailureClassification, LLMProvider
 from prettyplay.reporting import StepHooks, StepReporter
@@ -80,6 +80,28 @@ class RaisingGenerator:
         window: SettleWindow,
     ) -> CachedStep:
         self.calls += 1
+        raise self.error
+
+
+class FlakyGenerator:
+    """Stub generation engine: a canned step for the first call, the scripted failure after."""
+
+    def __init__(self, step: CachedStep | None, error: Exception) -> None:
+        self.step = step
+        self.error = error
+        self.calls = 0
+
+    def generate(
+        self,
+        identity: StepIdentity,
+        step_text: str,
+        previous_steps: list[str],
+        page: FakePage,
+        window: SettleWindow,
+    ) -> CachedStep | None:
+        self.calls += 1
+        if self.calls == 1:
+            return self.step
         raise self.error
 
 
@@ -902,6 +924,39 @@ class TestStepExecutorSteeringAndClosingEvent:
         ]
         assert not events_named(fixture.recorder, "on_step_failed")  # healed before any failure event fires
 
+    def test_execute_generation_path_steering_healed_continues_as_success(self, tmp_path: Path) -> None:
+        """A never-generated step the dialog heals continues as a success — the miss-path intercept."""
+        failure = IncurableStepError("click Pay", "generation attempt budget exhausted", "Timeout …", verdict=None)
+        healed = CachedStep(
+            identity=StepIdentity(
+                cache_key="login-flow", step_type="action", normalized_text=normalize_step_text("click Pay")
+            ),
+            code=CACHED_CODE,
+            created_at="2026-09-08",
+        )
+        steering = RecordingSteering(healed=healed)
+        generator = FlakyGenerator(None, failure)  # the first step generates, the second misses terminally
+        fixture = interactive_fixture(tmp_path, generator, RecordingHealer(), steering=steering)
+        page = FakePage()
+
+        fixture.executor.execute("шаг один", "action", page)
+        fixture.executor.execute("click Pay", "action", page)  # generation failed — the dialog healed it
+
+        assert len(steering.calls) == 1
+        assert steering.calls[0]["failure"] is failure
+        assert steering.calls[0]["identity"] == StepIdentity(
+            cache_key="login-flow", step_type="action", normalized_text=normalize_step_text("click Pay")
+        )  # the cache write-back address of the healed step
+        assert steering.calls[0]["previous_steps"] == ["шаг один"]  # the scenario context of the guided requests
+        assert steering.calls[0]["page"] is page
+        assert fixture.executor._scenario == ["шаг один", "click Pay"]  # the healed step joined the scenario
+        assert events_named(fixture.recorder, "on_step_finished")[-1] == {
+            "step_text": "click Pay",
+            "step_type": "action",
+            "outcome": "passed",
+        }
+        assert not events_named(fixture.recorder, "on_step_failed")
+
     def test_execute_steering_attempts_consume_no_budgets(self, tmp_path: Path) -> None:
         """A steering-healed step draws from neither pool — the human in the loop is not a budgeted attempt."""
         failure = IncurableStepError("нажать войти", "budget exhausted", "Timeout …", verdict=None)
@@ -1098,6 +1153,46 @@ class TestStepExecutorSteeringAndClosingEvent:
         assert len(retries) == 1  # exactly one repetition of the cached execution
         assert provider.generation_calls == 0
         assert provider.classification_calls == 0  # a cached step executes with no LLM involvement
+
+    def test_one_window_per_execution_is_shared_by_cached_run_heal_and_generate(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The one settle window built from the polling settings threads into the heal and the generation."""
+        healer = RecordingHealer()
+        fixture = ExecutorFixture(
+            tmp_path,
+            RecordingGenerator(),
+            healer,
+            config=Config(cache_root=str(tmp_path), polling_timeout=10.0, polling_delay=0),
+        )
+        seed_cached_step(fixture, "s")
+        page = FakePage(ValueError("boom"))  # a Python-level error never polls — one execution, straight to the heal
+
+        captured: list[SettleWindow] = []
+
+        def spying_settle(execute: object, code: str, target_page: object, window: SettleWindow) -> None:
+            captured.append(window)
+            settle(execute, code, target_page, window)  # type: ignore[arg-type] — the spy passes the call through
+
+        monkeypatch.setattr("prettyplay.executor.settle", spying_settle)
+
+        fixture.executor.execute("s", "action", page)
+
+        assert len(captured) == 1  # the cached execution settled inside the window
+        assert healer.calls[0]["window"] is captured[0]  # the heal shares the exact window of this execution
+        assert captured[0].timeout == 10.0  # built from the polling settings
+        assert captured[0].delay == 0
+
+        miss = ExecutorFixture(
+            tmp_path,
+            RecordingGenerator(),
+            RecordingHealer(),
+            config=Config(cache_root=str(tmp_path), polling_timeout=10.0, polling_delay=0),
+        )
+        miss.executor.execute("другой шаг", "action", FakePage())  # a cache miss — the generator gets the window
+
+        assert miss.generator.calls[0]["window"].timeout == 10.0
+        assert miss.generator.calls[0]["window"].delay == 0
 
     def test_incurable_code_field_absent_from_render_and_hook_payload(self, tmp_path: Path) -> None:
         failed_code = "def step(page): boom()"

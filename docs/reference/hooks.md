@@ -45,7 +45,7 @@ root, so `from prettyplay import StepHooks` works too.
 | `on_step_finished` | the step ended — the closing event of every step, fired exactly once regardless of outcome, after every other event | step_text, step_type, outcome (passed or failed) |
 | `on_generation_started` | a generation attempt started | step_text, attempt (1-based) |
 | `on_healing_started` | healing of a failed cached step started | step_text, category (rot, product_defect, fixable, incurable) |
-| `on_healed` | the step healed, cache updated | step_text, explanation (why rot, what changed) |
+| `on_healed` | the step healed, cache updated | step_text, explanation (why the heal happened — the rot/fixable verdict, or the interactive engineer guidance) |
 | `on_cache_saved` | step code written to the cache | step_text, filename |
 | `on_cache_skipped` | cache write skipped | step_text, reason (e.g. read-only cache) |
 
@@ -81,7 +81,10 @@ class FailureMonitor(StepHooks):
 Visibility goes through the standard logging library: the logger is named
 `prettyplay`; the library configures no handlers. Step lifecycle events —
 including the verdict event — are logged at INFO; a skipped cache write and a
-failed hook call — WARNING. The error field of the `on_step_failed` event and
+failed hook call — WARNING. The steering dialog logs its openings, guidance
+lines and declines at INFO as `steering_opened`, `steering_guidance` and
+`steering_declined`; settle re-executions log at INFO as `settle_retry`. The
+error field of the `on_step_failed` event and
 its log record carry the full structured render of the terminal failure;
 integrators display it verbatim.
 

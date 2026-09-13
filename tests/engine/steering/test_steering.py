@@ -67,6 +67,16 @@ class DeadPage:
         raise PlaywrightError("Target closed")
 
 
+class TallSnapshotPage:
+    """Fake page facade whose accessibility snapshot exceeds the banner fragment."""
+
+    def aria_snapshot(self) -> str:
+        return "\n".join(f"- line {index}" for index in range(1, 31))
+
+    def screenshot(self) -> bytes:
+        return b"png"
+
+
 class FakeProvider:
     """Fake provider boundary: scripted candidates with recorded requests."""
 
@@ -276,6 +286,8 @@ class TestStepSteeringLogic:
 
         opened = [record for record in caplog.records if record.getMessage() == "steering_opened"]
         assert [record.step_text for record in opened] == ["click Pay"]
+        guidance = [record for record in caplog.records if record.getMessage() == "steering_guidance"]
+        assert [record.guidance for record in guidance] == ["dismiss the modal first"]  # the audit trail
         assert "healed step written to the cache" in capsys.readouterr().out
 
     def test_steer_red_turn_appends_history_and_next_request_carries_it(
@@ -331,6 +343,27 @@ class TestStepSteeringLogic:
         assert execute.call_count == 1  # one execution per guidance message — no settle re-execution
         assert scripted.call_count == 2  # the red turn returned to the guidance prompt immediately
         assert "turn failed: element detached" in capsys.readouterr().out
+
+    def test_steer_sigint_during_guided_execution_escapes_directly(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A SIGINT during the guided execution escapes directly — never swallowed into a red turn."""
+        from prettyplay.engine.steering import StepSteering  # noqa: PLC0415 — cell facade check
+
+        provider = FakeProvider(answers=[GENERATED_CODE])
+        fixture = SteeringFixture(provider, tmp_path)
+        steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
+        _script_input(monkeypatch, ["try hovering first"])
+        monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(side_effect=KeyboardInterrupt()))
+
+        with pytest.raises(KeyboardInterrupt):
+            steering.steer(_failure(), _identity(), [], FakePage())
+
+        assert provider.call_count == 1  # the turn ran; the interrupt escaped its execution
+        assert fixture.cache.save_calls == []  # never healed, never written back
+        assert fixture.recorder.events == []  # no on_healed
 
     def test_steer_partial_screenshot_write_is_cleaned_up(
         self,
@@ -453,7 +486,9 @@ class TestStepSteeringLogic:
         assert "commands: snapshot | screenshot | error | code | quit" in out  # the banner hint
 
         paths = re.findall(r"\S*prettyplay-steering-\S+\.png", out)
-        assert paths  # the banner and the screenshot command each printed a temp PNG path
+        assert paths  # the banner and the screenshot command each printed the temp PNG path
+        assert len(paths) == 2  # once by the banner, once by the screenshot command
+        assert len(set(paths)) == 1  # one file per dialog — reused, never accumulated
         for printed in paths:
             assert Path(printed).exists()  # the printed paths point at real files
 
@@ -558,6 +593,30 @@ class TestStepSteeringLogic:
         out = capsys.readouterr().out
         assert "verdict:  fixable — the button is behind the modal" in out
         assert "recommendation: dismiss the modal first" in out
+
+    def test_steer_banner_fragment_truncates_but_snapshot_command_prints_all(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """The banner shows the first twenty snapshot lines; the snapshot command prints the whole tree."""
+        from prettyplay.engine.steering import StepSteering  # noqa: PLC0415 — cell facade check
+
+        provider = FakeProvider()
+        fixture = SteeringFixture(provider, tmp_path)
+        steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
+
+        _script_input(monkeypatch, ["quit"])
+        steering.steer(_failure(), _identity(), [], TallSnapshotPage())
+        banner = capsys.readouterr().out
+        assert "- line 20" in banner  # the fragment keeps the first twenty lines
+        assert "- line 21" not in banner  # and drops the rest of the tree
+
+        _script_input(monkeypatch, ["snapshot", "quit"])
+        steering.steer(_failure(), _identity(), [], TallSnapshotPage())
+        served = capsys.readouterr().out
+        assert "- line 30" in served  # the snapshot command prints the full tree, uncut
 
     def test_steer_guided_request_attaches_screenshot_when_enabled(
         self,

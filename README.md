@@ -92,9 +92,11 @@ t.save_screenshot("artifacts/home.png")   # write full-page PNG to a file
   - `product_defect` — the test fails loudly; nothing is regenerated
   - `incurable` — the step fails with an explanation and a recommendation
 
-Every execution of step code — cached code and candidates alike — runs under
-the **settle window** (see [Settle polling](#settle-polling)): a transient
-page-state failure re-executes the same code before any costly move.
+Every execution of step code in the step cycle — cached code and
+generation/healing candidates alike — runs under the **settle window** (see
+[Settle polling](#settle-polling)): a transient page-state failure re-executes
+the same code before any costly move. Steering-dialog turns are the one
+exception — see [Interactive steering](#interactive-steering).
 
 **Strict replay-only mode** (`strict = true`) never contacts the LLM for code:
 a cache miss fails immediately as `IncurableStepError` ("strict mode forbids
@@ -126,13 +128,20 @@ expectation plus one re-execution).
 generation sessions: when a step terminally fails with
 `IncurableStepError`, a terminal dialog opens — step, failed code, error,
 verdict, snapshot fragment, screenshot path — and every engineer message
-drives one regeneration executed against the live page. A green turn heals
-the step and writes it back to the cache; quit, EOF, SIGINT or an unreadable
-stdin raises the original terminal failure. The dialog never opens on `product_defect`, in
-strict mode, or when the provider is down, and consumes no budgets. Keep it
-off in CI — an accidentally opened dialog would hang the run. This is the
-steering dialog of a stuck step, not an interactive host mode (IPython and
-Jupyter keep working as before).
+drives one regeneration executed against the live page. Local commands
+serve the context without an LLM request: `snapshot` (the full
+accessibility snapshot), `screenshot` (a full PNG written to a temporary
+file, path printed), `error` and `code` (the stored texts) and `quit`. A
+green turn heals the step and writes it back to the cache; a red turn is
+one bare execution — the settle window never re-arms inside the dialog —
+and its outcome joins the history of the next request; quit, EOF, SIGINT
+or an unreadable stdin raises the original terminal failure. The dialog
+never opens on `product_defect`, in strict mode, or when the provider is
+down, and consumes no budgets. Dialog openings, guidance lines and
+declines log at info level as `steering_opened`, `steering_guidance` and
+`steering_declined`. Keep it off in CI — an accidentally opened dialog
+would hang the run. This is the steering dialog of a stuck step, not an
+interactive host mode (IPython and Jupyter keep working as before).
 
 ## Seeing the scenario
 

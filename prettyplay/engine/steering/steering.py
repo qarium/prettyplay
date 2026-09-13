@@ -133,7 +133,7 @@ _LOCAL_COMMANDS = frozenset({"snapshot", "screenshot", "error", "code"})
 #: Lines of the accessibility snapshot shown in the banner fragment.
 _SNAPSHOT_FRAGMENT_LINES = 20
 
-#: Prefix of the temporary screenshot files the dialog writes.
+#: Prefix of the temporary screenshot file of a dialog.
 _SCREENSHOT_PREFIX = "prettyplay-steering-"
 
 #: The explanation of the ``on_healed`` event of an interactively healed step.
@@ -160,6 +160,9 @@ class StepSteering:
         _provider: the LLM port implementation of the guided requests.
         _cache: the store the healed step is written back to.
         _reporter: the visibility point of the healed step.
+        _screenshot_path: the path of the one temporary screenshot file of
+            the current dialog; ``None`` — the dialog took no screenshot
+            yet.
     """
 
     def __init__(
@@ -184,6 +187,7 @@ class StepSteering:
         self._provider = provider
         self._cache = cache
         self._reporter = reporter if reporter is not None else StepReporter([])
+        self._screenshot_path: str | None = None
 
     def steer(
         self,
@@ -214,6 +218,7 @@ class StepSteering:
                 never swallowed into a turn or a heal.
         """
         history: list[str] = []
+        self._screenshot_path = None  # a fresh dialog owns no screenshot file yet
         self._render_banner(failure, page)
         logger.info("steering_opened", extra={"step_text": failure.step_text})
 
@@ -406,7 +411,10 @@ class StepSteering:
             return ""
 
     def _screenshot_file(self, page: PageFacade) -> str | None:
-        """Write a full PNG to the system temporary directory and return its path.
+        """Write a full PNG to the one temporary file of the dialog; return its path.
+
+        One file per dialog: the banner screenshot and every ``screenshot``
+        command overwrite it — a dialog never accumulates temporary PNGs.
 
         Args:
             page: the live page facade of the test.
@@ -415,19 +423,24 @@ class StepSteering:
             The path of the written file; ``None`` when the interaction
             failed — its failure text was printed.
         """
-        path: str | None = None
+        path = self._screenshot_path
+        fresh = path is None  # the first screenshot of the dialog allocates the one file
         try:
             png = page.screenshot()
-            with tempfile.NamedTemporaryFile(prefix=_SCREENSHOT_PREFIX, suffix=".png", delete=False) as target:
-                path = target.name
-                target.write(png)
+            if fresh:
+                with tempfile.NamedTemporaryFile(prefix=_SCREENSHOT_PREFIX, suffix=".png", delete=False) as target:
+                    path = target.name
+                    target.write(png)
+            else:  # every later screenshot of the dialog overwrites the one file
+                Path(path).write_bytes(png)
         except Exception as failure:  # a dead page never kills the dialog
-            if path is not None:
+            if fresh and path is not None:
                 with contextlib.suppress(OSError):
                     Path(path).unlink()  # a partial write leaves nothing worth inspecting
             print(f"screenshot unavailable: {failure}")
             return None
 
+        self._screenshot_path = path
         return path
 
     def _guarded_screenshot_bytes(self, page: PageFacade) -> bytes | None:

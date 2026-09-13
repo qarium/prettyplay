@@ -53,6 +53,11 @@ rendered in this fixed order, identically in both providers. An unset input
 renders no block. Unrecognized classification labels fall back to `incurable`
 in both providers alike.
 
+The one transport-level asymmetry: the anthropic Messages API requires
+`max_tokens`, so anthropic requests carry a fixed completion cap (4096
+tokens, sized so a full step-code response never truncates); the openai side
+sends no cap and the model maximum applies.
+
 ## Answer shape
 
 `generate_step_code` returns step code of the fixed form (see
