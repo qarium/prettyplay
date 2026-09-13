@@ -21,13 +21,13 @@ the same text reaches the exception message, the log record and the `error`
 field of the `on_step_failed` hook event:
 
 ```text
-ProductDefectError: кнопка «Войти» осталась невидимой после отправки формы
+ProductDefectError: the "Sign in" button stayed invisible after submitting the form
 ---
-step: Проверить появление кнопки «Войти»
+step: Check that the "Sign in" button appears
 error: Locator expected to be visible
 ---
-explanation:    на странице нет элемента с ролью button и именем «Войти»
-recommendation: проверить селектор или текст кнопки в приложении
+explanation:    the page has no element with role button and name "Sign in"
+recommendation: check the selector or the button text in the application
 ```
 
 - The first line is the primary reason only — no kind label, no colons; the
