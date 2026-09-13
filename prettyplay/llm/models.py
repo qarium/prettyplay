@@ -1,6 +1,13 @@
-"""Models of the prettyplay.llm cell: the failure classification verdict."""
+"""Models of the prettyplay.llm cell: the failure classification verdict and the instruction compliance findings."""
+
+import json
 
 from pydantic import BaseModel, ConfigDict
+
+from ..failures import ComplianceVerdictError
+
+#: The frozen set of the three compliance priority labels.
+COMPLIANCE_PRIORITIES = frozenset({"high", "medium", "low"})
 
 
 class FailureClassification(BaseModel):
@@ -23,3 +30,102 @@ class FailureClassification(BaseModel):
     category: str
     explanation: str
     recommendation: str
+
+
+class ComplianceFinding(BaseModel):
+    """One finding of the instruction compliance verdict.
+
+    Attributes:
+        instruction: the violated instruction — the verbatim quote of the
+            project's user instructions the finding names.
+        priority: the finding priority: high, medium or low; only high
+            blocks the candidate.
+        explanation: one short sentence why the code violates the
+            instruction.
+    """
+
+    model_config = ConfigDict(kw_only=True)
+
+    instruction: str = ""
+    priority: str = ""
+    explanation: str = ""
+
+
+def _answer_fragment(verdict_text: str) -> str:
+    """Collapse the raw verdict answer to a diagnostic fragment.
+
+    Args:
+        verdict_text: the raw text answer of the verdict model.
+
+    Returns:
+        The whitespace-collapsed first 200 characters of the raw text.
+    """
+    return " ".join(verdict_text.split())[:200]
+
+
+def _malformed(verdict_text: str) -> ComplianceVerdictError:
+    """Build the loud failure of a malformed verdict answer.
+
+    Args:
+        verdict_text: the raw text answer that did not parse.
+
+    Returns:
+        The ComplianceVerdictError carrying a fragment of the raw answer.
+    """
+    return ComplianceVerdictError(
+        "compliance verdict unparsable — expected a JSON list of findings with "
+        "instruction, priority high|medium|low and explanation; received fragment: "
+        + _answer_fragment(verdict_text)
+    )
+
+
+def parse_compliance_verdict(verdict_text: str) -> list[ComplianceFinding]:
+    """Parse the raw answer of the compliance verdict request into findings.
+
+    The strict single parsing point of the gate: anything but a JSON list of
+    objects carrying a str instruction, a high|medium|low priority and a str
+    explanation is a malformed verdict — raised loudly, never waved through.
+    No fence unwrapping and no protective fallback (contrast
+    :func:`~prettyplay.llm._request.parse_classification_line`): an
+    unparsable verdict answer is a hard failure of the gate.
+
+    Args:
+        verdict_text: the raw text answer of the verdict model;
+            whitespace-padded JSON is tolerated.
+
+    Returns:
+        The parsed findings; an empty list means compliant.
+
+    Raises:
+        ComplianceVerdictError: the answer is not valid JSON, not a list,
+            or an item misses a field, carries a non-string field or names
+            an unknown priority — the candidate stays unchecked and is
+            never cached.
+    """
+    try:
+        data = json.loads(verdict_text.strip())
+    except ValueError:
+        raise _malformed(verdict_text) from None
+
+    if not isinstance(data, list):
+        raise _malformed(verdict_text)
+
+    findings: list[ComplianceFinding] = []
+
+    for item in data:
+        if not isinstance(item, dict):
+            raise _malformed(verdict_text)
+
+        instruction = item.get("instruction")
+        priority = item.get("priority")
+        explanation = item.get("explanation")
+
+        if not isinstance(instruction, str) or not isinstance(priority, str) or not isinstance(explanation, str):
+            raise _malformed(verdict_text)
+
+        if priority not in COMPLIANCE_PRIORITIES:
+            raise _malformed(verdict_text)
+
+        findings.append(ComplianceFinding(instruction=instruction, priority=priority, explanation=explanation))
+
+    return findings

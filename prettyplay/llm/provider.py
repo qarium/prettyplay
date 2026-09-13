@@ -1,11 +1,11 @@
 """The unified LLM port of the library and the provider factory."""
 
 from ..config import Config
-from .models import FailureClassification
+from .models import ComplianceFinding, FailureClassification
 
 
 class LLMProvider:
-    """The single LLM port: step code generation and failure classification.
+    """The single LLM port: step code generation, failure classification and the compliance verdict.
 
     One contract, two interchangeable SDK implementations selected by
     configuration — the provider choice is never a capability difference.
@@ -100,6 +100,36 @@ class LLMProvider:
 
         Returns:
             The classification verdict.
+
+        Raises:
+            NotImplementedError: the port itself carries no implementation.
+        """
+        raise NotImplementedError("LLMProvider is a port; use create_provider() to select an implementation")
+
+    def check_instruction_compliance(
+        self,
+        prompt: str,
+        user_instructions: str,
+        step_text: str,
+        code: str,
+    ) -> list[ComplianceFinding]:
+        """Check the successfully executed candidate code against the project user instructions.
+
+        The compliance verdict request of the gate — the third port
+        operation, in absolute parity across the implementations.
+
+        Args:
+            prompt: the gate system prompt text supplied by the calling
+                engine; applied verbatim as the system message.
+            user_instructions: the project's generation instructions
+                supplied by the calling engine from the generation_prompt
+                setting; the calling engine guarantees non-empty — the gate
+                never runs on empty instructions.
+            step_text: the sentence of the generated step.
+            code: the successfully executed candidate code.
+
+        Returns:
+            The parsed findings; an empty list means compliant.
 
         Raises:
             NotImplementedError: the port itself carries no implementation.

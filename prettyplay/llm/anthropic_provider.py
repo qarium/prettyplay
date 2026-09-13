@@ -8,6 +8,7 @@ from ..config import Config
 from ..failures import LLMUnavailableError
 from ._request import (
     build_classification_fields,
+    build_compliance_fields,
     build_fields_text,
     encode_screenshot,
     extract_code_block,
@@ -15,7 +16,7 @@ from ._request import (
     require_completion_text,
     unparsable_classification,
 )
-from .models import FailureClassification
+from .models import ComplianceFinding, FailureClassification, parse_compliance_verdict
 from .provider import LLMProvider
 
 #: The anthropic Messages API requires ``max_tokens`` on every request — the
@@ -45,9 +46,10 @@ def _first_text_block(response: object) -> str | None:
 class AnthropicProvider(LLMProvider):
     """The LLMProvider implementation served by the anthropic SDK.
 
-    Full parity with :class:`OpenAIProvider`: the same operations, the same
-    inputs, the same output shapes. The constructor reads no environment
-    and constructs no client; the SDK client is created lazily on the first
+    Full parity with :class:`OpenAIProvider`: the same three operations
+    (generation, classification, compliance verdict), the same inputs, the
+    same output shapes. The constructor reads no environment and
+    constructs no client; the SDK client is created lazily on the first
     request, so the library starts without LLM credentials. Every service
     failure maps to :class:`~prettyplay.failures.LLMUnavailableError`
     naming the provider; the API key is read from the environment only and
@@ -245,3 +247,53 @@ class AnthropicProvider(LLMProvider):
 
         category, explanation, recommendation = parsed
         return FailureClassification(category=category, explanation=explanation, recommendation=recommendation)
+
+    def check_instruction_compliance(
+        self,
+        prompt: str,
+        user_instructions: str,
+        step_text: str,
+        code: str,
+    ) -> list[ComplianceFinding]:
+        """Check the successfully executed candidate code against the project user instructions.
+
+        The compliance verdict request of the gate: the user content carries
+        the INSTRUCTIONS, STEP and CODE blocks in this fixed order as a
+        plain string (no screenshot input on this operation), sent as one
+        request through the effective generation model under the fixed
+        ``max_tokens`` cap; the text answer parses strictly through
+        ``parse_compliance_verdict`` — no fence unwrapping, a malformed
+        verdict raises
+        :class:`~prettyplay.failures.ComplianceVerdictError`, never a
+        silent pass. Identically to the openai implementation.
+
+        Args:
+            prompt: the gate system prompt text supplied by the calling
+                engine; applied verbatim as the system parameter.
+            user_instructions: the project's generation instructions from
+                the generation_prompt setting; the calling engine
+                guarantees non-empty — the gate never runs on empty
+                instructions.
+            step_text: the sentence of the generated step.
+            code: the successfully executed candidate code.
+
+        Returns:
+            The parsed findings; an empty list means compliant.
+
+        Raises:
+            LLMUnavailableError: the SDK client is unavailable or the
+                service request failed.
+        """
+        text = build_compliance_fields(user_instructions, step_text, code)
+
+        try:
+            response = self._get_client().messages.create(
+                model=self._config.effective_generation_model,
+                system=prompt,
+                max_tokens=REQUEST_MAX_TOKENS,
+                messages=[{"role": "user", "content": text}],
+            )
+        except AnthropicError as sdk_error:
+            raise LLMUnavailableError("llm unavailable: anthropic request failed") from sdk_error
+
+        return parse_compliance_verdict(require_completion_text(_first_text_block(response), "anthropic"))

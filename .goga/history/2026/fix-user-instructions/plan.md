@@ -855,16 +855,16 @@ provider, no screenshot input, model = `effective_generation_model`.
 
 **CRITICAL: `prettyplay/llm/CODEMANIFEST` — read-only. Do NOT modify it.**
 
-- [ ] **Contract tests** (expected to fail now): `from prettyplay.llm import
+- [x] **Contract tests** (expected to fail now): `from prettyplay.llm import
       ComplianceFinding, parse_compliance_verdict` succeeds and both are in
       `prettyplay.llm.__all__`; `LLMProvider.check_instruction_compliance`
       exists on the port; `build_compliance_fields` in `tests/llm/test_request.py`
       returns the fixed block order.
-- [ ] **Code**: `ComplianceFinding` in `prettyplay/llm/models.py` — pydantic v2,
+- [x] **Code**: `ComplianceFinding` in `prettyplay/llm/models.py` — pydantic v2,
       `model_config = ConfigDict(kw_only=True)`, fields `instruction: str = ""`,
       `priority: str = ""`, `explanation: str = ""`; Google docstring with
       Attributes; **no priority validation in the model**.
-- [ ] **Code**: `parse_compliance_verdict(verdict_text: str) ->
+- [x] **Code**: `parse_compliance_verdict(verdict_text: str) ->
       list[ComplianceFinding]` in `prettyplay/llm/models.py` — implement the
       algorithm verbatim (trim → `json.loads` in `try/except ValueError` → list
       check → per-item dict/str/priority validation against the
@@ -873,16 +873,16 @@ provider, no screenshot input, model = `effective_generation_model`.
       fixed message and `_answer_fragment(verdict_text)` — whitespace-collapsed
       first 200 characters); module docstring gains the findings; import
       `ComplianceVerdictError` from `..failures`.
-- [ ] **Code**: `build_compliance_fields(user_instructions: str, step_text: str,
+- [x] **Code**: `build_compliance_fields(user_instructions: str, step_text: str,
       code: str) -> str` in `prettyplay/llm/_request.py` — join
       `f"INSTRUCTIONS:\n{user_instructions}"`, `f"STEP:\n{step_text}"`,
       `f"CODE:\n{code}"` with blank lines; same section style as
       `build_classification_fields`.
-- [ ] **Code**: the port method in `prettyplay/llm/provider.py` after
+- [x] **Code**: the port method in `prettyplay/llm/provider.py` after
       `classify_failure` — full Google docstring (Args: prompt, user_instructions,
       step_text, code; Returns: the parsed findings; Raises: NotImplementedError),
       body `raise NotImplementedError(...)` as its siblings.
-- [ ] **Code**: `OpenAIProvider.check_instruction_compliance` in
+- [x] **Code**: `OpenAIProvider.check_instruction_compliance` in
       `prettyplay/llm/openai_provider.py` — `text =
       build_compliance_fields(...)`; messages `[{"role": "system", "content":
       prompt}, {"role": "user", "content": text}]` (plain string — no screenshot);
@@ -891,7 +891,7 @@ provider, no screenshot input, model = `effective_generation_model`.
       `return parse_compliance_verdict(require_completion_text(
       _first_choice_text(response), "openai"))`; docstring; class docstring
       "two operations" → three.
-- [ ] **Code**: `AnthropicProvider.check_instruction_compliance` in
+- [x] **Code**: `AnthropicProvider.check_instruction_compliance` in
       `prettyplay/llm/anthropic_provider.py` — same builder; one
       `messages.create(model=self._config.effective_generation_model,
       system=prompt, max_tokens=REQUEST_MAX_TOKENS, messages=[{"role": "user",
@@ -899,11 +899,11 @@ provider, no screenshot input, model = `effective_generation_model`.
       `LLMUnavailableError`; `parse_compliance_verdict(require_completion_text(
       _first_text_block(response), "anthropic"))`; docstring; class docstring
       "two operations" → three.
-- [ ] **Code**: add `ComplianceFinding` and `parse_compliance_verdict` to the
+- [x] **Code**: add `ComplianceFinding` and `parse_compliance_verdict` to the
       imports and `__all__` of `prettyplay/llm/__init__.py`.
-- [ ] **Interface verification**: `python3 -m pytest tests/llm/ -q` — the
+- [x] **Interface verification**: `python3 -m pytest tests/llm/ -q` — the
       contract tests pass.
-- [ ] **Logic tests**:
+- [x] **Logic tests**:
       `test_parse_compliance_verdict_parses_findings` (tests/llm/test_models.py)
       — padded input with two findings (high + low); trim → 2 models;
       `findings[0].priority == "high"`, `findings[1].priority == "low"`;
@@ -939,13 +939,13 @@ provider, no screenshot input, model = `effective_generation_model`.
       client mock raising `OpenAIError`/`AnthropicError` →
       `pytest.raises(LLMUnavailableError)` with "llm unavailable: {provider}
       request failed"; no findings returned, no `ComplianceVerdictError`.
-- [ ] **Debugging**: `python3 -m pytest tests/ -x -q` — fix implementation code
+- [x] **Debugging**: `python3 -m pytest tests/ -x -q` — fix implementation code
       until all tests pass (do NOT fix test code).
-- [ ] **Contract re-verification**: facade exports complete; port method present
+- [x] **Contract re-verification**: facade exports complete; port method present
       with the exact signature `(prompt: str, user_instructions: str,
       step_text: str, code: str) -> list[ComplianceFinding]`; parity — same
       builder, same block order, same error mapping; anthropic cap present.
-- [ ] **Lint**: `python3 -m ruff check prettyplay/llm tests/llm` — fix
+- [x] **Lint**: `python3 -m ruff check prettyplay/llm tests/llm` — fix
       formatting, apply decomposition if necessary.
 
 ### Task 5: `check_step_compliance` + the generator gate (engine cell, TDD)

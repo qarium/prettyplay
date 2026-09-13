@@ -33,6 +33,13 @@ CLASSIFY_FAILURE_PARAMS = [
     "snapshot",
     "screenshot",
 ]
+CHECK_INSTRUCTION_COMPLIANCE_PARAMS = [
+    "self",
+    "prompt",
+    "user_instructions",
+    "step_text",
+    "code",
+]
 
 
 class TestLLMProviderContract:
@@ -55,6 +62,18 @@ class TestLLMProviderContract:
 
         assert list(signature.parameters) == CLASSIFY_FAILURE_PARAMS
         assert signature.return_annotation is not inspect.Signature.empty
+
+    def test_check_instruction_compliance_signature(self) -> None:
+        signature = inspect.signature(LLMProvider.check_instruction_compliance)
+
+        assert list(signature.parameters) == CHECK_INSTRUCTION_COMPLIANCE_PARAMS
+        assert signature.return_annotation is not inspect.Signature.empty
+
+    def test_check_instruction_compliance_signature_on_every_implementation(self) -> None:
+        for owner in (LLMProvider, OpenAIProvider, AnthropicProvider):
+            assert list(inspect.signature(owner.check_instruction_compliance).parameters) == (
+                CHECK_INSTRUCTION_COMPLIANCE_PARAMS
+            ), owner.__name__
 
     def test_classify_failure_signature_carries_user_instructions(self) -> None:
         for owner in (LLMProvider, OpenAIProvider, AnthropicProvider):
@@ -105,6 +124,14 @@ class TestLLMProviderContract:
                 error="e",
                 snapshot="- snap",
                 screenshot=None,
+            )
+
+        with pytest.raises(NotImplementedError):
+            port.check_instruction_compliance(
+                prompt="p",
+                user_instructions="i",
+                step_text="s",
+                code="c",
             )
 
 

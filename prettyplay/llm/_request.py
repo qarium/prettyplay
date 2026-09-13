@@ -166,6 +166,31 @@ def build_classification_fields(user_instructions: str, step_text: str, code: st
     return "\n\n".join(sections)
 
 
+def build_compliance_fields(user_instructions: str, step_text: str, code: str) -> str:
+    """Build the plain-text compliance verdict request fields shared by both providers.
+
+    Args:
+        user_instructions: the project's generation instructions from the
+            generation_prompt setting; the calling engine guarantees
+            non-empty — the gate never runs on empty instructions, so the
+            block always renders.
+        step_text: the sentence of the generated step.
+        code: the successfully executed candidate code.
+
+    Returns:
+        The request fields as one text with INSTRUCTIONS / STEP / CODE
+        sections in this fixed order — no optional blocks, identically in
+        both implementations.
+    """
+    sections = [
+        f"INSTRUCTIONS:\n{user_instructions}",
+        f"STEP:\n{step_text}",
+        f"CODE:\n{code}",
+    ]
+
+    return "\n\n".join(sections)
+
+
 def encode_screenshot(screenshot: bytes) -> str:
     """Encode a PNG screenshot as the base64 payload of a content block.
 

@@ -8,6 +8,7 @@ from ..config import Config
 from ..failures import LLMUnavailableError
 from ._request import (
     build_classification_fields,
+    build_compliance_fields,
     build_fields_text,
     extract_code_block,
     openai_user_content,
@@ -15,7 +16,7 @@ from ._request import (
     require_completion_text,
     unparsable_classification,
 )
-from .models import FailureClassification
+from .models import ComplianceFinding, FailureClassification, parse_compliance_verdict
 from .provider import LLMProvider
 
 
@@ -38,13 +39,14 @@ def _first_choice_text(response: object) -> str | None:
 class OpenAIProvider(LLMProvider):
     """The LLMProvider implementation served by the openai SDK.
 
-    Full parity with :class:`AnthropicProvider`: the same operations, the
-    same inputs, the same output shapes. The constructor reads no
-    environment and constructs no client; the SDK client is created lazily
-    on the first request, so the library starts without LLM credentials.
-    Every service failure maps to
-    :class:`~prettyplay.failures.LLMUnavailableError` naming the provider;
-    the API key is read from the environment only and never logged.
+    Full parity with :class:`AnthropicProvider`: the same three operations
+    (generation, classification, compliance verdict), the same inputs, the
+    same output shapes. The constructor reads no environment and
+    constructs no client; the SDK client is created lazily on the first
+    request, so the library starts without LLM credentials. Every service
+    failure maps to :class:`~prettyplay.failures.LLMUnavailableError`
+    naming the provider; the API key is read from the environment only and
+    never logged.
     """
 
     def __init__(self, config: Config) -> None:
@@ -215,3 +217,54 @@ class OpenAIProvider(LLMProvider):
 
         category, explanation, recommendation = parsed
         return FailureClassification(category=category, explanation=explanation, recommendation=recommendation)
+
+    def check_instruction_compliance(
+        self,
+        prompt: str,
+        user_instructions: str,
+        step_text: str,
+        code: str,
+    ) -> list[ComplianceFinding]:
+        """Check the successfully executed candidate code against the project user instructions.
+
+        The compliance verdict request of the gate: the user content carries
+        the INSTRUCTIONS, STEP and CODE blocks in this fixed order as a
+        plain string (no screenshot input on this operation), sent as one
+        request through the effective generation model; the text answer
+        parses strictly through ``parse_compliance_verdict`` — no fence
+        unwrapping, a malformed verdict raises
+        :class:`~prettyplay.failures.ComplianceVerdictError`, never a
+        silent pass. Identically to the anthropic implementation.
+
+        Args:
+            prompt: the gate system prompt text supplied by the calling
+                engine; applied verbatim as the system message.
+            user_instructions: the project's generation instructions from
+                the generation_prompt setting; the calling engine
+                guarantees non-empty — the gate never runs on empty
+                instructions.
+            step_text: the sentence of the generated step.
+            code: the successfully executed candidate code.
+
+        Returns:
+            The parsed findings; an empty list means compliant.
+
+        Raises:
+            LLMUnavailableError: the SDK client is unavailable or the
+                service request failed.
+        """
+        text = build_compliance_fields(user_instructions, step_text, code)
+        messages = [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": text},
+        ]
+
+        try:
+            response = self._get_client().chat.completions.create(
+                model=self._config.effective_generation_model,
+                messages=messages,
+            )
+        except OpenAIError as sdk_error:
+            raise LLMUnavailableError("llm unavailable: openai request failed") from sdk_error
+
+        return parse_compliance_verdict(require_completion_text(_first_choice_text(response), "openai"))

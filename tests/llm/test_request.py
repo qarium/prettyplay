@@ -3,6 +3,7 @@
 from prettyplay.llm._request import (
     CATEGORIES,
     build_classification_fields,
+    build_compliance_fields,
     build_fields_text,
     extract_code_block,
     parse_classification_line,
@@ -100,6 +101,26 @@ class TestBuildClassificationFieldsUserInstructions:
 
         assert "USER INSTRUCTIONS" not in text
         assert text.endswith("- button 'Войти'")  # the snapshot section stays the closing section
+
+
+class TestBuildComplianceFields:
+    """Contract and logic tests: the compliance request carries the fixed three blocks."""
+
+    def test_build_compliance_fields_returns_the_fixed_block_order(self) -> None:
+        text = build_compliance_fields(
+            "prefer data-test-id",
+            "нажать Войти",
+            "def step(page) -> None:\n    pass\n",
+        )
+
+        assert text == (
+            "INSTRUCTIONS:\nprefer data-test-id\n\nSTEP:\nнажать Войти\n\nCODE:\ndef step(page) -> None:\n    pass\n"
+        )
+
+    def test_build_compliance_fields_renders_every_block_regardless_of_content(self) -> None:
+        text = build_compliance_fields("i", "s", "c")
+
+        assert text == "INSTRUCTIONS:\ni\n\nSTEP:\ns\n\nCODE:\nc"  # no optional blocks
 
 
 class TestBuildFieldsTextSteeringInputs:

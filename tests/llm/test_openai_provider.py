@@ -7,7 +7,7 @@ from unittest import mock
 import pytest
 from openai import OpenAIError
 from prettyplay.config import Config
-from prettyplay.failures import LLMUnavailableError, PrettyplayError
+from prettyplay.failures import ComplianceVerdictError, LLMUnavailableError, PrettyplayError
 from prettyplay.llm import LLMProvider, OpenAIProvider
 
 GENERATE_STEP_CODE_PARAMS = [
@@ -34,6 +34,13 @@ CLASSIFY_FAILURE_PARAMS = [
     "error",
     "snapshot",
     "screenshot",
+]
+CHECK_INSTRUCTION_COMPLIANCE_PARAMS = [
+    "self",
+    "prompt",
+    "user_instructions",
+    "step_text",
+    "code",
 ]
 
 WORKING_CODE = "def step(page) -> None:\n    page.goto('https://example.com')\n"
@@ -78,6 +85,12 @@ class TestOpenAIProviderContract:
         signature = inspect.signature(OpenAIProvider.classify_failure)
 
         assert list(signature.parameters) == CLASSIFY_FAILURE_PARAMS
+        assert signature.return_annotation is not inspect.Signature.empty
+
+    def test_check_instruction_compliance_signature_matches_port(self) -> None:
+        signature = inspect.signature(OpenAIProvider.check_instruction_compliance)
+
+        assert list(signature.parameters) == CHECK_INSTRUCTION_COMPLIANCE_PARAMS
         assert signature.return_annotation is not inspect.Signature.empty
 
     def test_constructor_reads_no_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -566,3 +579,55 @@ class TestOpenAIProviderLogic:
 
         assert "empty completion" in str(excinfo.value)
         assert isinstance(excinfo.value, PrettyplayError)
+
+    def test_openai_check_instruction_compliance_request_and_parse(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "test")
+        verdict = '[{"instruction": "Prefer id attributes", "priority": "high", "explanation": "locates by text"}]'
+        client, requests = make_client_create(answer=verdict)
+        provider = OpenAIProvider(Config(model="gpt-x"))
+
+        with mock.patch.object(provider, "_get_client", return_value=client):
+            findings = provider.check_instruction_compliance(
+                prompt="gate prompt",
+                user_instructions="Prefer id attributes",
+                step_text="нажать Войти",
+                code=WORKING_CODE,
+            )
+
+        assert len(requests) == 1  # exactly one verdict request
+        request = requests[0]
+        assert request["model"] == "gpt-x"  # effective generation model
+        assert request["messages"][0] == {"role": "system", "content": "gate prompt"}
+        user = request["messages"][1]
+        assert user["role"] == "user"
+        assert user["content"] == (
+            f"INSTRUCTIONS:\nPrefer id attributes\n\nSTEP:\nнажать Войти\n\nCODE:\n{WORKING_CODE}"
+        )  # the three blocks in the fixed order
+        assert set(request) == {"model", "messages"}  # plain string content — no screenshot keys anywhere
+
+        assert len(findings) == 1
+        assert findings[0].instruction == "Prefer id attributes"
+        assert findings[0].priority == "high"
+        assert findings[0].explanation == "locates by text"
+
+    def test_openai_compliance_sdk_error_maps_to_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "test")
+        client = SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=mock.MagicMock(side_effect=OpenAIError("boom"))))
+        )
+        provider = OpenAIProvider(Config(model="gpt-5"))
+
+        with (
+            mock.patch.object(provider, "_get_client", return_value=client),
+            pytest.raises(LLMUnavailableError) as excinfo,
+        ):
+            provider.check_instruction_compliance(
+                prompt="p",
+                user_instructions="Prefer id attributes",
+                step_text="s",
+                code="c",
+            )
+
+        assert str(excinfo.value) == "llm unavailable: openai request failed"
+        assert not isinstance(excinfo.value, ComplianceVerdictError)  # the SDK error is never a verdict failure
+        assert isinstance(excinfo.value.__cause__, OpenAIError)
