@@ -79,6 +79,12 @@ the browser group — the facade surface itself is identical in every mode.
 
 | Call | Purpose |
 |---|---|
+| `element.first` | the first match — positional narrowing |
+| `element.last` | the last match — positional narrowing |
+| `element.nth(index)` | the match at a 0-based index; negative counts from the end |
+| `element.filter(has_text=..., has_not_text=..., has=..., has_not=...)` | narrow by content — all predicates optional |
+| `element.or_(other)` | union locator — matches either; when both branches may match, compose positional narrowing (first, last, nth) to satisfy strict mode |
+| `element.and_(other)` | intersection locator — matches both |
 | `element.click(button)` | click; empty button = left, `"right"` = right button |
 | `element.dblclick()` | double click |
 | `element.fill(value)` | set input text |
@@ -131,6 +137,19 @@ page.get_by_test_id("submit-button").click()
 page.locator("form > button.primary").expect_enabled()
 page.locator("//button[@type='submit']").expect_visible()
 page.locator("[data-qa='row'] > input").fill("text")
+```
+
+Narrowing a locator — positional, content, combinators:
+
+```python
+page.get_by_role("row").first.expect_text("Paid")
+page.get_by_role("listitem").last.expect_visible()
+page.get_by_role("row").nth(2).expect_text("Shipped")
+page.get_by_role("listitem").filter(has_text="Product X").expect_visible()
+page.get_by_role("button").and_(page.get_by_text("Save")).expect_enabled()
+
+# disjunction with the strict-mode guard — both texts may be present
+page.get_by_text("one").or_(page.get_by_text("two")).first.expect_visible()
 ```
 
 Dialogs:
@@ -197,6 +216,8 @@ facade — and working only through the facade surface:
 `page.get_by_test_id("submit-button").click()`,
 `page.locator("form > button.primary")`,
 `page.locator("//button[@type='submit']")`, `element.expect_visible()`,
+`page.get_by_role("row").first.expect_text("Paid")`,
+`page.get_by_role("listitem").filter(has_text="Product X").expect_visible()`,
 `with page.expect_dialog() as dialog:`,
 `with page.expect_popup() as popup:`, `page.frame_locator("#checkout")`,
 `page.scroll_down(600)` and alike. No provider constructs, no direct
@@ -213,6 +234,10 @@ driver imports, no fixed delays.
 - Auto-wait everywhere: no `time.sleep`, no fixed delays in step code —
   including around scrolls: the scrolled state is awaited through locators
   and expectations
+- A locator resolving to several elements fails an action or expectation with
+  the strict-mode violation — narrow positionally (`first`, `last`, `nth`) to
+  address one match; over an `or_` composition the positional narrowing is the
+  canonical guard when both branches may match
 - The screen mode of the browser group (empty, WxH, fullscreen, device
   name) changes only how the context opens — never the facade surface;
   step code is identical in every mode

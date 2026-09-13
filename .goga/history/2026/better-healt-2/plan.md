@@ -542,13 +542,13 @@ Bring the public documentation page to parity with the updated `facade` practice
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If the documentation does not match the contract, fix the documentation — never fix the contract.**
 
-- [ ] Add the six element rows to the «Surface — element» table of `docs/reference/driver-facade.md` (backticked calls in the doc's style), at the head of the table, purposes from the practice verbatim: `element.first`, `element.last`, `element.nth(index)`, `element.filter(has_text=..., has_not_text=..., has=..., has_not=...)`, `element.or_(other)` (with the strict-mode guard hint), `element.and_(other)`
-- [ ] Add the example block «Narrowing a locator — positional, content, combinators» after the «Locating without accessible names» block, mirroring the practice example (`.first.expect_text("Paid")`, `.last.expect_visible()`, `.nth(2).expect_text("Shipped")`, `.filter(has_text="Product X").expect_visible()`, `.and_(...)`, the `or_` guard comment)
-- [ ] Add the strict-mode rule after the auto-wait bullet in «Rules», mirroring the practice rule: a locator resolving to several elements fails an action or expectation with the strict-mode violation — narrow positionally (`first`, `last`, `nth`); over an `or_` composition the positional narrowing is the canonical guard when both branches may match
-- [ ] Extend the fixed-form paragraph («The fixed form of generated code») with the two narrowing idioms: `` `page.get_by_role("row").first.expect_text("Paid")` ``, `` `page.get_by_role("listitem").filter(has_text="Product X").expect_visible()` ``
-- [ ] No nav changes (`mkdocs.yml` untouched); no other sections of the page change
-- [ ] Verify parity: `grep -c "^| \`element\." docs/reference/driver-facade.md` → 25; the example block, the rule and the two idioms present — `.venv/bin/python - <<'EOF'` check or manual verification that every element row of `prettyplay/driver/.usages/facade.md` appears in the doc table (mod backticks) and that no other table changed
-- [ ] Lint (docs scope): `.venv/bin/ruff check prettyplay/ tests/` stays clean (no code touched); `goga lint` — 10 cells, 0 errors
+- [x] Add the six element rows to the «Surface — element» table of `docs/reference/driver-facade.md` (backticked calls in the doc's style), at the head of the table, purposes from the practice verbatim: `element.first`, `element.last`, `element.nth(index)`, `element.filter(has_text=..., has_not_text=..., has=..., has_not=...)`, `element.or_(other)` (with the strict-mode guard hint), `element.and_(other)`
+- [x] Add the example block «Narrowing a locator — positional, content, combinators» after the «Locating without accessible names» block, mirroring the practice example (`.first.expect_text("Paid")`, `.last.expect_visible()`, `.nth(2).expect_text("Shipped")`, `.filter(has_text="Product X").expect_visible()`, `.and_(...)`, the `or_` guard comment)
+- [x] Add the strict-mode rule after the auto-wait bullet in «Rules», mirroring the practice rule: a locator resolving to several elements fails an action or expectation with the strict-mode violation — narrow positionally (`first`, `last`, `nth`); over an `or_` composition the positional narrowing is the canonical guard when both branches may match
+- [x] Extend the fixed-form paragraph («The fixed form of generated code») with the two narrowing idioms: `` `page.get_by_role("row").first.expect_text("Paid")` ``, `` `page.get_by_role("listitem").filter(has_text="Product X").expect_visible()` ``
+- [x] No nav changes (`mkdocs.yml` untouched); no other sections of the page change
+- [x] Verify parity: `grep -c "^| \`element\." docs/reference/driver-facade.md` → 25; the example block, the rule and the two idioms present — `.venv/bin/python - <<'EOF'` check or manual verification that every element row of `prettyplay/driver/.usages/facade.md` appears in the doc table (mod backticks) and that no other table changed
+- [x] Lint (docs scope): `.venv/bin/ruff check prettyplay/ tests/` stays clean (no code touched); `goga lint` — 10 cells, 0 errors
 
 ---
 
@@ -567,16 +567,16 @@ If the repo `.venv` does not match the execution host (it is a darwin/Python-3.1
 
 ## Completion Criteria
 
-- [ ] Every contract entity is implemented in the correct `location` — the six `LocatorFacade` members in `prettyplay/driver/page.py`; the two constants edited in `prettyplay/engine/generator.py` and `prettyplay/engine/steering/steering.py`
-- [ ] Every contract entity is accessible from the facade — `LocatorFacade` importable from `prettyplay.driver` (unchanged `__all__`)
-- [ ] Properties and methods match the declared API — `first`/`last` as properties; `nth(index: int)`; keyword-only `filter(has_text, has_not_text, has, has_not)` with the declared defaults and types; `or_(other)`/`and_(other)`
-- [ ] Descriptions are reflected in behavior — optional-predicate filtering, verbatim index pass-through, union/intersection composition, zero-wrapping error propagation, driver-thread marshal returning a full `LocatorFacade`
-- [ ] Contract dependencies are met — no new Import edges; `configuration` untouched; the frozen-mirror disciplines held (constants == practices in both cells)
-- [ ] Re-exports are accessible from the facade — no re-export changes (none planned)
-- [ ] Every coding task followed the TDD workflow (contract tests → code → verification → logic tests → debugging → re-verification → lint)
-- [ ] Contract tests and logic tests cover facade, API, and behavior within each coding task — 15 test scenarios planned (Task 1: 9; Task 2: 4 rewrites/extensions; Task 3: 1 integration; Task 4: 1 new mirror test)
-- [ ] Integration tests exist where cross-entity scenarios require them — the narrowing incident through the generation loop (Task 3)
-- [ ] No package boundary was expanded — no new cells, no new interfaces at cell level, no excluded capabilities added (no route/evaluate/CDP/clock/HAR/tracing/raw input)
-- [ ] `CODEMANIFEST` files were not modified (contract is read-only) — contracts already materialized by the apply stage
-- [ ] All validation commands pass — full suite green, ruff clean, `goga lint` 0 errors
-- [ ] Every Usages entry is mentioned in at least one task — `conventions` (Tasks 1–4; Task 5 is documentation-only), `playwright` (Task 1), `system_prompt` (Tasks 2, 4), `classification_prompt` (Task 2, non-goal), `facade` from Imports (Tasks 2, 3, 4, 5), `configuration` from Imports (Task 1 context, untouched)
+- [x] Every contract entity is implemented in the correct `location` — the six `LocatorFacade` members in `prettyplay/driver/page.py`; the two constants edited in `prettyplay/engine/generator.py` and `prettyplay/engine/steering/steering.py`
+- [x] Every contract entity is accessible from the facade — `LocatorFacade` importable from `prettyplay.driver` (unchanged `__all__`)
+- [x] Properties and methods match the declared API — `first`/`last` as properties; `nth(index: int)`; keyword-only `filter(has_text, has_not_text, has, has_not)` with the declared defaults and types; `or_(other)`/`and_(other)`
+- [x] Descriptions are reflected in behavior — optional-predicate filtering, verbatim index pass-through, union/intersection composition, zero-wrapping error propagation, driver-thread marshal returning a full `LocatorFacade`
+- [x] Contract dependencies are met — no new Import edges; `configuration` untouched; the frozen-mirror disciplines held (constants == practices in both cells)
+- [x] Re-exports are accessible from the facade — no re-export changes (none planned)
+- [x] Every coding task followed the TDD workflow (contract tests → code → verification → logic tests → debugging → re-verification → lint)
+- [x] Contract tests and logic tests cover facade, API, and behavior within each coding task — 15 test scenarios planned (Task 1: 9; Task 2: 4 rewrites/extensions; Task 3: 1 integration; Task 4: 1 new mirror test)
+- [x] Integration tests exist where cross-entity scenarios require them — the narrowing incident through the generation loop (Task 3)
+- [x] No package boundary was expanded — no new cells, no new interfaces at cell level, no excluded capabilities added (no route/evaluate/CDP/clock/HAR/tracing/raw input)
+- [x] `CODEMANIFEST` files were not modified (contract is read-only) — contracts already materialized by the apply stage
+- [x] All validation commands pass — full suite green, ruff clean, `goga lint` 0 errors
+- [x] Every Usages entry is mentioned in at least one task — `conventions` (Tasks 1–4; Task 5 is documentation-only), `playwright` (Task 1), `system_prompt` (Tasks 2, 4), `classification_prompt` (Task 2, non-goal), `facade` from Imports (Tasks 2, 3, 4, 5), `configuration` from Imports (Task 1 context, untouched)
