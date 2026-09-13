@@ -1,8 +1,8 @@
-# Anthropic SDK — LLM Generation and Classification Usage
+# Anthropic SDK — LLM Generation, Classification and Compliance Usage
 
 Practices for the official `anthropic` SDK within prettyplay. Target audience: implementing agents working on the generation and healing engines.
 
-`anthropic` is a hard dependency (ADR-6). It provides the same two operations as the OpenAI provider — step code generation and error classification — selected by project configuration.
+`anthropic` is a hard dependency (ADR-6). It provides the same three operations as the OpenAI provider — step code generation, error classification, and the compliance verdict of the gate — selected by project configuration.
 
 ## Client initialization — secrets from env only
 
@@ -33,6 +33,27 @@ code = message.content[0].text
 ```
 
 Healing calls additionally include the existing step code and the error message (ADR-7).
+
+## Message call for the compliance check
+
+The compliance gate sends the same verdict request through the Messages API — one per successfully executed candidate; the answer is the findings verdict text, not code — no fence unwrapping:
+
+```python
+message = client.messages.create(
+    model=config.model,  # the effective gate model of the settings
+    max_tokens=4096,
+    system=COMPLIANCE_SYSTEM_PROMPT,
+    messages=[
+        {"role": "user", "content": build_compliance_request(instructions, step_text, code)},
+    ],
+)
+verdict_text = message.content[0].text
+```
+
+Rules:
+- SDK errors map to `LLMUnavailableError` identically — a gate failure is hard, unchecked code is never cached
+- The gate is called only when its toggle is on and the instructions are non-empty — zero calls otherwise
+- One verdict request per candidate — attempt budgets stay with the calling engine
 
 ## Error handling — infrastructure failure
 

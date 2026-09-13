@@ -4,6 +4,7 @@ Imports:
     From: prettyplay/config
   - Types:
       - LLMUnavailableError
+      - ComplianceVerdictError
     From: prettyplay/failures
 
 Usages:
@@ -20,14 +21,16 @@ Annotations: |
   The user instructions input participates in both provider implementations with identical semantics: generation requests render the generation instructions, classification requests render the classification instructions — each verbatim as a separate USER INSTRUCTIONS block; classification requests never carry the generation instructions and generation requests never carry the classification instructions; a parity requirement, not a capability difference.
   API keys come only from environment variables; never log keys or payloads containing secrets.
   One completion request per attempt: attempt budgets are owned by the calling engine, never by a provider.
-  Cached step code never depends on the provider: the provider serves generation and classification only.
+  Cached step code never depends on the provider: the provider serves generation, classification and the compliance verdict only.
+  The compliance verdict operation is the third operation of the port with the same absolute parity: one verdict request per successfully executed candidate, the answer parsed strictly — a malformed verdict raises the hard compliance failure, never a silent pass.
+  The one-request-per-attempt rule covers the verdict request too: attempt budgets are owned by the calling engine, never by a provider.
 
 ---
 
 "LLMProvider()":
   location: provider.py
   annotations: |
-    The unified LLM port of the library: code generation for a step and failure classification for healing. One contract, two interchangeable implementations selected by configuration.
+    The unified LLM port of the library: code generation for a step, failure classification for healing and the compliance verdict of the gate. One contract, two interchangeable implementations selected by configuration.
   methods:
     "generate_step_code(prompt: str, user_instructions: str, step_text: str, previous_steps: list[str], snapshot: str, screenshot: bytes | None, page_api: str, existing_code: str | None, error: str | None, recommendation: str | None, guidance: str | None, guidance_history: list[str]) -> code: str": |
       Generate step code of the fixed form.
@@ -65,6 +68,28 @@ Annotations: |
 
       Requirements:
       - A provider service failure raises `LLMUnavailableError` naming the provider
+    "check_instruction_compliance(prompt: str, user_instructions: str, step_text: str, code: str) -> verdict: list[ComplianceFinding]": |
+      Check the successfully executed candidate code against the project user instructions —
+      the compliance verdict request of the gate.
+
+      `prompt`: the gate system prompt text supplied by the calling engine — applied
+        verbatim as the system message.
+      `user_instructions`: the project's generation instructions supplied by the calling
+        engine from the generation_prompt setting; the calling engine guarantees non-empty —
+        the gate never runs on empty instructions.
+      `step_text`: the sentence of the generated step.
+      `code`: the successfully executed candidate code.
+      `verdict`: the parsed findings; an empty list means compliant.
+
+      Requirements:
+      - A provider service failure raises `LLMUnavailableError` naming the provider
+      - The answer parses strictly through `parse_compliance_verdict`; a malformed verdict
+        raises `ComplianceVerdictError` — unchecked code is never waved through
+      - The user content carries three blocks in the fixed order INSTRUCTIONS, STEP, CODE —
+        identically in both implementations
+      - The gate model is the effective generation model of the provider settings
+      - The input takes no part in step addressing: a cached step never regenerates because
+        it changed
 
 "LLMProvider::OpenAIProvider(config: Config)":
   location: openai_provider.py
@@ -73,11 +98,13 @@ Annotations: |
 
     `config`: project settings; the generation model is the effective_generation_model of `config`, the classification model is the effective_classification_model of `config`; the base_url setting of `config` overrides the endpoint when set.
 
-    Algorithm (both operations):
+    Algorithm (all three operations):
     1. Build the request: the prompt text as the system message, the user content carrying the inputs — a non-empty user_instructions of a generation request renders as a separate USER INSTRUCTIONS block placed after the page API block; the regeneration-only blocks render in the fixed order CODE, ERROR, RECOMMENDATION, USER GUIDANCE, HISTORY — a non-empty input renders its named block, identically in both implementations; a non-empty user_instructions of a classification request renders as the separate USER INSTRUCTIONS block placed last in the user content, after all classification inputs (STEP, CODE, ERROR, PAGE SNAPSHOT)
     2. Send one completion request via the SDK
     3. Extract the text answer; a generation answer unwraps its first markdown-fenced block — an unfenced answer passes through verbatim
     4. An SDK error maps to `LLMUnavailableError` (see `openai`)
+
+    The compliance operation: the prompt as the system message, the user content carrying the INSTRUCTIONS, STEP and CODE blocks in this fixed order; sent as one request through the effective generation model; the text answer parses strictly through `parse_compliance_verdict` — no fence unwrapping, a malformed verdict raises `ComplianceVerdictError`; an SDK error maps to `LLMUnavailableError` (see `openai`)
 
 "LLMProvider::AnthropicProvider(config: Config)":
   location: anthropic_provider.py
@@ -86,11 +113,13 @@ Annotations: |
 
     `config`: the same settings semantics as the openai implementation.
 
-    Algorithm (both operations):
+    Algorithm (all three operations):
     1. Build the request: the prompt text as the system message, the user content carrying the inputs — a non-empty user_instructions of a generation request renders as a separate USER INSTRUCTIONS block placed after the page API block; the regeneration-only blocks render in the fixed order CODE, ERROR, RECOMMENDATION, USER GUIDANCE, HISTORY — a non-empty input renders its named block, identically in both implementations; a non-empty user_instructions of a classification request renders as the separate USER INSTRUCTIONS block placed last in the user content, after all classification inputs (STEP, CODE, ERROR, PAGE SNAPSHOT)
     2. Send one message request via the SDK
     3. Extract the text answer; a generation answer unwraps its first markdown-fenced block — an unfenced answer passes through verbatim
     4. An SDK error maps to `LLMUnavailableError` (see `anthropic`)
+
+    The compliance operation: the prompt as the system message, the user content carrying the INSTRUCTIONS, STEP and CODE blocks in this fixed order; sent as one request through the effective generation model; the text answer parses strictly through `parse_compliance_verdict` — no fence unwrapping, a malformed verdict raises `ComplianceVerdictError`; an SDK error maps to `LLMUnavailableError` (see `anthropic`)
 
 "create_provider(config: Config) -> provider: LLMProvider":
   location: provider.py
@@ -128,9 +157,55 @@ Annotations: |
     "recommendation -> str": |
       The recommended engineer action.
 
+"ComplianceFinding(instruction: str, priority: str, explanation: str)":
+  location: models.py
+  annotations: |
+    One finding of the instruction compliance verdict: which instruction the candidate
+    code violated, how severely, and why.
+
+    `instruction`: the violated instruction — the verbatim quote of the project's user
+    instructions the finding names.
+    `priority`: high, medium or low; only high blocks the candidate.
+    `explanation`: one short sentence why the code violates the instruction.
+
+    Requirements:
+    - pydantic v2, kw_only, empty defaults (see `conventions`)
+    - `priority` accepts exactly the three labels; anything else never reaches this type
+      — the parse fails loudly before
+  properties:
+    "instruction -> str": |
+      The violated instruction quote.
+    "priority -> str": |
+      The finding priority: high, medium or low.
+    "explanation -> str": |
+      One short sentence why the code violates the instruction.
+
+"parse_compliance_verdict(verdict_text: str) -> findings: list[ComplianceFinding]":
+  location: models.py
+  annotations: |
+    Parse the raw answer of the compliance verdict request into findings — the strict
+    single parsing point of the gate.
+
+    `verdict_text`: the raw text answer of the verdict model.
+    `findings`: the parsed findings; empty — compliant.
+
+    Algorithm:
+    1. Parse the trimmed text as a JSON list of objects; anything else — not valid
+       JSON, not a list, a non-object item — is a malformed verdict
+    2. Validate every item: instruction, priority of the {high, medium, low} set,
+       explanation — a missing field or an unknown priority label is a malformed verdict
+    3. A malformed verdict raises `ComplianceVerdictError` carrying a fragment of the
+       raw answer — a flaky verdict model surfaces loudly, never a silent pass
+    4. Return the findings; an empty list means compliant
+
+    Requirements:
+    - Pure function: no state, no I/O, deterministic on the input text
+    - No fence unwrapping and no protective fallback: the verdict answer parses as
+      received (see `openai` and `anthropic`)
+
 ---
 
 Author: Goga
 CreatedAt: 10/09/26
 Description: |
-  The LLM port of prettyplay: one contract, the openai and anthropic SDK implementations in full parity — generation and classification user instructions with identical semantics — and the failure classification verdict.
+  The LLM port of prettyplay: one contract, the openai and anthropic SDK implementations in full parity — generation, classification and compliance verdict operations with identical user-instructions semantics — the failure classification verdict and the instruction compliance findings.

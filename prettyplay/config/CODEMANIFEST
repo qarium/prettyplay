@@ -22,6 +22,7 @@ Annotations: |
   The browser settings form the nested browser group of `BrowserConfig` inside `Config` (see `pydantic`): fields inside the group carry no browser_ prefix — the group name scopes them. Env overrides stay flat: PRETTYPLAY_BROWSER_NAME, PRETTYPLAY_BROWSER_SCREEN, PRETTYPLAY_BROWSER_HEADLESS, PRETTYPLAY_BROWSER_ENDPOINT, PRETTYPLAY_BROWSER_ACCEPT_DIALOGS.
   The old flat keys browser, headless and browser_endpoint at the [tool.prettyplay] level are a hard pre-1.0 break: the loader rejects them with a loud actionable `ConfigurationError` naming the new location.
   The screen setting is validated at format level only (see `pydantic`): a WxH-shaped string must carry positive width and height; every other value — including fullscreen and Playwright device names — passes through unresolved, because the device registry belongs to the running Playwright, never to the config.
+  The generation_approve switch defaults to True — the opt-out carries the product line loud errors instead of silent ignoring: the instruction compliance gate runs unless explicitly disabled.
 
 ---
 
@@ -71,7 +72,7 @@ Annotations: |
     "accept_dialogs -> bool": |
       Whether dialogs outside a captured expect_dialog block are accepted automatically; False keeps the dismiss default.
 
-"Config(provider: str, browser: BrowserConfig, model: str, generation_model: str, classification_model: str, base_url: str, cache_root: str, generation_prompt: str, classification_prompt: str, strict: bool, polling_timeout: float | None, polling_delay: float, interactive: bool, generation_attempts: int, healing_attempts: int, send_screenshots: bool)":
+"Config(provider: str, browser: BrowserConfig, model: str, generation_model: str, classification_model: str, base_url: str, cache_root: str, generation_prompt: str, classification_prompt: str, strict: bool, polling_timeout: float | None, polling_delay: float, interactive: bool, generation_attempts: int, healing_attempts: int, send_screenshots: bool, generation_approve: bool)":
   location: models.py
   annotations: |
     Validated project settings — the single source of the immutable configuration part.
@@ -92,6 +93,11 @@ Annotations: |
     `generation_attempts`: generation attempt budget per step per test; default 3.
     `healing_attempts`: healing attempt budget per step per test; default 2.
     `send_screenshots`: optional screenshot input to the LLM; default False.
+    `generation_approve`: the instruction compliance gate switch; True — every successfully
+    executed generation and regeneration candidate is verified against the user
+    instructions (the non-empty generation_prompt) before it is cached — one extra LLM
+    call per successful generation; False — the gate never runs, fully the old behavior;
+    default True (the opt-out default).
 
     Requirements:
     - kw_only construction; every field has an empty default
@@ -101,6 +107,9 @@ Annotations: |
     - `strict`, `classification_prompt` and the `browser` group participate in the layered merge of `load_config` like every other setting
     - polling_timeout is None or a non-negative number — a negative value fails loudly with the received value; polling_delay is non-negative (0 allowed)
     - polling_timeout, polling_delay and interactive participate in the layered merge of `load_config` like every other setting — an explicit False or 0.0 overrides the file layer too
+    - generation_approve participates in the layered merge of `load_config` like every
+      other setting — an explicitly passed False overrides the file layer too (the
+      `strict`/`interactive` pattern)
 
     Constraints:
     - No secret values in fields: LLM API keys are never stored in the config; keys come only from environment variables
@@ -138,6 +147,8 @@ Annotations: |
       The healing attempt budget per step per test.
     "send_screenshots -> bool": |
       Whether screenshots are attached to LLM requests.
+    "generation_approve -> bool": |
+      Whether the instruction compliance gate runs before caching a generated step.
     "effective_generation_model -> str": |
       generation_model when non-empty, otherwise model.
     "effective_classification_model -> str": |
@@ -158,7 +169,7 @@ Annotations: |
     3. Extract the tool.prettyplay section; a missing section is an empty section
     4. Reject the removed legacy env name: PRETTYPLAY_BROWSER set in the environment raises `ConfigurationError` before merging — the message names PRETTYPLAY_BROWSER_NAME as the replacement
     5. Reject the removed old flat keys: browser, headless or browser_endpoint present at the [tool.prettyplay] level raise `ConfigurationError` immediately — one line per key naming its new home inside [tool.prettyplay.browser] (browser → name, headless → headless, browser_endpoint → endpoint)
-    6. Apply environment overrides: each setting is overridden by PRETTYPLAY_<SETTING_UPPERCASE> when the variable is set; the browser group reads PRETTYPLAY_BROWSER_NAME, PRETTYPLAY_BROWSER_SCREEN, PRETTYPLAY_BROWSER_HEADLESS, PRETTYPLAY_BROWSER_ENDPOINT, PRETTYPLAY_BROWSER_ACCEPT_DIALOGS; strict reads PRETTYPLAY_STRICT; classification_prompt reads PRETTYPLAY_CLASSIFICATION_PROMPT; polling_timeout reads PRETTYPLAY_POLLING_TIMEOUT (a decimal float; 0 — an explicit disable), polling_delay reads PRETTYPLAY_POLLING_DELAY, interactive reads PRETTYPLAY_INTERACTIVE
+    6. Apply environment overrides: each setting is overridden by PRETTYPLAY_<SETTING_UPPERCASE> when the variable is set; the browser group reads PRETTYPLAY_BROWSER_NAME, PRETTYPLAY_BROWSER_SCREEN, PRETTYPLAY_BROWSER_HEADLESS, PRETTYPLAY_BROWSER_ENDPOINT, PRETTYPLAY_BROWSER_ACCEPT_DIALOGS; strict reads PRETTYPLAY_STRICT; classification_prompt reads PRETTYPLAY_CLASSIFICATION_PROMPT; polling_timeout reads PRETTYPLAY_POLLING_TIMEOUT (a decimal float; 0 — an explicit disable), polling_delay reads PRETTYPLAY_POLLING_DELAY, interactive reads PRETTYPLAY_INTERACTIVE; generation_approve reads PRETTYPLAY_GENERATION_APPROVE — booleans parse true/false/1/0 case-insensitively; an unparseable value raises the loud actionable `ConfigurationError` naming the setting, the received value and the accepted form
     7. Resolve the empty cache_root: empty after the file+env merge — set to the absolute default <cwd>/.prettyplay/cache/ — the working directory of the run, wherever the pyproject.toml was found; a value set by the file or env layer stays verbatim
     8. Construct `Config`; on a validation failure render the actionable text — one line per invalid setting: the setting name, the received value, the allowed values — and raise `ConfigurationError` with the original ValidationError chained
     9. `overrides` is None — return the file layer as is
@@ -170,6 +181,7 @@ Annotations: |
     - The removed legacy env name PRETTYPLAY_BROWSER fails loudly before merging: it belongs to the same pre-1.0 hard break as the old flat keys
     - Scalar env overrides parse by the field type: booleans accept true/false/1/0 case-insensitively, integers parse as decimal integers; an unparseable value raises the loud actionable `ConfigurationError` naming the setting, the received value and the accepted form — never a silent ignore
     - The three polling and interactive settings parse by the field type: floats parse as decimal floats, the boolean accepts true/false/1/0 case-insensitively; an unparseable value raises the loud actionable `ConfigurationError` naming the setting, the received value and the accepted form
+    - PRETTYPLAY_GENERATION_APPROVE exists as the env override of generation_approve, parsing booleans true/false/1/0 case-insensitively; an unparseable value raises the loud actionable `ConfigurationError` — never a silent ignore
     - A raw pydantic.ValidationError never leaves the loader
     - The empty cache_root setting is resolved to the absolute default <cwd>/.prettyplay/cache/ at load — anchored at the working directory of the run, wherever the pyproject.toml was found
 
@@ -182,4 +194,4 @@ Annotations: |
 Author: Goga
 CreatedAt: 10/09/26
 Description: |
-  Project settings of prettyplay: the validated [tool.prettyplay] schema with the nested browser group (engine, screen mode, headless, endpoint, dialog auto-accept), the strict replay-only switch, the generation and classification instructions, and the loader with flat env overrides for the group, the removed-flat-key rejection, explicit per-test merging that reaches inside the group and the actionable configuration error.
+  Project settings of prettyplay: the validated [tool.prettyplay] schema with the nested browser group (engine, screen mode, headless, endpoint, dialog auto-accept), the strict replay-only switch, the generation and classification instructions, the generation compliance switch, and the loader with flat env overrides for the group, the removed-flat-key rejection, explicit per-test merging that reaches inside the group and the actionable configuration error.

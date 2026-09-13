@@ -25,6 +25,7 @@ Imports:
   - Types:
       - LLMProvider
       - FailureClassification
+      - ComplianceFinding
     Usages:
       - classification
     From: prettyplay/llm
@@ -45,7 +46,7 @@ Usages:
     - ERROR: the failure description
     - PAGE SNAPSHOT: the accessibility snapshot of the current page
     - SCREENSHOT: an image of the page, when attached
-    - USER INSTRUCTIONS: the project's classification guidance, when configured
+    - USER INSTRUCTIONS: the project's binding classification guidance, when configured — follow it; it never overrides the fixed answer format above
 
     Answer with exactly one line of the form:
     category | explanation | recommendation
@@ -58,6 +59,38 @@ Usages:
 
     explanation: one short sentence why. recommendation: one short sentence what the engineer should do.
     Output only that single line — no code, no extra text.
+  compliance_prompt: |
+    You verify that generated step code follows the project's user instructions.
+
+    Input you receive:
+    - INSTRUCTIONS: the project's user instructions, verbatim
+    - STEP: the step sentence the code was generated for
+    - CODE: the successfully executed candidate code
+
+    Check the code against every instruction and answer with exactly one JSON list of
+    findings:
+    [{"instruction": "<the violated instruction quote>", "priority": "high|medium|low",
+    "explanation": "<one short sentence>"}]
+
+    Priority calibration:
+    - high — a confident, material violation evident from the code itself: the instruction
+      was expressible through the page API the code already uses, and the code plainly
+      skipped or contradicted it without any fallback attempt; only high blocks the
+      candidate
+    - medium and low — minor observations, partial compliance or doubt: visible, never
+      blocking; when in doubt, never high
+    - an empty list [] means the code complies
+
+    Rules:
+    - Conditional prefer-type instructions are checked conditionally: when the code shows
+      a graceful fallback attempt, that is compliance; judge followability from the code
+      and the step sentence alone — you see no page state, never speculate about it
+    - An instruction the code could not follow because the step sentence itself prevents
+      it is not a violation; when the inputs leave the followability in doubt, the finding
+      is never high
+    - Judge only what the code does against the instructions — not the step sentence,
+      not the page state beyond the instructions
+    - Output only the JSON list, no other text
 
 Annotations: |
   Use `conventions` for code writing rules and testing.
@@ -65,6 +98,7 @@ Annotations: |
   Use `classification` from Imports for the healing decision categories.
   Use `system_prompt` as the system prompt of every code generation request.
   Use `classification_prompt` as the system prompt of every failure classification request.
+  Use `compliance_prompt` as the system prompt of every compliance verdict request.
   Use `facade` from Imports as the single source of the page API surface for generation requests.
 
   The fixed form of step code: one function receiving exactly one argument — the `PageFacade` of the test; the function body works only through `PageFacade` and the LocatorFacade element API.
@@ -74,7 +108,9 @@ Annotations: |
   A failed check of a candidate stops the generation-budget retries: a check that executed and did not hold is classified first; a rot or fixable verdict grants exactly one healing-funded regeneration, a repeat failure gets the final terminal-kind classification — the attempt budget is never spent on a legitimately failing assertion beyond it.
   The page API surface listing sent to the provider mirrors `facade` from Imports exactly — the listing and the practice change together.
   The system prompt sent to the provider is the frozen local mirror of `system_prompt` — the mirror and the practice change together.
-  The user instructions of the project settings reach their own requests only: the generation_prompt field of `Config` reaches generation and regeneration requests, the classification_prompt field reaches classification requests; neither crosses to the other kind; the instructions take no part in the step address: a cached step never regenerates because the instructions changed.
+  The user instructions of the project settings reach their own requests only: the generation_prompt field of `Config` reaches generation and regeneration requests and the compliance verdict request — there as the checked INSTRUCTIONS block, never as guidance; the classification_prompt field reaches classification requests; neither crosses to the other kind; the instructions take no part in the step address: a cached step never regenerates because the instructions changed.
+  The instruction compliance gate runs inside the engines: every successfully executed candidate — generation, healing and steering alike — passes `check_step_compliance` before it is cached; the gate never runs on replayed cached code.
+  An unfollowed instruction surfaces as a generation error, never as silent ignoring: a high finding fails the attempt and the retry carries the violation text.
   The terminal failures raised by the engines carry the full underlying error of the failed code in the error field; reason and message texts are authored without colons — the first line of the rendered message is the primary reason alone.
   The uniform decision table on every classification point: product_defect raises ProductDefectError — never healed; rot and fixable regenerate carrying the classification recommendation; incurable raises IncurableStepError carrying the verdict. The category decides, the path only delivers.
   Polling runs before every costly move: every execution of step code — cached code and candidates alike — runs under the settle window threaded through the calling paths; per-attempt classification inside the loops is rejected (LLM cost): an attempt failure retries with the fresh error and snapshot while budget remains.
@@ -87,7 +123,7 @@ Annotations: |
   annotations: |
     The generation engine: produce working step code for an unknown step, executing candidates against the live page.
 
-    `config`: project settings — the screenshot flag and the generation instructions.
+    `config`: project settings — the screenshot flag, the generation instructions and the compliance gate switch.
     `provider`: the LLM port.
     `cache`: the step cache — a generated step is stored on success.
     `budgets`: the per-test attempt registry.
@@ -101,10 +137,23 @@ Annotations: |
       2. Collect the request inputs: the page accessibility snapshot, the step sentence, `previous_steps`, and the page API surface from `facade`; add the page screenshot when the project settings enable screenshots
       3. Request step code from the provider port generate_step_code passing `system_prompt` as the system prompt, the page API surface listing taken from `facade`, and the user instructions — the effective config generation_prompt — when non-empty
       4. Execute the candidate under the settle window: `settle` with run_step_code, the candidate code, `page` and `window` — transient failures re-execute inside the window, no LLM budget consumed
-      5. On success: build `CachedStep`, save it to the cache, return it
+      5. On success: gate the candidate through `check_step_compliance`. An empty findings
+      list — build `CachedStep`, save it to the cache, return it. A high finding — the
+      attempt is failed: the violation text (the finding instruction and explanation)
+      becomes the ERROR of the attempt; retry with it and the fresh snapshot while
+      attempts remain. Medium and low findings pass with a WARNING naming the
+      instructions, then the step is stored and returned. The gate hard failures —
+      provider unavailability and a malformed verdict — propagate immediately: nothing
+      is cached
       6. On a failed check — an AssertionError that survived the settle window: classify via `classify_step_failure`; a product_defect verdict raises `ProductDefectError` carrying the verdict and the full failure description of the candidate in the error field; an incurable verdict raises `IncurableStepError` carrying them; a rot or fixable verdict grants exactly one regeneration: try_healing funds it — a refused funding leaves the failure terminal `IncurableStepError` carrying the verdict, the reason naming the exhausted healing pool; the request carries the classification recommendation — a success stores and returns the healed step; a repeat failure gets one final classification deciding only the terminal kind — product_defect raises `ProductDefectError`, anything else raises `IncurableStepError` — no further regeneration; provider unavailability at these classifications is skipped quietly with a WARNING — the failure raises without a verdict as IncurableStepError, the conservative default uniform with the unrecognized-label fallback, the reason naming the failed candidate check
       7. On any other candidate failure: repeat from step 1 with the fresh failure description and the fresh snapshot, while attempts remain
-      8. On budget exhaustion: classify the last candidate via `classify_step_failure`; a rot or fixable verdict grants exactly one extra regeneration funded by try_healing and carrying the recommendation — a refused funding leaves the failure terminal `IncurableStepError` carrying the verdict, the reason naming the exhausted healing pool; a repeat failure is terminal `IncurableStepError` carrying the verdict, no reclassification; a product_defect verdict raises `ProductDefectError` carrying the verdict and the last candidate failure in the error field; an incurable verdict raises `IncurableStepError` carrying them — the reason names the exhausted pool; provider unavailability at this classification is skipped quietly with a WARNING, the failure raises without a verdict
+      8. On budget exhaustion: classify the last candidate via `classify_step_failure`; a rot or fixable verdict grants exactly one extra regeneration funded by try_healing and carrying the recommendation — a refused funding leaves the failure terminal `IncurableStepError` carrying the verdict, the reason naming the exhausted healing pool; a repeat failure is terminal `IncurableStepError` carrying the verdict, no reclassification; a product_defect verdict raises `ProductDefectError` carrying the verdict and the last candidate failure in the error field; an incurable verdict raises `IncurableStepError` carrying them — the reason names the exhausted pool; provider unavailability at this classification is skipped quietly with a WARNING, the failure raises without a verdict; budget exhaustion with a standing high compliance finding raises
+      `IncurableStepError` carrying the verdict that names the violated instruction —
+      the reason names the exhausted pool and the instruction (colon-free), the
+      violation text rides the error field; the verdict is built from the standing
+      high finding: category incurable, explanation — the finding instruction and its
+      explanation, recommendation — restating to follow the violated instruction in
+      the step code
       9. Report on_generation_started for every LLM attempt
 
       Requirements:
@@ -115,6 +164,12 @@ Annotations: |
       - A verdict requested on this path fully reaches the raised error
       - Every verdict-preceded regeneration request carries the classification recommendation — regeneration starts from the diagnosis, not the raw error
       - The raised IncurableStepError carries the failed step code in the code field
+      - The retry request after a high compliance finding carries the violation text as
+        its ERROR — the model fixes the violation targeted
+      - Medium and low compliance findings pass with a visible WARNING through the
+        library logger — structured, naming the step and the findings
+      - The compliance gate itself consumes no attempt budget; only a high finding
+        consumes the attempt it fails
     "regenerate(identity: StepIdentity, step_text: str, previous_steps: list[str], page: PageFacade, existing_code: str, error: str, recommendation: str, window: SettleWindow) -> step: CachedStep": |
       Regenerate a failed step for healing.
 
@@ -122,8 +177,17 @@ Annotations: |
       `window`: the settle window of the current step execution.
 
       Algorithm:
-      1. The same loop as the generate method with four differences: every provider request carries `existing_code`, `error` and `recommendation` plus the user instructions — the effective config generation_prompt — when non-empty; attempts consume the healing budget via try_healing; candidate executions run under `settle` with `window`; a failed attempt of any kind — a failed check included — retries with the fresh failure description and the fresh snapshot while attempts remain: no per-attempt classification inside the loop (rejected: LLM cost), the entry classification already guards the anti-masking
+      1. The same loop as the generate method with four differences: every provider request carries `existing_code`, `error` and `recommendation` plus the user instructions — the effective config generation_prompt — when non-empty; attempts consume the healing budget via try_healing; candidate executions run under `settle` with `window`; a failed attempt of any kind — a failed check included — retries with the fresh failure description and the fresh snapshot while attempts remain: no per-attempt classification inside the loop (rejected: LLM cost), the entry classification already guards the anti-masking; every successfully executed candidate is gated through `check_step_compliance`
+      before storing — the same semantics as generate
       2. A budget exhaustion raises `IncurableStepError` without an extra classification — the verdict of the entry classification is carried, the reason names the exhausted pool
+
+      Requirements:
+      - The retry request after a high compliance finding carries the violation text as
+        its ERROR — the model fixes the violation targeted
+      - Medium and low compliance findings pass with a visible WARNING through the
+        library logger — structured, naming the step and the findings
+      - The compliance gate itself consumes no attempt budget; only a high finding
+        consumes the attempt it fails
 
 "format_step_error(exc: Exception) -> text: str":
   location: text.py
@@ -179,6 +243,34 @@ Annotations: |
     Constraints:
     - Provider unavailability propagates to the caller: this routine never swallows it — the calling path decides whether it is a terminal infrastructure failure or a quiet verdict skip
 
+"check_step_compliance(config: Config, provider: LLMProvider, step_text: str, code: str) -> findings: list[ComplianceFinding]":
+  location: compliance.py
+  annotations: |
+    Gate a successfully executed candidate against the project user instructions — the
+    single compliance check of every caching path.
+
+    `config`: project settings — the gate switch and the generation instructions.
+    `provider`: the LLM port.
+    `step_text`: the sentence of the generated step.
+    `code`: the successfully executed candidate code.
+    `findings`: the verdict findings; empty — compliant or the gate is off.
+
+    Algorithm:
+    1. The generation_approve setting is off or the generation_prompt setting is empty —
+       return an empty list with zero provider calls: fully the old behavior
+    2. Ask the provider port check_instruction_compliance passing `compliance_prompt` as
+       the system prompt, the effective config generation_prompt as the user
+       instructions, `step_text` and `code`
+    3. Return the findings
+
+    Requirements:
+    - Never called for replayed cached code — the gate checks candidates before caching
+    - Provider unavailability and a malformed verdict propagate to the caller as the
+      hard failures they are: this routine never swallows, the calling path never caches
+
+    Constraints:
+    - No attempt budget is consumed here — budgets belong to the calling loops
+
 "StepHealer(config: Config, provider: LLMProvider, generator: StepGenerator, cache: StepCache, budgets: RunBudgets, reporter: StepReporter)":
   location: healer.py
   annotations: |
@@ -216,4 +308,4 @@ Annotations: |
 Author: Goga
 CreatedAt: 10/09/26
 Description: |
-  The agent engine of prettyplay: step code generation with execution in the loop and failed-check classification, the fixed-form execution routine, the shared classification call carrying the classification user instructions, the error-text policy shared with the executor, and healing with anti-masking and verdicts on terminal failures.
+  The agent engine of prettyplay: step code generation with execution in the loop and failed-check classification, the instruction compliance gate before caching, the fixed-form execution routine, the shared classification call carrying the classification user instructions, the error-text policy shared with the executor, and healing with anti-masking and verdicts on terminal failures.

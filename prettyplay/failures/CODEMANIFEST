@@ -4,7 +4,8 @@ Usages:
 Annotations: |
   Use `conventions` for code writing rules and testing.
 
-  The failure taxonomy of the library: three distinct, user-distinguishable step failure kinds plus the shared verdict type; every failure carries an actionable message.
+  The failure taxonomy of the library: four distinct, user-distinguishable step failure kinds plus the shared verdict type; every failure carries an actionable message.
+  The compliance verdict hard failure joins the LLM contour of the taxonomy — it blocks only the generation contour and never touches cached step execution; it is raised when the compliance gate cannot obtain a usable verdict, so unchecked candidate code is never cached.
   All failure types derive from the single library base `PrettyplayError`; ProductDefectError additionally derives from AssertionError — the failed check is a failure, never an error, in any runner.
   The rendered message of a terminal failure follows the single structured template: the primary reason alone on the first line — no kind label and no internal colons, the exception type prefix rendered by the runner supplies the kind; then --- separated blocks.
   One render — produced at exception construction through `render_terminal_message` — feeds the exception message, the log record and the on_step_failed hook payload; consumers never re-compose.
@@ -151,9 +152,30 @@ Annotations: |
     "message -> str": |
       The failure description naming the provider.
 
+"PrettyplayError::ComplianceVerdictError(message: str)":
+  location: errors.py
+  annotations: |
+    The compliance gate could not obtain a usable verdict: the provider answer did not
+    parse into findings. The successfully executed candidate stays unchecked and is never
+    cached — a loud hard failure, never a silent pass.
+
+    `message`: the rendered actionable text — names the compliance gate, the parse failure
+    and a fragment of the raw verdict answer.
+
+    Requirements:
+    - Derives from `PrettyplayError`: catchable with the single library except clause
+    - Raised only on the compliance gate paths — generation, healing and steering
+      candidates; never on a cached step execution path
+    - Carries no verdict: a verdict parse failure is not a step failure classification —
+      uniform with the LLM infrastructure failure
+    - The raiser guarantees nothing was written to the step cache
+  properties:
+    "message -> str": |
+      The rendered actionable text naming the gate and the raw answer fragment.
+
 ---
 
 Author: Goga
 CreatedAt: 10/09/26
 Description: |
-  The failure taxonomy of prettyplay: product defect, incurable step, LLM infrastructure — mutations of one library base — the shared verdict of a terminal failure, and the single structured render of its message.
+  The failure taxonomy of prettyplay: product defect, incurable step, LLM infrastructure, compliance verdict — mutations of one library base — the shared verdict of a terminal failure, and the single structured render of its message.

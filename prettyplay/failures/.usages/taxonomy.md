@@ -2,14 +2,15 @@
 
 Domain: failure kinds of prettyplay. Audience: integrators wiring library failures into runner and CI reporting.
 
-Every step failure is one of three distinct kinds; all derive from `PrettyplayError`, so one except clause catches any
-prettyplay failure. A fourth kind — the configuration error — joins the base from the config cell.
+Every step failure is one of four distinct kinds; all derive from `PrettyplayError`, so one except clause catches any
+prettyplay failure. A fifth kind — the configuration error — joins the base from the config cell.
 
 | Exception | Meaning | When it happens | Recommended reaction |
 |---|---|---|---|
 | ProductDefectError | real product regression | an assertion expectation legitimately failed | treat as a bug: file it, fix the product — this failure is the value of the suite |
 | IncurableStepError | the step cannot be (re)generated | attempt budget exhausted, step text no longer matches reality, ambiguity, strict mode forbids generation | follow the verdict `recommendation`: reword the step or refresh the cache |
 | LLMUnavailableError | LLM infrastructure down | generation or healing ran while the provider was unavailable | restore provider access or keys; cached steps are unaffected |
+| ComplianceVerdictError | the compliance gate could not obtain a usable verdict | a successfully executed candidate was checked, but the verdict model answer did not parse | rerun the step to retry generation; a repeatedly malformed verdict points at the verdict model — the candidate was never cached |
 | ConfigurationError | settings are invalid | the first library use loaded an invalid [tool.prettyplay] section | fix the named setting — the message lists the allowed values |
 
 ## Verdict categories
@@ -75,6 +76,34 @@ def test_reports_only_library_failures():
     # info.value.code carries the failed step code ("" when unknown) — programmatic
     # consumers only: never rendered, never in hook or log payloads
 ```
+
+## Compliance verdict failure — ComplianceVerdictError
+
+Raised when the instruction compliance gate cannot parse the verdict model's answer into
+findings: the JSON shape is invalid, a priority label is outside {high, medium, low}, or a
+finding misses its fields. The gate is strict by design — a flaky verdict model surfaces
+loudly instead of waving candidates through.
+
+Catch it together with every other library failure:
+
+```python
+from prettyplay.failures import ComplianceVerdictError, PrettyplayError
+
+try:
+    scenario.step("open the dashboard")
+except ComplianceVerdictError as error:
+    ...  # the candidate was NOT cached; rerun the step to retry generation
+except PrettyplayError:
+    ...
+```
+
+What it means for the engineer:
+- the step candidate executed successfully but was never verified against the project
+  instructions, so it was not cached
+- remediation is on the verdict side, not the page: rerun the test, check the provider
+  state and the model behind the effective generation model; a repeatedly malformed
+  verdict points at a model unable to follow the verdict format
+- switching `generation_approve` off removes the gate entirely (the old behavior)
 
 ## Assertion semantics
 

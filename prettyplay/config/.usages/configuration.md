@@ -20,6 +20,7 @@ polling_timeout = 6.0      # None (default) — polling off; 0 — explicit disa
 polling_delay = 0.5        # pause between re-executions, seconds
 interactive = false        # opt-in steering REPL; default false
 generation_prompt = ""     # user instructions for generation requests; empty -> no block
+generation_approve = true  # the instruction compliance gate before caching; false -> never runs (the old behavior)
 classification_prompt = "" # user instructions for classification requests; empty -> no block
 
 [tool.prettyplay.browser]
@@ -55,6 +56,7 @@ Every setting has an override for CI — env variable PRETTYPLAY_<SETTING> in up
 | polling_delay | PRETTYPLAY_POLLING_DELAY |
 | interactive | PRETTYPLAY_INTERACTIVE |
 | generation_prompt | PRETTYPLAY_GENERATION_PROMPT |
+| generation_approve | PRETTYPLAY_GENERATION_APPROVE |
 | classification_prompt | PRETTYPLAY_CLASSIFICATION_PROMPT |
 
 ## Old flat keys are gone — hard break
@@ -104,6 +106,42 @@ by design — an accidentally enabled REPL must never hang CI. This is the steer
 unrelated to interactive hosts (IPython, Jupyter) — see the library lifecycle docs. The REPL never opens on
 product_defect, in strict replay, or when the LLM is unavailable; quit/EOF/SIGINT/unreadable stdin raises the
 original terminal failure.
+
+## The instruction compliance gate
+
+The user instructions of `generation_prompt` are binding for generated step code: every
+successfully executed candidate passes an independent compliance check before it is
+cached. The gate is the default; switch it off consciously when the extra LLM call per
+successful generation matters more than the enforcement.
+
+```toml
+[tool.prettyplay]
+generation_prompt = "Prefer id attributes for locating elements"
+generation_approve = true   # default; false -> the gate never runs (the old behavior)
+```
+
+Env override (booleans: true/false/1/0, case-insensitive; anything else fails loudly):
+
+```bash
+export PRETTYPLAY_GENERATION_APPROVE=false
+```
+
+Per-test override — an explicit False wins over the file layer:
+
+```python
+config = PrettyConfig(generation_approve=False)
+scenario = PrettyPlay(cache_key="smoke", config=config)
+```
+
+Notes for the engineer:
+- while the gate is on, every successful generation costs one extra LLM call (the verdict
+  request) through the effective generation model
+- a `high` finding fails the attempt and the retry carries the violation text — loud
+  errors instead of silent ignoring
+- changing `generation_prompt` does not invalidate cached steps: the step address stays
+  instruction-free, so purge the cache manually after changing instructions — replayed
+  cached code is never re-gated
+- the gate never runs when `generation_prompt` is empty, regardless of the switch
 
 ## Browsers
 

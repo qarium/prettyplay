@@ -20,6 +20,10 @@ The classification verdict decides the path — the uniform decision table:
 
 ## Rules
 
+- A healed candidate passes the instruction compliance gate before the write-back: a high
+  violation fails the healing attempt with the violation text as its ERROR; medium and low
+  findings pass with a WARNING; a malformed verdict or provider unavailability is a hard
+  failure — nothing is cached unchecked
 - Anti-masking: healing never turns a product defect into a green test
 - The healed code replaces the cached code only after a successful execution
 - Generation and healing attempts live in one per-test registry — owned by the runtime of the test — with separate per-step limits (default 3 and 2)

@@ -1,8 +1,8 @@
-# OpenAI SDK — LLM Generation and Classification Usage
+# OpenAI SDK — LLM Generation, Classification and Compliance Usage
 
 Practices for the official `openai` SDK within prettyplay. Target audience: implementing agents working on the generation and healing engines.
 
-`openai` is a hard dependency (ADR-6). The SDK serves two operations: code generation for a step and error classification during healing. Cached runs never call the SDK.
+`openai` is a hard dependency (ADR-6). The SDK serves three operations: code generation for a step, error classification during healing, and the compliance verdict of the gate. Cached runs never call the SDK.
 
 ## Client initialization — secrets from env only
 
@@ -32,6 +32,26 @@ code = response.choices[0].message.content
 ```
 
 Healing calls additionally include the existing step code and the error message (ADR-7).
+
+## Compliance check call
+
+The compliance gate sends one verdict request per successfully executed candidate — the gate system prompt, the user instructions and the candidate code as messages; the answer is the findings verdict text, not code — no fence unwrapping:
+
+```python
+response = client.chat.completions.create(
+    model=config.model,  # the effective gate model of the settings
+    messages=[
+        {"role": "system", "content": COMPLIANCE_SYSTEM_PROMPT},
+        {"role": "user", "content": build_compliance_request(instructions, step_text, code)},
+    ],
+)
+verdict_text = response.choices[0].message.content
+```
+
+Rules:
+- SDK errors map to `LLMUnavailableError` identically — a gate failure is hard, unchecked code is never cached
+- The gate is called only when its toggle is on and the instructions are non-empty — zero calls otherwise
+- One verdict request per candidate — attempt budgets stay with the calling engine
 
 ## Error handling — infrastructure failure
 

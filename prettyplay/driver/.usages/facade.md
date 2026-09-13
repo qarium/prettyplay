@@ -15,7 +15,7 @@ The facade mirrors the Playwright sync API at page/locator level within the step
 | page.wait_for_url(url) | wait until the URL matches a glob pattern |
 | page.wait_for_load_state(state) | wait for load, domcontentloaded or networkidle |
 | page.expect_url(url) | assert the URL matches a glob pattern |
-| page.expect_title(title) | assert the title contains |
+| page.expect_title(title, ignore_case) | assert the title contains; ignore_case=true — case-insensitive |
 | page.get_by_role(role, name) | element by aria role and accessible name |
 | page.get_by_label(label) | element by associated label |
 | page.get_by_text(text) | element by visible text |
@@ -83,7 +83,7 @@ The facade mirrors the Playwright sync API at page/locator level within the step
 | element.set_input_files(path) | upload one file by filesystem path |
 | element.expect_visible() | assert visible |
 | element.expect_hidden() | assert hidden |
-| element.expect_text(text) | assert text contains (substring, whitespace-normalized) |
+| element.expect_text(text, ignore_case) | assert text contains (substring, whitespace-normalized); ignore_case=true — case-insensitive |
 | element.expect_enabled() | assert enabled |
 | element.expect_value(value) | assert the input value |
 | element.expect_checked() | assert the checkbox/radio state |
@@ -162,6 +162,19 @@ page.get_by_role("img", name="Product").drag_to(page.get_by_role("list", name="C
 page.get_by_label("Avatar").set_input_files("avatar.png")
 page.get_by_role("button", name="Options").click(button="right")
 ```
+
+Case-insensitive text assertions:
+
+```python
+page.get_by_text("status").expect_text("success", ignore_case=True)
+page.expect_title("dashboard", ignore_case=True)
+
+# default (False) — the check stays case-sensitive, the behavior unchanged
+page.get_by_text("status").expect_text("success")
+```
+
+The flag belongs to the assertion family only: text locating (get_by_text,
+filter(has_text=...)) already matches case-insensitively through Playwright defaults.
 
 Scroll scenarios:
 

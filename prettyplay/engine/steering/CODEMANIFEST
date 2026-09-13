@@ -23,6 +23,7 @@ Imports:
     From: prettyplay/driver
   - Types:
       - run_step_code
+      - check_step_compliance
     From: prettyplay/engine
 
 Usages:
@@ -40,6 +41,7 @@ Annotations: |
   Every guidance turn is a regeneration request carrying a USER GUIDANCE block plus the conversation history; the result executes against the live page — every turn has a measurable green or red outcome; no free-form conversation.
   Interactive attempts consume no generation or healing budgets — the human in the loop is the bound; the settle window never re-arms inside the dialog: a failed execution returns to the guidance prompt immediately.
   The guidance is one-shot: logged, never persisted. Nothing hangs: quit, EOF, SIGINT and an unreadable stdin end the dialog and the original terminal failure propagates.
+  The instruction compliance gate guards the write-back: every successfully executed guided candidate passes `check_step_compliance` before it is saved — the same gate as the generation paths; the gate never runs on replayed cached code.
 
 ---
 
@@ -68,12 +70,25 @@ Annotations: |
       3. A local command runs without the LLM: snapshot — the full accessibility snapshot; screenshot — a full PNG written to a temporary file with the path printed; error and code — the stored texts; back to step 2
       4. A guidance message builds one regeneration request via the provider: `system_prompt` as the system prompt, the page API surface from `facade`, the step sentence of `failure` and `previous_steps` as the scenario context, the fresh accessibility snapshot plus the screenshot when the project settings enable screenshots, the user instructions — the effective config generation_prompt — when non-empty, existing_code from the failed code of `failure`, error from its underlying error, the message as the guidance and the accumulated turns as the guidance history
       5. Execute the regenerated code via `run_step_code` against `page`
-      6. Success: build `CachedStep` with `identity`, save it to the cache, report on_healed with an explanation naming the interactive healing, return the healed step
+      6. Success: gate the executed candidate through `check_step_compliance` — the gate
+      switch off or empty generation instructions yield an empty findings list with zero
+      provider calls. An empty findings list: build `CachedStep` with `identity`, save it
+      to the cache, report on_healed with an explanation naming the interactive healing,
+      return the healed step. A high finding: no write-back — show the violation in the
+      dialog (the finding instruction and explanation), append the turn to the history,
+      return to step 2. Medium and low findings pass with a WARNING naming the
+      instructions, then the write-back. The gate hard failures — provider unavailability
+      and a malformed verdict — end the dialog after showing the gate failure line in the
+      dialog (the failure kind and its message) and logging a WARNING through the library
+      logger naming the step and the gate failure: return None, the original terminal
+      failure propagates; nothing is cached
       7. A failed execution: show the outcome, append the turn to the history, return to step 2 — no re-execution of the same code, the settle window never re-arms
       8. Provider unavailability of the request: the dialog ends, return None
 
       Requirements:
-      - The write-back happens only after a successful execution
+      - The write-back happens only after a successful execution and a passed compliance gate
+      - A high finding never reaches the cache: the dialog is the recovery path — the
+        engineer steers the fix; interactive attempts stay budget-free
       - No generation or healing budget is consumed; no polling applies
       - The dialog never outlives the failure: every exit path either heals or returns None
 
@@ -85,4 +100,4 @@ Annotations: |
 Author: Goga
 CreatedAt: 12/09/26
 Description: |
-  The interactive steering of prettyplay: the opt-in terminal REPL taking engineer guidance over a terminally stuck step — guided regeneration, live execution, healed write-back or honest decline.
+  The interactive steering of prettyplay: the opt-in terminal REPL taking engineer guidance over a terminally stuck step — guided regeneration, live execution, the compliance-gated healed write-back or honest decline.

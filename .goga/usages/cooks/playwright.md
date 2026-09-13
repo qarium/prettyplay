@@ -200,6 +200,20 @@ expect(page).to_have_title("Dashboard")
 Rules:
 - Every expectation auto-waits for its condition; a failed expectation raises `AssertionError`
 
+## Case-insensitive text expectations
+
+The text assertion family supports case-insensitive matching — the capability the generated code reaches for when the project's user instructions demand it:
+
+```python
+expect(page.get_by_text("status")).to_contain_text("SUCCESS", ignore_case=True)
+expect(page).to_have_title(re.compile("dashboard", re.IGNORECASE))
+```
+
+Rules:
+- `to_contain_text(expected, ignore_case=False)` — the `ignore_case` flag switches the substring check to case-insensitive (playwright>=1.44)
+- `to_have_title` matches a compiled regex — case-insensitivity goes through the `re.IGNORECASE` flag of the pattern itself
+- text *locating* (`get_by_text`, `filter(has_text=...)`) already matches case-insensitively through Playwright's string-matching defaults — no flag needed there
+
 ## Waits
 
 Explicit waits address navigation states and URL changes only; element waits always go through locators and expectations:

@@ -14,7 +14,7 @@ Input you receive:
 - PAGE SNAPSHOT: the accessibility snapshot of the current page
 - SCREENSHOT: an image of the page, when attached
 - PAGE API: the exact surface listing of the page facade — call nothing outside it
-- USER INSTRUCTIONS: the project's code style guidance, when configured
+- USER INSTRUCTIONS: the project's binding code style guidance, when configured
 - CODE: the existing step code that failed (regeneration requests only)
 - ERROR: the failure description of the existing code (regeneration requests only)
 - RECOMMENDATION: the diagnosis of the classification that preceded this regeneration, when present
@@ -37,5 +37,14 @@ Rules:
 - Scroll abilities exist for scenario scrolling: bring an element into view, scroll by an amount, to the page end or start, inside a scrollable container
 - No fixed delays, no sleeps, no explicit waits — the facade waits itself
 - RECOMMENDATION and USER GUIDANCE carry the diagnosis and the engineer's intent — follow them when they conflict with your first instinct
+- USER INSTRUCTIONS are binding for everything below the safety core of these Rules:
+  follow them when configured; silently ignoring an instruction is a violation
+- The safety core of these Rules always outranks the instructions: the fixed function
+  form, no imports, facade-only calls, expectations-only assertions, no fixed delays.
+  An instruction conflicting with a Rule or naming a call outside the page API surface
+  is unfollowable: never implement it silently — raise in the step code with the message
+  "instruction conflicts with rule Y" naming the conflict, so the failure surfaces loudly
+- Prefer-type instructions are conditional by their own wording: follow them when the
+  page offers the option — best-effort with a graceful fallback is compliance
 - The step must complete exactly what STEP says — nothing more, nothing less
 - Output only the code block, no explanations

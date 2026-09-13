@@ -42,6 +42,22 @@ guidance> the modal has id=terms — close it via
 - Guidance is one-shot: it lands in the log, never in the cache file
 - Interactive attempts consume no generation or healing budgets — the human in the loop is the bound
 
+## The compliance gate of a guided heal
+
+A guided candidate that executes successfully is verified against the generation_prompt
+instructions before the write-back — the same compliance check as unattended generation:
+
+- a high violation never reaches the cache: the dialog shows it, the turn lands in the
+  history and the guidance prompt reopens — steer the model to fix the violation
+- medium and low findings pass with a WARNING naming the instructions
+- a malformed verdict (ComplianceVerdictError) or provider unavailability
+  (LLMUnavailableError) ends the dialog — the gate failure is shown in the dialog and
+  logged as a WARNING naming the step before the dialog ends, so the engineer sees why the
+  green candidate was not written back; the original terminal failure propagates and
+  nothing is cached
+- the gate adds no budget consumption: interactive attempts stay free, the human in the
+  loop is the bound
+
 ## Rules
 
 - Opt-in by design: `interactive` defaults to false; PRETTYPLAY_INTERACTIVE must never leak into CI environments

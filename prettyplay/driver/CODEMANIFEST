@@ -21,7 +21,7 @@ Annotations: |
   The start mode branches on the endpoint setting of the browser group of `Config`: empty — local launch with headless and the channel for chrome/msedge; set — connect over the Playwright ws endpoint: headless is ignored, channels do not apply, the name setting selects the engine (see `playwright`).
   The screen setting of the browser group resolves at context creation (see `playwright`): the empty value keeps the Playwright default; WxH and device descriptors apply in every launch mode; fullscreen follows the window on a local headed launch and pins to a fixed 1920x1080 viewport where no window exists. Device names resolve against the devices registry of the running Playwright — the package never hard-codes a device list.
   All waits go through locators and expectations; fixed delays (time.sleep and similar) are forbidden.
-  The facade surface mirrors the Playwright sync API at page/locator level under the parity principle: within the step-driving contour — locating, interactions, navigation, waits, expectations, dialogs, popups and frames — a covered capability lands under its Playwright mirror name, and a mirror member is renamed or removed only together with a Playwright-level re-mapping. Declared non-mirror families: the prettyplay scroll extras under their own names, the method-style expect_* expectation names replacing the chained to_be_* model, and the expect_dialog capture constructor over Playwright's expect_event("dialog") waiter (the Python client ships no expect_dialog). Future Playwright capabilities land as mirror extensions.
+  The facade surface mirrors the Playwright sync API at page/locator level under the parity principle: within the step-driving contour — locating, interactions, navigation, waits, expectations, dialogs, popups and frames — a covered capability lands under its Playwright mirror name, and a mirror member is renamed or removed only together with a Playwright-level re-mapping. Declared non-mirror families: the prettyplay scroll extras under their own names, the method-style expect_* expectation names replacing the chained to_be_* model, and the expect_dialog capture constructor over Playwright's expect_event("dialog") waiter (the Python client ships no expect_dialog). Future Playwright capabilities land as mirror extensions. The case semantics of the text assertion family mirror Playwright's own ignore_case flag — the capability rides the existing mirror method names, not a new non-mirror family.
   The excluded capabilities stay absent from the surface: no route/request interception, no evaluate, no CDP, no clock, no HAR, no tracing, no raw input devices (keyboard/mouse) — the page-state model behind failure classification and healing must stay honest.
   The thread-marshaling boundary covers every facade kind — pages, popup pages, frame-scoped locators, dialogs: no raw Playwright object crosses the facade boundary.
   The driver knows its own error surface: the fixed pollable map lives in this cell — the single recognition point deciding which failed step-code exceptions a settle window may absorb (see `playwright`).
@@ -103,8 +103,13 @@ Annotations: |
       `state`: one of load, domcontentloaded, networkidle.
     "expect_url(url: str)": |
       Assert the page URL matches the glob pattern `url` — auto-waiting.
-    "expect_title(title: str)": |
+    "expect_title(title: str, ignore_case: bool = False)": |
       Assert the page title contains `title` — auto-waiting.
+
+      `title`: the expected substring.
+      `ignore_case`: False (the default) — the check stays case-sensitive, the behavior
+      unchanged; True — the title pattern compiles with the case-insensitive regex flag
+      (see `playwright`).
     "get_by_role(role: str, name: str) -> element: LocatorFacade": |
       Locate one element by its aria role and accessible name; returns a `LocatorFacade`.
 
@@ -256,8 +261,13 @@ Annotations: |
       Assert the element is visible.
     "expect_hidden()": |
       Assert the element is hidden.
-    "expect_text(text: str)": |
+    "expect_text(text: str, ignore_case: bool = False)": |
       Assert the element text contains `text` (substring, whitespace-normalized).
+
+      `text`: the expected substring.
+      `ignore_case`: False (the default) — the check stays case-sensitive, the behavior
+      unchanged; True — the substring check matches case-insensitively through the
+      Playwright ignore_case flag (see `playwright`).
     "expect_enabled()": |
       Assert the element is enabled.
     "expect_value(value: str)": |

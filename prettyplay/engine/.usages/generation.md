@@ -38,6 +38,23 @@ A failed check — an assertion that executed and did not hold, survived the set
 - incurable → IncurableStepError with the verdict
 - LLM unavailable at the classification → the verdict is skipped quietly (WARNING in the log) and IncurableStepError raises without it
 
+## The instruction compliance gate
+
+Every successfully executed candidate is verified against the generation_prompt
+instructions before it is cached — the default behavior; switch it off with
+generation_approve = false:
+
+- one verdict request per candidate through the provider (the effective generation
+  model); zero requests when the switch is off or the instructions are empty
+- a high finding fails the attempt: the retry request carries the violation text as its
+  ERROR, so the model fixes it targeted; budget exhaustion with a standing high finding
+  is the terminal incurable failure naming the violated instruction
+- medium and low findings pass with a WARNING naming the instructions
+- a malformed verdict (ComplianceVerdictError) and provider unavailability
+  (LLMUnavailableError) are hard failures — a candidate is never cached unchecked
+- replayed cached code is never re-gated: changing the instructions does not invalidate
+  the cache — purge it manually when the instructions change
+
 ## Budget exhaustion
 
 Exhaustion of the generation attempts classifies the last candidate: rot or fixable grants exactly one extra
