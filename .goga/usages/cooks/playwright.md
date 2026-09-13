@@ -94,6 +94,30 @@ from playwright.sync_api import expect
 expect(page.get_by_text("Welcome back")).to_be_visible()
 ```
 
+## Locator narrowing — positional, content, combinators
+
+A locator matching several elements narrows positionally, by content, or through
+combinators — narrowing returns a locator and composes/auto-waits like any locator:
+
+```python
+page.get_by_role("row").first
+page.get_by_role("listitem").last
+page.get_by_role("row").nth(2)
+page.get_by_role("listitem").filter(has_text="Product X")
+page.get_by_text("one").or_(page.get_by_text("two"))
+page.get_by_role("button").and_(page.get_by_text("Save"))
+```
+
+Rules:
+- `first` and `last` are properties selecting the first/last match; `nth(index)` is the
+  0-based positional pick, negative counts from the end
+- `filter` narrows by content: `has_text`, `has_not_text`, `has`, `has_not` — all
+  optional keyword arguments
+- `or_` matches the union of its two locators, `and_` the intersection
+- strict mode: a locator resolving to several elements on an action or expectation is
+  the strict-mode violation — positional narrowing is the canonical guard, also over an
+  `or_` whose branches may both match
+
 ## Interactions — keyboard, advanced clicks, drag, upload
 
 Beyond click and fill, the sync API covers the full interaction set:

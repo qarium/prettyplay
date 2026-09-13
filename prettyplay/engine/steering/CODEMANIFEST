@@ -33,6 +33,8 @@ Annotations: |
   Use `conventions` for code writing rules and testing.
   Use `system_prompt` as the system prompt of every guided regeneration request.
   Use `facade` from Imports as the single source of the page API surface for regeneration requests.
+  The system prompt sent to the provider is the frozen local mirror of `system_prompt` — the mirror and the practice change together.
+  The page API surface listing sent to the provider is the frozen local mirror of `facade` from Imports — the listing and the practice change together.
 
   The opt-in human-in-the-loop escape hatch of a terminally stuck step: opened by the step executor exactly at the moment an IncurableStepError would propagate — never on product_defect, never in replay-strict, never when the LLM is unavailable.
   Every guidance turn is a regeneration request carrying a USER GUIDANCE block plus the conversation history; the result executes against the live page — every turn has a measurable green or red outcome; no free-form conversation.

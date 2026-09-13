@@ -186,11 +186,42 @@ Annotations: |
     Requirements:
     - Every action and expectation runs in the driver thread inherited from the page facade that created the handle
     - Every action and expectation auto-waits for actionability (see `playwright`)
+    - The narrowing members — first, last, nth, filter, or_ and and_ — run in the driver thread like every facade call and return a full LocatorFacade: chains compose and no raw Playwright object crosses the boundary
     - Failed expectations raise assertion-style errors destined for failure classification
 
     Constraints:
     - No fixed delays; no raw Playwright objects exposed
+  properties:
+    "first -> LocatorFacade": |
+      The first match of this locator in document order — the positional narrowing selecting one element among many (see `playwright`).
+    "last -> LocatorFacade": |
+      The last match of this locator in document order (see `playwright`).
   methods:
+    "nth(index: int) -> element: LocatorFacade": |
+      Select the match at `index` — the positional narrowing.
+
+      `index`: 0-based position; negative counts from the end (see `playwright`).
+    "filter(has_text: str, has_not_text: str, has: LocatorFacade | None, has_not: LocatorFacade | None) -> element: LocatorFacade": |
+      Narrow this locator by element content — the predicates are optional and combine as a logical and (see `playwright`).
+
+      `has_text`: keep elements whose text contains this string; empty — not applied.
+      `has_not_text`: drop elements whose text contains this string; empty — not applied.
+      `has`: keep elements containing a match of this inner locator; None — not applied.
+      `has_not`: drop elements containing a match of this inner locator; None — not applied.
+
+      Constraints:
+      - The inner locators of `has` and `has_not` are facades — no raw Playwright object crosses the boundary.
+    "or_(other: LocatorFacade) -> element: LocatorFacade": |
+      The union locator — matches what this locator or `other` matches (see `playwright`).
+
+      `other`: the alternative `LocatorFacade`.
+
+      Requirements:
+      - An action or expectation over a composition matching elements of both branches raises the strict-mode violation like any multi-match locator — positional narrowing over the composition is the canonical guard (see `playwright`).
+    "and_(other: LocatorFacade) -> element: LocatorFacade": |
+      The intersection locator — matches elements matching both this locator and `other` (see `playwright`).
+
+      `other`: the intersecting `LocatorFacade`.
     "click(button: str)": |
       Click the element, waiting for actionability.
 
