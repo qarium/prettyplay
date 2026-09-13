@@ -13,7 +13,7 @@ class AllureStepHooks(StepHooks):
         self._step = allure.step(f"[{step_type}] " + step_text)
         self._step.__enter__()
 
-    def on_step_finished(self, step_text: str, step_type: str, outcome: str) -> None:
+    def on_step_finished(self, step_text: str, step_type: str, outcome: str) -> None:  # noqa: ARG002 — the hook contract fixes the signature
         if self._step is not None:
             self._step.__exit__(None, None, None)
 

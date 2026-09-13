@@ -193,6 +193,8 @@ class PrettyPlay:
             IncurableStepError: the step never generated successfully, or the verdict
                 says regeneration cannot help.
             LLMUnavailableError: the provider service failed; no retry.
+            ComplianceVerdictError: the compliance gate could not obtain a
+                usable verdict; the executed candidate is never cached.
         """
         try:
             self._executor.execute(text, "action", self._ensure_page())
@@ -213,6 +215,8 @@ class PrettyPlay:
             IncurableStepError: the step never generated successfully, or the verdict
                 says regeneration cannot help.
             LLMUnavailableError: the provider service failed; no retry.
+            ComplianceVerdictError: the compliance gate could not obtain a
+                usable verdict; the executed candidate is never cached.
         """
         try:
             self._executor.execute(text, "assertion", self._ensure_page())

@@ -1257,12 +1257,12 @@ the executor/scenario — the trace confirmed it.
 
 **CRITICAL: `prettyplay/CODEMANIFEST` (root) — read-only. Do NOT modify it.**
 
-- [ ] **Code**: update the `StepExecutor.execute` docstring (step 8) and the
+- [x] **Code**: update the `StepExecutor.execute` docstring (step 8) and the
       `PrettyPlay.step` / `PrettyPlay.expect` docstrings in
       `prettyplay/executor.py` and `prettyplay/scenario.py`: every by-kind
       enumeration (`ProductDefectError`, `IncurableStepError`,
       `LLMUnavailableError`) gains `ComplianceVerdictError`.
-- [ ] **Integration test**: `test_step_surfaces_compliance_verdict_error` in
+- [x] **Integration test**: `test_step_surfaces_compliance_verdict_error` in
       `tests/test_scenario.py` — scenario with a fake provider whose
       `check_instruction_compliance` raises `ComplianceVerdictError` (config:
       `generation_approve=True`, non-empty `generation_prompt`; page faked so
@@ -1271,11 +1271,11 @@ the executor/scenario — the trace confirmed it.
       `pytest.raises(ComplianceVerdictError)`; hooks saw `on_step_failed` with
       the message and **no** `on_step_verdict`; `on_step_finished` outcome
       "failed"; the raised traceback contains no engine frames (folding).
-- [ ] **Verify**: `python3 -m pytest tests/test_scenario.py tests/test_executor.py -q`.
-- [ ] **Run validation**: full gates — `python3 -m pytest tests/ -q` (all green,
+- [x] **Verify**: `python3 -m pytest tests/test_scenario.py tests/test_executor.py -q`.
+- [x] **Run validation**: full gates — `python3 -m pytest tests/ -q` (all green,
       including the two mirror-sync tests landed green in Task 3),
       `python3 -m ruff check .`, `goga lint` (10 cells, 0 errors).
-- [ ] **Cross-entity check against the interaction diagram**: gate pass (1),
+- [x] **Cross-entity check against the interaction diagram**: gate pass (1),
       gate block (2), gate hard failure (3), steering write-back gate (4),
       config flow (5), facade capability flow (6) — each demonstrated by at
       least one test from Tasks 3–7.

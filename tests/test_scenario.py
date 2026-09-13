@@ -14,8 +14,8 @@ from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step
 from prettyplay.config import Config, PrettyConfig
 from prettyplay.engine.steering import StepSteering
 from prettyplay.executor import StepExecutor
-from prettyplay.failures import FailureVerdict, IncurableStepError, PrettyplayError
-from prettyplay.llm import FailureClassification, LLMProvider
+from prettyplay.failures import ComplianceVerdictError, FailureVerdict, IncurableStepError, PrettyplayError
+from prettyplay.llm import ComplianceFinding, FailureClassification, LLMProvider
 from prettyplay.reporting import StepHooks, StepReporter
 
 CACHE_KEY = "k"
@@ -33,6 +33,10 @@ class FakePage:
 
     def goto(self, url: str) -> None:
         self.calls.append(("goto", url))
+
+    def aria_snapshot(self) -> str:
+        self.calls.append(("aria_snapshot",))
+        return "- snapshot"
 
     def close(self) -> None:
         self.close_count += 1
@@ -81,6 +85,83 @@ class RecordingProvider(LLMProvider):
         raise AssertionError("provider must not be called: the cached step runs without classification")
 
 
+#: the scripted hard failure of the compliance gate — the strict-parse message shape
+GATE_FAILURE_MESSAGE = (
+    "compliance verdict unparsable — expected a JSON list of findings with "
+    "instruction, priority high|medium|low and explanation; received fragment: not json at all"
+)
+
+
+class GateHardFailingProvider(LLMProvider):
+    """Fake provider: green generation answers; every compliance verdict request fails hard."""
+
+    def __init__(self) -> None:
+        self.generate_calls: list[dict[str, object]] = []
+        self.compliance_calls: list[dict[str, object]] = []
+
+    def generate_step_code(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
+        self,
+        prompt: str,
+        user_instructions: str,
+        step_text: str,
+        previous_steps: list[str],
+        snapshot: str,
+        screenshot: bytes | None,
+        page_api: str,
+        existing_code: str | None,
+        error: str | None,
+        recommendation: str | None,
+        guidance: str | None,
+        guidance_history: list[str],
+    ) -> str:
+        self.generate_calls.append(
+            {
+                "prompt": prompt,
+                "user_instructions": user_instructions,
+                "step_text": step_text,
+                "previous_steps": previous_steps,
+                "snapshot": snapshot,
+                "screenshot": screenshot,
+                "page_api": page_api,
+                "existing_code": existing_code,
+                "error": error,
+                "recommendation": recommendation,
+                "guidance": guidance,
+                "guidance_history": guidance_history,
+            }
+        )
+        return CACHED_CODE  # a candidate that executes green on the fake page
+
+    def classify_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
+        self,
+        prompt: str,
+        user_instructions: str,
+        step_text: str,
+        code: str,
+        error: str,
+        snapshot: str,
+        screenshot: bytes | None,
+    ) -> FailureClassification:
+        raise AssertionError("provider must not be called: the gate hard failure precedes any classification")
+
+    def check_instruction_compliance(
+        self,
+        prompt: str,
+        user_instructions: str,
+        step_text: str,
+        code: str,
+    ) -> list[ComplianceFinding]:
+        self.compliance_calls.append(
+            {
+                "prompt": prompt,
+                "user_instructions": user_instructions,
+                "step_text": step_text,
+                "code": code,
+            }
+        )
+        raise ComplianceVerdictError(GATE_FAILURE_MESSAGE)
+
+
 class RecorderHook(StepHooks):
     """Hook recording step cycle events into a shared ``events`` list for assertions."""
 
@@ -95,6 +176,32 @@ class RecorderHook(StepHooks):
 
     def on_step_failed(self, step_text: str, step_type: str, error: str) -> None:
         self.events.append(("on_step_failed", {"step_text": step_text, "step_type": step_type, "error": error}))
+
+
+class CycleRecorderHook(StepHooks):
+    """Hook recording the closing events of the step cycle: failed, verdict, finished."""
+
+    def __init__(self) -> None:
+        self.events: list[tuple[str, dict[str, str]]] = []
+
+    def on_step_failed(self, step_text: str, step_type: str, error: str) -> None:
+        self.events.append(("on_step_failed", {"step_text": step_text, "step_type": step_type, "error": error}))
+
+    def on_step_verdict(self, step_text: str, category: str, explanation: str, recommendation: str) -> None:
+        self.events.append(
+            (
+                "on_step_verdict",
+                {
+                    "step_text": step_text,
+                    "category": category,
+                    "explanation": explanation,
+                    "recommendation": recommendation,
+                },
+            )
+        )
+
+    def on_step_finished(self, step_text: str, step_type: str, outcome: str) -> None:
+        self.events.append(("on_step_finished", {"step_text": step_text, "step_type": step_type, "outcome": outcome}))
 
 
 @contextlib.contextmanager
@@ -727,3 +834,62 @@ class TestInstructionsIndependentCacheAddress:
             )
             is True
         )
+
+
+class TestComplianceGateLoudSurface:
+    """End-to-end: a compliance gate hard failure leaves the runner boundary loud and folded.
+
+    The gate is on (``generation_approve=True``) with non-empty instructions;
+    the provider returns a green candidate and then fails the verdict request
+    with ``ComplianceVerdictError`` — the failure must leave ``step`` as
+    itself, fire ``on_step_failed`` with the render and never
+    ``on_step_verdict`` (the kind carries no verdict), finish the step
+    "failed", fold every engine frame out of the traceback, and cache nothing.
+    """
+
+    def test_step_surfaces_compliance_verdict_error(self, tmp_path: Path) -> None:
+        page = FakePage()
+        hook = CycleRecorderHook()
+        provider = GateHardFailingProvider()
+        config = Config(cache_root=str(tmp_path), generation_prompt="Prefer id attributes", generation_approve=True)
+
+        with (
+            mock.patch("prettyplay.scenario.load_config", return_value=config),
+            mock.patch("prettyplay.runtime.create_provider", return_value=provider),
+        ):
+            test = PrettyPlay(CACHE_KEY, hooks=[hook])
+
+            with (
+                mock.patch.object(test._runtime, "open_page", return_value=page),
+                pytest.raises(ComplianceVerdictError) as excinfo,
+            ):
+                test.step("open example.com")
+
+            test.close()
+
+        assert isinstance(excinfo.value, PrettyplayError)  # a library failure — the boundary folds it
+        assert str(excinfo.value) == GATE_FAILURE_MESSAGE
+
+        # one generation request reached a green candidate; the gate fired on it exactly once
+        assert len(provider.generate_calls) == 1
+        assert len(provider.compliance_calls) == 1
+        assert provider.compliance_calls[0]["code"] == CACHED_CODE
+        assert provider.compliance_calls[0]["user_instructions"] == "Prefer id attributes"
+        assert page.calls == [("aria_snapshot",), ("goto", "https://example.com")]  # candidate executed green
+
+        # the runner-visible events: failed with the verbatim render, never a verdict, finished failed
+        assert hook.events == [
+            ("on_step_failed", {"step_text": "open example.com", "step_type": "action", "error": GATE_FAILURE_MESSAGE}),
+            ("on_step_finished", {"step_text": "open example.com", "step_type": "action", "outcome": "failed"}),
+        ]
+
+        # the traceback folds to the scenario boundary: no engine, executor or gate frames
+        frames = [entry.filename for entry in traceback.extract_tb(excinfo.value.__traceback__)]
+        assert frames[-1].endswith("scenario.py")
+        assert not any(f.endswith(("executor.py", "generator.py", "compliance.py", "healer.py")) for f in frames)
+
+        # the unchecked candidate never reaches the cache
+        identity = StepIdentity(
+            cache_key=CACHE_KEY, step_type="action", normalized_text=normalize_step_text("open example.com")
+        )
+        assert StepCache(config, None, StepReporter(hooks=[])).load(identity) is None

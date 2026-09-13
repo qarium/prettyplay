@@ -110,6 +110,9 @@ class StepExecutor:
                 cache miss or non-product-defect classification. Never raised
                 by an interactive non-strict step the steering dialog healed.
             LLMUnavailableError: the provider service failed; no retry.
+            ComplianceVerdictError: the compliance gate could not obtain a
+                usable verdict — the provider answer did not parse into
+                findings; the executed candidate is never cached.
         """
         outcome = "failed"
         try:
