@@ -5,6 +5,7 @@ import logging
 import re
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 import pytest
 from playwright.sync_api import Error as PlaywrightError
@@ -26,6 +27,9 @@ BROKEN_CODE = "def step(page) -> None:\n    page.get_by_role('button', name='В�
 #: a candidate whose check fails — the locator expectation raises AssertionError
 CHECK_CODE = "def step(page) -> None:\n    page.get_by_text('Welcome back').expect_visible()\n"
 
+#: the incident idiom — a multi-match locator narrowed positionally, green on a green page
+NARROWING_CODE = "def step(page) -> None:\n    page.get_by_text('Welcome back').first.expect_visible()\n"
+
 #: a candidate whose execution fails with a non-assertion TypeError
 TYPING_BROKEN_CODE = "def step(page) -> None:\n    page.get_by_role('button', name='Pay').click()\n"
 
@@ -34,10 +38,37 @@ GENERATION_PROMPT_PRACTICE = Path(__file__).resolve().parents[2] / ".goga" / "us
 
 
 class FakeLocator:
-    """Fake element boundary: expectations fail with the scripted message."""
+    """Fake element boundary: narrowing members record, expectations fail with the scripted message."""
 
     def __init__(self, assertion_message: str | None) -> None:
+        self.calls: list[tuple[Any, ...]] = []
         self._assertion_message = assertion_message
+
+    @property
+    def first(self) -> "FakeLocator":
+        self.calls.append(("first",))
+        return self
+
+    @property
+    def last(self) -> "FakeLocator":
+        self.calls.append(("last",))
+        return self
+
+    def nth(self, index: int) -> "FakeLocator":
+        self.calls.append(("nth", index))
+        return self
+
+    def filter(self, **kwargs: Any) -> "FakeLocator":
+        self.calls.append(("filter", kwargs))
+        return self
+
+    def or_(self, other: "FakeLocator") -> "FakeLocator":
+        self.calls.append(("or_", other))
+        return self
+
+    def and_(self, other: "FakeLocator") -> "FakeLocator":
+        self.calls.append(("and_", other))
+        return self
 
     def expect_visible(self) -> None:
         if self._assertion_message is not None:
@@ -549,6 +580,23 @@ class TestStepGeneratorLogic:
         assert loaded is not None
         assert loaded.code.rstrip("\n") == WORKING_CODE.rstrip("\n")  # the serializer appends a trailing \n
         assert loaded.created_at
+
+    def test_incident_narrowing_candidate_runs_green(self, tmp_path: Path) -> None:
+        """AC2: the narrowing idiom as a first candidate runs green — no retries, cached as-is."""
+        provider = StubProvider([NARROWING_CODE])
+        fixture = GeneratorFixture(tmp_path, provider, limits=(3, 3))
+        identity = make_identity()
+        page = FakePage()
+
+        step = fixture.generator.generate(identity, "the «Welcome back» message appears", [], page, fixture.window)
+
+        assert step.code == NARROWING_CODE
+        assert len(provider.calls) == 1  # the first candidate is green — zero retries
+        assert "element.first" in provider.calls[0]["page_api"]  # the surface listed the member — on-surface
+        assert ("get_by_text", "Welcome back") in page.calls  # the narrowing chain executed through the page
+        loaded = fixture.cache.load(identity)  # StepCache has no save recording — load back
+        assert loaded is not None
+        assert loaded.code.rstrip("\n") == NARROWING_CODE.rstrip("\n")  # the serializer appends a trailing \n
 
     def test_created_at_is_today_iso(self, tmp_path: Path) -> None:
         provider = StubProvider([WORKING_CODE])

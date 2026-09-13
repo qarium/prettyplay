@@ -448,8 +448,8 @@ Verify the incident class end-to-end through the generation engine: the narrowin
 1. **Narrowing flow**: step code calls a locating method on `PageFacade`/`FrameFacade` → the raw `Locator` is wrapped into a `LocatorFacade` carrying `_worker` → a narrowing member marshals one callable into the driver thread, where the upstream composition runs (`first`/`last`/`nth`/`filter`/`or_`/`and_` are pure selector compositions — no browser I/O, but the marshal is uniform with every facade call) → the resulting raw `Locator` is wrapped into a fresh `LocatorFacade` with the same `_worker` → chains compose; the eventual action/expectation resolves with Playwright's own auto-wait.
 2. **Prompt flow**: `SYSTEM_PROMPT`/`PAGE_API_SURFACE` are module constants read at import → every `generate`/`regenerate` request (`StepGenerator._request`) passes them to `LLMProvider.generate_step_code(prompt=..., page_api=...)` → the provider renders them as the system message and the PAGE API block. No runtime read of `.goga/` ever happens.
 
-- [ ] **Test fakes extension**: extend the engine test-local `FakeLocator`/`FakePage` in `tests/engine/test_generator.py` with the narrowing members (record-and-return-self): `FakeLocator` gains `first` (property returning a green-expectation `FakeLocator`), and `FakePage.get_by_text` continues to return it — the AC2 code path `page.get_by_text("Welcome back").first.expect_visible()` must run without `AttributeError` and stay green when `assertion_message is None`
-- [ ] **Integration test**: add `test_incident_narrowing_candidate_runs_green` (class `TestStepGeneratorLogic`). **Setup**: `GeneratorFixture(tmp_path, StubProvider([NARROWING_CODE]), limits=(3, 3))` where `NARROWING_CODE = "def step(page) -> None:\n    page.get_by_text('Welcome back').first.expect_visible()\n"`; the fixture's `FakePage`/`FakeLocator` extended with the narrowing members (record-and-return-self) and a green `expect_visible`. **Input**: `generator.generate(identity, "the «Welcome back» message appears", [], page, window)`. **Trace**:
+- [x] **Test fakes extension**: extend the engine test-local `FakeLocator`/`FakePage` in `tests/engine/test_generator.py` with the narrowing members (record-and-return-self): `FakeLocator` gains `first` (property returning a green-expectation `FakeLocator`), and `FakePage.get_by_text` continues to return it — the AC2 code path `page.get_by_text("Welcome back").first.expect_visible()` must run without `AttributeError` and stay green when `assertion_message is None`
+- [x] **Integration test**: add `test_incident_narrowing_candidate_runs_green` (class `TestStepGeneratorLogic`). **Setup**: `GeneratorFixture(tmp_path, StubProvider([NARROWING_CODE]), limits=(3, 3))` where `NARROWING_CODE = "def step(page) -> None:\n    page.get_by_text('Welcome back').first.expect_visible()\n"`; the fixture's `FakePage`/`FakeLocator` extended with the narrowing members (record-and-return-self) and a green `expect_visible`. **Input**: `generator.generate(identity, "the «Welcome back» message appears", [], page, window)`. **Trace**:
   ```
   generate → budgets.try_generation ok → on_generation_started
     → _request: snapshot, SYSTEM_PROMPT, PAGE_API_SURFACE → provider.generate_step_code
@@ -470,8 +470,8 @@ Verify the incident class end-to-end through the generation engine: the narrowin
   loaded is not None and loaded.code.rstrip("\n") == NARROWING_CODE.rstrip("\n")  # serializer appends \n
   ```
   **Sufficiency**: the incident class itself — before the change, `.first` raised `AttributeError` on the real facade and the loop burned retries on off-surface code; this test pins the narrowing idiom as a green first candidate with the surface listing carrying the member.
-- [ ] **Run validation**: `.venv/bin/pytest tests/engine/test_generator.py -x` — all engine tests green
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/ tests/` — fix formatting if necessary
+- [x] **Run validation**: `.venv/bin/pytest tests/engine/test_generator.py -x` — all engine tests green
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/ tests/` — fix formatting if necessary
 
 ### Task 4: The frozen mirrors in `prettyplay/engine/steering/steering.py` + steering mirror tests (TDD coding)
 
