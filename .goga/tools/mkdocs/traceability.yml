@@ -2,11 +2,16 @@ docs/index.md:
   - prettyplay
 docs/getting-started.md:
   - prettyplay
+  - prettyplay/engine
+  - prettyplay/engine/polling
+  - prettyplay/engine/steering
 docs/guides/writing-steps.md:
   - prettyplay
   - prettyplay/engine
 docs/configuration.md:
   - prettyplay/config
+  - prettyplay/engine/polling
+  - prettyplay/engine/steering
 docs/guides/browser-setup.md:
   - prettyplay/config
   - prettyplay/driver
@@ -14,12 +19,19 @@ docs/reference/failure-taxonomy.md:
   - prettyplay/failures
 docs/reference/hooks.md:
   - prettyplay/reporting
+  - prettyplay/engine/polling
+  - prettyplay/engine/steering
 docs/reference/step-cache.md:
   - prettyplay/cache
 docs/reference/llm-providers.md:
   - prettyplay/llm
+docs/reference/settle-polling.md:
+  - prettyplay/engine/polling
 docs/reference/self-healing.md:
   - prettyplay/engine
   - prettyplay/llm
+  - prettyplay/engine/polling
+docs/reference/interactive-steering.md:
+  - prettyplay/engine/steering
 docs/reference/driver-facade.md:
   - prettyplay/driver

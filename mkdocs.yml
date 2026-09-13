@@ -44,7 +44,9 @@ nav:
       - Hooks and logging: reference/hooks.md
       - Step cache: reference/step-cache.md
       - LLM providers: reference/llm-providers.md
+      - Settle polling: reference/settle-polling.md
       - Self-healing: reference/self-healing.md
+      - Interactive steering: reference/interactive-steering.md
       - Driver facade: reference/driver-facade.md
 
 plugins:

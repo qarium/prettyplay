@@ -118,7 +118,7 @@ plain `AssertionError`s of failed expectations. Not pollable: locator
 ambiguity (`strict mode violation` — deterministic), Python-level errors of
 the step code itself, and unrecognized failures. The map is fixed in code: it
 never reads settings and never asks an LLM. See
-[Settle polling](../getting-started.md#settle-polling).
+[Settle polling](settle-polling.md).
 
 ## Example
 

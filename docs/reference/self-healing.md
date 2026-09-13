@@ -51,7 +51,7 @@ The classification verdict decides the path:
 - Healing never runs in strict mode: a failed cached step is at most
   classified, never regenerated
 - Every candidate execution runs under the settle window of the current step
-  execution — see [Settle polling](../getting-started.md#settle-polling)
+  execution — see [Settle polling](settle-polling.md)
 
 ## Verdicts
 
