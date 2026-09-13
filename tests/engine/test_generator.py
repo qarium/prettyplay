@@ -1054,16 +1054,13 @@ class TestPromptConstants:
         assert SYSTEM_PROMPT.startswith("You generate executable Python code")
         assert "def step(page) -> None:" in SYSTEM_PROMPT
 
-    def test_generation_prompt_carries_the_scroll_rule(self) -> None:
-        assert (
-            "- Scroll abilities exist for scenario scrolling: bring an element into view, scroll by an "
-            "amount, to the page end or start, inside a scrollable container" in SYSTEM_PROMPT
-        )
-        # the scroll rule sits right after the element-locating rule
-        locating = SYSTEM_PROMPT.index("Locating by role and accessible name")
-        scroll = SYSTEM_PROMPT.index("Scroll abilities exist")
-        no_delays = SYSTEM_PROMPT.index("No fixed delays")
-        assert locating < scroll < no_delays
+    def test_generation_prompt_rule_order_survives_the_edit(self) -> None:
+        # the assertion-mechanics rule sits exactly after the assertion-sentence rule, before the dialogs rule
+        assertion = SYSTEM_PROMPT.index("- Assertions happen only through")
+        dialogs = SYSTEM_PROMPT.index("- Dialogs: when the step verifies")
+        scroll = SYSTEM_PROMPT.index("- Scroll abilities exist")
+        no_delays = SYSTEM_PROMPT.index("- No fixed delays")
+        assert assertion < dialogs < scroll < no_delays
 
     def test_system_prompt_documents_user_instructions_input(self) -> None:
         # the USER INSTRUCTIONS input line sits right after the PAGE API input line
@@ -1072,20 +1069,27 @@ class TestPromptConstants:
         code_input = SYSTEM_PROMPT.index("- CODE: the existing step code that failed")
         assert page_api_input < user_instructions_input < code_input
 
-    def test_system_prompt_carries_the_new_rules(self) -> None:
+    def test_system_prompt_strategy_rules_are_gone(self) -> None:
+        assert (
+            "- Assertions happen only through the expectation calls of the facade — never a Python assert on a "
+            "locator, never SDK-style state reads" in SYSTEM_PROMPT
+        )
+        assert "Locating by role and accessible name is preferred" not in SYSTEM_PROMPT
+        assert "accessibility-first priority" not in SYSTEM_PROMPT
+        # the surviving mechanics rules stay intact through the strategy split
         assert "the Playwright-mirroring page API" in SYSTEM_PROMPT
-        assert (
-            "- Locating by role and accessible name is preferred; by visible text next; "
-            "by label or placeholder for form fields" in SYSTEM_PROMPT
-        )
-        assert (
-            "- get_by_test_id and locator(selector) exist for elements without accessible names" in SYSTEM_PROMPT
-        )
         assert "- Dialogs: when the step verifies or steers a dialog, capture it" in SYSTEM_PROMPT
         assert "with page.expect_dialog() as dialog:" in SYSTEM_PROMPT
         assert "with page.expect_popup() as popup:" in SYSTEM_PROMPT
         assert "bring_to_front() raises a page above the others" in SYSTEM_PROMPT
         assert "Content inside an iframe goes through page.frame_locator(selector)" in SYSTEM_PROMPT
+        assert (
+            "- Scroll abilities exist for scenario scrolling: bring an element into view, scroll by an "
+            "amount, to the page end or start, inside a scrollable container" in SYSTEM_PROMPT
+        )
+        assert "- No fixed delays, no sleeps, no explicit waits — the facade waits itself" in SYSTEM_PROMPT
+        assert "def step(page) -> None:" in SYSTEM_PROMPT  # the fixed form
+        assert "- Output only the code block, no explanations" in SYSTEM_PROMPT
         assert "find_by" not in SYSTEM_PROMPT
         assert "Attribute, CSS and XPath locating" not in SYSTEM_PROMPT
 
@@ -1151,6 +1155,12 @@ class TestPromptConstants:
             "frame.get_by_role(role, name)",
             "frame.locator(selector)",
             "frame.frame_locator(selector)",
+            "element.first",
+            "element.last",
+            "element.nth(index)",
+            "element.filter(has_text=..., has_not_text=..., has=..., has_not=...)",
+            "element.or_(other)",
+            "element.and_(other)",
             "element.click(button)",
             "element.dblclick()",
             "element.fill(value)",
@@ -1201,4 +1211,20 @@ class TestPromptConstants:
         assert len(page_rows) == 33  # 32 listed + close excluded by the standing comment
         assert len(dialog_rows) == 5
         assert len(frame_rows) == 3  # the get_by_* family collapsed to its family row
-        assert len(element_rows) == 19
+        assert len(element_rows) == 25  # 19 + the six narrowing rows at the head
+
+    def test_page_api_surface_covers_the_narrowing_family(self) -> None:
+        # the listing is the model's only view of the surface — a missing row reproduces the incident
+        for call in (
+            "element.first",
+            "element.last",
+            "element.nth(index)",
+            "element.filter(has_text=..., has_not_text=..., has=..., has_not=...)",
+            "element.or_(other)",
+            "element.and_(other)",
+        ):
+            assert call in PAGE_API_SURFACE
+
+        element_rows = facade_surface_rows(FACADE_PRACTICE.read_text(encoding="utf-8"), "element")
+        assert len(element_rows) == 25  # every narrowing row of the practice is listed
+        assert "page.close" not in PAGE_API_SURFACE  # the standing exclusion holds through the edit

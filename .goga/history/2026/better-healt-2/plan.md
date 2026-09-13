@@ -394,7 +394,7 @@ Prompt-contract split: locating strategy now reaches the model only through the 
 
 Mirror equality is mechanically enforced by `test_system_prompt_mirrors_the_generation_practice` (existing) and `test_page_api_surface_mirrors_facade_practice` (existing, count moves 19 → 25); members-exist by `test_page_api_surface_members_exist_on_the_facades` (regex-matches every line to an owning facade class — the six new lines assert `hasattr(LocatorFacade, ...)`; `first`/`last` satisfy `hasattr` as properties — green after Task 1).
 
-- [ ] **Contract tests** (in `tests/engine/test_generator.py`, class `TestPromptConstants`; the two existing mirror tests are already red — keep them as the contract enforcement):
+- [x] **Contract tests** (in `tests/engine/test_generator.py`, class `TestPromptConstants`; the two existing mirror tests are already red — keep them as the contract enforcement):
   - Rewrite `test_system_prompt_carries_the_new_rules` → `test_system_prompt_strategy_rules_are_gone`. **Setup**: import `SYSTEM_PROMPT` from `prettyplay.engine.generator`. **Input**: the constant text. **Trace**:
     ```
     assert "- Assertions happen only through the expectation calls of the facade — never a Python assert on a locator, never SDK-style state reads" in SYSTEM_PROMPT
@@ -413,11 +413,11 @@ Mirror equality is mechanically enforced by `test_system_prompt_mirrors_the_gene
     ```
     **Assertions**: the new rule sits exactly after the assertion-sentence rule, before the dialogs rule; the surviving mechanics keep their order. **Sufficiency**: the rewritten anchors pin the insertion point the plan specifies.
   - Extend `test_page_api_surface_lists_every_facade_call` with the six call strings and `test_page_api_surface_mirrors_facade_practice` count 19 → 25 (edge-case tests, see Logic step below).
-- [ ] **Interface verification (red first)**: `.venv/bin/pytest tests/engine/test_generator.py -k "TestPromptConstants" -x` — the rewritten tests fail against the old constant (TDD red; the two existing mirror tests are already red)
-- [ ] **Code**: apply the `SYSTEM_PROMPT` edit in `prettyplay/engine/generator.py` per the algorithm (two deletions, one insertion) — the result equals `.goga/usages/prompts/generation.md` after `---` verbatim; the docstring comment above the constant (the frozen-mirror statement) stays as-is
-- [ ] **Code**: insert the six element rows at the head of the element section of `PAGE_API_SURFACE` in `prettyplay/engine/generator.py` per the exact rows above; `page.close` stays out
-- [ ] **Interface verification**: `.venv/bin/pytest tests/engine/test_generator.py -k "TestPromptConstants" -x` — all constant tests pass, including `test_system_prompt_mirrors_the_generation_practice` (green again)
-- [ ] **Logic tests** (edge-case extensions, class `TestPromptConstants`):
+- [x] **Interface verification (red first)**: `.venv/bin/pytest tests/engine/test_generator.py -k "TestPromptConstants" -x` — the rewritten tests fail against the old constant (TDD red; the two existing mirror tests are already red)
+- [x] **Code**: apply the `SYSTEM_PROMPT` edit in `prettyplay/engine/generator.py` per the algorithm (two deletions, one insertion) — the result equals `.goga/usages/prompts/generation.md` after `---` verbatim; the docstring comment above the constant (the frozen-mirror statement) stays as-is
+- [x] **Code**: insert the six element rows at the head of the element section of `PAGE_API_SURFACE` in `prettyplay/engine/generator.py` per the exact rows above; `page.close` stays out
+- [x] **Interface verification**: `.venv/bin/pytest tests/engine/test_generator.py -k "TestPromptConstants" -x` — all constant tests pass, including `test_system_prompt_mirrors_the_generation_practice` (green again)
+- [x] **Logic tests** (edge-case extensions, class `TestPromptConstants`):
 
   `test_page_api_surface_covers_the_narrowing_family` — **Setup**: existing `TestPromptConstants`. **Input**: `PAGE_API_SURFACE`. **Trace**:
   ```
@@ -429,9 +429,9 @@ Mirror equality is mechanically enforced by `test_system_prompt_mirrors_the_gene
     assert len(element_rows) == 25            # 19 + the six narrowing rows
   ```
   **Assertions**: each call string in `PAGE_API_SURFACE`; the practice table extraction counts 25 element rows; `"page.close" not in PAGE_API_SURFACE` still holds. **Sufficiency**: the listing is the model's only view of the surface — a missing row reproduces the incident even with the facade implemented.
-- [ ] **Debugging**: `.venv/bin/pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code)
-- [ ] **Contract re-verification**: mirror equality (constant == practice after `---`; every element row of the practice present in the constant), no runtime read of `.goga/` (constants stay module-level), the request path (`_request`) untouched, `classification_prompt` untouched
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/ tests/` — fix formatting if necessary
+- [x] **Debugging**: `.venv/bin/pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code)
+- [x] **Contract re-verification**: mirror equality (constant == practice after `---`; every element row of the practice present in the constant), no runtime read of `.goga/` (constants stay module-level), the request path (`_request`) untouched, `classification_prompt` untouched
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/ tests/` — fix formatting if necessary
 
 ### Task 3: Integration tests — the narrowing incident through the generation loop (engine package)
 
