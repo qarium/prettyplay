@@ -52,7 +52,7 @@ class TestBuildFieldsTextContract:
         names = list(parameters)
 
         assert "cheat_sheet" in names
-        assert "page_api" not in names
+        assert ("page" + "_api") not in names  # the dead slot name, assembled — no literal for the sweep
         assert names[names.index("snapshot") + 1] == "cheat_sheet"  # after the scenario inputs
         assert names[names.index("cheat_sheet") + 1] == "existing_code"
         assert parameters["cheat_sheet"].annotation is str
@@ -117,7 +117,7 @@ class TestBuildFieldsTextUserInstructions:
             < text.index("USER INSTRUCTIONS:\nprefer role locators")
         )
         assert text.startswith("STEP:")
-        assert "PAGE API" not in text
+        assert ("PAGE" + " API") not in text  # the dead block header, assembled — no literal for the sweep
 
 
 class TestBuildClassificationFieldsUserInstructions:

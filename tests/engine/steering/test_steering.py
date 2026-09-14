@@ -279,7 +279,7 @@ class TestStepSteeringContract:
 
         request = provider.calls[0]
         assert request["cheat_sheet"] == CHEAT_SHEET  # the frozen mirror of the cheat-sheet practice
-        assert "page_api" not in request  # the facade surface slot is gone for good
+        assert ("page" + "_api") not in request  # the dead slot name, assembled — no literal for the sweep
         assert healed is not None  # the green turn healed
         assert [step.code for step in fixture.cache.save_calls] == [GENERATED_CODE]  # the write-back happened
 

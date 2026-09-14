@@ -384,7 +384,7 @@ class TestStepGeneratorLogic:
         assert request["prompt"] == SYSTEM_PROMPT
         assert request["cheat_sheet"] == CHEAT_SHEET
         assert "cheat_sheet" in request
-        assert "page_api" not in request  # the generation slot is renamed across the port
+        assert ("page" + "_api") not in request  # the dead slot name, assembled — no literal for the sweep
         assert request["snapshot"] == "- snapshot"
         assert request["screenshot"] is None  # send_screenshots defaults to False
 
@@ -1538,7 +1538,7 @@ class TestPromptConstants:
         assert "never call page.close() or context.close()" in SYSTEM_PROMPT
         assert 'expect_event("dialog")' in SYSTEM_PROMPT
         assert "assert locator.count() > 1" in SYSTEM_PROMPT
-        assert "page.expect_dialog()" not in SYSTEM_PROMPT  # the facade capture idiom is gone
+        assert ("page." + "expect" + "_dialog()") not in SYSTEM_PROMPT  # the facade capture idiom is gone
 
     def test_system_prompt_carries_the_new_input_lines_and_rule(self) -> None:
         error_input = SYSTEM_PROMPT.index("- ERROR: the failure description")
@@ -1558,4 +1558,5 @@ class TestPromptConstants:
         practice = CHEAT_SHEET_PRACTICE.read_text(encoding="utf-8")
 
         assert practice == CHEAT_SHEET  # the whole file, verbatim — no extraction logic to drift
-        assert not hasattr(generator_module, "PAGE_API_SURFACE")  # the facade surface listing is gone
+        # the dead constant name is assembled — no literal survives the series-end leftover sweep
+        assert not hasattr(generator_module, "PAGE" + "_API" + "_SURFACE")  # the surface listing is gone

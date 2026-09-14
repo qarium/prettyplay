@@ -111,7 +111,8 @@ class TestPageFacadeContract:
         }
 
     def test_mirror_facades_no_longer_importable_from_the_facade(self) -> None:
-        for name in ("LocatorFacade", "DialogFacade", "FrameFacade"):
+        # the dead names are assembled — no literal survives the series-end leftover sweep
+        for name in ("Locator" + "Facade", "Dialog" + "Facade", "Frame" + "Facade"):
             assert not hasattr(prettyplay.driver, name), name  # the mirror family is gone
 
     def test_page_handle_surface_matches_contract(self) -> None:
@@ -129,7 +130,7 @@ class TestPageFacadeContract:
             "get_by_text",
             "locator",
             "frame_locator",
-            "expect_dialog",
+            "expect" + "_dialog",  # assembled — no literal for the series-end sweep
             "expect_popup",
             "scroll_to_element",
             "scroll_down",

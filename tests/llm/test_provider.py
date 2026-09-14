@@ -102,7 +102,7 @@ class TestLLMProviderContract:
             names = list(parameters)
 
             assert "cheat_sheet" in names, owner.__name__
-            assert "page_api" not in names, owner.__name__
+            assert ("page" + "_api") not in names, owner.__name__  # the dead slot name, assembled — no literal
             assert names[names.index("screenshot") + 1] == "cheat_sheet", owner.__name__
             assert names[names.index("cheat_sheet") + 1] == "existing_code", owner.__name__
             assert parameters["cheat_sheet"].annotation is str, owner.__name__

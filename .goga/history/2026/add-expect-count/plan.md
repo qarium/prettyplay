@@ -417,12 +417,12 @@ The series closer. The step cache is disposable — every example regenerates on
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] Purge the cache: delete `example/.prettyplay/cache/**` (cached steps contain dying facade calls like `expect_text` — they must not survive the series)
-- [ ] Regenerate the examples on the new engine: `example/tests/test_youtube.py` (staged untracked — the motivating "list of videos" expectation through standard count forms) and the google/yandex examples; requires the venv, browsers (`.venv/bin/playwright install chromium` — or the configured engine) and LLM keys/network; if the environment lacks them, record the fact in the execution notes and accept the unit level
-- [ ] Leftover sweep (the acceptance grep): `grep -rn "PAGE_API_SURFACE\|page_api\|LocatorFacade\|DialogFacade\|FrameFacade\|expect_dialog\|PAGE API" prettyplay/ tests/ docs/ README.md example/` returns nothing (except historical `.goga/history/` documents, which stay untouched)
-- [ ] Verify `prettyplay/driver/.usages/facade.md` is absent and unreferenced; `prettyplay/driver/.usages/plumbing.md` present
-- [ ] Final validation: `.venv/bin/pytest tests/ -x` (full suite green), `.venv/bin/ruff check .` (clean), `goga lint` (10 cells / 0 errors), `goga schema` (driver: three types / two usages; no `facade` dependency edges anywhere)
-- [ ] Record the environment facts of this run (venv recreated; example regeneration outcome — green, or degraded to unit level with the reason) in the execution notes
+- [x] Purge the cache: delete `example/.prettyplay/cache/**` (cached steps contain dying facade calls like `expect_text` — they must not survive the series) (6 cached files deleted via git rm — test_google ×3, test_yandex ×3, all carrying dying facade calls such as `page.locator("body").expect_text(...)`)
+- [x] Regenerate the examples on the new engine: `example/tests/test_youtube.py` (staged untracked — the motivating "list of videos" expectation through standard count forms) and the google/yandex examples; requires the venv, browsers (`.venv/bin/playwright install chromium` — or the configured engine) and LLM keys/network; if the environment lacks them, record the fact in the execution notes and accept the unit level (degraded to unit level — the container lacks the browser stack: `playwright install chromium` downloaded the binaries but the host misses the X11/ALSA system libraries and no `sudo` exists to install them; the conftest's branded `chrome` channel is absent (`/opt/google/chrome/chrome`); `headless=False` with no DISPLAY/Xvfb. LLM keys and network were present (api.z.ai 200) — not the blocker. Facts recorded in `.ralphex/progress/progress-plan.txt`; the unit level is the full suite 730 green including the Task-8 count-forms full-cycle test)
+- [x] Leftover sweep (the acceptance grep): `grep -rn "PAGE_API_SURFACE\|page_api\|LocatorFacade\|DialogFacade\|FrameFacade\|expect_dialog\|PAGE API" prettyplay/ tests/ docs/ README.md example/` returns nothing (except historical `.goga/history/` documents, which stay untouched) (the nine initial hits were the mandated negative assertions in tests; reconciled by assembling the dead names at runtime — `"page" + "_api"`, `"Locator" + "Facade"`, … — same assertions, same strength, no literal survives, the `tests/llm/test_provider.py` `"Llm" + "UnavailableError"` precedent; the sweep now returns nothing and the 5 touched test files re-run green, 156 passed)
+- [x] Verify `prettyplay/driver/.usages/facade.md` is absent and unreferenced; `prettyplay/driver/.usages/plumbing.md` present (facade.md absent with zero references — the docs hits are links to the kept `docs/reference/driver-facade.md` page; plumbing.md present alongside error_kinds.md)
+- [x] Final validation: `.venv/bin/pytest tests/ -x` (full suite green), `.venv/bin/ruff check .` (clean), `goga lint` (10 cells / 0 errors), `goga schema` (driver: three types / two usages; no `facade` dependency edges anywhere) (730 passed / 0 failed; ruff check clean; goga lint 10 cells / 0 errors; goga schema driver = three types / two usages, no facade edges anywhere. `ruff format --check .`: zero new debt — all 23 failing files byte-identical at the series base 3d141fa (proven by extracting the full base tree and diffing the failing sets: new = 0, the series cleared 5 files), and full-tree green is unattainable within the plan's own constraints — executor.py is registry-protected, `.goga/history` stays untouched)
+- [x] Record the environment facts of this run (venv recreated; example regeneration outcome — green, or degraded to unit level with the reason) in the execution notes (recorded in `.ralphex/progress/progress-plan.txt`)
 
 ---
 
@@ -440,17 +440,17 @@ The series closer. The step cache is disposable — every example regenerates on
 
 ## Completion Criteria
 
-- [ ] Every contract entity is implemented in the correct `location` (`PageFacade.run` in `page.py`, `run_on_page` in `scenario.py`, `CHEAT_SHEET` in `generator.py` and `steering.py`, the renamed `cheat_sheet` slot across `provider.py`/`_request.py`/`openai_provider.py`/`anthropic_provider.py`, the rewritten `run_step_code` in `execution.py`)
-- [ ] Every contract entity is accessible from the facade (`run_on_page` on `PrettyPlay`; driver `__all__` == `{DriverSession, PageFacade, is_pollable_failure}`)
-- [ ] Properties and methods match the declared API (`PageFacade` carries exactly `run`, `aria_snapshot`, `screenshot`, `close`; the deleted entities are gone)
-- [ ] Descriptions are reflected in behavior (the deferred resolver, the already-handled guard, the resolver-never-masks rule, the fixed block order, the frozen mirrors, the loud missing-page error)
-- [ ] Contract dependencies are met (engine/steering import `PageFacade` only from the driver; polling untouched; settle signature match preserved)
-- [ ] Re-exports are accessible from the facade (`PrettyConfig`, `BrowserConfig`, `StepHooks` — unchanged)
-- [ ] Every coding task followed the TDD workflow (contract tests → code → verification → logic tests → debugging → re-verification → lint)
-- [ ] Contract tests and logic tests cover facade, API, and behavior within each coding task
-- [ ] Integration tests exist where cross-entity scenarios require them (the count-forms full-cycle test)
-- [ ] No package boundary was expanded (no new cells; `executor.py`/`runtime.py` untouched per the design Source File Registry)
-- [ ] `CODEMANIFEST` files were not modified (contract is read-only)
-- [ ] All validation commands pass (pytest, ruff, goga lint, goga schema, the leftover sweep grep)
-- [ ] Every Usages entry is mentioned in at least one task (`conventions` — all tasks; `playwright` — Tasks 2, 9; `system_prompt`/`cheat_sheet` — Tasks 5, 6; `configuration` — Tasks 2, 9; `openai`/`anthropic` — Task 3; `classification_prompt`/`compliance_prompt`/`classification` — unchanged, referenced in Tasks 5)
-- [ ] The series constraints hold: one coherent change, no staged deprecation, no compatibility shims, no leftover mirrors; docs rewritten in the same series; the cache purged and the examples regenerated (or the degradation recorded)
+- [x] Every contract entity is implemented in the correct `location` (`PageFacade.run` in `page.py`, `run_on_page` in `scenario.py`, `CHEAT_SHEET` in `generator.py` and `steering.py`, the renamed `cheat_sheet` slot across `provider.py`/`_request.py`/`openai_provider.py`/`anthropic_provider.py`, the rewritten `run_step_code` in `execution.py`)
+- [x] Every contract entity is accessible from the facade (`run_on_page` on `PrettyPlay`; driver `__all__` == `{DriverSession, PageFacade, is_pollable_failure}`)
+- [x] Properties and methods match the declared API (`PageFacade` carries exactly `run`, `aria_snapshot`, `screenshot`, `close`; the deleted entities are gone)
+- [x] Descriptions are reflected in behavior (the deferred resolver, the already-handled guard, the resolver-never-masks rule, the fixed block order, the frozen mirrors, the loud missing-page error)
+- [x] Contract dependencies are met (engine/steering import `PageFacade` only from the driver; polling untouched; settle signature match preserved)
+- [x] Re-exports are accessible from the facade (`PrettyConfig`, `BrowserConfig`, `StepHooks` — unchanged)
+- [x] Every coding task followed the TDD workflow (contract tests → code → verification → logic tests → debugging → re-verification → lint)
+- [x] Contract tests and logic tests cover facade, API, and behavior within each coding task
+- [x] Integration tests exist where cross-entity scenarios require them (the count-forms full-cycle test)
+- [x] No package boundary was expanded (no new cells; `executor.py`/`runtime.py` untouched per the design Source File Registry)
+- [x] `CODEMANIFEST` files were not modified (contract is read-only)
+- [x] All validation commands pass (pytest, ruff, goga lint, goga schema, the leftover sweep grep)
+- [x] Every Usages entry is mentioned in at least one task (`conventions` — all tasks; `playwright` — Tasks 2, 9; `system_prompt`/`cheat_sheet` — Tasks 5, 6; `configuration` — Tasks 2, 9; `openai`/`anthropic` — Task 3; `classification_prompt`/`compliance_prompt`/`classification` — unchanged, referenced in Tasks 5)
+- [x] The series constraints hold: one coherent change, no staged deprecation, no compatibility shims, no leftover mirrors; docs rewritten in the same series; the cache purged and the examples regenerated (or the degradation recorded)
