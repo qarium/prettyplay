@@ -17,6 +17,7 @@ GENERATE_STEP_CODE_PARAMS = [
     "step_text",
     "previous_steps",
     "snapshot",
+    "page_url",
     "screenshot",
     "cheat_sheet",
     "existing_code",
@@ -119,6 +120,7 @@ class TestOpenAIProviderLogic:
                 step_text="s",
                 previous_steps=[],
                 snapshot="- snap",
+                page_url=None,
                 screenshot=None,
                 cheat_sheet="expect(locator).to_be_visible()",
                 existing_code=None,
@@ -182,6 +184,7 @@ class TestOpenAIProviderLogic:
                 step_text="открыть страницу",
                 previous_steps=["шаг один"],
                 snapshot="- snap",
+                page_url=None,
                 screenshot=None,
                 cheat_sheet="expect(locator).to_be_visible()",
                 existing_code=None,
@@ -202,6 +205,36 @@ class TestOpenAIProviderLogic:
         assert "шаг один" in user["content"]
         assert "expect(locator).to_be_visible()" in user["content"]
         assert "CODE" not in user["content"]  # no regeneration fields on the first attempt
+        assert "PAGE URL" not in user["content"]  # no URL line when page_url is None
+
+    def test_generate_request_carries_the_page_url_line_after_the_snapshot(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "test")
+        client, requests = make_client_create(answer=WORKING_CODE)
+        provider = OpenAIProvider(Config(model="gpt-5"))
+
+        with mock.patch.object(provider, "_get_client", return_value=client):
+            provider.generate_step_code(
+                prompt="p",
+                user_instructions="",
+                step_text="s",
+                previous_steps=[],
+                snapshot="- snap",
+                page_url="https://shop.example.com/cart",
+                screenshot=None,
+                cheat_sheet="expect(locator).to_be_visible()",
+                existing_code=None,
+                error=None,
+                recommendation=None,
+                guidance=None,
+                guidance_history=[],
+            )
+
+        user = requests[0]["messages"][1]["content"]
+        assert "PAGE URL: https://shop.example.com/cart" in user
+        assert user.index("PAGE SNAPSHOT:\n- snap") < user.index("PAGE URL: https://shop.example.com/cart")
+        assert user.index("PAGE URL: https://shop.example.com/cart") < user.index("CHEAT SHEET:")
 
     def test_generate_returns_code_extracted_from_markdown_fence(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
@@ -216,6 +249,7 @@ class TestOpenAIProviderLogic:
                 step_text="s",
                 previous_steps=[],
                 snapshot="- snap",
+                page_url=None,
                 screenshot=None,
                 cheat_sheet="expect(locator).to_be_visible()",
                 existing_code=None,
@@ -239,6 +273,7 @@ class TestOpenAIProviderLogic:
                 step_text="s",
                 previous_steps=[],
                 snapshot="- snap",
+                page_url=None,
                 screenshot=None,
                 cheat_sheet="expect(locator).to_be_visible()",
                 existing_code="def step(page) -> None:\n    pass\n",
@@ -264,6 +299,7 @@ class TestOpenAIProviderLogic:
                 step_text="s",
                 previous_steps=[],
                 snapshot="- snap",
+                page_url=None,
                 screenshot=b"png-bytes",
                 cheat_sheet="expect(locator).to_be_visible()",
                 existing_code=None,
@@ -315,6 +351,7 @@ class TestOpenAIProviderLogic:
                 step_text="s",
                 previous_steps=[],
                 snapshot="- snap",
+                page_url=None,
                 screenshot=None,
                 cheat_sheet="expect(locator).to_be_visible()",
                 existing_code=None,
@@ -445,6 +482,7 @@ class TestOpenAIProviderLogic:
                 step_text="s",
                 previous_steps=[],
                 snapshot="- snap",
+                page_url=None,
                 screenshot=None,
                 cheat_sheet="expect(locator).to_be_visible()",
                 existing_code=None,
@@ -475,6 +513,7 @@ class TestOpenAIProviderLogic:
                 step_text="s",
                 previous_steps=[],
                 snapshot="- snap",
+                page_url=None,
                 screenshot=None,
                 cheat_sheet="expect(locator).to_be_visible()",
                 existing_code=None,
@@ -500,6 +539,7 @@ class TestOpenAIProviderLogic:
                 step_text="s",
                 previous_steps=[],
                 snapshot="- snap",
+                page_url=None,
                 screenshot=None,
                 cheat_sheet="expect(locator).to_be_visible()",
                 existing_code=None,

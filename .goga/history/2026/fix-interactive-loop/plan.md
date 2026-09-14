@@ -627,28 +627,28 @@ signature.
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If
 implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **STEP 0 — Declaration**: declare this task (Task 4, llm cell) before starting
-- [ ] **Contract tests**: in `tests/llm/test_provider.py` — `GENERATE_STEP_CODE_PARAMS` grows
+- [x] **STEP 0 — Declaration**: declare this task (Task 4, llm cell) before starting
+- [x] **Contract tests**: in `tests/llm/test_provider.py` — `GENERATE_STEP_CODE_PARAMS` grows
   `"page_url"` right after `"snapshot"` (the exact port-signature assert); the existing adjacency
   asserts keep holding with the insertion; both provider files'
   `test_generate_step_code_signature_matches_port` keep passing once implementations grow the
   parameter identically (expected to fail at this stage)
-- [ ] **Code**: `prettyplay/llm/provider.py` — insert `page_url: str | None` after `snapshot` in
+- [x] **Code**: `prettyplay/llm/provider.py` — insert `page_url: str | None` after `snapshot` in
   `LLMProvider.generate_step_code`; docstring gains the `page_url` semantics (non-empty — its own
   PAGE URL line immediately after the PAGE SNAPSHOT block, identically in both; None — no line;
   supplied by the interactive steering only), the `guidance_history` full-record semantics (each
   record a complete multi-line turn: engineer message, complete generated code, complete outcome;
   verbatim, no collapsing, no size limits) and the corrected import-policy wording of the `code`
   return
-- [ ] **Code**: `prettyplay/llm/_request.py` — `build_fields_text` gains `page_url: str | None`
+- [x] **Code**: `prettyplay/llm/_request.py` — `build_fields_text` gains `page_url: str | None`
   after `snapshot`; the scenario part becomes
   `[STEP, PREVIOUS STEPS, PAGE SNAPSHOT] + ([f"PAGE URL: {page_url}"] when page_url else []) +
   [CHEAT SHEET] …` — the rest untouched; docstring updated
-- [ ] **Code**: both providers — `generate_step_code` gains the parameter (after `snapshot`);
+- [x] **Code**: both providers — `generate_step_code` gains the parameter (after `snapshot`);
   forward `page_url=page_url` BY KEYWORD to the shared `build_fields_text`; docstrings updated
   identically (parity)
-- [ ] **Interface verification**: `pytest tests/llm -q` — contract tests pass
-- [ ] **Logic tests**:
+- [x] **Interface verification**: `pytest tests/llm -q` — contract tests pass
+- [x] **Logic tests**:
   - `tests/llm/test_request.py` — `test_build_fields_places_page_url_line_after_snapshot`:
     `build_fields_text(user_instructions="", step_text="s", previous_steps=[], snapshot="- body",
     page_url="https://x.test/a", cheat_sheet="CS", existing_code=None, error=None,
@@ -665,13 +665,13 @@ implementation does not match the contract, fix the implementation — never fix
   - `tests/llm/test_openai_provider.py` / `tests/llm/test_anthropic_provider.py` — every
     `generate_step_code` call fixture gains `page_url` (None or a URL per scenario); a request
     with a URL carries the PAGE URL line after the snapshot, a None request carries none
-- [ ] **Debugging**: `pytest tests/llm -x` — fix implementation until green
-- [ ] **Contract re-verification**: block order of a generation request is fixed (CHEAT SHEET,
+- [x] **Debugging**: `pytest tests/llm -x` — fix implementation until green
+- [x] **Contract re-verification**: block order of a generation request is fixed (CHEAT SHEET,
   user instructions, CODE, ERROR, RECOMMENDATION, USER GUIDANCE, HISTORY); the PAGE URL line
   renders in the scenario part immediately after PAGE SNAPSHOT; the fixed order of the
   regeneration tail is unchanged; the new inputs take no part in step addressing
-- [ ] **Lint**: `ruff check prettyplay/llm tests/llm` — fix formatting if necessary
-- [ ] **STEP 8 — Completion**: mark the checkboxes complete; submit for review
+- [x] **Lint**: `ruff check prettyplay/llm tests/llm` — fix formatting if necessary
+- [x] **STEP 8 — Completion**: mark the checkboxes complete; submit for review
 
 ### Task 5: engine frozen mirrors + `page_url=None` + engine-driven fake updates (engine)
 

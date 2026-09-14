@@ -15,6 +15,7 @@ GENERATE_STEP_CODE_PARAMS = [
     "step_text",
     "previous_steps",
     "snapshot",
+    "page_url",
     "screenshot",
     "cheat_sheet",
     "existing_code",
@@ -117,6 +118,7 @@ class TestLLMProviderContract:
                 step_text="s",
                 previous_steps=[],
                 snapshot="- snap",
+                page_url=None,
                 screenshot=None,
                 cheat_sheet="expect(locator).to_be_visible()",
                 existing_code=None,
@@ -304,6 +306,7 @@ class TestClassificationInstructionsPlacement:
                     step_text="s",
                     previous_steps=[],
                     snapshot="snap",
+                    page_url=None,
                     screenshot=None,
                     cheat_sheet="expect(locator).to_be_visible()",
                     existing_code="def step(page) -> None:\n    pass\n",
@@ -318,7 +321,14 @@ class TestClassificationInstructionsPlacement:
 
 
 class TestSteeringInputsParity:
-    """Logic tests: both providers forward the three steering inputs to one builder output."""
+    """Logic tests: both providers forward the steering inputs to one builder output."""
+
+    PAGE_URL = "https://www.google.com/sorry?continuation=token"
+    HISTORY_RECORD = (
+        "engineer message: hover the menu first\n"
+        'code:\ndef step(page) -> None:\n    page.get_by_role("button").hover()\n'
+        "outcome: AssertionError: Locator expected to be visible"
+    )
 
     def test_providers_render_identical_user_text_from_the_steering_inputs(
         self, monkeypatch: pytest.MonkeyPatch
@@ -341,13 +351,14 @@ class TestSteeringInputsParity:
                     step_text="s",
                     previous_steps=["step one"],
                     snapshot="snap",
+                    page_url=self.PAGE_URL,
                     screenshot=None,
                     cheat_sheet="expect(locator).to_be_visible()",
                     existing_code="old code",
                     error="err",
                     recommendation="use a role locator",
                     guidance="dismiss the modal first",
-                    guidance_history=["hover first => Timeout 10000ms exceeded"],
+                    guidance_history=[self.HISTORY_RECORD],
                 )
 
             user_texts.append(requests[0]["messages"][-1]["content"])
@@ -356,4 +367,7 @@ class TestSteeringInputsParity:
         assert user_texts[0] == user_texts[1]
         assert "RECOMMENDATION:\nuse a role locator" in user_texts[0]
         assert "USER GUIDANCE:\ndismiss the modal first" in user_texts[0]
-        assert "HISTORY:\nhover first => Timeout 10000ms exceeded" in user_texts[0]
+        assert f"HISTORY:\n{self.HISTORY_RECORD}" in user_texts[0]
+        assert f"PAGE URL: {self.PAGE_URL}" in user_texts[0]
+        assert user_texts[0].index("PAGE SNAPSHOT:\nsnap") < user_texts[0].index(f"PAGE URL: {self.PAGE_URL}")
+        assert user_texts[0].index(f"PAGE URL: {self.PAGE_URL}") < user_texts[0].index("CHEAT SHEET:")

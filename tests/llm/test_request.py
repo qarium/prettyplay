@@ -2,6 +2,7 @@
 
 import inspect
 
+import pytest
 from prettyplay.llm._request import (
     CATEGORIES,
     build_classification_fields,
@@ -45,7 +46,7 @@ class TestExtractCodeBlock:
 
 
 class TestBuildFieldsTextContract:
-    """Contract tests: the builder carries the cheat_sheet slot at the fixed position."""
+    """Contract tests: the builder carries the page_url and cheat_sheet slots at their fixed positions."""
 
     def test_build_fields_text_accepts_cheat_sheet(self) -> None:
         parameters = inspect.signature(build_fields_text).parameters
@@ -53,9 +54,11 @@ class TestBuildFieldsTextContract:
 
         assert "cheat_sheet" in names
         assert ("page" + "_api") not in names  # the dead slot name, assembled — no literal for the sweep
-        assert names[names.index("snapshot") + 1] == "cheat_sheet"  # after the scenario inputs
+        assert names[names.index("snapshot") + 1] == "page_url"  # after the scenario inputs
+        assert names[names.index("page_url") + 1] == "cheat_sheet"
         assert names[names.index("cheat_sheet") + 1] == "existing_code"
         assert parameters["cheat_sheet"].annotation is str
+        assert parameters["page_url"].annotation == parameters["existing_code"].annotation  # str | None
 
 
 class TestBuildFieldsTextUserInstructions:
@@ -67,9 +70,10 @@ class TestBuildFieldsTextUserInstructions:
             "нажать Войти",
             ["открыть страницу"],
             "- button 'Войти'",
-            CHEAT_SHEET,
-            "def step(page) -> None:\n    pass\n",
-            "AssertionError: boom",
+            page_url=None,
+            cheat_sheet=CHEAT_SHEET,
+            existing_code="def step(page) -> None:\n    pass\n",
+            error="AssertionError: boom",
             recommendation=None,
             guidance=None,
             guidance_history=[],
@@ -84,9 +88,10 @@ class TestBuildFieldsTextUserInstructions:
             "нажать Войти",
             [],
             "- button 'Войти'",
-            CHEAT_SHEET,
-            "def step(page) -> None:\n    pass\n",
-            "AssertionError: boom",
+            page_url=None,
+            cheat_sheet=CHEAT_SHEET,
+            existing_code="def step(page) -> None:\n    pass\n",
+            error="AssertionError: boom",
             recommendation=None,
             guidance=None,
             guidance_history=[],
@@ -101,7 +106,8 @@ class TestBuildFieldsTextUserInstructions:
             "open the videos page",
             ["open the home page"],
             "- tree",
-            "…reference…",
+            page_url=None,
+            cheat_sheet="…reference…",
             existing_code=None,
             error=None,
             recommendation=None,
@@ -173,9 +179,10 @@ class TestBuildFieldsTextSteeringInputs:
             "нажать Войти",
             ["открыть страницу"],
             "- button 'Войти'",
-            CHEAT_SHEET,
-            "old code",
-            "err",
+            page_url=None,
+            cheat_sheet=CHEAT_SHEET,
+            existing_code="old code",
+            error="err",
             recommendation="rec",
             guidance="do this",
             guidance_history=["h1", "h2"],
@@ -198,9 +205,10 @@ class TestBuildFieldsTextSteeringInputs:
             "нажать Войти",
             [],
             "- button 'Войти'",
-            CHEAT_SHEET,
-            "old code",
-            "err",
+            page_url=None,
+            cheat_sheet=CHEAT_SHEET,
+            existing_code="old code",
+            error="err",
             recommendation=None,
             guidance=None,
             guidance_history=[],
@@ -210,6 +218,85 @@ class TestBuildFieldsTextSteeringInputs:
         assert "USER GUIDANCE" not in text
         assert "HISTORY" not in text
         assert text.index("ERROR:") == text.rindex("ERROR:")  # ERROR stays the closing block
+
+
+class TestBuildFieldsTextPageUrl:
+    """Logic tests: the PAGE URL line in the scenario part, after the snapshot section."""
+
+    def test_build_fields_places_page_url_line_after_snapshot(self) -> None:
+        text = build_fields_text(
+            user_instructions="",
+            step_text="s",
+            previous_steps=[],
+            snapshot="- body",
+            page_url="https://x.test/a",
+            cheat_sheet="CS",
+            existing_code=None,
+            error=None,
+            recommendation=None,
+            guidance=None,
+            guidance_history=[],
+        )
+
+        assert (
+            text.index("STEP:\n")
+            < text.index("PREVIOUS STEPS:\n")
+            < text.index("PAGE SNAPSHOT:\n- body")
+            < text.index("PAGE URL: https://x.test/a")
+            < text.index("CHEAT SHEET:\nCS")
+        )  # the URL is its own paragraph between the snapshot and the cheat sheet
+
+    @pytest.mark.parametrize("page_url", [None, ""])
+    def test_build_fields_omits_the_page_url_line_without_a_url(self, page_url: str | None) -> None:
+        text = build_fields_text(
+            user_instructions="",
+            step_text="s",
+            previous_steps=[],
+            snapshot="- body",
+            page_url=page_url,
+            cheat_sheet="CS",
+            existing_code=None,
+            error=None,
+            recommendation=None,
+            guidance=None,
+            guidance_history=[],
+        )
+
+        assert "PAGE URL" not in text
+
+
+class TestBuildFieldsTextHistoryRecords:
+    """Logic tests: the HISTORY block renders full multi-line turn records verbatim."""
+
+    def test_history_block_renders_full_multi_line_records(self) -> None:
+        record1 = (
+            "engineer message: hover the menu first\n"
+            'code:\ndef step(page) -> None:\n    page.get_by_role("button").hover()\n'
+            "outcome: AssertionError: Locator expected to be visible\nActual value: display:none"
+        )
+        record2 = (
+            "engineer message: click the item after the hover\n"
+            'code:\ndef step(page) -> None:\n    page.get_by_role("button").click()\n'
+            "outcome: rejected by the engineer, not executed"
+        )
+
+        text = build_fields_text(
+            "",
+            "s",
+            [],
+            "- body",
+            page_url=None,
+            cheat_sheet=CHEAT_SHEET,
+            existing_code="old code",
+            error="err",
+            recommendation=None,
+            guidance="try hovering first",
+            guidance_history=[record1, record2],
+        )
+
+        assert text.endswith("HISTORY:\n" + record1 + "\n" + record2)  # both records verbatim, order preserved
+        for line in (*record1.splitlines(), *record2.splitlines()):
+            assert line in text  # every code and outcome line survives — no collapsing, no truncation
 
 
 class TestParseClassificationFixableLabel:

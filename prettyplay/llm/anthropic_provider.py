@@ -119,6 +119,7 @@ class AnthropicProvider(LLMProvider):
         step_text: str,
         previous_steps: list[str],
         snapshot: str,
+        page_url: str | None,
         screenshot: bytes | None,
         cheat_sheet: str,
         existing_code: str | None,
@@ -141,6 +142,11 @@ class AnthropicProvider(LLMProvider):
             previous_steps: the sentences of the previous steps of the test,
                 in execution order — scenario context.
             snapshot: the accessibility snapshot of the current page.
+            page_url: the current URL of the page; non-empty — rendered as
+                its own PAGE URL line immediately after the PAGE SNAPSHOT
+                block of the user content, identically to the openai
+                implementation; None — no line; supplied by the interactive
+                steering only.
             screenshot: an optional PNG image of the page; passed only when
                 the project enables screenshots.
             cheat_sheet: the compact standard Playwright sync API reference
@@ -159,30 +165,35 @@ class AnthropicProvider(LLMProvider):
             guidance: the engineer guidance message of the interactive
                 steering; non-empty — rendered as a separate USER GUIDANCE
                 block, None — no block.
-            guidance_history: the accumulated steering turns — each a rendered
-                guidance-and-outcome line; non-empty — rendered as a separate
-                HISTORY block after the USER GUIDANCE block, empty — no block.
+            guidance_history: the accumulated steering turns — each a
+                complete multi-line turn record: the engineer message, the
+                complete generated code, the complete outcome; composed by
+                the calling steering; non-empty — rendered as a separate
+                HISTORY block after the USER GUIDANCE block, every record
+                verbatim, no collapsing, no size limits; empty — no block.
 
         Returns:
             The generated step code of the fixed form, working through the
             standard Playwright sync API — imports from playwright.sync_api
-            only.
+            and the Python standard library only, global at the top level of
+            the code block.
 
         Raises:
             LLMUnavailableError: the SDK client is unavailable or the
                 service request failed.
         """
         text = build_fields_text(
-            user_instructions,
-            step_text,
-            previous_steps,
-            snapshot,
-            cheat_sheet,
-            existing_code,
-            error,
-            recommendation,
-            guidance,
-            guidance_history,
+            user_instructions=user_instructions,
+            step_text=step_text,
+            previous_steps=previous_steps,
+            snapshot=snapshot,
+            page_url=page_url,
+            cheat_sheet=cheat_sheet,
+            existing_code=existing_code,
+            error=error,
+            recommendation=recommendation,
+            guidance=guidance,
+            guidance_history=guidance_history,
         )
 
         try:
