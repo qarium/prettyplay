@@ -49,7 +49,9 @@ class CachedStep(BaseModel):
 
     Attributes:
         identity: the address of the step.
-        code: the step code of the fixed form ``def step(page) -> None:``.
+        code: the step code — top-level imports when present, then the fixed
+            form ``def step(page) -> None:``; the cache stores and restores
+            the whole text verbatim.
         created_at: the date the code was generated (ISO format).
     """
 

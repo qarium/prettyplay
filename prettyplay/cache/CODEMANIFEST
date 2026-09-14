@@ -72,17 +72,17 @@ Annotations: |
     One cached step in memory: the metadata and the generated code of the step, as stored in its cache file.
 
     `identity`: the step address.
-    `code`: the generated step code of the fixed form.
+    `code`: the generated step code — top-level imports when present, then the fixed-form `def step` function.
     `created_at`: the creation date.
 
     Requirements:
-    - The cache file is a valid Python module: metadata fields first, then the step code; importing the module and reading the fields reconstructs the step
+    - The cache file is a valid Python module: metadata fields first, then the sentinel line, then the step code; importing the module and reading the fields reconstructs the step
     - The file carries no library version field and is never invalidated by a library upgrade
   properties:
     "identity -> StepIdentity": |
       The step address.
     "code -> str": |
-      The generated step code of the fixed form.
+      The generated step code — top-level imports when present, then the fixed-form `def step` function; stored and restored verbatim.
     "created_at -> str": |
       The creation date.
 
@@ -106,13 +106,13 @@ Annotations: |
       Algorithm:
       1. Resolve the target file by the effective root, the subdirectory and the identity file name
       2. A missing file returns None
-      3. Read the module, validate the metadata fields, reconstruct `CachedStep`
+      3. Read the module, validate the metadata fields, reconstruct `CachedStep`: the code tail starts at the sentinel line — legacy files without it carry the code starting at `def step(`
     "save(step: CachedStep)": |
       Store the step atomically, best-effort.
 
       Algorithm:
       1. Check writability: a read-only cache skips the write and reports on_cache_skipped with the reason read-only cache
-      2. Serialize the step into the module text: metadata fields, then the code
+      2. Serialize the step into the module text: metadata fields, then the sentinel line, then the code
       3. Write a temporary file with a unique name in the target directory
       4. Replace the target file atomically via os.replace
       5. On Windows, when the target is busy: retry the replace shortly, then skip the write for this step and report on_cache_skipped — the run does not fail

@@ -14,7 +14,13 @@ from .models import CachedStep, StepIdentity
 #: Header constants of a cache file: metadata first, then the step code.
 _HEADER_FIELDS = ("STEP_TEXT", "CACHE_KEY", "STEP_TYPE", "CREATED_AT")
 
-#: Marker of the step code tail; the leading newline stays out of the loaded code.
+#: Line marking the start of the step code tail; the surrounding newlines keep
+#: the match out of the header (repr escapes newlines, so a raw newline inside
+#: the header literals is impossible) and out of the loaded code.
+_CODE_SENTINEL = "\n# --- step code ---\n"
+
+#: Legacy marker of the step code tail: files written before the sentinel carry
+#: the code starting at ``def step(`` (the old prompt forbade top-level imports).
 _STEP_MARKER = "\ndef step("
 
 #: Replace attempts and backoff for a busy target (Windows keeps the file open).
@@ -101,10 +107,14 @@ class StepCache:
             text = target.read_text(encoding="utf-8")
             fields = _parse_header(text)
 
-            marker = text.find(_STEP_MARKER)
-            if marker == -1:
-                raise KeyError("def step(")
-            code = text[marker + 1 :]
+            sentinel = text.find(_CODE_SENTINEL)
+            if sentinel != -1:
+                code = text[sentinel + len(_CODE_SENTINEL) :]
+            else:
+                marker = text.find(_STEP_MARKER)  # a file written before the sentinel
+                if marker == -1:
+                    raise KeyError("def step(")
+                code = text[marker + 1 :]
 
             if fields["CACHE_KEY"] != identity.cache_key or fields["STEP_TYPE"] != identity.step_type:
                 return None
@@ -241,13 +251,15 @@ def _parse_header(text: str) -> dict[str, str]:
 
 
 def _serialize(step: CachedStep) -> str:
-    """Serialize a step into the module text: metadata literals first, then the code.
+    """Serialize a step into the module text: metadata literals, the sentinel line, the code.
 
     Args:
         step: the step to serialize.
 
     Returns:
-        The text of a valid Python module carrying the step.
+        The text of a valid Python module carrying the step: the sentinel
+        line marks where the code tail starts, so ``load`` restores the code
+        verbatim — top-level imports included.
     """
     header = "".join(
         f"{name} = {value!r}\n"
@@ -258,7 +270,7 @@ def _serialize(step: CachedStep) -> str:
             ("CREATED_AT", step.created_at),
         )
     )
-    return header + "\n" + step.code + "\n"
+    return header + _CODE_SENTINEL + step.code + "\n"
 
 
 def _remove_quietly(path: str) -> None:

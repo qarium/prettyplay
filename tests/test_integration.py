@@ -1215,3 +1215,8 @@ def test_count_forms_step_runs_green_through_the_full_cycle(tmp_path: Path) -> N
     cached = (tmp_path / identity.filename).read_text(encoding="utf-8")
     assert "expect(videos.first).to_be_visible()" in cached
     assert "videos.count() > 1" in cached
+    # the write loads back verbatim — a replayed run receives the import line too,
+    # not a code tail amputated at `def step(`
+    loaded = StepCache(Config(cache_root=str(tmp_path)), None, StepReporter(hooks=[])).load(identity)
+    assert loaded is not None
+    assert loaded.code.startswith("from playwright.sync_api import expect")
