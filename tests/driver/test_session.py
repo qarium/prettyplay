@@ -874,8 +874,11 @@ class TestDriverSessionDialogWiring:
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
             session = DriverSession(Config(browser=BrowserConfig(name="chromium", accept_dialogs=True)))
-            session.open_context()
+            facade = session.open_context()
             session.close()
+
+        assert facade._router is not None
+        assert facade._router.accept_dialogs is True  # the setting reached the router of the context
 
         context = factory.contexts[0]
         popup = context.new_page()  # a popup joins the context — the page wiring fires for it too

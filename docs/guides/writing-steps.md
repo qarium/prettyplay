@@ -31,6 +31,32 @@ with PrettyPlay("login-flow") as t:
 - `expect(text)` — verifies what the sentence says; a legitimately failed
   expectation fails the test as a product defect
 
+## Stateful page actions — the escape hatch
+
+Some actions stay out of generated code because they outlive a step on the
+page shared by the whole test: network interception (`page.route`), the
+clock (`page.clock`), `add_init_script`, tracing, HAR, CDP. They belong to
+the author, executed explicitly through `run_on_page`:
+
+```python
+with PrettyPlay("login-flow") as t:
+    t.step("open the login page")
+
+    def stub_the_api(page):  # runs inside the driver worker thread, on the genuine page
+        page.route("**/api/config", lambda route: route.fulfill(json={"mode": "demo"}))
+
+    t.run_on_page(stub_the_api)
+    t.step("the dashboard renders in demo mode")
+```
+
+- The action receives the genuine sync `Page` and runs sequentially with
+  every step — the same primitive step code crosses through
+  (see [Driver facade](../reference/driver-facade.md))
+- Requires an opened page: call it after the first step — before that a
+  loud `PrettyplayError` raises
+- The outcome returns as-is; an exception inside the action propagates
+  untouched
+
 ## Screenshots
 
 Two author-facing abilities on the test object:

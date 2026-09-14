@@ -383,7 +383,6 @@ class TestStepGeneratorLogic:
         request = provider.calls[0]
         assert request["prompt"] == SYSTEM_PROMPT
         assert request["cheat_sheet"] == CHEAT_SHEET
-        assert "cheat_sheet" in request
         assert ("page" + "_api") not in request  # the dead slot name, assembled — no literal for the sweep
         assert request["snapshot"] == "- snapshot"
         assert request["screenshot"] is None  # send_screenshots defaults to False

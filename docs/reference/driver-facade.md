@@ -98,10 +98,12 @@ A captured dialog is step-controlled. Dialogs no in-step capture claims are
 resolved by the resolver of last resort: the driver registers one
 record-only routing handler per page of the context before any step code
 runs (registering a `dialog` listener disables Playwright's implicit
-auto-dismiss), and at the end of every run unit each unclaimed dialog is
-resolved exactly once — accepted when the `accept_dialogs` browser setting
-is on, explicitly dismissed when off. The resolver never touches a dialog
-an in-step capture handled and never masks the outcome of the action — see
+auto-dismiss), and at the tail of every driver-thread unit — each run
+action and each plumbing call of the handle alike — every unclaimed dialog
+is resolved exactly once, chained dialogs included: accepted when the
+`accept_dialogs` browser setting is on, explicitly dismissed when off. The
+resolver never touches a dialog an in-step capture handled and never masks
+the outcome of the action — see
 [Configuration](../configuration.md#dialogs).
 
 ## Popups, frames, scrolling — stock means
@@ -189,9 +191,9 @@ never reads settings and never asks an LLM. See
   is identical in every mode
 - Dialogs: an in-step stock capture claims its dialog; dialogs outside a
   capture follow the `accept_dialogs` browser setting
-- No network interception, no `evaluate`, no CDP, no clock, no HAR, no
-  tracing in generated code — the author performs them explicitly through
-  `run_on_page`
+- No `page.route`, no `page.clock`, no `add_init_script`, no CDP, no HAR,
+  no tracing in generated code — the author performs them explicitly
+  through `run_on_page`
 - Never put secrets into step actions — step texts and code land in the
   repository cache
 

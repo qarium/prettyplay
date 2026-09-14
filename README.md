@@ -75,6 +75,16 @@ png = t.get_screenshot()                  # full-page PNG bytes
 t.save_screenshot("artifacts/home.png")   # write full-page PNG to a file
 ```
 
+Stateful page actions excluded from generated code — `page.route`,
+`page.clock`, `add_init_script`, tracing, HAR, CDP — are the author's
+explicit tools through the escape hatch, which runs inside the driver
+worker thread against the genuine page (a step must have run first):
+
+```python
+t.run_on_page(lambda page: page.route("**/api/config", lambda r: r.fulfill(json={"mode": "demo"})))
+title = t.run_on_page(lambda page: page.title())
+```
+
 ## What happens on a step
 
 - **cache hit** — the cached code runs; no LLM is contacted
@@ -116,12 +126,14 @@ locally, run strict in the pipeline.
 `polling_timeout` (default `None` — off; `0` — explicit disable) opens one
 settle window per step execution, measured from the first execution of the
 step's code: a transient failure of a pollable kind — timeouts, element-state
-races, navigation races, failed expectations — re-executes the same code after
-`polling_delay` (default 0.5 s) until success or window end. Attempts appear
-as `settle_retry` log records; no LLM budget is consumed. Locator ambiguity
-and Python-level errors of the step code never poll. Size the window above
-the longest auto-wait it must absorb (6.0 covers one exhausted 5 s
-expectation plus one re-execution).
+races, navigation races, failed checks (a failed `expect(...)` chain or a
+plain assert on an immediate read, like `assert videos.count() > 1`) —
+re-executes the same code after `polling_delay` (default 0.5 s) until
+success or window end. Attempts appear as `settle_retry` log records; no LLM
+budget is consumed. Locator ambiguity and Python-level errors of the step
+code (syntax, names, types) never poll. Size the window above the longest
+auto-wait it must absorb (6.0 covers one exhausted 5 s expectation plus one
+re-execution).
 
 ## Interactive steering
 
@@ -348,7 +360,11 @@ recommendation of a verdict-less `IncurableStepError`).
 
 The cache lives under `.prettyplay/cache/` as plain Python files — one per
 step, carrying its metadata (step sentence, cache key, step type, creation
-date) and the step code.
+date) and the step code. The code targets the standard Playwright sync API,
+so cached steps keep replaying across library upgrades — the one recorded
+break is the switch to the genuine page: caches written against the retired
+page facade call methods that no longer exist and fail at replay; purge the
+cache directory once and regenerate when upgrading across that change.
 
 Generate locally where the LLM is reachable → commit the cache directory →
 CI runs the whole suite from the cache with no LLM keys at all — `strict = true`

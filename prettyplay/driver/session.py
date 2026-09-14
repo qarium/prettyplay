@@ -169,9 +169,10 @@ class DriverSession:
         later popup or new tab registers exactly one handler — never two.
         The handler is record-only; registering a ``dialog`` listener disables
         Playwright's implicit auto-dismiss, so the routing handler subsystem
-        resolves every unclaimed dialog at the run-unit tail — accept by the
-        ``accept_dialogs`` setting of the browser group, else an explicit
-        dismiss (the same observable default).
+        resolves every unclaimed dialog at the tail of every driver-thread
+        unit of the page handle — accept by the ``accept_dialogs`` setting of
+        the browser group, else an explicit dismiss (the same observable
+        default).
 
         Returns:
             The facade of the new page of a fresh isolated context.

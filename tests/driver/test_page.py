@@ -94,6 +94,47 @@ class TargetClosedDialog(FakeRawDialog):
         raise Error("Target closed")
 
 
+class BrokenTransportDialog(FakeRawDialog):
+    """Fake dialog whose resolution fails with a non-Playwright exception."""
+
+    def accept(self, prompt_text: str | None = None) -> None:
+        raise RuntimeError("transport broke")
+
+    def dismiss(self) -> None:
+        raise RuntimeError("transport broke")
+
+
+class ChainedDialog(FakeRawDialog):
+    """Fake dialog whose resolution fires the next dialog of the chain.
+
+    The page opens the next alert the moment the previous one closes, so
+    the routing handler records a fresh dialog while the resolver's own
+    ``accept`` call is still pumping the event loop.
+    """
+
+    def __init__(self, router: _DialogRouter, message: str = "chained?") -> None:
+        super().__init__(message)
+        self._router = router
+
+    def accept(self, prompt_text: str | None = None) -> None:
+        super().accept(prompt_text)
+        self._router.record(FakeRawDialog("next?"))  # dispatched mid-resolution
+
+
+class ThreadRecordingDialog(FakeRawDialog):
+    """Fake dialog recording the thread its resolution runs on."""
+
+    def __init__(self) -> None:
+        super().__init__("which thread?")
+        self.resolved_on: int | None = None
+
+    def accept(self, prompt_text: str | None = None) -> None:
+        self.resolved_on = threading.get_ident()
+
+    def dismiss(self) -> None:
+        self.resolved_on = threading.get_ident()
+
+
 def make_handle(page: object | None = None, context: object | None = None) -> PageFacade:
     """Build a hand-built PageFacade over fakes; the context defaults to the fake page's own."""
     page = page if page is not None else FakeRawPage()
@@ -340,3 +381,120 @@ class TestRunPrimitive:
         assert first.state == "accepted"
         assert second.state == "accepted"  # run 2 resolved only its own dialog
         assert second.accept_calls == 1
+
+    def test_run_resolves_unclaimed_dialogs_wholly_inside_the_worker_thread(self) -> None:
+        worker = PlaywrightWorker()
+        worker.start()
+        handle = make_handle(FakeRawPage())
+        handle._worker = worker
+        router = _DialogRouter(accept_dialogs=True)
+        handle._router = router
+        dialog = ThreadRecordingDialog()
+        router.record(dialog)
+
+        pump_ident = handle.run(lambda _page: threading.get_ident())  # the pump thread of the worker
+        handle.run(lambda _page: "ok")
+        worker.close()
+
+        assert dialog.resolved_on is not None  # the tail pass ran
+        assert dialog.resolved_on == pump_ident  # resolution belongs to the worker pump thread
+        assert dialog.resolved_on != threading.get_ident()  # never the calling thread
+
+    def test_resolver_drains_chained_dialogs_within_one_unit(self) -> None:
+        handle = make_handle(FakeRawPage(), FakeContext())
+        router = _DialogRouter(accept_dialogs=True)
+        handle._router = router
+        chained = ChainedDialog(router)
+        router.record(chained)
+
+        result = handle.run(lambda _page: "ok")
+
+        assert result == "ok"
+        assert chained.state == "accepted"  # the recorded dialog resolved
+        assert chained.accept_calls == 1
+        assert router._pending == []  # the chain recorded mid-resolution drained in the same pass
+
+    def test_run_never_touches_a_dismissed_dialog_the_step_captured(self) -> None:
+        handle = make_handle(FakeRawPage(), FakeContext())
+        router = _DialogRouter(accept_dialogs=False)
+        handle._router = router
+        dialog = FakeRawDialog("leave?")
+        router.record(dialog)  # the handler recorded it — an in-step capture also claimed it
+
+        def action(page: object) -> str:
+            dialog.dismiss()  # the step's own stock capture dismissed the dialog first
+            return "green"
+
+        result = handle.run(action)
+
+        assert result == "green"
+        assert dialog.state == "dismissed"  # resolved once — by the step, not the router
+        assert dialog.dismiss_calls == 1  # the dismiss-branch already-handled skip held too
+
+    def test_resolver_failure_of_a_non_playwright_kind_never_masks_the_action_outcome(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        handle = make_handle(FakeRawPage(), FakeContext())
+        router = _DialogRouter(accept_dialogs=True)
+        handle._router = router
+        router.record(BrokenTransportDialog("delete?"))  # the transport died under the resolution
+
+        def action(page: object) -> None:
+            raise AssertionError("videos not listed")
+
+        with (
+            caplog.at_level(logging.WARNING, logger="prettyplay"),
+            pytest.raises(AssertionError, match="videos not listed"),
+        ):
+            handle.run(action)
+
+        failures = [
+            record
+            for record in caplog.records
+            if record.name == "prettyplay"
+            and record.levelno == logging.WARNING
+            and record.getMessage() == "dialog resolution failed"
+        ]
+        assert len(failures) == 1  # logged and dropped — never raised past the unit
+        assert failures[0].error == "transport broke"
+
+    def test_plumbing_calls_drain_recorded_dialogs_at_their_tail(self) -> None:
+        page = FakeRawPage()
+        handle = make_handle(page)
+        router = _DialogRouter(accept_dialogs=True)
+        handle._router = router
+        before = FakeRawDialog("recorded before the call?")
+        router.record(before)
+        mid_call = FakeRawDialog("dispatched while the call pumps the loop?")
+        original_snapshot = page._body.aria_snapshot
+
+        def recording_snapshot() -> str:
+            router.record(mid_call)  # the event loop dispatches the dialog mid-call
+            return original_snapshot()
+
+        page._body.aria_snapshot = recording_snapshot  # type: ignore[method-assign]
+
+        snapshot = handle.aria_snapshot()
+        handle.screenshot()
+        handle.close()
+
+        assert snapshot == "- heading Адреса"  # the call itself still returned its outcome
+        assert before.state == "accepted"  # pending before the call — drained at the tail
+        assert mid_call.state == "accepted"  # recorded mid-call — drained by the same tail
+        assert router._pending == []  # no dialog survives the plumbing boundary
+
+    def test_plumbing_call_drains_dialogs_on_the_worker_thread(self) -> None:
+        worker = PlaywrightWorker()
+        worker.start()
+        handle = make_handle(FakeRawPage())
+        handle._worker = worker
+        router = _DialogRouter(accept_dialogs=True)
+        handle._router = router
+        dialog = ThreadRecordingDialog()
+        router.record(dialog)
+
+        pump_ident = handle.run(lambda _page: threading.get_ident())
+        handle.aria_snapshot()
+        worker.close()
+
+        assert dialog.resolved_on == pump_ident  # the plumbing tail ran on the worker pump thread

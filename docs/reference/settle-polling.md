@@ -56,9 +56,11 @@ from `prettyplay.driver`: it returns `True` when the exception kind is
 transient page state and `False` when the failure is deterministic or unknown
 — see [Driver facade](driver-facade.md#pollable-failure-kinds). Pollable:
 timeouts, element-state races, navigation and context races, plain
-`AssertionError`s of failed expectations. Not pollable: locator ambiguity
-(deterministic), Python-level errors of the step code itself, unrecognized
-failures. The map is fixed in code: it never reads settings and never asks an
+`AssertionError`s of failed checks — a failed `expect(...)` chain or a plain
+Python assert on an immediate read (`assert videos.count() > 1`) alike. Not
+pollable: locator ambiguity (deterministic), Python-level errors of the step
+code itself (syntax, names, types), unrecognized failures. The map is fixed
+in code: it never reads settings and never asks an
 LLM.
 
 ## Visibility

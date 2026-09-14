@@ -18,7 +18,7 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, TypeVar
 
-from playwright.sync_api import BrowserContext, Dialog, Error, Page
+from playwright.sync_api import BrowserContext, Dialog, Page
 
 if TYPE_CHECKING:
     from .session import PlaywrightWorker
@@ -75,19 +75,10 @@ class PageFacade:
             never cross back through the boundary.
         """
 
-        def unit() -> _T:
-            try:
-                return action(self._page)
-            finally:
-                self._resolve_leftovers()
-
-        if self._worker is None:  # hand-built handle (tests): inline execution
-            return unit()
-
-        return self._worker.run(unit)  # one queued unit; outcome/error re-raised as-is
+        return self._call(lambda: action(self._page))
 
     def _resolve_leftovers(self) -> None:
-        """Run the deferred dialog pass of the run unit; never raises.
+        """Run the deferred dialog pass of the driver-thread unit; never raises.
 
         A handle without a session carries no registered handler, hence
         nothing pending — the no-op is correct.
@@ -96,7 +87,14 @@ class PageFacade:
             self._router.resolve_pending()
 
     def _call(self, fn: Callable[[], _T]) -> _T:
-        """Run one Playwright-touching callable in the driver thread.
+        """Run one callable in the driver thread with the leftover pass.
+
+        Every unit crossing the worker boundary — a run action and a
+        plumbing call alike — pumps the driver event loop, so a dialog can
+        be recorded while the callable executes; after it completes or
+        raises, the resolver-of-last-resort pass drains every dialog left
+        unclaimed by in-step captures, so no pending dialog survives the
+        boundary.
 
         Args:
             fn: the callable touching the wrapped Playwright objects.
@@ -104,10 +102,17 @@ class PageFacade:
         Returns:
             Whatever ``fn`` returns.
         """
-        if self._worker is None:
-            return fn()
 
-        return self._worker.run(fn)
+        def unit() -> _T:
+            try:
+                return fn()
+            finally:
+                self._resolve_leftovers()
+
+        if self._worker is None:  # hand-built handle (tests): inline execution
+            return unit()
+
+        return self._worker.run(unit)  # one queued unit; outcome/error re-raised as-is
 
     def aria_snapshot(self) -> str:
         """Capture the accessibility-tree state of the page.
@@ -138,8 +143,9 @@ class _DialogRouter:
     step code runs. Registering a ``dialog`` listener disables Playwright's
     implicit auto-dismiss, so the router is the resolver of last resort —
     every dialog no in-step stock capture claims is resolved exactly once at
-    the end of the run unit: accept on the ``accept_dialogs`` setting, else
-    an explicit dismiss restoring the Playwright default.
+    the tail of every driver-thread unit, the run action and the plumbing
+    calls alike: accept on the ``accept_dialogs`` setting, else an explicit
+    dismiss restoring the Playwright default.
 
     Attributes:
         accept_dialogs: the ``browser.accept_dialogs`` setting read once at
@@ -153,7 +159,7 @@ class _DialogRouter:
 
         Args:
             accept_dialogs: whether dialogs no in-step stock dialog capture
-                claims are accepted automatically at the run-unit tail.
+                claims are accepted automatically at the unit tail.
         """
         self.accept_dialogs = accept_dialogs
         self._pending: list[Dialog] = []
@@ -173,20 +179,24 @@ class _DialogRouter:
     def resolve_pending(self) -> None:
         """Resolve every recorded dialog exactly once; never raises.
 
-        The run-unit tail pass, executed inside the worker thread. A dialog
-        already resolved by an in-step stock capture raises the driver's
-        already-handled error on the resolution attempt — it is skipped
-        silently; any other resolution failure is logged and dropped so the
-        pass never masks the outcome of the action.
+        The tail pass of every driver-thread unit, executed inside the
+        worker thread. A dialog already resolved by an in-step stock
+        capture raises the driver's already-handled error on the resolution
+        attempt — it is skipped silently; any other resolution failure is
+        logged and dropped so the pass never masks the outcome of the
+        action. A chained dialog — the page firing the next one while the
+        loop advances inside a resolution call — lands in the fresh pending
+        list and joins the same pass: the loop drains until none is left.
         """
-        dialogs, self._pending = self._pending, []
-        for dialog in dialogs:
-            try:
-                if self.accept_dialogs:
-                    dialog.accept()
-                else:
-                    dialog.dismiss()
-            except Error as failure:
-                if "already handled" in str(failure):
-                    continue  # the step's capture resolved it — never double-handle
-                logger.warning("dialog resolution failed", extra={"error": str(failure)})
+        while self._pending:
+            dialogs, self._pending = self._pending, []
+            for dialog in dialogs:
+                try:
+                    if self.accept_dialogs:
+                        dialog.accept()
+                    else:
+                        dialog.dismiss()
+                except Exception as failure:
+                    if "already handled" in str(failure):
+                        continue  # the step's capture resolved it — never double-handle
+                    logger.warning("dialog resolution failed", extra={"error": str(failure)})

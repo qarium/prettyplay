@@ -57,6 +57,13 @@ rendered in this fixed order, identically in both providers. An unset input
 renders no block. Unrecognized classification labels fall back to `incurable`
 in both providers alike.
 
+Cheat-sheet parity: every generation request renders the `CHEAT SHEET` block
+after the scenario inputs and immediately before the `USER INSTRUCTIONS`
+block — the compact standard Playwright sync API reference supplied by the
+calling engine; guidance, not an allowlist. Both providers render it
+identically at the same position. A parity requirement, not a capability
+difference.
+
 The one transport-level asymmetry: the anthropic Messages API requires
 `max_tokens`, so anthropic requests carry a fixed completion cap (4096
 tokens, sized so a full step-code response never truncates); the openai side

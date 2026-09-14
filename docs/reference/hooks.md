@@ -89,6 +89,9 @@ logs its outcomes at WARNING: `compliance findings passed` — the medium and
 low findings a green candidate passed with, on the generation path and in the
 steering dialog alike — and `compliance gate failed` — a gate hard failure
 that ends a steering dialog before the original failure propagates. The
+deferred dialog resolver logs a failed resolution of an unclaimed dialog at
+WARNING as `dialog resolution failed` — logged and dropped, never masking
+the outcome of the action. The
 error field of the `on_step_failed` event and
 its log record carry the full structured render of the terminal failure;
 integrators display it verbatim.
