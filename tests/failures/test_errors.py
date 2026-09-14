@@ -5,20 +5,32 @@ import inspect
 import pytest
 from prettyplay.failures import (
     ComplianceVerdictError,
+    ErrorParts,
     FailureVerdict,
     IncurableStepError,
     LLMUnavailableError,
     PrettyplayError,
     ProductDefectError,
     __all__,
+    decompose_error_text,
     render_terminal_message,
+)
+
+#: The representative failed-expectation text reused across the decomposition tests.
+EXPECT_FAILURE_TEXT = "\n".join(
+    [
+        "Locator expected to be visible",
+        "Actual value: display:none",
+        "Call log:",
+        '  - waiting for get_by_role("button", name="Sign in")',
+    ]
 )
 
 
 class TestFailuresContract:
     """Contract tests: facade import, subclassing, constructor signatures, fields."""
 
-    def test_all_seven_names_importable_from_facade(self) -> None:
+    def test_all_nine_names_importable_from_facade(self) -> None:
         for name in (
             PrettyplayError,
             ProductDefectError,
@@ -26,10 +38,12 @@ class TestFailuresContract:
             LLMUnavailableError,
             ComplianceVerdictError,
             FailureVerdict,
+            ErrorParts,
         ):
             assert isinstance(name, type)
 
         assert callable(render_terminal_message)
+        assert callable(decompose_error_text)
 
     def test_every_mutation_is_subclass_of_prettyplay_error(self) -> None:
         assert issubclass(ProductDefectError, PrettyplayError)
@@ -57,6 +71,16 @@ class TestFailuresContract:
         parameters = list(inspect.signature(render_terminal_message).parameters.values())
 
         assert [parameter.name for parameter in parameters] == ["reason", "step_text", "error", "verdict"]
+
+    def test_decompose_error_text_signature_is_single_error(self) -> None:
+        assert list(inspect.signature(decompose_error_text).parameters) == ["error"]
+
+    def test_error_parts_signature_is_five_keyword_only_string_fields(self) -> None:
+        parameters = list(inspect.signature(ErrorParts).parameters.values())
+
+        assert [parameter.name for parameter in parameters] == ["class_name", "reason", "received", "cause", "call_log"]
+        assert all(parameter.kind is inspect.Parameter.KEYWORD_ONLY for parameter in parameters)
+        assert all(parameter.default == "" for parameter in parameters)
 
     def test_product_defect_signature_is_step_text_message_error_verdict(self) -> None:
         parameters = list(inspect.signature(ProductDefectError.__init__).parameters.values())[1:]
@@ -146,14 +170,16 @@ class TestFailuresContract:
 
         assert error.message == "llm unavailable: openai: OPENAI_API_KEY is not set"
 
-    def test_facade_all_lists_seven_names(self) -> None:
+    def test_facade_all_lists_nine_names(self) -> None:
         assert __all__ == [
             "ComplianceVerdictError",
+            "ErrorParts",
             "FailureVerdict",
             "IncurableStepError",
             "LLMUnavailableError",
             "PrettyplayError",
             "ProductDefectError",
+            "decompose_error_text",
             "render_terminal_message",
         ]
 
@@ -390,3 +416,81 @@ class TestFailuresLogic:
         assert (error.step_text, error.reason, error.error, error.code) == ("s", "r", "e", "c")
         assert error.recommendation == "reword the step or refresh the cache"  # fallback — no verdict
         assert error.verdict is None
+
+
+class TestDecomposeErrorText:
+    """Logic tests: the pure recognition of the playwright failure-message anatomy."""
+
+    def test_decompose_extracts_all_parts_of_an_expect_failure(self) -> None:
+        parts = decompose_error_text(EXPECT_FAILURE_TEXT)
+
+        assert parts.class_name == ""
+        assert parts.reason == "Locator expected to be visible"
+        assert parts.received == "display:none"
+        assert parts.cause == ""
+        assert parts.call_log == '  - waiting for get_by_role("button", name="Sign in")'
+
+    def test_decompose_extracts_typed_error_head(self) -> None:
+        parts = decompose_error_text("TimeoutError: Timeout 30000ms exceeded\n=========================== logs ====…")
+
+        assert parts.class_name == "TimeoutError"
+        assert parts.reason == "Timeout 30000ms exceeded"
+        assert parts.received == ""
+        assert parts.cause == ""
+        assert parts.call_log == ""  # the logs appendix is not a Call log block
+
+    def test_decompose_extracts_cause_line(self) -> None:
+        parts = decompose_error_text("TimeoutError: Page.goto failed\nCaused by: net::ERR_CONNECTION_REFUSED at https://x.test")
+
+        assert parts.class_name == "TimeoutError"
+        assert parts.reason == "Page.goto failed"
+        assert parts.received == ""
+        assert parts.cause == "net::ERR_CONNECTION_REFUSED at https://x.test"
+        assert parts.call_log == ""
+
+    def test_decompose_unrecognized_shapes_leave_parts_empty(self) -> None:
+        parts = decompose_error_text("weird failure text\nno shapes here")
+
+        assert parts.class_name == ""
+        assert parts.reason == "weird failure text"
+        assert parts.received == parts.cause == parts.call_log == ""
+
+    def test_decompose_empty_error_yields_all_empty_parts(self) -> None:
+        parts = decompose_error_text("")
+
+        assert parts == ErrorParts()
+
+    def test_decompose_multiline_actual_value_is_preserved(self) -> None:
+        text = "\n".join(
+            [
+                "Locator expected to have text",
+                "Actual value: welcome",
+                "extra context line",
+                "more context",
+                "Call log:",
+                "  - waiting for locator",
+            ]
+        )
+        parts = decompose_error_text(text)
+
+        assert parts.received == "welcome\nextra context line\nmore context"
+        assert parts.call_log == "  - waiting for locator"
+
+    def test_decompose_net_error_head_is_not_a_class(self) -> None:
+        parts = decompose_error_text("net::ERR_CONNECTION_REFUSED at https://x.test")
+
+        assert parts.class_name == ""
+        assert parts.reason == "net::ERR_CONNECTION_REFUSED at https://x.test"
+
+    def test_error_parts_is_pydantic_kw_only_with_empty_defaults(self) -> None:
+        assert ErrorParts(class_name="X").model_dump() == {
+            "class_name": "X",
+            "reason": "",
+            "received": "",
+            "cause": "",
+            "call_log": "",
+        }
+        assert ErrorParts(reason="r", class_name="c").reason == "r"
+
+        with pytest.raises(TypeError):  # kw_only — positional construction is rejected
+            ErrorParts("X")

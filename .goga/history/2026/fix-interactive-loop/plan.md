@@ -365,8 +365,8 @@ parameter signature until Task 2, so the tree stays green after this task.
 Do NOT modify them. If implementation does not match the contract, fix the implementation — never
 fix the contract.**
 
-- [ ] **STEP 0 — Declaration**: declare this task (Task 1, failures cell) before starting
-- [ ] **Contract tests**: in `tests/failures/test_errors.py` — `from prettyplay.failures import
+- [x] **STEP 0 — Declaration**: declare this task (Task 1, failures cell) before starting
+- [x] **Contract tests**: in `tests/failures/test_errors.py` — `from prettyplay.failures import
   ErrorParts, decompose_error_text` importable and both in `__all__`; update
   `test_all_seven_names_importable_from_facade` → nine names (rename to
   `test_all_nine_names_importable_from_facade`) and `test_facade_all_lists_seven_names` →
@@ -375,13 +375,13 @@ fix the contract.**
   PrettyplayError, ProductDefectError, decompose_error_text, render_terminal_message); new
   signature test: `list(inspect.signature(decompose_error_text).parameters) == ["error"]`;
   `ErrorParts` constructor is keyword-only with five `str` fields (expected to fail at this stage)
-- [ ] **Code**: in `prettyplay/failures/errors.py` — add `import re` and
+- [x] **Code**: in `prettyplay/failures/errors.py` — add `import re` and
   `from pydantic import BaseModel, ConfigDict`; define the class-prefix shape
   `_CLASS_HEAD = re.compile(r"^([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*):(?:\s+(.*))?$")`
-- [ ] **Code**: implement `ErrorParts(BaseModel)` with
+- [x] **Code**: implement `ErrorParts(BaseModel)` with
   `model_config = ConfigDict(kw_only=True)` and five `str` fields (`class_name`, `reason`,
   `received`, `cause`, `call_log`) each defaulting `""`; docstring per the contract annotations
-- [ ] **Code**: implement `decompose_error_text(error: str) -> ErrorParts` exactly per the design
+- [x] **Code**: implement `decompose_error_text(error: str) -> ErrorParts` exactly per the design
   algorithm:
   ```
   1. error == "" → return ErrorParts() (all fields empty)
@@ -403,12 +403,12 @@ fix the contract.**
   Never raises on any input (total, deterministic, no I/O). The whitespace-or-EOL requirement
   after the colon in step 3 is what keeps `net::ERR_…` heads unrecognized (the second colon
   breaks the shape) — the whole line stays the reason.
-- [ ] **Code**: in `prettyplay/failures/__init__.py` — add `ErrorParts` and `decompose_error_text`
+- [x] **Code**: in `prettyplay/failures/__init__.py` — add `ErrorParts` and `decompose_error_text`
   to the import block and `__all__` (nine names, alphabetical order)
-- [ ] **Interface verification**: `pytest tests/failures/test_errors.py -q` — the new contract
+- [x] **Interface verification**: `pytest tests/failures/test_errors.py -q` — the new contract
   tests pass; `python -c "from prettyplay.failures import ErrorParts, decompose_error_text"`
   (project virtualenv)
-- [ ] **Logic tests**: in `tests/failures/test_errors.py` (new `class TestDecomposeErrorText:`
+- [x] **Logic tests**: in `tests/failures/test_errors.py` (new `class TestDecomposeErrorText:`
   and extend where natural) — the design scenarios, representative text reused across them:
   ```
   Locator expected to be visible
@@ -440,12 +440,12 @@ fix the contract.**
   - `test_error_parts_is_pydantic_kw_only_with_empty_defaults`: `ErrorParts(class_name="X")`
     leaves the other four `""`; `ErrorParts(reason="r", class_name="c")` works; positional
     construction raises `TypeError`
-- [ ] **Debugging**: `pytest tests/failures/test_errors.py -x` — fix implementation code until all
+- [x] **Debugging**: `pytest tests/failures/test_errors.py -x` — fix implementation code until all
   tests pass (do NOT fix test expectations to match broken code)
-- [ ] **Contract re-verification**: facade nine names; pure total routine; pydantic kw_only shape;
+- [x] **Contract re-verification**: facade nine names; pure total routine; pydantic kw_only shape;
   no existing failure behavior changed (the old render tests still pass untouched)
-- [ ] **Lint**: `ruff check prettyplay/failures tests/failures` — fix formatting if necessary
-- [ ] **STEP 8 — Completion**: mark the checkboxes complete; submit for review
+- [x] **Lint**: `ruff check prettyplay/failures tests/failures` — fix formatting if necessary
+- [x] **STEP 8 — Completion**: mark the checkboxes complete; submit for review
 
 ### Task 2: the decomposed render — `render_terminal_message`, `FailureVerdict.render`, terminal constructors (failures)
 

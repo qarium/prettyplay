@@ -9,13 +9,23 @@ single render feeds the exception text, the log record and the
 ``on_step_failed`` hook payload; consumers never re-compose it.
 """
 
+import re
 from dataclasses import dataclass
+
+from pydantic import BaseModel, ConfigDict
 
 #: The built-in path guidance rendered when a terminal failure carries no verdict.
 _FALLBACK_GUIDANCE = "reword the step or refresh the cache"
 
 #: Length of the longest verdict label — the fixed label column of the verdict block.
 _VERDICT_LABEL_WIDTH = len("recommendation:")
+
+#: The dotted-identifier class prefix of an error head — ``TimeoutError:``, ``Page.reload:``.
+#: The whitespace-or-end requirement after the colon keeps ``net::ERR_…`` heads unrecognized.
+_CLASS_HEAD = re.compile(r"^([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*):(?:\s+(.*))?$")
+
+#: The fixed shape prefixes recognized in the error tail — by prefix only, never by position.
+_SHAPE_PREFIXES = ("Actual value:", "Caused by:", "Call log:")
 
 
 class PrettyplayError(Exception):
@@ -73,6 +83,146 @@ class FailureVerdict:
             lines.append(f"{label}:".ljust(width) + " " + value.replace("\n", continuation))
 
         return "\n".join(lines)
+
+
+class ErrorParts(BaseModel):
+    """The decomposed parts of a terminal failure's underlying error.
+
+    The data shape :func:`render_terminal_message` renders: the class prefix
+    and headline of the error text plus the detail parts recognized by their
+    fixed shapes (see the ``playwright`` practice). No behavior beyond the
+    data shape.
+
+    Args:
+        class_name: the exception class prefix of the underlying error; empty —
+            the text carries none.
+        reason: the underlying error headline — the expectation of a failed
+            check or the message head of a typed error.
+        received: the actual-value detail; empty — absent.
+        cause: the error-cause detail; empty — absent.
+        call_log: the Call log block; empty — absent.
+    """
+
+    model_config = ConfigDict(kw_only=True)
+
+    class_name: str = ""
+    reason: str = ""
+    received: str = ""
+    cause: str = ""
+    call_log: str = ""
+
+
+def _consume_actual_value(lines: list[str], start: int) -> tuple[str, int]:
+    """Collect the received detail starting at an ``Actual value:`` line.
+
+    The value is the text after the prefix plus the continuation lines that
+    follow — consumed while they are non-blank and not a recognized shape
+    line, joined verbatim.
+
+    Args:
+        lines: the full text, split into lines.
+        start: the index of the ``Actual value:`` line.
+
+    Returns:
+        The received detail and the index of the first unconsumed line.
+    """
+    collected = [lines[start][len("Actual value:") :].strip()]
+    index = start + 1
+
+    while index < len(lines):
+        follower = lines[index]
+        if follower == "" or follower.startswith(_SHAPE_PREFIXES):
+            break
+        collected.append(follower)
+        index += 1
+
+    return "\n".join(collected), index
+
+
+def _consume_call_log(lines: list[str], start: int) -> tuple[str, int]:
+    """Collect the Call log block starting at a ``Call log:`` line.
+
+    The block is every following line that is blank or indented, kept
+    verbatim with the trailing blanks trimmed; it ends at a non-indented
+    non-blank line or the end of the text.
+
+    Args:
+        lines: the full text, split into lines.
+        start: the index of the ``Call log:`` line.
+
+    Returns:
+        The Call log block and the index of the first unconsumed line.
+    """
+    block = []
+    index = start + 1
+
+    while index < len(lines):
+        follower = lines[index]
+        if follower != "" and not follower[0].isspace():
+            break
+        block.append(follower)
+        index += 1
+
+    while block and block[-1] == "":
+        block.pop()
+
+    return "\n".join(block), index
+
+
+def decompose_error_text(error: str) -> ErrorParts:
+    """Decompose the full underlying error text of a failed step into the render parts.
+
+    Pure recognition of the playwright failure-message anatomy (see the
+    ``playwright`` practice): the dotted-identifier class prefix of the first
+    line, then — in the remainder — the detail shapes by their fixed prefixes
+    only, never by position. An empty text yields all-empty parts;
+    unrecognized shapes leave their parts empty. Never raises on any input.
+
+    Args:
+        error: the full underlying error text as formatted by the engine
+            error-text policy; empty — all parts empty.
+
+    Returns:
+        The decomposed parts.
+    """
+    if error == "":
+        return ErrorParts()
+
+    lines = error.splitlines()
+    class_name = ""
+    reason = ""
+    received = ""
+    cause = ""
+    call_log = ""
+
+    head = _CLASS_HEAD.match(lines[0])
+    if head:
+        class_name = head[1]
+        reason = head[2] or ""
+    else:
+        reason = lines[0]
+
+    index = 1
+
+    while index < len(lines):
+        line = lines[index]
+
+        if line.startswith("Actual value:"):
+            received, index = _consume_actual_value(lines, index)
+            continue
+
+        if line.startswith("Caused by:"):
+            cause = line[len("Caused by:") :].strip()
+            index += 1
+            continue
+
+        if line.startswith("Call log:"):
+            call_log, index = _consume_call_log(lines, index)
+            continue
+
+        index += 1
+
+    return ErrorParts(class_name=class_name, reason=reason, received=received, cause=cause, call_log=call_log)
 
 
 def render_terminal_message(reason: str, step_text: str, error: str, verdict: FailureVerdict | None) -> str:
