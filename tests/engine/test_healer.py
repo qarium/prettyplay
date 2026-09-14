@@ -441,7 +441,7 @@ class TestStepHealerLogic:
         rendered = str(excinfo.value)
         assert isinstance(excinfo.value.verdict, FailureVerdict)
         assert excinfo.value.verdict.recommendation == "file a bug"
-        assert rendered.startswith("expected the total 100, observed 90")
+        assert rendered.startswith("ProductDefectError: expected the total 100, observed 90")
         assert rendered.count("expected the total 100, observed 90") == 2  # message + verdict-render explanation
         assert "recommendation: file a bug" in rendered
         assert fixture.recorder.events == [

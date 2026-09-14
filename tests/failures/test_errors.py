@@ -67,10 +67,16 @@ class TestFailuresContract:
     def test_verdict_render_is_callable_method(self) -> None:
         assert callable(FailureVerdict.render)
 
-    def test_render_terminal_message_signature_is_four_parameters(self) -> None:
+    def test_render_terminal_message_signature_is_five_parameters(self) -> None:
         parameters = list(inspect.signature(render_terminal_message).parameters.values())
 
-        assert [parameter.name for parameter in parameters] == ["reason", "step_text", "error", "verdict"]
+        assert [parameter.name for parameter in parameters] == [
+            "error_class",
+            "reason",
+            "step_text",
+            "error",
+            "verdict",
+        ]
 
     def test_decompose_error_text_signature_is_single_error(self) -> None:
         assert list(inspect.signature(decompose_error_text).parameters) == ["error"]
@@ -191,7 +197,7 @@ class TestFailureVerdictLogic:
         verdict = FailureVerdict("rot", "the button was renamed", "refresh the cache")
 
         assert verdict.render().splitlines() == [
-            "explanation:    the button was renamed",
+            "explanation: the button was renamed",
             "recommendation: refresh the cache",
         ]
 
@@ -199,6 +205,19 @@ class TestFailureVerdictLogic:
         verdict = FailureVerdict("rot", "", "refresh the cache")
 
         assert verdict.render() == "recommendation: refresh the cache"
+
+    def test_verdict_render_labels_at_column_zero_with_two_space_continuations(self) -> None:
+        assert FailureVerdict("rot", "two\nlines", "do X").render() == "explanation: two\n  lines\nrecommendation: do X"
+
+    def test_verdict_render_empty_fields_yield_empty_block(self) -> None:
+        assert FailureVerdict("rot", "", "").render() == ""
+
+        rendered = render_terminal_message(
+            "IncurableStepError", "budget exhausted", "step", "err", FailureVerdict("rot", "", "")
+        )
+
+        assert "recommendation:" not in rendered
+        assert not rendered.endswith("---")  # an empty verdict block leaves no section at all
 
     def test_verdict_is_frozen(self) -> None:
         verdict = FailureVerdict("rot", "the button was renamed", "refresh the cache")
@@ -210,8 +229,31 @@ class TestFailureVerdictLogic:
 class TestRenderTerminalMessageLogic:
     """Logic tests: the single structured render and its block-omission rules."""
 
+    def test_render_composes_the_full_template(self) -> None:
+        verdict = FailureVerdict("fixable", "the button is behind the modal", "dismiss the modal first")
+        rendered = render_terminal_message(
+            "IncurableStepError", "the generation budget is exhausted", "click Checkout", EXPECT_FAILURE_TEXT, verdict
+        )
+
+        assert rendered == "\n".join(
+            [
+                "IncurableStepError: the generation budget is exhausted",
+                "---",
+                "step: click Checkout",
+                "error: Locator expected to be visible",
+                "---",
+                "received: display:none",
+                "Call log:",
+                '  - waiting for get_by_role("button", name="Sign in")',
+                "---",
+                "explanation: the button is behind the modal",
+                "recommendation: dismiss the modal first",
+            ]
+        )  # labels at column zero, no padding anywhere
+
     def test_render_terminal_message_full_template(self) -> None:
         rendered = render_terminal_message(
+            "ProductDefectError",
             "кнопка осталась невидимой",
             "Проверить кнопку",
             "Locator expected to be visible",
@@ -219,36 +261,73 @@ class TestRenderTerminalMessageLogic:
         )
 
         assert rendered == (
-            "кнопка осталась невидимой\n"
+            "ProductDefectError: кнопка осталась невидимой\n"
             "---\n"
             "step: Проверить кнопку\n"
             "error: Locator expected to be visible\n"
             "---\n"
-            "explanation:    на странице нет элемента\n"
+            "explanation: на странице нет элемента\n"
             "recommendation: проверить селектор"
         )
-        # the value column is len("recommendation:") + 1 — 4 spaces after "explanation:"
-        assert "explanation:    на странице нет элемента" in rendered
-        # the first line is the reason alone — no ":" of its own
-        assert rendered.partition("\n")[0] == "кнопка осталась невидимой"
+        # the labels sit at column zero — no padding anywhere in the render
+        assert "explanation: на странице нет элемента" in rendered
+        # the first line is the class name plus the reason
+        assert rendered.partition("\n")[0] == "ProductDefectError: кнопка осталась невидимой"
 
     def test_verdict_render_alignment_and_multiline(self) -> None:
         rendered = FailureVerdict("rot", "line one\nline two", "fix it").render()
 
-        assert rendered == "explanation:    line one\n                line two\nrecommendation: fix it"
+        assert rendered == "explanation: line one\n  line two\nrecommendation: fix it"
         assert "category" not in rendered  # the category line is gone — structured fields only
         assert FailureVerdict("rot", "", "").render() == ""
-        assert FailureVerdict("rot", "only", "").render() == "explanation:    only"  # padded to the fixed column
+        assert FailureVerdict("rot", "only", "").render() == "explanation: only"  # column zero — no padding
 
     def test_render_terminal_message_block_omission(self) -> None:
-        assert render_terminal_message("reason", "", "", None) == "reason"
-        assert render_terminal_message("reason", "step", "", None) == "reason\n---\nstep: step"
-        assert render_terminal_message("reason", "", "err", None) == "reason\n---\nerror: err"
+        assert render_terminal_message("IncurableStepError", "reason", "", "", None) == "IncurableStepError: reason"
+        assert render_terminal_message("IncurableStepError", "reason", "step", "", None) == (
+            "IncurableStepError: reason\n---\nstep: step"
+        )
+        assert render_terminal_message("IncurableStepError", "reason", "", "err", None) == (
+            "IncurableStepError: reason\n---\nerror: err"
+        )
 
-        recommendation_only = render_terminal_message("reason", "", "", FailureVerdict("rot", "", "rec"))
+        recommendation_only = render_terminal_message(
+            "IncurableStepError", "reason", "", "", FailureVerdict("rot", "", "rec")
+        )
 
-        assert recommendation_only == "reason\n---\nrecommendation: rec"
+        assert recommendation_only == "IncurableStepError: reason\n---\nrecommendation: rec"
         assert not recommendation_only.endswith("---")  # no trailing separator, ever
+
+    def test_render_omits_the_details_section_without_parts(self) -> None:
+        rendered = render_terminal_message(
+            "IncurableStepError", "budget exhausted", "click Pay", "TimeoutError: Timeout 30000ms exceeded", None
+        )
+
+        assert rendered == (
+            "IncurableStepError: budget exhausted\n"
+            "---\n"
+            "step: click Pay\n"
+            "error: TimeoutError: Timeout 30000ms exceeded"
+        )
+        assert rendered.count("---") == 1  # no second separator — the section is gone entirely
+        assert "received:" not in rendered
+        assert "cause:" not in rendered
+        assert "Call log:" not in rendered
+
+    def test_render_error_line_reconstructs_typed_headline(self) -> None:
+        rendered = render_terminal_message(
+            "IncurableStepError", "budget exhausted", "reload the page", "Page.reload: Timeout 30000ms exceeded", None
+        )
+
+        assert "error: Page.reload: Timeout 30000ms exceeded" in rendered.splitlines()
+        # the dotted head lives inside the headline — distinct from the first line's terminal class
+        assert rendered.partition("\n")[0] == "IncurableStepError: budget exhausted"
+
+    def test_render_empty_error_omits_step_error_entirely_when_step_also_empty(self) -> None:
+        rendered = render_terminal_message("IncurableStepError", "budget exhausted", "", "", None)
+
+        assert rendered == "IncurableStepError: budget exhausted"
+        assert "---" not in rendered  # no bare separator when the whole step section is empty
 
     def test_terminal_errors_carry_render_error_field_and_types(self) -> None:
         verdict = FailureVerdict("product_defect", "на странице нет элемента", "проверить селектор")
@@ -257,7 +336,11 @@ class TestRenderTerminalMessageLogic:
         )
 
         assert str(pde) == render_terminal_message(
-            "the button stayed invisible", "Проверить кнопку", "Locator expected to be visible", verdict
+            "ProductDefectError",
+            "the button stayed invisible",
+            "Проверить кнопку",
+            "Locator expected to be visible",
+            verdict,
         )
         assert pde.error == "Locator expected to be visible"
         assert pde.verdict is verdict
@@ -297,14 +380,14 @@ class TestFailuresLogic:
 
     def test_product_defect_str_without_verdict_carries_step_block(self) -> None:
         assert str(ProductDefectError("step", "expected x, observed y")) == (
-            "expected x, observed y\n---\nstep: step"
+            "ProductDefectError: expected x, observed y\n---\nstep: step"
         )
 
     def test_product_defect_str_appends_verdict_block(self) -> None:
         verdict = FailureVerdict("product_defect", "the banner is gone", "rec")
         rendered = str(ProductDefectError("step", "expected x, observed y", "", verdict))
 
-        assert rendered.startswith("expected x, observed y")
+        assert rendered.startswith("ProductDefectError: expected x, observed y")
         assert "recommendation: rec" in rendered
         assert rendered.index("expected x, observed y") < rendered.index("recommendation:")
 
@@ -319,7 +402,7 @@ class TestFailuresLogic:
         error = IncurableStepError("s", "budget exhausted")
 
         assert error.recommendation == "reword the step or refresh the cache"
-        assert str(error).startswith("budget exhausted")
+        assert str(error).startswith("IncurableStepError: budget exhausted")
         assert "recommendation: reword the step or refresh the cache" in str(error)
         assert not isinstance(error, AssertionError)
 
@@ -327,7 +410,7 @@ class TestFailuresLogic:
         verdict = FailureVerdict("incurable", "the text is gone", "reword the step")
         rendered = str(IncurableStepError("s", "budget exhausted", "", verdict=verdict))
 
-        assert rendered.startswith("budget exhausted")
+        assert rendered.startswith("IncurableStepError: budget exhausted")
         assert "recommendation: reword the step" in rendered
         assert rendered.index("budget exhausted") < rendered.index("recommendation:")
 
@@ -384,7 +467,9 @@ class TestFailuresLogic:
 
         assert error.code == step_code
         assert step_code not in str(error)
-        assert step_code not in render_terminal_message(error.reason, error.step_text, error.error, error.verdict)
+        assert step_code not in render_terminal_message(
+            "IncurableStepError", error.reason, error.step_text, error.error, error.verdict
+        )
         assert error.message == "budget exhausted"  # the code never leaks into the message attribute
 
     def test_no_code_error_renders_the_pre_change_form(self) -> None:
@@ -392,7 +477,7 @@ class TestFailuresLogic:
 
         assert error.code == ""
         assert str(error) == (
-            "budget exhausted\n"
+            "IncurableStepError: budget exhausted\n"
             "---\n"
             "step: s\n"
             "error: err\n"
@@ -406,9 +491,21 @@ class TestFailuresLogic:
         error = IncurableStepError("s", "budget exhausted", "err", step_code, verdict)
 
         assert error.verdict is verdict
-        assert "explanation:    the button was renamed" in str(error)
+        assert "explanation: the button was renamed" in str(error)
         assert "recommendation: refresh the cache" in str(error)
         assert step_code not in str(error)  # the code field stays programmatic-only
+
+    def test_product_defect_first_line_carries_its_own_class_name(self) -> None:
+        exc = ProductDefectError("s", "the button stayed invisible", "", None)
+
+        assert str(exc).splitlines()[0] == "ProductDefectError: the button stayed invisible"
+        assert exc.message == "the button stayed invisible"  # the attribute keeps the primary reason
+
+        incurable = IncurableStepError("s", "budget exhausted", "", None)
+
+        assert str(incurable).splitlines()[0] == "IncurableStepError: budget exhausted"
+        # the render-only fallback verdict still renders when the verdict is None
+        assert "recommendation: reword the step or refresh the cache" in str(incurable)
 
     def test_incurable_property_set_matches_the_contract(self) -> None:
         error = IncurableStepError("s", "r", "e", "c", None)
@@ -440,13 +537,26 @@ class TestDecomposeErrorText:
         assert parts.call_log == ""  # the logs appendix is not a Call log block
 
     def test_decompose_extracts_cause_line(self) -> None:
-        parts = decompose_error_text("TimeoutError: Page.goto failed\nCaused by: net::ERR_CONNECTION_REFUSED at https://x.test")
+        text = "TimeoutError: Page.goto failed\nCaused by: net::ERR_CONNECTION_REFUSED at https://x.test"
+        parts = decompose_error_text(text)
 
         assert parts.class_name == "TimeoutError"
         assert parts.reason == "Page.goto failed"
         assert parts.received == ""
         assert parts.cause == "net::ERR_CONNECTION_REFUSED at https://x.test"
         assert parts.call_log == ""
+
+        rendered = render_terminal_message("IncurableStepError", "r", "s", text, None)
+
+        # the render half: the cause line sits inside the details section, between the --- separators
+        assert rendered == (
+            "IncurableStepError: r\n"
+            "---\n"
+            "step: s\n"
+            "error: TimeoutError: Page.goto failed\n"
+            "---\n"
+            "cause: net::ERR_CONNECTION_REFUSED at https://x.test"
+        )
 
     def test_decompose_unrecognized_shapes_leave_parts_empty(self) -> None:
         parts = decompose_error_text("weird failure text\nno shapes here")

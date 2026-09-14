@@ -461,12 +461,12 @@ verdict block, and the constructors feeding `type(self).__qualname__`.
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If
 implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **STEP 0 — Declaration**: declare this task (Task 2, failures cell) before starting
-- [ ] **Contract tests**: in `tests/failures/test_errors.py` — update
+- [x] **STEP 0 — Declaration**: declare this task (Task 2, failures cell) before starting
+- [x] **Contract tests**: in `tests/failures/test_errors.py` — update
   `test_render_terminal_message_signature_is_four_parameters` → five parameters
   `["error_class", "reason", "step_text", "error", "verdict"]`; `FailureVerdict.render` stays a
   callable method (expected to fail at this stage)
-- [ ] **Code**: `render_terminal_message` — new signature (`error_class` first) and template
+- [x] **Code**: `render_terminal_message` — new signature (`error_class` first) and template
   exactly per the design algorithm:
   ```
   1. parts = decompose_error_text(error)
@@ -489,21 +489,21 @@ implementation does not match the contract, fix the implementation — never fix
   `error:` line semantics: for a failed check the underlying error carries no AssertionError
   prefix (`format_step_error` policy) so `class_name` stays empty and the headline is the
   expectation text alone; for typed errors the prefix reconstructs the kind.
-- [ ] **Code**: `FailureVerdict.render` — drop the alignment: labels at column zero, two-space
+- [x] **Code**: `FailureVerdict.render` — drop the alignment: labels at column zero, two-space
   continuation indent; delete the `_VERDICT_LABEL_WIDTH` constant:
   ```
   for (label, value) in (("explanation", e), ("recommendation", r)):
       if value: emit f"{label}: {value.replace('\n', '\n  ')}"
   join with "\n"
   ```
-- [ ] **Code**: `ProductDefectError.__init__` / `IncurableStepError.__init__` — the render call
+- [x] **Code**: `ProductDefectError.__init__` / `IncurableStepError.__init__` — the render call
   gains the first argument `type(self).__qualname__` (the SHORT class name — user-approved
   decision; do NOT switch to the module-qualified dotted path); attributes stored exactly as
   today; `IncurableStepError` keeps the render-only fallback verdict when `verdict is None`
   (`self.verdict` stays None); update docstrings; `type(self).__qualname__` is correct under
   subclassing (renders the actual raised type)
-- [ ] **Interface verification**: `pytest tests/failures/test_errors.py -q` — contract tests pass
-- [ ] **Logic tests**: in `tests/failures/test_errors.py` — the design scenarios:
+- [x] **Interface verification**: `pytest tests/failures/test_errors.py -q` — contract tests pass
+- [x] **Logic tests**: in `tests/failures/test_errors.py` — the design scenarios:
   - `test_render_composes_the_full_template`: verdict =
     `FailureVerdict("fixable", "the button is behind the modal", "dismiss the modal first")`,
     error = the representative expect-failure text; input
@@ -547,17 +547,17 @@ implementation does not match the contract, fix the implementation — never fix
     continuations), `test_no_code_error_renders_the_pre_change_form`,
     `test_verdict_bearing_error_with_code_renders_verdict_block_without_code` — every call site
     grows the `error_class` argument; `str(error)` first lines now carry the terminal class name
-- [ ] **Debugging**: `pytest tests/failures/test_errors.py -x` — fix implementation until green;
+- [x] **Debugging**: `pytest tests/failures/test_errors.py -x` — fix implementation until green;
   then `pytest tests/ -x` to surface cross-suite consumers of the render (executor/reporter
   assertions on `str(error)` shapes) and align those expectations to the new template — the
   render contract itself never bends
-- [ ] **Contract re-verification**: one render feeds exception message + `on_step_failed`
+- [x] **Contract re-verification**: one render feeds exception message + `on_step_failed`
   payload + log record (no re-composition — `render_terminal_message` is called only from the two
   constructors); block order fixed; omission rules; no step code / snapshot embedded; no label
   padding; short class name on the first line
-- [ ] **Lint**: `ruff check prettyplay/failures tests/failures` — fix formatting; confirm
+- [x] **Lint**: `ruff check prettyplay/failures tests/failures` — fix formatting; confirm
   `_VERDICT_LABEL_WIDTH` is gone
-- [ ] **STEP 8 — Completion**: mark the checkboxes complete; submit for review
+- [x] **STEP 8 — Completion**: mark the checkboxes complete; submit for review
 
 ### Task 3: `PageFacade.url` — the worker-thread URL read (driver)
 
