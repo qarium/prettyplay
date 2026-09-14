@@ -358,17 +358,17 @@ The author-facing crossing point. Covers the contract entity `PrettyPlay.run_on_
 ```
 No traceback folding (uniform with the screenshot abilities — `run_on_page` does not go through `_raise_folded`; the contract says the action's exception propagates as-is, and author `Error`s are not `PrettyplayError`s anyway).
 
-- [ ] **Contract tests** (`tests/test_scenario.py`): `run_on_page` exists on `PrettyPlay` with signature `["self", "action"]`; importable/inspectable between `expect` and `get_screenshot` (contract order — assert the member order of the class `list(PrettyPlay.__dict__)` names `expect` before `run_on_page` before `get_screenshot`)
-- [ ] **Code**: implement `PrettyPlay.run_on_page` in `prettyplay/scenario.py` per the algorithm; add `Callable`, `Page`, `TypeVar` imports; full docstring (the stateful actions excluded from generated code — `page.route`, `page.clock`, `add_init_script`, tracing, HAR, CDP — are the author's explicit tools; `result` is plain data only by constraint)
-- [ ] **Interface verification**: `.venv/bin/pytest tests/test_scenario.py -x` — all pass
-- [ ] **Logic tests**:
-  - [ ] `test_run_on_page_delegates_to_the_run_primitive` — `PrettyPlay` over the existing scenario fakes; a `FakeHandle` whose `run(action)` executes `action(fake_raw_page)` and records; `t._page = fake_handle` (or one real fake step first); `t.run_on_page(lambda page: page.route_marker)` with `route_marker = "plain-data"` on the fake raw page; assert result `== "plain-data"`, exactly one recorded run unit, the received object `is` the raw fake page
-  - [ ] `test_run_on_page_requires_an_opened_page` (negative) — a fresh `PrettyPlay`; `pytest.raises(PrettyplayError, match="no test page yet")`; the message contains "run a step first"
-  - [ ] `test_run_on_page_propagates_action_exceptions_as_is` (negative) — `t._page = fake_handle` whose `run` re-raises; an action raising `playwright.sync_api.Error("route failed")`; the same exception type and message surface at the call site; no `PrettyplayError` wrapping, no fold
-  - [ ] Rename the scenario-suite `FakeProvider` kwarg `page_api` → `cheat_sheet`; adapt the fake page to the handle shape (`run`, `aria_snapshot`, `screenshot`)
-- [ ] **Debugging**: `.venv/bin/pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code)
-- [ ] **Contract re-verification**: `run_on_page` delegates to the run primitive only — no other Playwright crossing; `runtime.py`/`executor.py` untouched (per the design Source File Registry)
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/scenario.py tests/test_scenario.py` — fix formatting if necessary
+- [x] **Contract tests** (`tests/test_scenario.py`): `run_on_page` exists on `PrettyPlay` with signature `["self", "action"]`; importable/inspectable between `expect` and `get_screenshot` (contract order — assert the member order of the class `list(PrettyPlay.__dict__)` names `expect` before `run_on_page` before `get_screenshot`)
+- [x] **Code**: implement `PrettyPlay.run_on_page` in `prettyplay/scenario.py` per the algorithm; add `Callable`, `Page`, `TypeVar` imports; full docstring (the stateful actions excluded from generated code — `page.route`, `page.clock`, `add_init_script`, tracing, HAR, CDP — are the author's explicit tools; `result` is plain data only by constraint)
+- [x] **Interface verification**: `.venv/bin/pytest tests/test_scenario.py -x` — all pass (40/40)
+- [x] **Logic tests**:
+  - [x] `test_run_on_page_delegates_to_the_run_primitive` — `PrettyPlay` over the existing scenario fakes; a `FakeHandle` whose `run(action)` executes `action(fake_raw_page)` and records; `t._page = fake_handle` (or one real fake step first); `t.run_on_page(lambda page: page.route_marker)` with `route_marker = "plain-data"` on the fake raw page; assert result `== "plain-data"`, exactly one recorded run unit, the received object `is` the raw fake page
+  - [x] `test_run_on_page_requires_an_opened_page` (negative) — a fresh `PrettyPlay`; `pytest.raises(PrettyplayError, match="no test page yet")`; the message contains "run a step first"
+  - [x] `test_run_on_page_propagates_action_exceptions_as_is` (negative) — `t._page = fake_handle` whose `run` re-raises; an action raising `playwright.sync_api.Error("route failed")`; the same exception type and message surface at the call site; no `PrettyplayError` wrapping, no fold
+  - [x] Rename the scenario-suite `FakeProvider` kwarg `page_api` → `cheat_sheet`; adapt the fake page to the handle shape (`run`, `aria_snapshot`, `screenshot`) (the kwarg rename landed with Task 5's suite-green shims — `RecordingProvider`/`GateHardFailingProvider` already carry `cheat_sheet`; this task completed the handle-shape adaptation of `FakePage` — the class docstring now names the handle surface and the `run` docstring the hand-built-handle semantics)
+- [x] **Debugging**: `.venv/bin/pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code) (729 passed / 0 failed)
+- [x] **Contract re-verification**: `run_on_page` delegates to the run primitive only — no other Playwright crossing; `runtime.py`/`executor.py` untouched (per the design Source File Registry) (git diff touches exactly `prettyplay/scenario.py` and `tests/test_scenario.py`)
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/scenario.py tests/test_scenario.py` — fix formatting if necessary (ruff check clean; additionally cleared the pre-existing `ruff format` debt of both files — verified pre-existing at HEAD via stash — so the series-end `ruff format --check .` moves closer to green; full suite re-verified after the reformat)
 
 ### Task 8: Integration tests — the count-forms step through the full cycle
 

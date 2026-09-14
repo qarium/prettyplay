@@ -9,6 +9,7 @@ from unittest import mock
 
 import prettyplay
 import pytest
+from playwright.sync_api import Error
 from prettyplay import BrowserConfig, PrettyPlay
 from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step_text
 from prettyplay.config import Config, PrettyConfig
@@ -24,7 +25,13 @@ CACHED_CODE = "def step(page) -> None:\n    page.goto('https://example.com')\n"
 
 
 class FakePage:
-    """Fake page boundary: records navigation, screenshots and how many times it was closed."""
+    """Fake page boundary in the handle shape: ``run``/``aria_snapshot``/``screenshot``/``close``.
+
+    The fake doubles as the handle and the raw page it hands out — the run
+    primitive executes the action against the fake itself, so the cached step
+    code drives the ``goto`` surface directly. Records navigation, snapshots,
+    screenshots and how many times it was closed.
+    """
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, ...]] = []
@@ -35,7 +42,7 @@ class FakePage:
         self.calls.append(("goto", url))
 
     def run(self, action: Callable[[object], object]) -> object:
-        """Minimal page-handle shim: the run primitive executes the action against the fake itself."""
+        """The run primitive: executes the action against the fake itself, as a hand-built handle does."""
         return action(self)
 
     def aria_snapshot(self) -> str:
@@ -282,6 +289,7 @@ class TestPrettyPlayContract:
         for name in (
             "step",
             "expect",
+            "run_on_page",
             "get_screenshot",
             "save_screenshot",
             "add_hooks",
@@ -294,6 +302,14 @@ class TestPrettyPlayContract:
     def test_step_method_signatures_match_contract(self) -> None:
         assert list(inspect.signature(PrettyPlay.step).parameters) == ["self", "text"]
         assert list(inspect.signature(PrettyPlay.expect).parameters) == ["self", "text"]
+
+    def test_run_on_page_signature_matches_contract(self) -> None:
+        assert list(inspect.signature(PrettyPlay.run_on_page).parameters) == ["self", "action"]
+
+    def test_run_on_page_sits_between_expect_and_get_screenshot(self) -> None:
+        names = list(PrettyPlay.__dict__)
+
+        assert names.index("expect") < names.index("run_on_page") < names.index("get_screenshot")
 
     def test_add_hooks_and_close_signatures_match_contract(self) -> None:
         assert list(inspect.signature(PrettyPlay.add_hooks).parameters) == ["self", "hooks"]
@@ -544,7 +560,6 @@ class TestPrettyPlayLogic:
 
         assert len(pages) == 1  # page two opens on the first step, not on construction
 
-
     def test_construction_is_lazy_and_returns_cache_key(self, tmp_path: Path) -> None:
         with scenario_on_tmp_cache(tmp_path):
             test = PrettyPlay(CACHE_KEY)
@@ -785,6 +800,73 @@ class TestPrettyPlayLogic:
 
                 with pytest.raises(PrettyplayError):
                     test.get_screenshot()
+
+    def test_run_on_page_delegates_to_the_run_primitive(self, tmp_path: Path) -> None:
+        class FakeRawPage:
+            """The genuine-page stand-in the handle hands to the author action."""
+
+            route_marker = "plain-data"
+
+        class FakeHandle:
+            """Page-handle stand-in: the run primitive executes the action and records the unit."""
+
+            def __init__(self) -> None:
+                self.units: list[Callable[[object], object]] = []
+                self._raw = FakeRawPage()
+
+            def run(self, action: Callable[[object], object]) -> object:
+                self.units.append(action)
+                return action(self._raw)
+
+        handle = FakeHandle()
+        seen: list[object] = []
+
+        def read_marker(page: FakeRawPage) -> str:
+            seen.append(page)
+            return page.route_marker
+
+        with scenario_on_tmp_cache(tmp_path):
+            test = PrettyPlay(CACHE_KEY)
+            test._page = handle  # type: ignore[assignment] — the handle stand-in plays the opened page
+
+            assert test.run_on_page(read_marker) == "plain-data"
+
+        assert handle.units == [read_marker]  # exactly one run unit — the author callable itself
+        assert seen == [handle._raw]  # the action received the raw fake page
+
+    def test_run_on_page_requires_an_opened_page(self, tmp_path: Path) -> None:
+        with scenario_on_tmp_cache(tmp_path):
+            test = PrettyPlay(CACHE_KEY)
+
+            with mock.patch.object(test._runtime, "open_page") as open_page_mock:
+                with pytest.raises(PrettyplayError, match="no test page yet") as excinfo:
+                    test.run_on_page(lambda _page: None)
+                assert "run a step first" in str(excinfo.value)
+
+        open_page_mock.assert_not_called()  # the loud failure precedes any page opening
+
+    def test_run_on_page_propagates_action_exceptions_as_is(self, tmp_path: Path) -> None:
+        class ReRaisingHandle:
+            """Page-handle stand-in: the run primitive re-raises the action failure as-is."""
+
+            def run(self, action: Callable[[object], object]) -> object:
+                return action(object())
+
+        failure = Error("route failed")
+
+        def failing_action(page: object) -> object:
+            raise failure
+
+        with scenario_on_tmp_cache(tmp_path):
+            test = PrettyPlay(CACHE_KEY)
+            test._page = ReRaisingHandle()  # type: ignore[assignment] — the handle stand-in plays the opened page
+
+            with pytest.raises(Error) as excinfo:
+                test.run_on_page(failing_action)
+
+        assert excinfo.value is failure  # the same object — no copy
+        assert not isinstance(excinfo.value, PrettyplayError)  # no library wrapping
+        assert str(excinfo.value) == "route failed"  # the actionable cause stays readable
 
 
 class TestInstructionsIndependentCacheAddress:
