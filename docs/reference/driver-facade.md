@@ -102,8 +102,12 @@ auto-dismiss), and at the tail of every driver-thread unit — each run
 action and each plumbing call of the handle alike — every unclaimed dialog
 is resolved exactly once, chained dialogs included: accepted when the
 `accept_dialogs` browser setting is on, explicitly dismissed when off. The
-resolver never touches a dialog an in-step capture handled and never masks
-the outcome of the action — see
+drain of one unit is bounded: a page that fires a fresh dialog for every
+resolution — an endless `while (true) alert()` loop — leaves the excess
+pending for the next unit tail instead of holding the unit forever, so the
+failure surfaces through the regular timeouts. The resolver never touches
+a dialog an in-step capture handled and never masks the outcome of the
+action — see
 [Configuration](../configuration.md#dialogs).
 
 ## Popups, frames, scrolling — stock means

@@ -27,6 +27,11 @@ _T = TypeVar("_T")
 
 logger = logging.getLogger("prettyplay")
 
+# The drain bound of one resolver pass: a page that fires a fresh dialog for
+# every resolution would keep the pass — and with it the whole driver-thread
+# unit — alive forever; the excess rolls forward to the next unit tail instead.
+_RESOLVE_PASS_LIMIT = 128
+
 
 class PageFacade:
     """The internal runtime plumbing handle of a single test page.
@@ -177,7 +182,7 @@ class _DialogRouter:
         self._pending.append(dialog)
 
     def resolve_pending(self) -> None:
-        """Resolve every recorded dialog exactly once; never raises.
+        """Resolve recorded dialogs; never raises.
 
         The tail pass of every driver-thread unit, executed inside the
         worker thread. A dialog already resolved by an in-step stock
@@ -186,11 +191,20 @@ class _DialogRouter:
         logged and dropped so the pass never masks the outcome of the
         action. A chained dialog — the page firing the next one while the
         loop advances inside a resolution call — lands in the fresh pending
-        list and joins the same pass: the loop drains until none is left.
+        list and joins the same pass: the pass drains until none is left.
+
+        The drain is bounded: a page that fires a fresh dialog for every
+        resolution would drain forever, holding the unit — and the calling
+        thread waiting on it — alive with no timeout left to fire. The pass
+        resolves at most ``_RESOLVE_PASS_LIMIT`` dialogs, then leaves the
+        rest pending for the next unit tail and logs a warning: every unit
+        terminates, and the failure surfaces through the engine timeouts.
         """
-        while self._pending:
+        resolved = 0
+        while self._pending and resolved < _RESOLVE_PASS_LIMIT:
             dialogs, self._pending = self._pending, []
             for dialog in dialogs:
+                resolved += 1
                 try:
                     if self.accept_dialogs:
                         dialog.accept()
@@ -200,3 +214,8 @@ class _DialogRouter:
                     if "already handled" in str(failure):
                         continue  # the step's capture resolved it — never double-handle
                     logger.warning("dialog resolution failed", extra={"error": str(failure)})
+        if self._pending:
+            logger.warning(
+                "dialog drain limit reached; the rest resolves at the next unit tail",
+                extra={"pending": len(self._pending), "limit": _RESOLVE_PASS_LIMIT},
+            )

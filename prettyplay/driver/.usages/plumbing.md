@@ -36,7 +36,8 @@ thread; the whole step call runs inside the worker as one run. Every standard Pl
 The runtime registers one dialog routing handler per page before any step code runs. A dialog handled by an in-step
 stock capture (`with page.expect_event("dialog") as info:` ... `info.value.accept()`) is never touched by the router.
 Every unclaimed dialog is resolved exactly once: accept when accept_dialogs is on, an explicit dismiss otherwise.
-The step wins, the router is last — deterministic inside the worker thread.
+The step wins, the router is last — deterministic inside the worker thread. The drain of one unit is bounded: a page
+that fires a fresh dialog for every resolution leaves the excess pending for the next unit tail — no unit runs forever.
 
 ## Rules
 

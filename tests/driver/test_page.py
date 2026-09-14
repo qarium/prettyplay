@@ -11,7 +11,7 @@ import prettyplay.driver
 import pytest
 from playwright.sync_api import Error
 from prettyplay.driver import PageFacade
-from prettyplay.driver.page import _DialogRouter
+from prettyplay.driver.page import _RESOLVE_PASS_LIMIT, _DialogRouter
 from prettyplay.driver.session import PlaywrightWorker
 
 
@@ -119,6 +119,23 @@ class ChainedDialog(FakeRawDialog):
     def accept(self, prompt_text: str | None = None) -> None:
         super().accept(prompt_text)
         self._router.record(FakeRawDialog("next?"))  # dispatched mid-resolution
+
+
+class EndlessChainDialog(FakeRawDialog):
+    """Fake dialog whose resolution always fires another of its own kind.
+
+    The dialog-bomb page: an endless ``while (true) alert()`` loop that
+    opens the next alert the moment any resolution resumes the page JS —
+    the pending list never empties on its own.
+    """
+
+    def __init__(self, router: _DialogRouter, message: str = "again?") -> None:
+        super().__init__(message)
+        self._router = router
+
+    def accept(self, prompt_text: str | None = None) -> None:
+        super().accept(prompt_text)
+        self._router.record(EndlessChainDialog(self._router))  # the page never stops
 
 
 class ThreadRecordingDialog(FakeRawDialog):
@@ -413,6 +430,31 @@ class TestRunPrimitive:
         assert chained.state == "accepted"  # the recorded dialog resolved
         assert chained.accept_calls == 1
         assert router._pending == []  # the chain recorded mid-resolution drained in the same pass
+
+    def test_resolver_pass_is_bounded_on_an_endless_dialog_chain(self, caplog: pytest.LogCaptureFixture) -> None:
+        handle = make_handle(FakeRawPage(), FakeContext())
+        router = _DialogRouter(accept_dialogs=True)
+        handle._router = router
+        router.record(EndlessChainDialog(router))  # every resolution fires the next dialog
+
+        with caplog.at_level(logging.WARNING, logger="prettyplay"):
+            result = handle.run(lambda _page: "ok")
+
+        assert result == "ok"  # the unit terminated — the outcome survives the dialog bomb
+        assert len(router._pending) == 1  # only the dialog of the last resolution rolls forward
+        capped = [
+            record
+            for record in caplog.records
+            if record.name == "prettyplay"
+            and record.levelno == logging.WARNING
+            and record.getMessage() == "dialog drain limit reached; the rest resolves at the next unit tail"
+        ]
+        assert len(capped) == 1  # the bound is loud, never a silent hang
+        assert capped[0].limit == _RESOLVE_PASS_LIMIT  # 128 resolutions, then the pass stops
+        assert capped[0].pending == 1
+
+        handle.run(lambda _page: "next")  # the next unit makes its own bounded progress
+        assert len(router._pending) == 1  # still bounded — no unit ever runs forever
 
     def test_run_never_touches_a_dismissed_dialog_the_step_captured(self) -> None:
         handle = make_handle(FakeRawPage(), FakeContext())
