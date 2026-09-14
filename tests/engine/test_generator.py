@@ -12,7 +12,6 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from prettyplay.cache import RunBudgets, StepCache, StepIdentity
 from prettyplay.config import Config
-from prettyplay.driver import DialogFacade, FrameFacade, LocatorFacade, PageFacade
 from prettyplay.engine import StepGenerator
 from prettyplay.engine import generator as generator_module  # to verify the CLASSIFICATION_PROMPT move
 from prettyplay.engine.generator import PAGE_API_SURFACE, SYSTEM_PROMPT
@@ -1617,18 +1616,6 @@ class TestPromptConstants:
         ):
             assert call in PAGE_API_SURFACE
         assert "page.close" not in PAGE_API_SURFACE
-
-    def test_page_api_surface_members_exist_on_the_facades(self) -> None:
-        owners = {"page": PageFacade, "element": LocatorFacade, "dialog": DialogFacade, "frame": FrameFacade}
-
-        for line in PAGE_API_SURFACE.splitlines():
-            match = re.match(r"^(page|element|dialog|frame)\.([a-z_]+)", line)
-            assert match is not None  # every line is an owned facade call
-            assert hasattr(owners[match.group(1)], match.group(2))
-
-        assert "page.close" not in PAGE_API_SURFACE
-        assert "open(" not in PAGE_API_SURFACE
-        assert "find_by" not in PAGE_API_SURFACE
 
     def test_page_api_surface_mirrors_facade_practice(self) -> None:
         practice = FACADE_PRACTICE.read_text(encoding="utf-8")

@@ -167,9 +167,11 @@ class DriverSession:
         context is registered through the context page event: the wiring goes
         up before ``new_page()``, so the open_context page itself and every
         later popup or new tab registers exactly one handler — never two.
-        Registering a ``dialog`` listener disables Playwright's implicit
-        auto-dismiss, so the handler itself resolves every uncaptured dialog
-        by the ``accept_dialogs`` setting of the browser group.
+        The handler is record-only; registering a ``dialog`` listener disables
+        Playwright's implicit auto-dismiss, so the routing handler subsystem
+        resolves every unclaimed dialog at the run-unit tail — accept by the
+        ``accept_dialogs`` setting of the browser group, else an explicit
+        dismiss (the same observable default).
 
         Returns:
             The facade of the new page of a fresh isolated context.
@@ -189,7 +191,7 @@ class DriverSession:
             context: BrowserContext = browser.new_context(**params)
             router = _DialogRouter(self._config.browser.accept_dialogs)
             # registered before new_page: the first page fires the event and registers once
-            context.on("page", lambda opened: opened.on("dialog", router.handle_for(opened)))
+            context.on("page", lambda opened: opened.on("dialog", router.record))
             page = context.new_page()
             return page, context, router
 

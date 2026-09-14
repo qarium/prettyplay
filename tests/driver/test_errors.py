@@ -49,3 +49,11 @@ def test_is_pollable_failure_is_exported_and_returns_bool() -> None:
 def test_is_pollable_failure_map(exc: Exception, pollable: bool) -> None:
     """The fixed map decides on the exception type and message alone."""
     assert is_pollable_failure(exc) is pollable
+
+
+def test_plain_assert_is_pollable() -> None:
+    """A plain Python assert on an immediate read is a failed check — pollable."""
+    assert is_pollable_failure(AssertionError("assert 1 > 2")) is True
+
+    # the locator-ambiguity AssertionError stays deterministic — never pollable
+    assert is_pollable_failure(AssertionError("strict mode violation: locator resolved to 2 elements")) is False
