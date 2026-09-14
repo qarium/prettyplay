@@ -331,16 +331,16 @@ The steering-side mirror swap, cell-owned per the frozen-mirror rule ("A local c
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (`tests/engine/steering/test_steering.py`): `test_guided_request_carries_the_cheat_sheet` — the existing stdin-driven steering fixtures with the `FakeProvider`; guidance `"use count forms"`; the provider returns green code; assert `request["cheat_sheet"] == CHEAT_SHEET`, `"page_api" not in request`, and the healed write-back happened
-- [ ] **Code**: `prettyplay/engine/steering/steering.py` — replace the local `PAGE_API_SURFACE` with the local `CHEAT_SHEET` (whole `cheatsheet.md` verbatim, mirror comment updated); re-mirror the local `SYSTEM_PROMPT`; `_guided_request` passes `cheat_sheet=CHEAT_SHEET`; drop the dead `FACADE_PRACTICE` path constant and the facade-mirror test that reads it
-- [ ] **Interface verification**: `.venv/bin/pytest tests/engine/steering/ -x` — all pass
-- [ ] **Logic tests**:
-  - [ ] `test_steering_mirrors_the_practices` (updated) — `STEERING SYSTEM_PROMPT == ENGINE SYSTEM_PROMPT`; `STEERING CHEAT_SHEET == ENGINE CHEAT_SHEET`; the steering `CHEAT_SHEET` equals the practice file; the `cheat_sheet` guidance phrase present ("guidance, never an allowlist" wording per the constant comments)
-  - [ ] `test_guided_request_carries_the_cheat_sheet` (the contract test above, run green)
-  - [ ] Update the banner-sample test to the count-forms code lines (the practice's sample); the dialog loop/decline/quit suites otherwise untouched (the `run` member added to the steering fake pages by Task 4 aside)
-- [ ] **Debugging**: `.venv/bin/pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code)
-- [ ] **Contract re-verification**: `grep -rn "PAGE_API_SURFACE\|page_api\|facade.md" prettyplay/engine/steering/ tests/engine/steering/` returns nothing; the guided request and the engine request carry identical payloads
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/engine/steering/ tests/engine/steering/` — fix formatting if necessary
+- [x] **Contract tests** (`tests/engine/steering/test_steering.py`): `test_guided_request_carries_the_cheat_sheet` — the existing stdin-driven steering fixtures with the `FakeProvider`; guidance `"use count forms"`; the provider returns green code; assert `request["cheat_sheet"] == CHEAT_SHEET`, `"page_api" not in request`, and the healed write-back happened
+- [x] **Code**: `prettyplay/engine/steering/steering.py` — replace the local `PAGE_API_SURFACE` with the local `CHEAT_SHEET` (whole `cheatsheet.md` verbatim, mirror comment updated); re-mirror the local `SYSTEM_PROMPT`; `_guided_request` passes `cheat_sheet=CHEAT_SHEET`; drop the dead `FACADE_PRACTICE` path constant and the facade-mirror test that reads it (both mirror constants and both cross-cell equalities verified byte-exact programmatically; `FACADE_PRACTICE` and the `facade_surface_rows` helper deleted)
+- [x] **Interface verification**: `.venv/bin/pytest tests/engine/steering/ -x` — all pass (33/33)
+- [x] **Logic tests**:
+  - [x] `test_steering_mirrors_the_practices` (updated) — `STEERING SYSTEM_PROMPT == ENGINE SYSTEM_PROMPT`; `STEERING CHEAT_SHEET == ENGINE CHEAT_SHEET`; the steering `CHEAT_SHEET` equals the practice file; the `cheat_sheet` guidance phrase present ("guidance, never an allowlist" wording per the constant comments) (asserted as the file's own "Guidance, not an allowlist" phrasing)
+  - [x] `test_guided_request_carries_the_cheat_sheet` (the contract test above, run green)
+  - [x] Update the banner-sample test to the count-forms code lines (the practice's sample); the dialog loop/decline/quit suites otherwise untouched (the `run` member added to the steering fake pages by Task 4 aside) (added `test_steer_banner_renders_the_count_forms_code_sample` — the practice's three count-forms lines render verbatim in the banner; the `FakeProvider` signature/recording renamed `page_api` → `cheat_sheet`)
+- [x] **Debugging**: `.venv/bin/pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code) (724 passed / 0 failed — the suite is fully green for the first time since the baseline; the last known-red mirror test is closed)
+- [x] **Contract re-verification**: `grep -rn "PAGE_API_SURFACE\|page_api\|facade.md" prettyplay/engine/steering/ tests/engine/steering/` returns nothing; the guided request and the engine request carry identical payloads (the only literal hit is the mandated negative assertion `"page_api" not in request` — the same accepted pattern Task 3 left in `tests/llm/` and Task 5 in `tests/engine/`; payload identity proven by `SYSTEM_PROMPT == ENGINE_SYSTEM_PROMPT` and `CHEAT_SHEET == ENGINE_CHEAT_SHEET` in the mirror test)
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/engine/steering/ tests/engine/steering/` — fix formatting if necessary (ruff check clean; `ruff format --check` green — the one pre-existing comprehension-formatting nit in `steering.py`, verified pre-existing at HEAD, cleared since the series-end validation runs `ruff format --check .`)
 
 ### Task 7: Root facade — the `run_on_page` author escape hatch
 

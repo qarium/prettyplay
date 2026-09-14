@@ -14,16 +14,17 @@ from playwright.sync_api import Error as PlaywrightError
 from prettyplay.cache import CachedStep, StepCache, StepIdentity
 from prettyplay.config import Config
 from prettyplay.engine.compliance import COMPLIANCE_PROMPT
+from prettyplay.engine.generator import CHEAT_SHEET as ENGINE_CHEAT_SHEET
 from prettyplay.engine.generator import SYSTEM_PROMPT as ENGINE_SYSTEM_PROMPT
-from prettyplay.engine.steering.steering import PAGE_API_SURFACE, SYSTEM_PROMPT
+from prettyplay.engine.steering.steering import CHEAT_SHEET, SYSTEM_PROMPT
 from prettyplay.failures import ComplianceVerdictError, FailureVerdict, IncurableStepError, LLMUnavailableError
 from prettyplay.llm import ComplianceFinding
 from prettyplay.reporting import StepHooks, StepReporter
 
 STEPPING_MODULE = "prettyplay.engine.steering.steering"
 
-FACADE_PRACTICE = Path(__file__).resolve().parents[3] / "prettyplay" / "driver" / ".usages" / "facade.md"
 GENERATION_PROMPT_PRACTICE = Path(__file__).resolve().parents[3] / ".goga" / "usages" / "prompts" / "generation.md"
+CHEAT_SHEET_PRACTICE = Path(__file__).resolve().parents[3] / ".goga" / "usages" / "prompts" / "cheatsheet.md"
 
 GENERATED_CODE = "def step(page) -> None:\n    page.get_by_label('Close').click()\n"
 REGENERATED_CODE = "def step(page) -> None:\n    page.get_by_role('button', name='Pay').click()\n"
@@ -31,11 +32,6 @@ REGENERATED_CODE = "def step(page) -> None:\n    page.get_by_role('button', name
 INSTRUCTIONS = "Prefer id attributes"
 HIGH_FINDING = ComplianceFinding(instruction="Prefer id attributes", priority="high", explanation="locates by text")
 MEDIUM_FINDING = ComplianceFinding(instruction="Prefer id attributes", priority="medium", explanation="minor")
-
-
-def facade_surface_rows(practice: str, prefix: str) -> list[str]:
-    """Extract the ordered call column of one facade practice surface table."""
-    return re.findall(rf"^\| ({prefix}\.[a-z_]+(?:\([^)]*\))?)", practice, flags=re.MULTILINE)
 
 
 def _steering_screenshots() -> set[Path]:
@@ -113,7 +109,7 @@ class FakeProvider:
         previous_steps: list[str],
         snapshot: str,
         screenshot: bytes | None,
-        page_api: str,
+        cheat_sheet: str,
         existing_code: str | None,
         error: str | None,
         recommendation: str | None,
@@ -128,7 +124,7 @@ class FakeProvider:
                 "previous_steps": previous_steps,
                 "snapshot": snapshot,
                 "screenshot": screenshot,
-                "page_api": page_api,
+                "cheat_sheet": cheat_sheet,
                 "existing_code": existing_code,
                 "error": error,
                 "recommendation": recommendation,
@@ -256,17 +252,36 @@ class TestStepSteeringContract:
 
         assert prompt == SYSTEM_PROMPT  # the frozen mirror of the generation practice
 
-        element_rows = facade_surface_rows(FACADE_PRACTICE.read_text(encoding="utf-8"), "element")
-        assert element_rows  # the practice table parsed — a broken extraction never passes silently
-        for row in element_rows:
-            assert row.split("(", 1)[0] in PAGE_API_SURFACE  # every element row of the practice is listed
+        practice = CHEAT_SHEET_PRACTICE.read_text(encoding="utf-8")
+        assert practice == CHEAT_SHEET  # the frozen mirror of the cheat-sheet practice — the whole file, verbatim
 
         assert SYSTEM_PROMPT == ENGINE_SYSTEM_PROMPT  # the two frozen copies agree — no one-sided edit
+        assert CHEAT_SHEET == ENGINE_CHEAT_SHEET  # the guided request and the engine request carry identical payloads
 
-        # the ignore_case capability rows are mirrored in both constants — the equality above
-        # carries them to the engine copy; assert them on the steering copy explicitly
-        assert "page.expect_title(title, ignore_case)" in PAGE_API_SURFACE
-        assert "element.expect_text(text, ignore_case)" in PAGE_API_SURFACE
+        # the cheat sheet is guidance, never an allowlist — the constant-comment wording carries
+        assert "Guidance, not an allowlist" in CHEAT_SHEET
+
+    def test_guided_request_carries_the_cheat_sheet(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The guided request carries the frozen cheat sheet — and the healed write-back lands."""
+        from prettyplay.engine.steering import StepSteering  # noqa: PLC0415 — cell facade check
+
+        provider = FakeProvider(answers=[GENERATED_CODE])
+        fixture = SteeringFixture(provider, tmp_path)
+        steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
+        _script_input(monkeypatch, ["use count forms"])
+        monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
+
+        healed = steering.steer(_failure(), _identity(), [], FakePage())
+
+        request = provider.calls[0]
+        assert request["cheat_sheet"] == CHEAT_SHEET  # the frozen mirror of the cheat-sheet practice
+        assert "page_api" not in request  # the facade surface slot is gone for good
+        assert healed is not None  # the green turn healed
+        assert [step.code for step in fixture.cache.save_calls] == [GENERATED_CODE]  # the write-back happened
 
     def test_steer_green_turn_with_default_verdict_heals_with_the_gate_on(
         self,
@@ -351,7 +366,7 @@ class TestStepSteeringLogic:
         assert request["existing_code"] == "old"
         assert request["error"] == "Timeout 10000ms exceeded"
         assert request["prompt"] == SYSTEM_PROMPT  # the frozen mirror of the generation practice
-        assert request["page_api"] == PAGE_API_SURFACE  # the frozen mirror of the driver facade practice
+        assert request["cheat_sheet"] == CHEAT_SHEET  # the frozen mirror of the cheat-sheet practice
         assert request["step_text"] == "click Pay"
         assert request["previous_steps"] == ["open the page"]
         assert request["snapshot"] == "- heading: Pay\n- button: Pay now"
@@ -666,6 +681,34 @@ class TestStepSteeringLogic:
         out = capsys.readouterr().out
         assert "verdict:  fixable — the button is behind the modal" in out
         assert "recommendation: dismiss the modal first" in out
+
+    def test_steer_banner_renders_the_count_forms_code_sample(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """The banner prints the failed code verbatim — the practice's count-forms sample, line by line."""
+        from prettyplay.engine.steering import StepSteering  # noqa: PLC0415 — cell facade check
+
+        provider = FakeProvider()
+        fixture = SteeringFixture(provider, tmp_path)
+        steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
+        _script_input(monkeypatch, ["quit"])
+        sample = (
+            'videos = page.get_by_role("listitem")\n'
+            "expect(videos.first).to_be_visible()\n"
+            "assert videos.count() > 1\n"
+        )  # the banner code block of the steering practice
+        failure = IncurableStepError(
+            "click Pay", "budget exhausted", "Timeout 10000ms exceeded", code=sample, verdict=None
+        )
+
+        steering.steer(failure, _identity(), [], FakePage())
+
+        out = capsys.readouterr().out
+        for line in sample.splitlines():
+            assert line in out  # every count-forms line of the practice sample renders in the banner
 
     def test_steer_banner_fragment_truncates_but_snapshot_command_prints_all(
         self,

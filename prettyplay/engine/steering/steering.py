@@ -29,7 +29,7 @@ Input you receive:
 - PREVIOUS STEPS: the sentences of the previous steps of the test, in order
 - PAGE SNAPSHOT: the accessibility snapshot of the current page
 - SCREENSHOT: an image of the page, when attached
-- PAGE API: the exact surface listing of the page facade — call nothing outside it
+- CHEAT SHEET: a compact reference of useful Playwright sync API idioms — guidance, not an allowlist; everything standard stays allowed
 - USER INSTRUCTIONS: the project's binding code style guidance, when configured
 - CODE: the existing step code that failed (regeneration requests only)
 - ERROR: the failure description of the existing code (regeneration requests only)
@@ -43,99 +43,117 @@ def step(page) -> None:
     ...
 
 Rules:
-- The function receives exactly one argument: the page facade — the Playwright-mirroring page API. Never import anything, never use other libraries
-- Work only through the page API: the request carries the exact surface listing of the page facade — call nothing outside it
-- For an assertion sentence end with an expectation call; for an action sentence perform the actions
-- Assertions happen only through the expectation calls of the facade — never a Python assert on a locator, never SDK-style state reads
-- Dialogs: when the step verifies or steers a dialog, capture it — with page.expect_dialog() as dialog: — perform the triggering action inside the block, read dialog.message and dialog.type, then dialog.accept() or dialog.dismiss()
-- Popups and new tabs: capture the opened page — with page.expect_popup() as popup: — trigger the opening action inside the block, work through the popup facade; bring_to_front() raises a page above the others
-- Content inside an iframe goes through page.frame_locator(selector) — locate elements within the returned frame
-- Scroll abilities exist for scenario scrolling: bring an element into view, scroll by an amount, to the page end or start, inside a scrollable container
-- No fixed delays, no sleeps, no explicit waits — the facade waits itself
+- The function receives exactly one argument: the page — the genuine Playwright sync Page; the whole step runs inside the driver worker thread
+- Import only from playwright.sync_api — no other imports, no other libraries
+- Work through the standard Playwright sync API: locator factories, actions, waits, expect chains, plain asserts on immediate reads — everything standard is allowed; the CHEAT SHEET is guidance, never a boundary
+- Assertions: for an assertion sentence end with a check — a waiting expect(...) chain for dynamic content, or an immediate read with a plain Python assert (assert locator.count() > 1)
+- No fixed delays, no sleeps, no wait_for_timeout — locators and expect chains auto-wait
+- The runtime owns the page lifecycle: never call page.close() or context.close()
+- No stateful actions that outlive the step on the page shared by the whole test: page.route, page.clock, add_init_script, tracing, HAR, CDP — excluded from generated code; a cached step would poison every later step far from the cause
+- Dialogs: capture with the stock means — with page.expect_event("dialog") as info: — perform the triggering action inside the block, read info.value.type, info.value.message, info.value.default_value, then info.value.accept() or info.value.dismiss()
+- Popups and new tabs: capture with with page.expect_popup() as popup_info: — trigger the opening action inside the block, work through popup_info.value; page.bring_to_front() raises a page above the others
+- Content inside an iframe goes through page.frame_locator(selector) — locate elements within the returned scope; nested frames chain
+- Scrolling: locator.scroll_into_view_if_needed() and page.mouse.wheel(dx, dy) are the standard means
 - RECOMMENDATION and USER GUIDANCE carry the diagnosis and the engineer's intent — follow them when they conflict with your first instinct
-- USER INSTRUCTIONS are binding for everything below the safety core of these Rules:
-  follow them when configured; silently ignoring an instruction is a violation
-- The safety core of these Rules always outranks the instructions: the fixed function
-  form, no imports, facade-only calls, expectations-only assertions, no fixed delays.
-  An instruction conflicting with a Rule or naming a call outside the page API surface
-  is unfollowable: never implement it silently — raise in the step code with the message
-  "instruction conflicts with rule Y" naming the conflict, so the failure surfaces loudly
-- Prefer-type instructions are conditional by their own wording: follow them when the
-  page offers the option — best-effort with a graceful fallback is compliance
+- USER INSTRUCTIONS are binding for everything below the safety core of these Rules: follow them when configured; silently ignoring an instruction is a violation
+- The safety core of these Rules always outranks the instructions: the fixed function form, the import rule, the lifecycle rule, the stateful-action exclusions, no fixed delays. An instruction conflicting with a Rule or demanding a stateful action is unfollowable: never implement it silently — raise in the step code with the message "instruction conflicts with rule Y" naming the conflict, so the failure surfaces loudly
+- Prefer-type instructions are conditional by their own wording: follow them when the page offers the option — best-effort with a graceful fallback is compliance
 - The step must complete exactly what STEP says — nothing more, nothing less
 - Output only the code block, no explanations"""
 
-#: Frozen surface listing of the driver facade — the only calls step code may make.
-#: Mirrors ``prettyplay/driver/.usages/facade.md`` verbatim; the driver facade is a
-#: parity contract of the Playwright sync API, so this constant changes only
-#: together with it. A local copy of the engine constant, not an import — the
-#: same frozen-mirror rule. ``page.close()`` stays out: it is a runtime method
-#: of PrettyPlay, not of step code.
-PAGE_API_SURFACE = """page.goto(url)                                — navigate and wait for the load state
-page.go_back()                                — browser-history back
-page.go_forward()                             — browser-history forward
-page.reload()                                 — reload and wait for the load state
-page.wait_for_url(url)                        — wait until the URL matches a glob pattern
-page.wait_for_load_state(state)               — wait for load, domcontentloaded or networkidle
-page.expect_url(url)                          — assert the URL matches a glob pattern
-page.expect_title(title, ignore_case)         — assert the title contains; ignore_case=true — case-insensitive
-page.get_by_role(role, name)                  — element by aria role and accessible name
-page.get_by_label(label)                      — element by associated label
-page.get_by_text(text)                        — element by visible text
-page.get_by_placeholder(placeholder)          — input by placeholder text
-page.get_by_alt_text(alt)                     — image by alt text
-page.get_by_title(title)                      — element by title attribute
-page.get_by_test_id(test_id)                  — element by data-testid
-page.locator(selector)                        — element by any selector — CSS, XPath, attribute
-page.expect_dialog()                          — context manager — the block performs the triggering action; yields the DialogFacade
-page.expect_popup()                           — context manager — the block performs the opening action; yields the popup as a full PageFacade
-page.bring_to_front()                         — raise this page above the others — the switching primitive
-page.pages                                    — the open pages of the context, each a full PageFacade
-page.frame_locator(selector)                  — the locating scope of one iframe — yields a FrameFacade
-page.aria_snapshot()                          — accessibility-tree page state
-page.screenshot()                             — full-page PNG bytes
-page.url                                      — current URL
-page.scroll_to_element(element)               — bring an element into the viewport (works inside scrollable ancestors)
-page.scroll_down(pixels)                      — scroll the page down by an amount
-page.scroll_up(pixels)                        — scroll the page up by an amount
-page.scroll_to_bottom()                       — scroll to the end of the page
-page.scroll_to_top()                          — scroll to the start of the page
-page.scroll_into_view(element, container)     — bring an element into view inside a specific scrollable container
-page.scroll_container_down(container, pixels) — scroll a scrollable container down by an amount
-page.scroll_container_up(container, pixels)   — scroll a scrollable container up by an amount
-dialog.accept(prompt_text) — accept; prompt_text answers a prompt dialog (empty — no answer)
-dialog.dismiss()           — dismiss
-dialog.type                — alert, confirm, prompt or beforeunload
-dialog.message             — the dialog message
-dialog.default_value       — the prompt prefill of a prompt dialog
-frame.get_by_role(role, name) — and the whole get_by_* family — locate inside the iframe
-frame.locator(selector)                                       — any selector inside the iframe
-frame.frame_locator(selector)                                 — the scope of a nested iframe
-element.first                         — the first match — positional narrowing
-element.last                          — the last match — positional narrowing
-element.nth(index)                    — the match at a 0-based index; negative counts from the end
-element.filter(has_text=..., has_not_text=..., has=..., has_not=...) — narrow by content — all predicates optional
-element.or_(other)                    — union locator — matches either; when both branches may match, compose positional narrowing (first, last, nth) to satisfy strict mode
-element.and_(other)                   — intersection locator — matches both
-element.click(button)                 — click; empty button = left, "right" = right button
-element.dblclick()                    — double click
-element.fill(value)                   — set input text
-element.clear()                       — clear the input
-element.press(key)                    — press a key or combination, e.g. "Enter", "Control+A"
-element.check()                       — check a checkbox or radio
-element.uncheck()                     — uncheck
-element.hover()                       — hover
-element.select_option(value)          — choose an option
-element.drag_to(target)               — drag onto another element
-element.set_input_files(path)         — upload one file by filesystem path
-element.expect_visible()              — assert visible
-element.expect_hidden()               — assert hidden
-element.expect_text(text, ignore_case) — assert text contains (substring, whitespace-normalized); ignore_case=true — case-insensitive
-element.expect_enabled()              — assert enabled
-element.expect_value(value)           — assert the input value
-element.expect_checked()              — assert the checkbox/radio state
-element.expect_count(count)           — assert the matched element count
-element.expect_attribute(name, value) — assert the attribute value"""
+#: The compact standard Playwright sync API reference of every guided request;
+#: guidance, not an allowlist — everything standard stays allowed.
+#: Frozen mirror of ``.goga/usages/prompts/cheatsheet.md`` — the whole file, verbatim
+#: (the practice has no ``---`` separator, so the whole-file rule is the only mirror
+#: rule with no extraction logic to drift); the constant changes only together with
+#: the file. A local copy of the engine constant, not an import — the same
+#: frozen-mirror rule; no runtime read of ``.goga/`` ever happens.
+CHEAT_SHEET = """# Playwright cheat sheet
+
+The compact standard Playwright sync API reference carried by every step-code generation and regeneration request
+of prettyplay — referenced by the engine and steering cells as the `cheat_sheet` practice; rendered by the provider
+implementations as the leading CHEAT SHEET block of the user content. Guidance, not an allowlist: everything
+standard stays allowed — the error-driven regeneration loop is the second line of defense against hallucinated
+calls. Target audience: the generation model — a model that knows Playwright weakly writes a correct step from
+this reference alone.
+
+## Locator factories
+
+    page.get_by_role("button", name="Sign in")
+    page.get_by_label("Username")
+    page.get_by_text("Welcome back")
+    page.get_by_placeholder("Search")
+    page.get_by_alt_text("Logo")
+    page.get_by_title("Close")
+    page.get_by_test_id("submit")
+    page.locator("css selector | //xpath | [data-qa=row]")
+
+## Narrowing
+
+    locator.first / locator.last / locator.nth(2)
+    locator.filter(has_text="Product X")
+    locator.and_(other) / locator.or_(other)
+
+## Actions
+
+    .click() / .dblclick() / .click(button="right")
+    .fill("text") / .clear() / .press("Enter") / .press("Control+A")
+    .check() / .uncheck() / .hover() / .select_option("v")
+    .drag_to(target) / .set_input_files("path.png")
+
+## Navigation and waits
+
+    page.goto(url) / page.go_back() / page.go_forward() / page.reload()
+    page.wait_for_url("**/dashboard") / page.wait_for_load_state("networkidle")
+
+## Waiting assertions — expect chains
+
+    from playwright.sync_api import expect
+
+    expect(locator).to_be_visible() / to_be_hidden()
+    expect(locator).to_be_enabled() / to_be_checked()
+    expect(locator).to_have_text("...") / to_contain_text("...")
+    expect(locator).to_have_value("v") / to_have_attribute("href", "/docs")
+    expect(page).to_have_url("**/dashboard") / to_have_title("Dashboard")
+
+## Count forms — "the page shows a list of X"
+
+    videos = page.get_by_role("listitem")
+    expect(videos.first).to_be_visible()
+    assert videos.count() > 1
+
+An exact count is the rarer need: `expect(videos).to_have_count(3)`.
+
+## Immediate reads with plain asserts
+
+    assert locator.count() >= 1
+    assert "Dashboard" in page.title()
+
+## Dialogs
+
+    with page.expect_event("dialog") as info:
+        page.get_by_role("button", name="Delete").click()
+    dialog = info.value
+    dialog.type / dialog.message / dialog.default_value
+    dialog.accept() / dialog.dismiss() / dialog.accept("the answer")
+
+## Popups and new tabs
+
+    with page.expect_popup() as popup_info:
+        page.get_by_role("link", name="Open docs").click()
+    popup = popup_info.value
+    popup.bring_to_front()
+
+## Frames
+
+    frame = page.frame_locator("#checkout")
+    frame.get_by_role("button", name="Pay").click()
+
+## Scrolling
+
+    locator.scroll_into_view_if_needed()
+    page.mouse.wheel(0, 600)
+"""
 
 #: The local commands of the dialog — context services without an LLM request.
 _LOCAL_COMMANDS = frozenset({"snapshot", "screenshot", "error", "code"})
@@ -298,8 +316,7 @@ class StepSteering:
                     extra={
                         "step_text": failure.step_text,
                         "findings": [
-                            f"{finding.priority}: {finding.instruction} — {finding.explanation}"
-                            for finding in findings
+                            f"{finding.priority}: {finding.instruction} — {finding.explanation}" for finding in findings
                         ],
                     },
                 )
@@ -414,7 +431,7 @@ class StepSteering:
             previous_steps=previous_steps,
             snapshot=self._guarded_snapshot(page),
             screenshot=screenshot,
-            page_api=PAGE_API_SURFACE,
+            cheat_sheet=CHEAT_SHEET,
             existing_code=failure.code,
             error=failure.error,
             recommendation=None,  # the verdict diagnosis is banner-only — the live guidance replaces it
