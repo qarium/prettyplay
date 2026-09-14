@@ -937,28 +937,35 @@ mirrors match the practices in both cells.
 Do NOT modify them. If implementation does not match the contract, fix the implementation — never
 fix the contract.**
 
-- [ ] Full suite: `pytest tests/ -x` — every module green (failures, driver, llm, engine,
-  steering, reporting, integration, scenario, executor, runtime)
-- [ ] Facade check: `python -c "from prettyplay.failures import ErrorParts, decompose_error_text"`
+- [x] Full suite: `pytest tests/ -x` — every module green (failures, driver, llm, engine,
+  steering, reporting, integration, scenario, executor, runtime) — 781 passed
+- [x] Facade check: `python -c "from prettyplay.failures import ErrorParts, decompose_error_text"`
   and `python -c "from prettyplay.driver import PageFacade; assert isinstance(PageFacade.url,
   property)"` — the new surface is importable
-- [ ] Lint gate: `ruff check prettyplay tests` — clean (no dead code, no unused imports:
+- [x] Lint gate: `ruff check prettyplay tests` — clean (no dead code, no unused imports:
   `_VERDICT_LABEL_WIDTH`, `_snapshot_fragment`, `_SNAPSHOT_FRAGMENT_LINES`, `_first_line` gone)
-- [ ] Cross-entity scenario: the render composed at construction equals `str(error)` in the
+- [x] Cross-entity scenario: the render composed at construction equals `str(error)` in the
   `on_step_failed` payload and the log record (covered by `tests/failures`,
-  `tests/reporting`, `tests/test_executor.py` — confirm no assertion was weakened to pass)
-- [ ] Cross-entity scenario: engine vs steering request composition — engine paths record
+  `tests/reporting`, `tests/test_executor.py` — confirm no assertion was weakened to pass) —
+  verified: `render_terminal_message` is called only from the two constructors
+  (`errors.py:323,377`), the executor payload and the reporter log carry `str(error)` verbatim,
+  and the executor assertions are strict equality against `str(failure)`/the render
+- [x] Cross-entity scenario: engine vs steering request composition — engine paths record
   `page_url is None` (`tests/engine/*`), steering paths record the URL
   (`tests/engine/steering/test_steering.py`)
-- [ ] Mirror discipline final check: all four constants equal the practice files byte-for-byte
+- [x] Mirror discipline final check: all four constants equal the practice files byte-for-byte
   (the four mirror tests, all green)
-- [ ] Manual acceptance (environment-gated — live browser + provider keys; outside pytest): run
+- [x] Manual acceptance (environment-gated — live browser + provider keys; outside pytest): run
   the example repro `example/tests/test_youtube.py` with interactive steering enabled; drive one
   rejected turn (`n`) then one approved green turn (`y`); observe the banner (render + URL),
   the approval prompt showing the complete code, and the healed write-back — the TODO repro in
-  miniature
-- [ ] Run validation: record the outcome of every command above; on any failure, fix the
-  implementation (never the contract, never the test expectations' intent)
+  miniature — manual test (skipped - not automatable: youtube.com unreachable from the sandbox,
+  chromium executable absent, human-in-the-loop approval gate by design; the same behaviors are
+  covered automated in `tests/engine/steering/test_steering.py`)
+- [x] Run validation: record the outcome of every command above; on any failure, fix the
+  implementation (never the contract, never the test expectations' intent) — every command
+  green, no fixes needed; outcomes recorded in
+  `/workspace/.ralphex/progress/progress-plan.txt`
 
 ---
 
@@ -985,35 +992,35 @@ broken artifact of another machine: `python -m venv .venv && .venv/bin/pip insta
 
 ## Completion Criteria
 
-- [ ] Every contract entity is implemented in the correct `location` (`decompose_error_text`,
+- [x] Every contract entity is implemented in the correct `location` (`decompose_error_text`,
       `ErrorParts`, `render_terminal_message`, `FailureVerdict.render`, both terminal
       constructors in `prettyplay/failures/errors.py`; `PageFacade.url` in
       `prettyplay/driver/page.py`; the port/builder/providers in `prettyplay/llm/*`;
       `StepGenerator._request` + mirrors in `prettyplay/engine/generator.py`; the `steer` rewrite
       + mirrors in `prettyplay/engine/steering/steering.py`)
-- [ ] Every contract entity is accessible from the facade (`ErrorParts`,
+- [x] Every contract entity is accessible from the facade (`ErrorParts`,
       `decompose_error_text` in `prettyplay.failures.__all__` — nine names)
-- [ ] Properties and methods match the declared API (five-parameter `render_terminal_message`
+- [x] Properties and methods match the declared API (five-parameter `render_terminal_message`
       with `error_class` first; `page_url: str | None` after `snapshot` across the port, both
       providers and `build_fields_text`; `PageFacade.url -> str`)
-- [ ] Descriptions are reflected in behavior (the decomposed details section; the strict `y`
+- [x] Descriptions are reflected in behavior (the decomposed details section; the strict `y`
       approval gate; full verbatim history records; the URL in every steering request and the
       banner; `page_url=None` on every engine request; the short class name on the render first
       line)
-- [ ] Contract dependencies are met (no new cross-cell import edges; steering keeps importing
+- [x] Contract dependencies are met (no new cross-cell import edges; steering keeps importing
       `PageFacade`, `LLMProvider`, `run_step_code`, `check_step_compliance` over existing edges)
-- [ ] Re-exports are accessible from the facade (the two new failures names)
-- [ ] Every coding task followed the TDD workflow (contract tests → code → verification → logic
+- [x] Re-exports are accessible from the facade (the two new failures names)
+- [x] Every coding task followed the TDD workflow (contract tests → code → verification → logic
       tests → debugging → re-verification → lint)
-- [ ] Contract tests and logic tests cover facade, API, and behavior within each coding task
+- [x] Contract tests and logic tests cover facade, API, and behavior within each coding task
       (32 design scenarios + the updated regression surface across ~10 test files)
-- [ ] Integration tests exist where cross-entity scenarios require them (per-cell suites cover
+- [x] Integration tests exist where cross-entity scenarios require them (per-cell suites cover
       the cross-entity flows; Task 8 verifies the sweep end-to-end)
-- [ ] No package boundary was expanded (no new cells, no new facade names beyond the failures
+- [x] No package boundary was expanded (no new cells, no new facade names beyond the failures
       exports, no CODEMANIFEST edits)
-- [ ] `CODEMANIFEST` files and `.goga/usages/` practices were not modified (contract is
+- [x] `CODEMANIFEST` files and `.goga/usages/` practices were not modified (contract is
       read-only; the working-tree contract edits belong to the pipeline, not the implementer)
-- [ ] All validation commands pass (`pytest tests/ -x`, `ruff check prettyplay tests`, both
+- [x] All validation commands pass (`pytest tests/ -x`, `ruff check prettyplay tests`, both
       facade checks)
-- [ ] Every Usages entry is mentioned in at least one task (`conventions`, `playwright`
+- [x] Every Usages entry is mentioned in at least one task (`conventions`, `playwright`
       failures+driver, `system_prompt`, `cheat_sheet`, imported `configuration`, `classification`)
