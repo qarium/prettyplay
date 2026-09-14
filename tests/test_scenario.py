@@ -3,7 +3,7 @@
 import contextlib
 import inspect
 import traceback
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from unittest import mock
 
@@ -33,6 +33,10 @@ class FakePage:
 
     def goto(self, url: str) -> None:
         self.calls.append(("goto", url))
+
+    def run(self, action: Callable[[object], object]) -> object:
+        """Minimal page-handle shim: the run primitive executes the action against the fake itself."""
+        return action(self)
 
     def aria_snapshot(self) -> str:
         self.calls.append(("aria_snapshot",))

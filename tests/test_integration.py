@@ -4,7 +4,7 @@ import contextlib
 import logging
 import os
 import traceback
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from unittest import mock
 
@@ -65,6 +65,10 @@ class FakePage:
 
     def get_by_text(self, text: str) -> FakeLocator:
         return self._lookup("get_by_text", (text,))
+
+    def run(self, action: Callable[[object], object]) -> object:
+        """Minimal page-handle shim: the run primitive executes the action against the fake itself."""
+        return action(self)
 
     def aria_snapshot(self) -> str:
         return "- button 'Войти'"

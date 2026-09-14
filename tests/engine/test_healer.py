@@ -1,6 +1,7 @@
 """Tests for the StepHealer of the prettyplay.engine cell."""
 
 import inspect
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,10 @@ CHECK_CODE = "def step(page) -> None:\n    page.get_by_text('Welcome back').expe
 
 class FakePage:
     """Fake page facade boundary: snapshot for the classification request."""
+
+    def run(self, action: Callable[[object], object]) -> object:
+        """Minimal page-handle shim: the run primitive executes the action against the fake itself."""
+        return action(self)
 
     def aria_snapshot(self) -> str:
         return "- snapshot"

@@ -2,6 +2,7 @@
 
 import inspect
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from unittest import mock
 
@@ -32,6 +33,10 @@ class FakePage:
     def get_by_role(self, role: str, name: str) -> object:
         self.calls.append(("get_by_role", role, name))
         raise self._lookup_error
+
+    def run(self, action: Callable[[object], object]) -> object:
+        """Minimal page-handle shim: the run primitive executes the action against the fake itself."""
+        return action(self)
 
     def aria_snapshot(self) -> str:
         return "- button 'Войти'"

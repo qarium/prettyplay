@@ -4,7 +4,7 @@ import builtins
 import logging
 import re
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -55,6 +55,10 @@ def _clean_steering_screenshots() -> Iterator[None]:
 
 class FakePage:
     """Fake page facade boundary: a snapshot and screenshot bytes."""
+
+    def run(self, action: Callable[[object], object]) -> object:
+        """Minimal page-handle shim: the run primitive executes the action against the fake itself."""
+        return action(self)
 
     def aria_snapshot(self) -> str:
         return "- heading: Pay\n- button: Pay now"

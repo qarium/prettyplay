@@ -3,6 +3,7 @@
 import inspect
 import logging
 import re
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -83,6 +84,10 @@ class FakePage:
 
     def goto(self, url: str) -> None:
         self.calls.append(("goto", url))
+
+    def run(self, action: Callable[[object], object]) -> object:
+        """Minimal page-handle shim: the run primitive executes the action against the fake itself."""
+        return action(self)
 
     def get_by_text(self, text: str) -> FakeLocator:
         self.calls.append(("get_by_text", text))
