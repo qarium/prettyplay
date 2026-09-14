@@ -4,12 +4,12 @@ Not the API of generated step code: a step function runs against the genuine
 Playwright sync ``Page`` inside the driver worker thread, and :meth:`PageFacade.run`
 is the only crossing point of that worker boundary. Besides the run primitive
 the handle carries exactly the runtime plumbing the library itself needs —
-the accessibility snapshot for the LLM inputs, the full-page screenshot and
-the context close. No member proxies, delegates or re-exports of page
-capabilities exist. When the page belongs to a live driver session, every
-Playwright-touching operation is marshalled into the session's driver thread;
-a handle built without a worker (hand-built in tests) calls Playwright inline
-in the constructing thread.
+the current URL, the accessibility snapshot for the LLM inputs, the full-page
+screenshot and the context close. No member proxies, delegates or re-exports
+of page capabilities exist. When the page belongs to a live driver session,
+every Playwright-touching operation is marshalled into the session's driver
+thread; a handle built without a worker (hand-built in tests) calls Playwright
+inline in the constructing thread.
 """
 
 from __future__ import annotations
@@ -61,6 +61,22 @@ class PageFacade:
         self._context = context
         self._worker: PlaywrightWorker | None = None
         self._router: _DialogRouter | None = None
+
+    @property
+    def url(self) -> str:
+        """The current URL of the page — an immediate read.
+
+        Executes inside the driver worker thread as one unit: ``_call`` is the
+        one-unit machinery behind :meth:`run` — with a worker it queues one
+        unit on the driver thread and re-raises the outcome as-is; without a
+        worker (hand-built in tests) it runs inline; the unit's ``finally``
+        runs the deferred dialog pass. A plain string crosses back — no
+        Playwright object leaves the worker thread.
+
+        Returns:
+            The current URL of the page.
+        """
+        return self._call(lambda: self._page.url)
 
     def run(self, action: Callable[[Page], _T]) -> _T:
         """Execute the callable wholly inside the driver worker thread.

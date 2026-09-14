@@ -575,13 +575,13 @@ block (properties first — the contract lists it under `properties`).
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If
 implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **STEP 0 — Declaration**: declare this task (Task 3, driver cell) before starting
-- [ ] **Contract tests**: in `tests/driver/test_page.py` — update
+- [x] **STEP 0 — Declaration**: declare this task (Task 3, driver cell) before starting
+- [x] **Contract tests**: in `tests/driver/test_page.py` — update
   `test_page_handle_surface_matches_contract`: public set ==
   `{"url", "run", "aria_snapshot", "screenshot", "close"}`; update
   `test_deleted_members_are_gone`: remove `"url"` from the deleted list; new:
   `url` is a `property` on `PageFacade` with return annotation `str` (expected to fail)
-- [ ] **Code**: in `prettyplay/driver/page.py`, insert before the methods block:
+- [x] **Code**: in `prettyplay/driver/page.py`, insert before the methods block:
   ```
   @property
   def url(self) -> str:
@@ -592,8 +592,8 @@ implementation does not match the contract, fix the implementation — never fix
   plumbing members use): with a worker it queues one unit on the driver thread and re-raises the
   outcome as-is; without a worker (tests) it runs inline; the unit's `finally` runs the deferred
   dialog pass
-- [ ] **Interface verification**: `pytest tests/driver/test_page.py -q` — contract tests pass
-- [ ] **Logic tests**: in `tests/driver/test_page.py` —
+- [x] **Interface verification**: `pytest tests/driver/test_page.py -q` — contract tests pass
+- [x] **Logic tests**: in `tests/driver/test_page.py` —
   `test_page_facade_url_reads_through_the_worker_unit`: `FakeRawPage` grows a `url` attribute
   (`"https://shop.example.com/cart"`); a hand-built `PageFacade` over it returns the value
   (inline path); a handle bound to a worker records exactly one queued unit containing the read —
@@ -601,12 +601,12 @@ implementation does not match the contract, fix the implementation — never fix
   recording fake worker with `run(unit)` capturing the callable); nothing else runs concurrently;
   extend `test_kept_members_of_a_live_handle_marshal_to_the_driver_thread` with the `url` read
   (runs on the worker thread, never the calling thread)
-- [ ] **Debugging**: `pytest tests/driver/test_page.py -x` — fix implementation until green
-- [ ] **Contract re-verification**: the calling thread never adopts the event loop; the read
+- [x] **Debugging**: `pytest tests/driver/test_page.py -x` — fix implementation until green
+- [x] **Contract re-verification**: the calling thread never adopts the event loop; the read
   serializes with every other unit; a plain `str` returns (no Playwright object crosses the
   boundary); no member proxies beyond the five named plumbing members
-- [ ] **Lint**: `ruff check prettyplay/driver tests/driver` — fix formatting if necessary
-- [ ] **STEP 8 — Completion**: mark the checkboxes complete; submit for review
+- [x] **Lint**: `ruff check prettyplay/driver tests/driver` — fix formatting if necessary
+- [x] **STEP 8 — Completion**: mark the checkboxes complete; submit for review
 
 ### Task 4: the `page_url` input through the port, the shared builder and both providers (llm)
 

@@ -30,10 +30,17 @@ class FakeBodyLocator:
 class FakeRawPage:
     """Fake genuine sync Page handed to run actions; records the plumbing calls."""
 
-    def __init__(self, snapshot: str = "- heading Адреса") -> None:
+    def __init__(self, snapshot: str = "- heading Адреса", url: str = "https://shop.example.com/cart") -> None:
         self.calls: list[tuple[str, ...]] = []
         self.context = FakeContext()
         self._body = FakeBodyLocator(snapshot)
+        self._url = url
+        self.url_read_threads: list[int] = []
+
+    @property
+    def url(self) -> str:
+        self.url_read_threads.append(threading.get_ident())  # the genuine page.url is a read property too
+        return self._url
 
     def locator(self, selector: str) -> FakeBodyLocator:
         self.calls.append(("locator", selector))
@@ -54,6 +61,17 @@ class FakeContext:
 
     def close(self) -> None:
         self.close_calls += 1
+
+
+class RecordingWorker:
+    """Fake PlaywrightWorker: records every queued unit and runs it inline."""
+
+    def __init__(self) -> None:
+        self.units: list[collections.abc.Callable[[], object]] = []
+
+    def run(self, fn: collections.abc.Callable[[], object]) -> object:
+        self.units.append(fn)
+        return fn()
 
 
 class FakeRawDialog:
@@ -176,11 +194,14 @@ class TestPageFacadeContract:
     def test_page_handle_surface_matches_contract(self) -> None:
         public = {name for name in dir(PageFacade) if not name.startswith("_")}
 
-        assert public == {"run", "aria_snapshot", "screenshot", "close"}  # plumbing, not a surface
+        assert public == {"url", "run", "aria_snapshot", "screenshot", "close"}  # plumbing, not a surface
+
+    def test_url_is_a_property_returning_str(self) -> None:
+        assert isinstance(PageFacade.url, property)  # a read property — an immediate read, not a call
+        assert get_type_hints(PageFacade.url.fget)["return"] is str  # a plain string back, never a Playwright object
 
     def test_deleted_members_are_gone(self) -> None:
         for name in (
-            "url",
             "pages",
             "goto",
             "get_by_role",
@@ -241,6 +262,21 @@ class TestPageFacadeLogic:
         assert page.context.close_calls == 1
         assert page.calls == []  # no page calls — only context.close()
 
+    def test_page_facade_url_reads_through_the_worker_unit(self) -> None:
+        page = FakeRawPage(url="https://shop.example.com/cart")
+        handle = make_handle(page)
+
+        assert handle.url == "https://shop.example.com/cart"  # inline path — no worker bound yet
+
+        worker = RecordingWorker()
+        handle._worker = worker  # type: ignore[assignment]
+        url = handle.url
+
+        assert url == "https://shop.example.com/cart"  # the plain string crossed back
+        assert len(worker.units) == 1  # exactly one queued unit — the read alone, nothing else
+        assert worker.units[0]() == "https://shop.example.com/cart"  # the unit carries the URL read
+        assert page.calls == []  # no locator, no screenshot — only the read ran
+
     def test_kept_members_of_a_live_handle_marshal_to_the_driver_thread(self) -> None:
         worker = PlaywrightWorker()
         worker.start()
@@ -258,10 +294,14 @@ class TestPageFacadeLogic:
         page._body.aria_snapshot = recording_snapshot  # type: ignore[method-assign]
         handle.aria_snapshot()
         handle.screenshot()
+        url = handle.url
         worker.close()
 
+        assert url == "https://shop.example.com/cart"  # the plain string crossed back
         assert seen_threads  # the snapshot ran — through the worker
         assert all(ident != threading.get_ident() for ident in seen_threads)  # never the calling thread
+        assert page.url_read_threads  # the URL read ran — through the worker
+        assert all(ident != threading.get_ident() for ident in page.url_read_threads)  # never the calling thread
 
 
 class TestRunPrimitive:
