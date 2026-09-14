@@ -166,9 +166,9 @@ The `screen` field of the browser group is the single size setting:
 
 `accept_dialogs` of the browser group controls the automatic dialog handling of the driver:
 
-- `true` — every dialog that no step-captured `expect_dialog` block claims is accepted automatically
+- `true` — every dialog that no in-step stock dialog capture claims is accepted automatically
 - `false` (default) — unclaimed dialogs are dismissed (the Playwright default; nothing blocks)
-- A dialog captured by a step's `expect_dialog` block is accepted or dismissed by the step itself — the setting does not apply to captured dialogs
+- A dialog claimed by a step's in-step stock capture is accepted or dismissed by the step itself — the setting does not apply to captured dialogs
 
 ## Strict mode
 

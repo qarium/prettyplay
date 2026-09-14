@@ -1,109 +1,158 @@
 # Driver facade
 
-The browser facade of prettyplay. For consumers of the page API — the step
-generation engine and engineers reading or hand-writing step code.
+The browser driver of prettyplay. For engineers reading or hand-writing
+step code and integrators reasoning about where step code executes.
 
-The facade mirrors the Playwright sync API at page/locator level within the
-step-driving contour — locating, interactions, navigation, waits,
-expectations, dialogs, popups and frames. A covered capability carries its
-Playwright mirror name, with three declared non-mirror families: the
-prettyplay scroll extras (kept under their own names), the method-style
-`expect_*` expectation names (replacing Playwright's chained
-`expect(locator).to_be_*()` model) and the `expect_dialog` capture
-constructor (implemented over Playwright's `expect_event("dialog")` — the
-Python client ships no `expect_dialog`). Raw input devices (keyboard/mouse)
-stay outside the surface with the other excluded capabilities.
+Generated step code works through the standard Playwright sync API on the
+genuine `Page` — prettyplay ships no page API of its own. What the library
+owns is the boundary that code crosses: the whole step executes inside the
+driver worker thread as one unit, and the calling thread never touches
+Playwright. This page documents the internal page handle, the worker
+boundary and the generated-code contour.
 
-Step code receives a `PageFacade` and works only through it,
-`LocatorFacade`, `FrameFacade` and `DialogFacade` — never through raw
-Playwright objects. Each context opens with the screen mode configured in
-the browser group — the facade surface itself is identical in every mode.
+## The worker boundary
 
-## Surface — page
+The whole Playwright session — start, browser, contexts, pages — lives in
+one dedicated driver thread owned by the library. The only crossing point
+of that boundary is the run primitive of the internal page handle:
+
+```python
+result = page.run(action)  # action(page) executes wholly inside the worker
+```
+
+- The action receives the genuine sync `Page` and its outcome returns
+  as-is; an exception inside the action propagates to the caller untouched
+- The calling thread never adopts the Playwright event loop — hand-written
+  code stays safe in interactive hosts (IPython, Jupyter)
+- The callable runs sequentially with every other unit: one unit at a time
+- Playwright objects never cross back through the result — plain data only
+
+## The internal page handle
+
+`PageFacade` (exported from `prettyplay.driver`) is the runtime plumbing
+handle of a single test page — not the API of step code. Exactly four
+members:
 
 | Call | Purpose |
 |---|---|
-| `page.goto(url)` | navigate and wait for the load state |
-| `page.go_back()` | browser-history back |
-| `page.go_forward()` | browser-history forward |
-| `page.reload()` | reload and wait for the load state |
-| `page.wait_for_url(url)` | wait until the URL matches a glob pattern |
-| `page.wait_for_load_state(state)` | wait for load, domcontentloaded or networkidle |
-| `page.expect_url(url)` | assert the URL matches a glob pattern |
-| `page.expect_title(title, ignore_case)` | assert the title contains; `ignore_case=true` — case-insensitive |
-| `page.get_by_role(role, name)` | element by aria role and accessible name |
-| `page.get_by_label(label)` | element by associated label |
-| `page.get_by_text(text)` | element by visible text |
-| `page.get_by_placeholder(placeholder)` | input by placeholder text |
-| `page.get_by_alt_text(alt)` | image by alt text |
-| `page.get_by_title(title)` | element by title attribute |
-| `page.get_by_test_id(test_id)` | element by data-testid |
-| `page.locator(selector)` | element by any selector — CSS, XPath, attribute |
-| `page.expect_dialog()` | context manager — the block performs the triggering action; yields the `DialogFacade` |
-| `page.expect_popup()` | context manager — the block performs the opening action; yields the popup as a full `PageFacade` |
-| `page.bring_to_front()` | raise this page above the others — the switching primitive |
-| `page.pages` | the open pages of the context, each a full `PageFacade` |
-| `page.frame_locator(selector)` | the locating scope of one iframe — yields a `FrameFacade` |
-| `page.aria_snapshot()` | accessibility-tree page state |
+| `page.run(action)` | execute the callable inside the worker thread; receives the genuine sync `Page` |
+| `page.aria_snapshot()` | accessibility-tree page state — the primary LLM input |
 | `page.screenshot()` | full-page PNG bytes |
-| `page.url` | current URL |
-| `page.scroll_to_element(element)` | bring an element into the viewport (works inside scrollable ancestors) |
-| `page.scroll_down(pixels)` | scroll the page down by an amount |
-| `page.scroll_up(pixels)` | scroll the page up by an amount |
-| `page.scroll_to_bottom()` | scroll to the end of the page |
-| `page.scroll_to_top()` | scroll to the start of the page |
-| `page.scroll_into_view(element, container)` | bring an element into view inside a specific scrollable container |
-| `page.scroll_container_down(container, pixels)` | scroll a scrollable container down by an amount |
-| `page.scroll_container_up(container, pixels)` | scroll a scrollable container up by an amount |
 | `page.close()` | close this page's isolated context |
 
-## Surface — dialog
+No member proxies, delegates or re-exports of page capabilities exist: the
+handle is plumbing, not a managed surface. Everything step code does is a
+standard Playwright call on the genuine page inside `run`. Each context
+opens with the screen mode configured in the browser group — the handle and
+the contour are identical in every mode.
 
-| Call | Purpose |
-|---|---|
-| `dialog.accept(prompt_text)` | accept; `prompt_text` answers a prompt dialog (empty — no answer) |
-| `dialog.dismiss()` | dismiss |
-| `dialog.type` | alert, confirm, prompt or beforeunload |
-| `dialog.message` | the dialog message |
-| `dialog.default_value` | the prompt prefill of a prompt dialog |
+## The generated-code contour
 
-## Surface — frame
+Step code is one function of the fixed form `def step(page) -> None:` —
+compiled and resolved on the calling thread, then executed as one worker
+unit against the genuine page:
 
-| Call | Purpose |
-|---|---|
-| `frame.get_by_role(role, name)` — and the whole `get_by_*` family | locate inside the iframe |
-| `frame.locator(selector)` | any selector inside the iframe |
-| `frame.frame_locator(selector)` | the scope of a nested iframe |
+```python
+from playwright.sync_api import expect
 
-## Surface — element
 
-| Call | Purpose |
-|---|---|
-| `element.first` | the first match — positional narrowing |
-| `element.last` | the last match — positional narrowing |
-| `element.nth(index)` | the match at a 0-based index; negative counts from the end |
-| `element.filter(has_text=..., has_not_text=..., has=..., has_not=...)` | narrow by content — all predicates optional |
-| `element.or_(other)` | union locator — matches either; when both branches may match, compose positional narrowing (first, last, nth) to satisfy strict mode |
-| `element.and_(other)` | intersection locator — matches both |
-| `element.click(button)` | click; empty button = left, `"right"` = right button |
-| `element.dblclick()` | double click |
-| `element.fill(value)` | set input text |
-| `element.clear()` | clear the input |
-| `element.press(key)` | press a key or combination, e.g. `"Enter"`, `"Control+A"` |
-| `element.check()` | check a checkbox or radio |
-| `element.uncheck()` | uncheck |
-| `element.hover()` | hover |
-| `element.select_option(value)` | choose an option |
-| `element.drag_to(target)` | drag onto another element |
-| `element.set_input_files(path)` | upload one file by filesystem path |
-| `element.expect_visible()` | assert visible |
-| `element.expect_hidden()` | assert hidden |
-| `element.expect_text(text, ignore_case)` | assert text contains (substring, whitespace-normalized); `ignore_case=true` — case-insensitive |
-| `element.expect_enabled()` | assert enabled |
-| `element.expect_value(value)` | assert the input value |
-| `element.expect_checked()` | assert the checkbox/radio state |
-| `element.expect_count(count)` | assert the matched element count |
-| `element.expect_attribute(name, value)` | assert the attribute value |
+def step(page):
+    page.goto("https://example.com/login")
+    page.get_by_label("Username").fill("user")
+    page.get_by_role("button", name="Sign in").click()
+    expect(page.get_by_text("Welcome back")).to_be_visible()
+    assert "dashboard" in page.url
+```
+
+The contour:
+
+- Standard Playwright sync API — locator factories (`get_by_role`,
+  `get_by_label`, `get_by_text`, `locator`, ...), actions, `expect` chains
+  for dynamic content, plain Python asserts on immediate reads
+  (`assert videos.count() > 1`)
+- Imports from `playwright.sync_api` only — a prompt rule, no hard gate;
+  every generation and regeneration request carries the compact cheat sheet
+  as guidance, never an allowlist
+- Safety core: no `time.sleep`, no fixed delays — waits live in locators
+  and expectations; never `page.close()` or `context.close()` — the runtime
+  owns the page lifecycle
+- Stateful actions stay out of generated code: `page.route`, `page.clock`,
+  `add_init_script`, tracing, HAR, CDP are the author's explicit tools (see
+  the escape hatch below)
+- No provider constructs, no direct driver imports
+
+## Dialogs
+
+Step code captures a dialog through the stock Playwright event form:
+
+```python
+with page.expect_event("dialog") as info:
+    page.get_by_role("button", name="Delete").click()
+dialog = info.value
+assert dialog.type == "confirm"
+assert dialog.message == "Delete the item?"
+dialog.accept()
+```
+
+A captured dialog is step-controlled. Dialogs no in-step capture claims are
+resolved by the resolver of last resort: the driver registers one
+record-only routing handler per page of the context before any step code
+runs (registering a `dialog` listener disables Playwright's implicit
+auto-dismiss), and at the end of every run unit each unclaimed dialog is
+resolved exactly once — accepted when the `accept_dialogs` browser setting
+is on, explicitly dismissed when off. The resolver never touches a dialog
+an in-step capture handled and never masks the outcome of the action — see
+[Configuration](../configuration.md#dialogs).
+
+## Popups, frames, scrolling — stock means
+
+Popups and new tabs:
+
+```python
+with page.expect_popup() as popup_info:
+    page.get_by_role("link", name="Open docs").click()
+popup = popup_info.value
+popup.bring_to_front()
+expect(popup.get_by_role("heading", name="Documentation")).to_be_visible()
+```
+
+Iframes:
+
+```python
+checkout = page.frame_locator("#checkout")
+checkout.get_by_role("button", name="Pay").click()
+
+inner = page.frame_locator("#outer").frame_locator("#inner")
+expect(inner.get_by_text("Nested")).to_be_visible()
+```
+
+Scrolling:
+
+```python
+page.get_by_role("button", name="More").scroll_into_view_if_needed()
+page.mouse.wheel(0, 600)
+```
+
+No fixed delays around scrolls — the scrolled state is awaited through
+locators and expectations.
+
+## The author escape hatch — `run_on_page`
+
+```python
+title = t.run_on_page(lambda page: page.title())
+```
+
+`t.run_on_page(action)` executes the author action wholly inside the driver
+worker thread against the genuine page — the same primitive step code
+crosses through, sequential with every step. The stateful actions excluded
+from generated code (`page.route`, `page.clock`, `add_init_script`,
+tracing, HAR, CDP) are the author's explicit tools here; the prompt rules
+of generated code do not bind the author.
+
+- Requires an opened page — run a step first: the page opens lazily on the
+  first step, and a missing page raises a loud actionable `PrettyplayError`
+- The outcome returns as-is — plain data only; an exception inside the
+  action propagates to the caller untouched
 
 ## Pollable failure kinds
 
@@ -114,154 +163,35 @@ transient page state — the settle window may re-execute the same code — and
 classification. Pollable: timeouts (`Timeout NNNms exceeded`), element state
 (not visible, not enabled, outside the viewport, detached/stale), navigation
 and context races (`Execution context was destroyed`, `Target closed`), and
-plain `AssertionError`s of failed expectations. Not pollable: locator
+plain `AssertionError`s of failed checks — a failed `expect(...)` chain or a
+plain Python assert on an immediate read alike. Not pollable: locator
 ambiguity (`strict mode violation` — deterministic), Python-level errors of
 the step code itself, and unrecognized failures. The map is fixed in code: it
 never reads settings and never asks an LLM. See
 [Settle polling](settle-polling.md).
 
-## Example
-
-```python
-page.goto("https://example.com/login")
-page.get_by_label("Username").fill("user")
-page.get_by_role("button", name="Sign in").click()
-page.get_by_role("textbox", name="Search").press("Enter")
-page.expect_url("**/dashboard")
-```
-
-Locating without accessible names:
-
-```python
-page.get_by_test_id("submit-button").click()
-page.locator("form > button.primary").expect_enabled()
-page.locator("//button[@type='submit']").expect_visible()
-page.locator("[data-qa='row'] > input").fill("text")
-```
-
-Narrowing a locator — positional, content, combinators:
-
-```python
-page.get_by_role("row").first.expect_text("Paid")
-page.get_by_role("listitem").last.expect_visible()
-page.get_by_role("row").nth(2).expect_text("Shipped")
-page.get_by_role("listitem").filter(has_text="Product X").expect_visible()
-page.get_by_role("button").and_(page.get_by_text("Save")).expect_enabled()
-
-# disjunction with the strict-mode guard — both texts may be present
-page.get_by_text("one").or_(page.get_by_text("two")).first.expect_visible()
-```
-
-Dialogs:
-
-```python
-with page.expect_dialog() as dialog:
-    page.get_by_role("button", name="Delete").click()
-assert dialog.type == "confirm"
-assert dialog.message == "Delete the item?"
-dialog.accept()
-```
-
-A captured dialog is step-controlled — the `accept_dialogs` setting does
-not apply to it; dialogs outside a capture follow the setting (accept when
-on, dismiss when off) — see [Configuration](../configuration.md#dialogs).
-
-Popups and new tabs:
-
-```python
-with page.expect_popup() as docs:
-    page.get_by_role("link", name="Open docs").click()
-docs.bring_to_front()
-docs.get_by_role("heading", name="Documentation").expect_visible()
-page.bring_to_front()
-```
-
-Iframes:
-
-```python
-checkout = page.frame_locator("#checkout")
-checkout.get_by_role("button", name="Pay").click()
-
-inner = page.frame_locator("#outer").frame_locator("#inner")
-inner.get_by_text("Nested").expect_visible()
-```
-
-Interactions:
-
-```python
-page.get_by_role("checkbox", name="Subscribe").check()
-page.get_by_role("img", name="Product").drag_to(page.get_by_role("list", name="Cart"))
-page.get_by_label("Avatar").set_input_files("avatar.png")
-page.get_by_role("button", name="Options").click(button="right")
-```
-
-Case-insensitive text assertions:
-
-```python
-page.get_by_text("status").expect_text("success", ignore_case=True)
-page.expect_title("dashboard", ignore_case=True)
-
-# default (False) — the check stays case-sensitive, the behavior unchanged
-page.get_by_text("status").expect_text("success")
-```
-
-The flag belongs to the assertion family only: text locating (`get_by_text`,
-`filter(has_text=...)`) already matches case-insensitively through Playwright
-defaults.
-
-Scroll scenarios:
-
-```python
-page.scroll_down(600)
-page.get_by_text("Footer").expect_visible()
-
-cards = page.get_by_role("list", name="Recommendations")
-page.scroll_container_down(cards, 400)
-page.get_by_text("Fifth card").expect_visible()
-
-snapshot = page.aria_snapshot()
-```
-
-## The fixed form of generated code
-
-Generated code is one function receiving exactly one argument — the page
-facade — and working only through the facade surface:
-`page.get_by_role(...)`,
-`page.get_by_test_id("submit-button").click()`,
-`page.locator("form > button.primary")`,
-`page.locator("//button[@type='submit']")`, `element.expect_visible()`,
-`page.get_by_role("row").first.expect_text("Paid")`,
-`page.get_by_role("listitem").filter(has_text="Product X").expect_visible()`,
-`with page.expect_dialog() as dialog:`,
-`with page.expect_popup() as popup:`, `page.frame_locator("#checkout")`,
-`page.scroll_down(600)` and alike. No provider constructs, no direct
-driver imports, no fixed delays.
-
 ## Rules
 
 - One browser process per test: each test owns its browser through its
   runtime; contexts stay isolated
-- Every call executes in the library's driver thread and returns when done:
-  driving is strictly sequential, and the calling thread never adopts the
-  Playwright event loop — hand-written step code stays safe in interactive
-  hosts (IPython, Jupyter)
+- Every run unit executes in the library's driver thread and returns when
+  done: driving is strictly sequential, and the calling thread never adopts
+  the Playwright event loop
 - Auto-wait everywhere: no `time.sleep`, no fixed delays in step code —
-  including around scrolls: the scrolled state is awaited through locators
-  and expectations
-- A locator resolving to several elements fails an action or expectation with
-  the strict-mode violation — narrow positionally (`first`, `last`, `nth`) to
-  address one match; over an `or_` composition the positional narrowing is the
-  canonical guard when both branches may match
+  the scrolled and loaded states are awaited through locators and
+  expectations
+- A locator resolving to several elements fails an action or expectation
+  with the strict-mode violation — narrow positionally (`first`, `last`,
+  `nth`) to address one match; over an `or_` composition the positional
+  narrowing is the canonical guard when both branches may match
 - The screen mode of the browser group (empty, WxH, fullscreen, device
-  name) changes only how the context opens — never the facade surface;
-  step code is identical in every mode
-- Parity, not exposure: mirroring Playwright never means exposing raw
-  Playwright objects — every interaction stays a facade call marshaled
-  through the driver thread, popup pages and frame scopes included
-- No network interception, no `evaluate`, no CDP, no clock, no HAR, no
-  tracing — these stay outside the facade
-- Dialogs: an `expect_dialog` capture claims its dialog; dialogs outside a
+  name) changes only how the context opens — never the contour; step code
+  is identical in every mode
+- Dialogs: an in-step stock capture claims its dialog; dialogs outside a
   capture follow the `accept_dialogs` browser setting
+- No network interception, no `evaluate`, no CDP, no clock, no HAR, no
+  tracing in generated code — the author performs them explicitly through
+  `run_on_page`
 - Never put secrets into step actions — step texts and code land in the
   repository cache
 

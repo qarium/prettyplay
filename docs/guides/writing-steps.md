@@ -46,31 +46,49 @@ with PrettyPlay("login-flow") as t:
 - Nothing is captured automatically on failures — attaching screenshots to
   reports is the author's decision
 
-## Dialogs, popups and iframes
+## What the generated code looks like
 
-The step sentence stays a plain sentence; the generated code uses the
-facade's capture constructs for dialogs and popups, and frame locators for
-iframes — see [Driver facade](../reference/driver-facade.md):
+The step sentence stays a plain sentence; the generated code is standard
+Playwright sync API running on the genuine page — see
+[Driver facade](../reference/driver-facade.md):
 
 ```python
+from playwright.sync_api import expect
+
+# «open the login page and sign in»
+page.goto("https://example.com/login")
+page.get_by_label("Username").fill("user")
+page.get_by_role("button", name="Sign in").click()
+expect(page.get_by_text("Welcome back")).to_be_visible()
+
+# «the page shows a list of videos» — count forms
+videos = page.get_by_role("listitem")
+expect(videos.first).to_be_visible()
+assert videos.count() > 1
+
 # «click «Delete» and accept the confirmation dialog»
-with page.expect_dialog() as dialog:
+with page.expect_event("dialog") as info:
     page.get_by_role("button", name="Delete").click()
-dialog.accept()
+info.value.accept()
 
 # «click «Open docs» — the documentation opens in a new tab»
-with page.expect_popup() as docs:
+with page.expect_popup() as popup_info:
     page.get_by_role("link", name="Open docs").click()
-docs.bring_to_front()
-docs.get_by_role("heading", name="Documentation").expect_visible()
+popup = popup_info.value
+popup.bring_to_front()
 
 # «click «Pay» inside the embedded checkout frame»
 checkout = page.frame_locator("#checkout")
 checkout.get_by_role("button", name="Pay").click()
+
+# «scroll down until the footer shows»
+page.mouse.wheel(0, 600)
+expect(page.get_by_text("Footer")).to_be_visible()
 ```
 
-Dialogs that no `expect_dialog` block claims are handled by the
-`accept_dialogs` browser setting — see
+Dialogs that no in-step capture claims are resolved by the driver's
+resolver of last resort — accepted when the `accept_dialogs` browser
+setting is on, explicitly dismissed when off — see
 [Configuration](../configuration.md#dialogs).
 
 ## Addressing

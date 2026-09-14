@@ -154,7 +154,7 @@ dialog.accept() / dialog.dismiss() / dialog.accept("the answer")
 ```
 
 Rules:
-- Registering any `dialog` listener disables Playwright's implicit auto-dismiss — the handler itself resolves every uncaptured dialog: accept when the setting is on, an explicit dismiss when off (the same observable default)
+- Registering any `dialog` listener disables Playwright's implicit auto-dismiss — the routing handler subsystem resolves every uncaptured dialog at the run-unit tail: accept when the setting is on, an explicit dismiss when off (the same observable default)
 - The handler is unconditional — never accept-only: a capture-armed step must keep control of its dialog
 
 ## Popups and new tabs

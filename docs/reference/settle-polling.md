@@ -10,7 +10,7 @@ cached code and generation candidates alike, replay-strict included.
 ## The window
 
 - The window starts at the first execution of the step code — never at the
-  first failure; the facade's internal waits count inside it, and the first
+  first failure; the step's internal auto-waits count inside it, and the first
   execution may consume the whole window: no repetitions follow
 - The window gates repetitions, never kills a running attempt: the
   remaining-time check happens only before a repeat
@@ -27,7 +27,7 @@ cached code and generation candidates alike, replay-strict included.
 | `polling_timeout` | `None` | `PRETTYPLAY_POLLING_TIMEOUT` | settle window seconds per step execution; `None`/`0` — polling off |
 | `polling_delay` | `0.5` | `PRETTYPLAY_POLLING_DELAY` | pause between re-executions, seconds |
 
-Size the window above the longest facade wait it must absorb — `6.0` covers
+Size the window above the longest auto-wait it must absorb — `6.0` covers
 one exhausted 5 s expectation plus one re-execution.
 
 ```python

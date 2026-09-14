@@ -68,7 +68,7 @@ and [Step cache](reference/step-cache.md).
 - [Step cache](reference/step-cache.md) — addressing, storage, attempt budgets, CI workflow
 - [LLM providers](reference/llm-providers.md) — openai and anthropic parity, model settings
 - [Self-healing](reference/self-healing.md) — classification categories and healing paths
-- [Driver facade](reference/driver-facade.md) — the page API generated step code uses
+- [Driver facade](reference/driver-facade.md) — the internal page handle, the worker boundary and the generated-code contour
 
 !!! warning
     Step sentences land in the repository cache, the logs and the LLM requests:

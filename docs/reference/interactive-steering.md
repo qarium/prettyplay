@@ -17,7 +17,9 @@ test green), never in replay-strict, and never when the LLM is unavailable.
 ```text
 ── step "click Checkout" — about to raise IncurableStepError ──────────
 intent:   click the checkout button
-code:     page.get_by_text("Checkout").click()
+code:     videos = page.get_by_role("listitem")
+          expect(videos.first).to_be_visible()
+          assert videos.count() > 1
 error:    TimeoutError: Timeout 10000ms exceeded ... element is not visible
 verdict:  fixable — the button is behind the "Terms" modal;
           recommendation: dismiss the modal first, then click.

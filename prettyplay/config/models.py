@@ -39,8 +39,8 @@ class BrowserConfig(BaseModel):
             default True; ignored on a remote connect.
         endpoint: ws endpoint of a remote browser; empty means the local
             launch.
-        accept_dialogs: automatically accept dialogs that no captured
-            ``expect_dialog`` block claims; False — the Playwright dismiss
+        accept_dialogs: automatically accept dialogs that no in-step
+            stock dialog capture claims; False — the Playwright dismiss
             default stands; default False (neutral — the pre-setting
             behavior).
     """

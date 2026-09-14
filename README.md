@@ -120,7 +120,7 @@ races, navigation races, failed expectations — re-executes the same code after
 `polling_delay` (default 0.5 s) until success or window end. Attempts appear
 as `settle_retry` log records; no LLM budget is consumed. Locator ambiguity
 and Python-level errors of the step code never poll. Size the window above
-the longest facade wait it must absorb (6.0 covers one exhausted 5 s
+the longest auto-wait it must absorb (6.0 covers one exhausted 5 s
 expectation plus one re-execution).
 
 ## Interactive steering
@@ -189,7 +189,7 @@ name = "chromium"                # chromium | firefox | webkit | chrome | msedge
 screen = ""                      # "" | WxH | fullscreen | Playwright device name
 headless = true                  # false -> run with a visible browser window
 endpoint = ""                    # ws:// endpoint of a remote browser; empty -> local launch
-accept_dialogs = false           # true -> automatically accept dialogs outside step-captured expect_dialog blocks
+accept_dialogs = false           # true -> automatically accept dialogs no in-step capture claims
 ```
 
 The old flat keys `browser`, `headless` and `browser_endpoint` at the
@@ -272,11 +272,11 @@ and are read lazily on the first request.
 `accept_dialogs` of the browser group controls the automatic dialog handling
 of the driver:
 
-- `true` — every dialog that no step-captured `expect_dialog` block claims is
+- `true` — every dialog that no in-step stock dialog capture claims is
   accepted automatically
 - `false` (default) — unclaimed dialogs are dismissed (the Playwright
   default; nothing blocks)
-- a dialog captured by a step's `expect_dialog` block is accepted or dismissed
+- a dialog claimed by a step's in-step stock capture is accepted or dismissed
   by the step itself — the setting does not apply to captured dialogs
 
 ## Failure taxonomy

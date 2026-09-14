@@ -42,8 +42,8 @@ The `screen` field is the single size setting:
 - A WxH-shaped value with non-positive numbers fails validation at load; any
   other string passes through as a device name
 
-The screen mode changes only how the context opens — never the facade surface
-the step code uses; step code is identical in every mode (see
+The screen mode changes only how the context opens — never the page-driving
+behavior the step code uses; step code is identical in every mode (see
 [Driver facade](../reference/driver-facade.md)).
 
 ## Headless
