@@ -153,6 +153,10 @@ of generated code do not bind the author.
 
 - Requires an opened page — run a step first: the page opens lazily on the
   first step, and a missing page raises a loud actionable `PrettyplayError`
+- The action must use the page API only — calling back into the test
+  object (`t.step`, screenshots, a nested `run_on_page`) marshals into the
+  same worker thread the action runs on; the worker rejects the re-entrant
+  crossing with a loud error instead of a deadlock
 - The outcome returns as-is — plain data only; an exception inside the
   action propagates to the caller untouched
 

@@ -239,6 +239,10 @@ class PrettyPlay:
         actions excluded from generated code (``page.route``, ``page.clock``,
         ``add_init_script``, tracing, HAR, CDP) are the author's explicit
         tools here. The prompt rules of generated code do not bind the author.
+        The action must use the page API only: calling back into the test
+        object (a step, a screenshot, a nested ``run_on_page``) marshals into
+        the same worker thread the action itself runs on and is rejected with
+        a loud error instead of a deadlock.
 
         Args:
             action: the callable to execute; receives the genuine sync Page.

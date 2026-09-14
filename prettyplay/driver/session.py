@@ -49,7 +49,9 @@ class PlaywrightWorker:
     marker until the session stops — which breaks any asyncio-driven host
     (IPython, Jupyter) that executed a step in its own thread. The worker
     keeps the fiber and the marker inside its own background thread instead;
-    calls still happen strictly sequentially through :meth:`run`.
+    calls still happen strictly sequentially through :meth:`run`, which
+    rejects a call made from the pump thread itself — a re-entrant unit could
+    never be served and would deadlock both threads.
 
     Attributes:
         _tasks: the queue feeding the pump thread; ``None`` is the stop sentinel.
@@ -79,10 +81,24 @@ class PlaywrightWorker:
 
         Raises:
             Error: the worker is not running (stopped or never started) — the
-                same message Playwright itself raises on a stopped driver.
+                same message Playwright itself raises on a stopped driver; or
+                the call arrives from the worker's own pump thread — code
+                running inside a driver-thread unit (a ``run_on_page``
+                action, step code) crossed the boundary again, a unit the
+                busy pump could never serve; the loud error replaces the
+                silent deadlock of both threads.
         """
         if self._thread is None:
             raise Error("Event loop is closed! Is Playwright already stopped?")
+
+        if threading.current_thread() is self._thread:
+            raise Error(
+                "re-entrant crossing of the driver thread: code running inside a "
+                "driver-thread unit called back into the worker — an action inside "
+                "run_on_page (or step code) must use the genuine Page directly, "
+                "never the prettyplay test object, whose every call marshals into "
+                "the same worker and could never be served"
+            )
 
         task = _Task(fn)
         self._tasks.put(task)

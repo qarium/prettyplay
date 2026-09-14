@@ -30,7 +30,7 @@ name = "chromium"                # chromium | firefox | webkit | chrome | msedge
 screen = ""                      # "" | WxH | fullscreen | Playwright device name
 headless = true                  # false -> run with a visible browser window
 endpoint = ""                    # ws:// endpoint of a remote browser; empty -> local launch
-accept_dialogs = false           # true -> automatically accept dialogs no in-step capture claims
+accept_dialogs = false           # true -> accept (else dismiss) dialogs no in-step capture claims
 ```
 
 The browser group settings — engines, screen modes, remote endpoints — are
@@ -167,7 +167,7 @@ config.effective_classification_model  # classification_model when non-empty, ot
 | `screen` | str | `""` | `""` — Playwright default; WxH — fixed viewport; `fullscreen`; Playwright device name |
 | `headless` | bool | `True` | windowless local launch; ignored on a remote connect |
 | `endpoint` | str | `""` | ws endpoint of a remote browser; empty — local launch |
-| `accept_dialogs` | bool | `False` | automatically accept dialogs no in-step stock dialog capture claims |
+| `accept_dialogs` | bool | `False` | accept (else dismiss) dialogs no in-step stock dialog capture claims, at the run-unit tail |
 
 Fields inside the group carry no `browser_` prefix — the group name scopes
 them; env overrides stay flat (`PRETTYPLAY_BROWSER_NAME`, ...). Validation:
@@ -309,13 +309,16 @@ invariant across all caching paths.
 
 ## Dialogs
 
-`accept_dialogs` of the browser group controls the automatic dialog handling
-of the driver:
+`accept_dialogs` of the browser group controls how the resolver of last
+resort settles unclaimed dialogs:
 
 - `true` — every dialog that no in-step stock dialog capture claims is
-  accepted automatically
+  accepted
 - `false` (default) — unclaimed dialogs are dismissed (the Playwright
-  default; nothing blocks)
+  default outcome)
+- The resolution runs at the tail of the driver-thread run unit, not at
+  the moment the dialog fires: a dialog unclaimed by the step blocks the
+  page until the unit ends, which can fail the remainder of the step
 - A dialog claimed by a step's in-step stock capture is accepted or
   dismissed by the step itself — the setting does not apply to captured
   dialogs

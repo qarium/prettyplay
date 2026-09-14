@@ -28,7 +28,7 @@ name = "chromium"          # chromium | firefox | webkit | chrome | msedge
 screen = ""                # "" | WxH | fullscreen | Playwright device name
 headless = true            # false — run with a visible window
 endpoint = ""              # ws endpoint of a remote browser; empty -> local launch
-accept_dialogs = false     # true — automatically accept dialogs outside step-captured dialogs
+accept_dialogs = false     # true — accept (else dismiss) dialogs no in-step capture claims, at the run-unit tail
 ```
 
 ## Environment overrides
@@ -164,10 +164,11 @@ The `screen` field of the browser group is the single size setting:
 
 ## Dialogs
 
-`accept_dialogs` of the browser group controls the automatic dialog handling of the driver:
+`accept_dialogs` of the browser group controls how the resolver of last resort settles unclaimed dialogs:
 
-- `true` — every dialog that no in-step stock dialog capture claims is accepted automatically
-- `false` (default) — unclaimed dialogs are dismissed (the Playwright default; nothing blocks)
+- `true` — every dialog that no in-step stock dialog capture claims is accepted
+- `false` (default) — unclaimed dialogs are dismissed (the Playwright default outcome)
+- The resolution runs at the tail of the driver-thread run unit, not at the moment the dialog fires: a dialog unclaimed by the step blocks the page until the unit ends, which can fail the remainder of the step
 - A dialog claimed by a step's in-step stock capture is accepted or dismissed by the step itself — the setting does not apply to captured dialogs
 
 ## Strict mode

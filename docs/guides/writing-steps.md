@@ -52,6 +52,10 @@ with PrettyPlay("login-flow") as t:
 - The action receives the genuine sync `Page` and runs sequentially with
   every step — the same primitive step code crosses through
   (see [Driver facade](../reference/driver-facade.md))
+- The action must use the page API only — calling back into the test
+  object (`t.step`, `t.get_screenshot`, a nested `t.run_on_page`)
+  marshals into the same worker thread the action runs on; the worker
+  rejects the re-entrant crossing with a loud error instead of a deadlock
 - Requires an opened page: call it after the first step — before that a
   loud `PrettyplayError` raises
 - The outcome returns as-is; an exception inside the action propagates

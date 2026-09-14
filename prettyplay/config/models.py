@@ -39,10 +39,12 @@ class BrowserConfig(BaseModel):
             default True; ignored on a remote connect.
         endpoint: ws endpoint of a remote browser; empty means the local
             launch.
-        accept_dialogs: automatically accept dialogs that no in-step
-            stock dialog capture claims; False — the Playwright dismiss
-            default stands; default False (neutral — the pre-setting
-            behavior).
+        accept_dialogs: how the resolver of last resort settles a dialog
+            no in-step stock dialog capture claims — True accepts it,
+            False dismisses it (the Playwright default outcome); default
+            False. The resolution runs at the tail of the driver-thread
+            unit, not at the moment the dialog fires: a dialog unclaimed
+            by the step blocks the page until the unit ends.
     """
 
     model_config = ConfigDict(kw_only=True, extra="forbid")

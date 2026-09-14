@@ -85,6 +85,11 @@ t.run_on_page(lambda page: page.route("**/api/config", lambda r: r.fulfill(json=
 title = t.run_on_page(lambda page: page.title())
 ```
 
+The action must use the page API only: calling back into the test object
+(`t.step`, screenshots, a nested `t.run_on_page`) marshals into the same
+worker thread the action runs on — the worker rejects the re-entrant
+crossing with a loud error instead of a deadlock.
+
 ## What happens on a step
 
 - **cache hit** — the cached code runs; no LLM is contacted
@@ -201,7 +206,7 @@ name = "chromium"                # chromium | firefox | webkit | chrome | msedge
 screen = ""                      # "" | WxH | fullscreen | Playwright device name
 headless = true                  # false -> run with a visible browser window
 endpoint = ""                    # ws:// endpoint of a remote browser; empty -> local launch
-accept_dialogs = false           # true -> automatically accept dialogs no in-step capture claims
+accept_dialogs = false           # true -> accept (else dismiss) dialogs no in-step capture claims
 ```
 
 The old flat keys `browser`, `headless` and `browser_endpoint` at the
@@ -281,13 +286,16 @@ and are read lazily on the first request.
 
 ### Dialogs
 
-`accept_dialogs` of the browser group controls the automatic dialog handling
-of the driver:
+`accept_dialogs` of the browser group controls how the resolver of last
+resort settles unclaimed dialogs:
 
 - `true` — every dialog that no in-step stock dialog capture claims is
-  accepted automatically
+  accepted
 - `false` (default) — unclaimed dialogs are dismissed (the Playwright
-  default; nothing blocks)
+  default outcome)
+- the resolution runs at the tail of the driver-thread run unit, not at
+  the moment the dialog fires: a dialog unclaimed by the step blocks the
+  page until the unit ends, which can fail the remainder of the step
 - a dialog claimed by a step's in-step stock capture is accepted or dismissed
   by the step itself — the setting does not apply to captured dialogs
 

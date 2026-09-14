@@ -789,6 +789,24 @@ class TestDriverSessionWorkerThread:
             with pytest.raises(Error, match="Event loop is closed"):
                 page.run(lambda raw: raw.url)
 
+    def test_reentrant_crossing_from_inside_a_unit_fails_loudly(self) -> None:
+        factory = FakePlaywrightFactory()
+
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(Config(browser=BrowserConfig(name="chromium")))
+            page = session.open_context()
+
+            def call_back_inside_the_unit(raw: object) -> str:
+                # a nested marshaled call — the busy pump could never serve it
+                with pytest.raises(Error, match="re-entrant crossing"):
+                    page.run(lambda inner: inner.url)
+                return "outer-completed"
+
+            # deadlock guard: the crossing rejects loudly instead of hanging both threads
+            assert page.run(call_back_inside_the_unit) == "outer-completed"
+            assert page.run(lambda raw: raw.url) == "about:blank"  # the worker still serves
+            session.close()
+
     def test_reopen_after_close_runs_in_new_worker_thread(self) -> None:
         factory = FakePlaywrightFactory()
 
