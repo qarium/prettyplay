@@ -456,6 +456,36 @@ class TestRunPrimitive:
         handle.run(lambda _page: "next")  # the next unit makes its own bounded progress
         assert len(router._pending) == 1  # still bounded — no unit ever runs forever
 
+    def test_resolver_pass_is_bounded_inside_one_large_batch(self, caplog: pytest.LogCaptureFixture) -> None:
+        handle = make_handle(FakeRawPage(), FakeContext())
+        router = _DialogRouter(accept_dialogs=True)
+        handle._router = router
+        batch = [FakeRawDialog(f"#{number}") for number in range(_RESOLVE_PASS_LIMIT + 40)]
+        for dialog in batch:  # one unit tail meets the whole dialog storm pre-queued
+            router.record(dialog)
+
+        with caplog.at_level(logging.WARNING, logger="prettyplay"):
+            result = handle.run(lambda _page: "ok")
+
+        assert result == "ok"  # the unit terminated inside the bound
+        accepted = [dialog for dialog in batch if dialog.state == "accepted"]
+        assert len(accepted) == _RESOLVE_PASS_LIMIT  # exactly the limit, never the whole batch
+        assert router._pending == batch[_RESOLVE_PASS_LIMIT:]  # the unstarted tail rolls forward untouched
+        capped = [
+            record
+            for record in caplog.records
+            if record.name == "prettyplay"
+            and record.levelno == logging.WARNING
+            and record.getMessage() == "dialog drain limit reached; the rest resolves at the next unit tail"
+        ]
+        assert len(capped) == 1  # the bound is loud, never a silent overrun
+        assert capped[0].pending == 40
+        assert capped[0].limit == _RESOLVE_PASS_LIMIT
+
+        handle.run(lambda _page: "next")  # the rolled-forward tail resolves in its own bounded unit
+        assert router._pending == []
+        assert all(dialog.state == "accepted" for dialog in batch)
+
     def test_run_never_touches_a_dismissed_dialog_the_step_captured(self) -> None:
         handle = make_handle(FakeRawPage(), FakeContext())
         router = _DialogRouter(accept_dialogs=False)

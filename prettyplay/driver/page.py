@@ -203,7 +203,10 @@ class _DialogRouter:
         resolved = 0
         while self._pending and resolved < _RESOLVE_PASS_LIMIT:
             dialogs, self._pending = self._pending, []
-            for dialog in dialogs:
+            for index, dialog in enumerate(dialogs):
+                if resolved >= _RESOLVE_PASS_LIMIT:
+                    self._pending[:0] = dialogs[index:]  # the unstarted tail waits for the next unit tail
+                    break
                 resolved += 1
                 try:
                     if self.accept_dialogs:
