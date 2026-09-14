@@ -53,8 +53,9 @@ root, so `from prettyplay import StepHooks` works too.
 
 `error` carries the full structured render of the terminal failure — the same
 multi-line text the raised exception carries and the log record writes: the
-primary reason line, the `---` separated step/error block and the
-column-aligned verdict block. Display it verbatim in reports; do not parse it
+first line with the terminal class name and the authored reason, the `---`
+separated step/error block, the conditional received/cause/Call log details
+section and the column-zero verdict block. Display it verbatim in reports; do not parse it
 — structured data arrives through `on_step_verdict` fields. In strict mode
 `on_generation_started` and `on_healing_started` never fire: classification is
 the only LLM call.

@@ -144,21 +144,24 @@ re-execution).
 
 `interactive = true` (default `false`) arms the steering REPL for local
 generation sessions: when a step terminally fails with
-`IncurableStepError`, a terminal dialog opens — step, failed code, error,
-verdict, snapshot fragment, screenshot path — and every engineer message
-drives one regeneration executed against the live page. Local commands
-serve the context without an LLM request: `snapshot` (the full
-accessibility snapshot), `screenshot` (a full PNG written to a temporary
-file, path printed), `error` and `code` (the stored texts) and `quit`. A
-green turn heals the step and writes it back to the cache — only after the
-instruction compliance gate passes (a `high` finding never reaches the cache:
-the violation joins the history and the prompt reopens); a red turn is
-one bare execution — the settle window never re-arms inside the dialog —
-and its outcome joins the history of the next request; quit, EOF, SIGINT
-or an unreadable stdin raises the original terminal failure. The dialog
-never opens on `product_defect`, in strict mode, or when the provider is
-down, and consumes no budgets. Dialog openings, guidance lines and
-declines log at info level as `steering_opened`, `steering_guidance` and
+`IncurableStepError`, a terminal dialog opens — step, failed code, the
+terminal error render, the current page URL, screenshot path, commands —
+and every engineer message drives one regeneration whose complete code is
+shown for approval with `run? [y/N]` before it executes against the live
+page: nothing runs unseen, and a rejected turn enters the history instead
+of the page. Local commands serve the context without an LLM request:
+`snapshot` (the full accessibility snapshot), `screenshot` (a full PNG
+written to a temporary file, path printed), `error` and `code` (the stored
+texts) and `quit`. A green turn heals the step and writes it back to the
+cache — only after the instruction compliance gate passes (a `high`
+finding never reaches the cache: the violation joins the history and the
+prompt reopens); every completed turn — executed, red or rejected —
+appends its full record (message, complete code, complete outcome) to the
+history of every later request; quit, EOF, SIGINT or an unreadable stdin
+raises the original terminal failure. The dialog never opens on
+`product_defect`, in strict mode, or when the provider is down, and
+consumes no budgets. Dialog openings, guidance lines and declines log at
+info level as `steering_opened`, `steering_guidance` and
 `steering_declined`. Keep it off in CI — an accidentally opened dialog
 would hang the run. This is the steering dialog of a stuck step, not an
 interactive host mode (IPython and Jupyter keep working as before).
@@ -312,10 +315,13 @@ Every library failure derives from `PrettyplayError`:
 | ConfigurationError | invalid `[tool.prettyplay]` settings | fix the named setting — the message lists received and allowed values |
 
 `ProductDefectError` and `IncurableStepError` render one structured terminal
-message — the reason line, a `---` separated `step:`/`error:` block (the
-`error:` line carries the full underlying error text), and a `---` separated
-verdict block with column-aligned `explanation:` and `recommendation:` lines
-(the `category` travels in the structured fields, never in the render). The
+message — the first line `ClassName: reason`, a `---` separated
+`step:`/`error:` block (the `error:` line carries the decomposed headline
+of the underlying error), a conditional `---` separated details section
+(`received:`, `cause:`, `Call log:` — present only when the underlying
+error carries them), and a `---` separated verdict block with
+`explanation:` and `recommendation:` labels at column zero (the `category`
+travels in the structured fields, never in the render). The
 same single text feeds the exception message, the log record and the
 `on_step_failed` hook payload — consumers never re-compose it. The verdict
 fields also arrive through the `on_step_verdict` hook. `IncurableStepError`

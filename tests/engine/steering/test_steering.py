@@ -161,7 +161,7 @@ class FakeProvider:
     def check_instruction_compliance(self, **kwargs: object) -> list[ComplianceFinding]:
         self.compliance_calls.append(dict(kwargs))
         outcome = self.compliance_verdicts.pop(0) if self.compliance_verdicts else []
-        if isinstance(outcome, Exception):  # a scripted gate failure plays itself
+        if isinstance(outcome, BaseException):  # a scripted gate failure plays itself — SIGINT included
             raise outcome
         return outcome
 
@@ -173,8 +173,9 @@ class SpyCache:
         self.save_calls: list[CachedStep] = []
         self.writable = writable
 
-    def save(self, step: CachedStep) -> None:
+    def save(self, step: CachedStep) -> bool:
         self.save_calls.append(step)
+        return self.writable
 
 
 class RecorderHook(StepHooks):
@@ -521,8 +522,8 @@ class TestStepSteeringLogic:
 
     @pytest.mark.parametrize(
         "answer_at_approval",
-        ["", "quit"],
-        ids=["enter", "quit-at-approval"],
+        ["", "quit", "Y", "yes"],
+        ids=["enter", "quit-at-approval", "uppercase-y", "yes"],
     )
     def test_steer_enter_and_quit_at_approval_abort_the_turn(
         self,
@@ -956,6 +957,37 @@ class TestStepSteeringLogic:
         for line in sample.splitlines():
             assert line in out  # every count-forms line of the practice sample renders in the banner
 
+    def test_steer_banner_indents_multi_line_values_once_to_the_value_column(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Every continuation line of a multi-line banner value renders exactly once, at the value column."""
+        from prettyplay.engine.steering import StepSteering  # noqa: PLC0415 — cell facade check
+
+        provider = FakeProvider()
+        fixture = SteeringFixture(provider, tmp_path)
+        steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
+        _script_input(monkeypatch, ["quit"])
+        sample = (
+            'videos = page.get_by_role("listitem")\n'
+            "expect(videos.first).to_be_visible()\n"
+            "assert videos.count() > 1\n"
+        )
+        failure = IncurableStepError(
+            "click Pay", "budget exhausted", "Timeout 10000ms exceeded", code=sample, verdict=None
+        )
+
+        steering.steer(failure, _identity(), [], FakePage())
+
+        out = capsys.readouterr().out
+        assert 'code:     videos = page.get_by_role("listitem")' in out  # the label column opens the block
+        for line in sample.splitlines()[1:]:
+            assert out.count(line) == 1  # every continuation line renders exactly once — never duplicated
+            assert f"{' ' * 10}{line}" in out  # and lands indented at the value column
+            assert f"\n{line}" not in out  # never unindented at column zero
+
     def test_steer_banner_shows_render_and_url_without_snapshot_fragment(
         self,
         tmp_path: Path,
@@ -1074,8 +1106,40 @@ class TestStepSteeringLogic:
             ("on_healed", {"step_text": "click Pay", "explanation": "healed interactively by engineer guidance"})
         ]
         out = capsys.readouterr().out
-        assert "cache write skipped (read-only cache)" in out
+        assert "cache write skipped (best-effort cache)" in out
         assert "written to the cache" not in out  # the success line is never printed on a skipped write
+
+    def test_steer_busy_cache_save_reports_the_skipped_write(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """A writable cache whose best-effort save skipped never prints the written-to-the-cache line."""
+        from prettyplay.engine.steering import StepSteering  # noqa: PLC0415 — cell facade check
+
+        provider = FakeProvider(answers=[GENERATED_CODE])
+        fixture = SteeringFixture(provider, tmp_path)
+
+        class BusyCache(SpyCache):
+            """Writable cache spy whose save skips — the best-effort busy-target path."""
+
+            def save(self, step: CachedStep) -> bool:
+                super().save(step)
+                return False  # writable, yet the atomic write skipped
+
+        fixture.cache = BusyCache()
+        steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
+        _script_input(monkeypatch, ["dismiss the modal first", "y"])
+        monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
+
+        healed = steering.steer(_failure(), _identity(), [], FakePage())
+
+        assert healed is not None  # the green turn still returns the healed step
+        assert len(fixture.cache.save_calls) == 1  # the save was attempted
+        out = capsys.readouterr().out
+        assert "cache write skipped (best-effort cache)" in out
+        assert "written to the cache" not in out  # the console line never claims the failed write
 
     def test_steer_high_finding_never_reaches_cache(
         self,
@@ -1218,3 +1282,26 @@ class TestStepSteeringLogic:
         assert "compliance gate failed" in out
         assert str(outage) in out  # the gate failure text shows in the dialog
         assert "compliance violation" not in out  # the dialog ended before any verdict handling
+
+    def test_steer_sigint_at_the_compliance_gate_escapes_directly(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """A SIGINT raised inside the compliance gate escapes the dialog directly — never a decline, never cached."""
+        from prettyplay.engine.steering import StepSteering  # noqa: PLC0415 — cell facade check
+
+        provider = FakeProvider(answers=[GENERATED_CODE], compliance_verdicts=[KeyboardInterrupt()])
+        fixture = SteeringFixture(provider, tmp_path)
+        fixture.config = Config(cache_root=str(tmp_path), generation_prompt=INSTRUCTIONS)
+        steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
+        _script_input(monkeypatch, ["dismiss the modal first", "y"])
+        monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
+
+        with pytest.raises(KeyboardInterrupt):
+            steering.steer(_failure(), _identity(), [], FakePage())
+
+        assert fixture.cache.save_calls == []  # nothing cached — the gate never finished
+        out = capsys.readouterr().out
+        assert "compliance gate failed" not in out  # a SIGINT is never swallowed into a gate-failure decline

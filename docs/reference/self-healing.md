@@ -58,8 +58,9 @@ The classification verdict decides the path:
 
 Every terminal failure carries its verdict in full and the full underlying
 error in the error field: the exception message is the structured render — the
-primary reason, the `---` separated step/error block, the column-aligned
-verdict block; the same text reaches `on_step_verdict` (structured fields) and
+class-name first line, the `---` separated step/error block, the conditional
+details section and the column-zero verdict block; the same text reaches
+`on_step_verdict` (structured fields) and
 the log record. The render format is specified in
 [Failure taxonomy](failure-taxonomy.md).
 

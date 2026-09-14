@@ -1,9 +1,11 @@
 """Integration tests of the full step cycle through the public ``PrettyPlay`` facade."""
 
 import asyncio
+import builtins
 import contextlib
 import logging
 import os
+import tempfile
 import traceback
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -812,6 +814,57 @@ def test_nonstrict_unhealable_failure_carries_full_error_text(tmp_path: Path) ->
     failed = hook.events[[event for event, _payload in hook.events].index("on_step_failed")][1]
     assert failed["error"] == str(excinfo.value)  # the render — never re-composed
     assert f"error: RuntimeError: {long_error}" in failed["error"]  # the full error line of the template
+
+
+def test_interactive_steering_heals_a_stuck_step_end_to_end(tmp_path: Path, monkeypatch, capsys) -> None:
+    """The interactive loop through the public facade: dialog, strict approval gate, heal, write-back, pass."""
+    failing_code = "def step(page) -> None:\n    raise RuntimeError('element not found')\n"
+    seed_step(tmp_path, "нажать Войти", failing_code, cache_key="login-flow")
+    provider = StubProvider(
+        answers=[WORKING_CODE],
+        verdict=FailureClassification(
+            category="incurable", explanation="шаг не соответствует реальности", recommendation="переформулируйте шаг"
+        ),
+    )
+    page = FakePage()
+    hook = RecorderHook()
+    answers = iter(["кнопка переехала в модалку", "y"])
+
+    def scripted_input(prompt: str = "") -> str:
+        print(prompt, end="")  # the real input echoes its prompt — captured stdout keeps the dialog shape
+        return next(answers)
+
+    monkeypatch.setattr(builtins, "input", scripted_input)
+    existing_pngs = set(Path(tempfile.gettempdir()).glob("prettyplay-steering-*.png"))
+
+    with configured_test(Config(cache_root=str(tmp_path), interactive=True), provider, page) as test:
+        test.add_hooks(hook)
+        test.step("нажать Войти")  # the incurable verdict opens the dialog instead of failing the step
+        test.close()
+
+    for png in set(Path(tempfile.gettempdir()).glob("prettyplay-steering-*.png")) - existing_pngs:
+        png.unlink(missing_ok=True)  # the dialog's one temporary screenshot never outlives the test
+
+    assert ("goto", "https://app.example.com") in page.calls  # the approved turn executed against the page
+    events = [event for event, _payload in hook.events]
+    assert "on_step_failed" not in events  # the heal never let the terminal failure surface
+    assert "on_healed" in events
+    assert "on_cache_saved" in events
+    assert events[-1] == "on_step_finished"
+    assert hook.events[-1][1]["outcome"] == "passed"
+
+    request = provider.generation_requests[0]  # the one guided regeneration request of the dialog
+    assert request["guidance"] == "кнопка переехала в модалку"
+    assert request["page_url"] == "https://app.example.com"  # the fresh URL rode the guided request
+    assert request["existing_code"].rstrip("\n") == failing_code.rstrip("\n")  # CODE anchored to the original failure
+    assert "element not found" in request["error"]
+    assert provider.compliance_requests == []  # the gate is off without configured instructions
+
+    out = capsys.readouterr().out
+    assert "run? [y/N]" in out  # the approval gate asked before anything executed
+    assert "IncurableStepError" in out  # the banner showed the terminal render
+    assert "https://app.example.com" in out  # and the page URL
+    assert "healed step written to the cache" in out
 
 
 def test_classification_instructions_reach_only_classification_requests(tmp_path: Path) -> None:

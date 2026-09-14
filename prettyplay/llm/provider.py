@@ -53,10 +53,10 @@ class LLMProvider:
             screenshot: an optional PNG image of the page; passed only when
                 the project enables screenshots.
             cheat_sheet: the compact standard Playwright sync API reference
-                supplied by the calling engine — rendered as the leading
-                CHEAT SHEET block of the user content, identically in both
-                implementations; guidance, not an allowlist — everything
-                standard stays allowed.
+                supplied by the calling engine — rendered as the CHEAT SHEET
+                block after the scenario inputs of the user content,
+                identically in both implementations; guidance, not an
+                allowlist — everything standard stays allowed.
             existing_code: the existing step code that failed; non-empty only
                 on regeneration requests.
             error: the failure description of the existing code; non-empty

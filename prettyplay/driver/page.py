@@ -206,8 +206,9 @@ class _DialogRouter:
         attempt — it is skipped silently; any other resolution failure is
         logged and dropped so the pass never masks the outcome of the
         action. A chained dialog — the page firing the next one while the
-        loop advances inside a resolution call — lands in the fresh pending
-        list and joins the same pass: the pass drains until none is left.
+        loop advances inside a resolution call — joins the back of the
+        pending list and the same pass drains it: the pass drains until
+        none is left.
 
         The drain is bounded: a page that fires a fresh dialog for every
         resolution would drain forever, holding the unit — and the calling
@@ -218,22 +219,18 @@ class _DialogRouter:
         """
         resolved = 0
         while self._pending and resolved < _RESOLVE_PASS_LIMIT:
-            dialogs, self._pending = self._pending, []
-            for index, dialog in enumerate(dialogs):
-                if resolved >= _RESOLVE_PASS_LIMIT:
-                    self._pending[:0] = dialogs[index:]  # the unstarted tail waits for the next unit tail
-                    break
-                resolved += 1
-                try:
-                    if self.accept_dialogs:
-                        dialog.accept()
-                    else:
-                        dialog.dismiss()
-                except Exception as failure:
-                    if "already handled" in str(failure):
-                        continue  # the step's capture resolved it — never double-handle
-                    logger.warning("dialog resolution failed", extra={"error": str(failure)})
-        if self._pending:
+            dialog = self._pending.pop(0)  # FIFO — the unstarted tail stays ordered for the next unit tail
+            resolved += 1
+            try:
+                if self.accept_dialogs:
+                    dialog.accept()
+                else:
+                    dialog.dismiss()
+            except Exception as failure:
+                if "already handled" in str(failure):
+                    continue  # the step's capture resolved it — never double-handle
+                logger.warning("dialog resolution failed", extra={"error": str(failure)})
+        if self._pending:  # the drain cap held the unit open — the rest waits for the next unit tail
             logger.warning(
                 "dialog drain limit reached; the rest resolves at the next unit tail",
                 extra={"pending": len(self._pending), "limit": _RESOLVE_PASS_LIMIT},

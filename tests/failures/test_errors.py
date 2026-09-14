@@ -586,6 +586,31 @@ class TestDecomposeErrorText:
         assert parts.received == "welcome\nextra context line\nmore context"
         assert parts.call_log == "  - waiting for locator"
 
+    def test_decompose_call_log_ends_at_a_non_indented_line(self) -> None:
+        text = "\n".join(
+            [
+                "Locator expected to be visible",
+                "Call log:",
+                "  - waiting for locator",
+                "=========================== logs =====",
+                "before Handy: …",
+            ]
+        )
+        parts = decompose_error_text(text)
+
+        assert parts.call_log == "  - waiting for locator"  # the appendix header closes the block
+
+    def test_decompose_call_log_trims_trailing_blank_lines(self) -> None:
+        text = "\n".join(["Locator expected to be visible", "Call log:", "  - waiting for locator", "", ""])
+        parts = decompose_error_text(text)
+
+        assert parts.call_log == "  - waiting for locator"  # trailing blanks never ride the render
+
+    def test_decompose_actual_value_running_to_the_end_of_text(self) -> None:
+        parts = decompose_error_text("Locator expected to have text\nActual value: welcome\nextra context")
+
+        assert parts.received == "welcome\nextra context"  # the tail consumed verbatim, no stop shape
+
     def test_decompose_net_error_head_is_not_a_class(self) -> None:
         parts = decompose_error_text("net::ERR_CONNECTION_REFUSED at https://x.test")
 

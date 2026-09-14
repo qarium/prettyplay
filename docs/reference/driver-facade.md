@@ -30,12 +30,13 @@ result = page.run(action)  # action(page) executes wholly inside the worker
 ## The internal page handle
 
 `PageFacade` (exported from `prettyplay.driver`) is the runtime plumbing
-handle of a single test page — not the API of step code. Exactly four
+handle of a single test page — not the API of step code. Exactly five
 members:
 
 | Call | Purpose |
 |---|---|
 | `page.run(action)` | execute the callable inside the worker thread; receives the genuine sync `Page` |
+| `page.url` | the current URL — an immediate read executed as one unit inside the worker thread |
 | `page.aria_snapshot()` | accessibility-tree page state — the primary LLM input |
 | `page.screenshot()` | full-page PNG bytes |
 | `page.close()` | close this page's isolated context |

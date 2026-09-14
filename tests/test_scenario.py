@@ -104,6 +104,9 @@ class RecordingProvider(LLMProvider):
         cheat_sheet: str,
         existing_code: str | None,
         error: str | None,
+        recommendation: str | None,
+        guidance: str | None,
+        guidance_history: list[str] | None,
     ) -> str:
         self.generate_calls += 1
         raise AssertionError("provider must not be called: the cached step runs without a generation request")

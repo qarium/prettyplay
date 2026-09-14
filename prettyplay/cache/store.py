@@ -115,22 +115,28 @@ class StepCache:
         except (ValueError, SyntaxError, KeyError, IndexError, OSError):
             return None  # cache corruption never cripples the run
 
-    def save(self, step: CachedStep) -> None:
+    def save(self, step: CachedStep) -> bool:
         """Store the step atomically, best-effort: no write error ever fails the run.
 
         Args:
             step: the working step to store.
+
+        Returns:
+            Whether the step was stored: ``True`` — the atomic replace
+            landed; ``False`` — the write was skipped (a read-only cache or
+            a busy target; the ``on_cache_skipped`` event carries the
+            reason).
         """
         if not self.writable:
             self._emit_skipped(step, "read-only cache")
-            return
+            return False
 
         body = _serialize(step)
         try:
             handle, tmp_name = tempfile.mkstemp(dir=self._target_dir(), prefix=".tmp-", suffix=".py")
         except OSError:
             self._emit_skipped(step, "cache target busy")
-            return
+            return False
 
         try:
             with os.fdopen(handle, "w", encoding="utf-8") as tmp_file:
@@ -140,7 +146,7 @@ class StepCache:
         except (OSError, ValueError):  # ValueError: unencodable text (e.g. surrogates)
             _remove_quietly(tmp_name)
             self._emit_skipped(step, "cache target busy")
-            return
+            return False
 
         for _ in range(_REPLACE_ATTEMPTS):
             try:
@@ -151,16 +157,17 @@ class StepCache:
             except (OSError, ValueError):  # ValueError: unencodable address (e.g. surrogates)
                 _remove_quietly(tmp_name)
                 self._emit_skipped(step, "cache target busy")
-                return
+                return False
         else:
             _remove_quietly(tmp_name)
             self._emit_skipped(step, "cache target busy")
-            return
+            return False
 
         self._reporter.emit(
             "on_cache_saved",
             {"step_text": step.identity.normalized_text, "filename": step.identity.filename},
         )
+        return True
 
     def _target_dir(self) -> Path:
         """Return the directory holding the steps of this address."""

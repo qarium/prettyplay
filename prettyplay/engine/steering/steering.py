@@ -551,12 +551,12 @@ class StepSteering:
             code=code,
             created_at=date.today().isoformat(),  # noqa: DTZ011 — calendar date of the healed step
         )
-        self._cache.save(step)
+        stored = self._cache.save(step)
         self._reporter.emit("on_healed", {"step_text": failure.step_text, "explanation": _HEALED_EXPLANATION})
-        if self._cache.writable:  # save is best-effort — a read-only cache skipped the write loudly
+        if stored:
             print("step green — healed step written to the cache")
-        else:
-            print("step green — cache write skipped (read-only cache)")
+        else:  # the skip reason rides the on_cache_skipped event — the console line never claims a write that failed
+            print("step green — cache write skipped (best-effort cache)")
         return step
 
     def _guarded_snapshot(self, page: PageFacade) -> str:
@@ -658,6 +658,7 @@ def _banner_line(label: str, text: str) -> str:
         newlines.
     """
     value_column = " " * (_BANNER_LABEL_WIDTH + 1)
-    lines = [f"{label.ljust(_BANNER_LABEL_WIDTH)} {text}", *(value_column + line for line in text.splitlines()[1:])]
+    head, *tail = text.splitlines() or [""]  # an empty value renders its label alone
+    lines = [f"{label.ljust(_BANNER_LABEL_WIDTH)} {head}", *(value_column + line for line in tail)]
 
     return "\n".join(line.rstrip() for line in lines)
