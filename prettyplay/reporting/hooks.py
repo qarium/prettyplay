@@ -16,7 +16,14 @@ class StepHooks:
         """The step finished successfully."""
 
     def on_step_failed(self, step_text: str, step_type: str, error: str) -> None:
-        """The step failed; ``error`` is the full structured render of the terminal failure."""
+        """The step failed; ``error`` is the full rendered failure message.
+
+        ``error`` is the same structured text carried by the raised exception and
+        the log record: the first line with the class name of the terminal failure
+        and the authored reason, the ``---`` separated step/error section, the
+        conditional received/cause/Call log details section and the unpadded
+        verdict block; display it verbatim.
+        """
 
     def on_step_verdict(self, step_text: str, category: str, explanation: str, recommendation: str) -> None:
         """The terminal failure of the step carried a verdict; fires after on_step_failed."""

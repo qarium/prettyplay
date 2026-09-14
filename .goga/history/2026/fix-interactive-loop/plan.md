@@ -914,14 +914,14 @@ re-composition anywhere). This task only aligns the docstring.
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If
 implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] STEP 0 — Declaration: declare this task (Task 7, reporting cell) before starting
-- [ ] Code: extend the `on_step_failed` docstring to name the section list, mirroring the
+- [x] STEP 0 — Declaration: declare this task (Task 7, reporting cell) before starting
+- [x] Code: extend the `on_step_failed` docstring to name the section list, mirroring the
   contract sentence: the first line with the class name of the terminal failure and the authored
   reason, the `---` separated step/error section, the conditional received/cause/Call log
   details section and the unpadded verdict block — displayed verbatim by integrators
-- [ ] Verify: `pytest tests/reporting -q` — unchanged, all green (wording only)
-- [ ] Lint: `ruff check prettyplay/reporting` — fix formatting if necessary
-- [ ] Completion: mark the checkboxes complete; submit for review
+- [x] Verify: `pytest tests/reporting -q` — unchanged, all green (wording only)
+- [x] Lint: `ruff check prettyplay/reporting` — fix formatting if necessary
+- [x] Completion: mark the checkboxes complete; submit for review
 
 ### Task 8: Integration verification — full-suite regression sweep and manual acceptance
 
