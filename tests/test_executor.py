@@ -21,7 +21,13 @@ BROKEN_CODE = "def step(page) -> None:\n    page.get_by_role('button', name='В�
 
 
 class FakePage:
-    """Fake page facade boundary: recorded calls, scriptable lookup failure, snapshot."""
+    """Fake page handle in the hand-built shape: ``run``/``aria_snapshot``/``screenshot``.
+
+    The fake doubles as the handle and the raw page it hands out — the run
+    primitive executes the action against the fake itself, so the step code
+    drives the ``goto``/``get_by_role`` surface directly. Records calls; every
+    lookup fails with the scripted error.
+    """
 
     def __init__(self, lookup_error: Exception | None = None) -> None:
         self.calls: list[tuple[str, ...]] = []
@@ -35,11 +41,14 @@ class FakePage:
         raise self._lookup_error
 
     def run(self, action: Callable[[object], object]) -> object:
-        """Minimal page-handle shim: the run primitive executes the action against the fake itself."""
+        """The run primitive: executes the action against the fake itself, as a hand-built handle does."""
         return action(self)
 
     def aria_snapshot(self) -> str:
         return "- button 'Войти'"
+
+    def screenshot(self) -> bytes:
+        return b"png"
 
 
 class RecordingGenerator:
@@ -200,7 +209,7 @@ class ScriptedProvider(LLMProvider):
         previous_steps: list[str] | None = None,
         snapshot: str = "",
         screenshot: bytes | None = None,
-        page_api: str = "",
+        cheat_sheet: str = "",
         existing_code: str | None = None,
         error: str | None = None,
         recommendation: str | None = None,
@@ -238,7 +247,7 @@ class UnavailableProvider(LLMProvider):
         previous_steps: list[str] | None = None,
         snapshot: str = "",
         screenshot: bytes | None = None,
-        page_api: str = "",
+        cheat_sheet: str = "",
         existing_code: str | None = None,
         error: str | None = None,
         recommendation: str | None = None,
@@ -276,7 +285,7 @@ class CrashingProvider(LLMProvider):
         previous_steps: list[str] | None = None,
         snapshot: str = "",
         screenshot: bytes | None = None,
-        page_api: str = "",
+        cheat_sheet: str = "",
         existing_code: str | None = None,
         error: str | None = None,
         recommendation: str | None = None,
@@ -329,9 +338,7 @@ class RecorderHook(StepHooks):
         )
 
     def on_step_finished(self, step_text: str, step_type: str, outcome: str) -> None:
-        self.events.append(
-            ("on_step_finished", {"step_text": step_text, "step_type": step_type, "outcome": outcome})
-        )
+        self.events.append(("on_step_finished", {"step_text": step_text, "step_type": step_type, "outcome": outcome}))
 
 
 class BudgetSpy:
@@ -1112,9 +1119,7 @@ class TestStepExecutorSteeringAndClosingEvent:
     def test_execute_step_finished_fires_on_keyboard_interrupt(self, tmp_path: Path) -> None:
         failure = IncurableStepError("click Pay", "budget exhausted", "Timeout …", verdict=None)
         steering = RecordingSteering(error=KeyboardInterrupt())  # a SIGINT inside the dialog
-        fixture = interactive_fixture(
-            tmp_path, RaisingGenerator(failure), RecordingHealer(), steering=steering
-        )
+        fixture = interactive_fixture(tmp_path, RaisingGenerator(failure), RecordingHealer(), steering=steering)
         page = FakePage()
 
         with pytest.raises(KeyboardInterrupt):
