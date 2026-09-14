@@ -14,7 +14,6 @@ from playwright.sync_api import Error as PlaywrightError
 from prettyplay.cache import CachedStep, StepCache, StepIdentity
 from prettyplay.config import Config
 from prettyplay.engine.compliance import COMPLIANCE_PROMPT
-from prettyplay.engine.generator import PAGE_API_SURFACE as ENGINE_PAGE_API_SURFACE
 from prettyplay.engine.generator import SYSTEM_PROMPT as ENGINE_SYSTEM_PROMPT
 from prettyplay.engine.steering.steering import PAGE_API_SURFACE, SYSTEM_PROMPT
 from prettyplay.failures import ComplianceVerdictError, FailureVerdict, IncurableStepError, LLMUnavailableError
@@ -263,7 +262,6 @@ class TestStepSteeringContract:
             assert row.split("(", 1)[0] in PAGE_API_SURFACE  # every element row of the practice is listed
 
         assert SYSTEM_PROMPT == ENGINE_SYSTEM_PROMPT  # the two frozen copies agree — no one-sided edit
-        assert PAGE_API_SURFACE == ENGINE_PAGE_API_SURFACE
 
         # the ignore_case capability rows are mirrored in both constants — the equality above
         # carries them to the engine copy; assert them on the steering copy explicitly

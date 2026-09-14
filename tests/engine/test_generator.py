@@ -2,7 +2,6 @@
 
 import inspect
 import logging
-import re
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
@@ -15,7 +14,7 @@ from prettyplay.cache import RunBudgets, StepCache, StepIdentity
 from prettyplay.config import Config
 from prettyplay.engine import StepGenerator
 from prettyplay.engine import generator as generator_module  # to verify the CLASSIFICATION_PROMPT move
-from prettyplay.engine.generator import PAGE_API_SURFACE, SYSTEM_PROMPT
+from prettyplay.engine.generator import CHEAT_SHEET, SYSTEM_PROMPT
 from prettyplay.engine.polling import SettleWindow
 from prettyplay.failures import ComplianceVerdictError, IncurableStepError, LLMUnavailableError, ProductDefectError
 from prettyplay.llm import ComplianceFinding, FailureClassification
@@ -33,8 +32,11 @@ NARROWING_CODE = "def step(page) -> None:\n    page.get_by_text('Welcome back').
 #: a candidate whose execution fails with a non-assertion TypeError
 TYPING_BROKEN_CODE = "def step(page) -> None:\n    page.get_by_role('button', name='Pay').click()\n"
 
-FACADE_PRACTICE = Path(__file__).resolve().parents[2] / "prettyplay" / "driver" / ".usages" / "facade.md"
+#: a candidate whose execution fails with a NameError inside the step
+NAMEERROR_CODE = "def step(page) -> None:\n    missing_symbol()\n"
+
 GENERATION_PROMPT_PRACTICE = Path(__file__).resolve().parents[2] / ".goga" / "usages" / "prompts" / "generation.md"
+CHEAT_SHEET_PRACTICE = Path(__file__).resolve().parents[2] / ".goga" / "usages" / "prompts" / "cheatsheet.md"
 
 
 class FakeLocator:
@@ -128,7 +130,7 @@ class StubProvider:
         previous_steps: list[str] | None = None,
         snapshot: str = "",
         screenshot: bytes | None = None,
-        page_api: str = "",
+        cheat_sheet: str = "",
         existing_code: str | None = None,
         error: str | None = None,
         recommendation: str | None = None,
@@ -143,7 +145,7 @@ class StubProvider:
                 "previous_steps": previous_steps,
                 "snapshot": snapshot,
                 "screenshot": screenshot,
-                "page_api": page_api,
+                "cheat_sheet": cheat_sheet,
                 "existing_code": existing_code,
                 "error": error,
                 "recommendation": recommendation,
@@ -342,11 +344,6 @@ HIGH_FINDING = ComplianceFinding(instruction="Prefer id attributes", priority="h
 VIOLATION_TEXT = "violated instruction: Prefer id attributes — locates by text"
 
 
-def facade_surface_rows(practice: str, prefix: str) -> list[str]:
-    """Extract the ordered call column of one facade practice surface table."""
-    return re.findall(rf"^\| ({prefix}\.[a-z_]+(?:\([^)]*\))?)", practice, flags=re.MULTILINE)
-
-
 def make_identity() -> StepIdentity:
     """Build a step identity for the tests."""
     return StepIdentity(cache_key="login-flow", step_type="action", normalized_text="открыть страницу")
@@ -376,17 +373,19 @@ class TestStepGeneratorLogic:
         saved = [event for event in fixture.recorder.events if event[0] == "on_cache_saved"]
         assert saved == [("on_cache_saved", {"step_text": "открыть страницу", "filename": identity.filename})]
 
-    def test_generate_sends_prompt_snapshot_and_page_api(self, tmp_path: Path) -> None:
+    def test_generate_request_carries_the_cheat_sheet(self, tmp_path: Path) -> None:
         provider = StubProvider([WORKING_CODE])
         fixture = GeneratorFixture(tmp_path, provider)
         page = FakePage()
 
-        fixture.generator.generate(make_identity(), "открыть страницу", [], page, fixture.window)
+        fixture.generator.generate(make_identity(), "open the videos page", [], page, fixture.window)
 
         request = provider.calls[0]
         assert request["prompt"] == SYSTEM_PROMPT
+        assert request["cheat_sheet"] == CHEAT_SHEET
+        assert "cheat_sheet" in request
+        assert "page_api" not in request  # the generation slot is renamed across the port
         assert request["snapshot"] == "- snapshot"
-        assert request["page_api"] == PAGE_API_SURFACE
         assert request["screenshot"] is None  # send_screenshots defaults to False
 
     def test_generate_attaches_screenshot_when_enabled(self, tmp_path: Path) -> None:
@@ -414,7 +413,7 @@ class TestStepGeneratorLogic:
         captured = provider.calls[0]
         assert captured["user_instructions"] == "prefer data-test-id"
         assert captured["prompt"] == SYSTEM_PROMPT
-        assert "page.get_by_test_id(test_id)" in captured["page_api"]
+        assert 'page.get_by_test_id("submit")' in captured["cheat_sheet"]
 
     def test_regenerate_carries_user_instructions_with_code_and_error(self, tmp_path: Path) -> None:
         provider = StubProvider([WORKING_CODE])
@@ -468,6 +467,27 @@ class TestStepGeneratorLogic:
             payload["attempt"] for event, payload in fixture.recorder.events if event == "on_generation_started"
         ]
         assert attempts == [1, 2]
+
+    def test_step_code_error_fails_the_generation_attempt(self, tmp_path: Path) -> None:
+        """A NameError inside the step code fails the attempt and drives the next request's ERROR block."""
+        provider = StubProvider([NAMEERROR_CODE, WORKING_CODE])
+        fixture = GeneratorFixture(tmp_path, provider)
+        identity = make_identity()
+        page = FakePage()
+
+        step = fixture.generator.generate(identity, "open the page", [], page, fixture.window)
+
+        assert step.code == WORKING_CODE
+        assert len(provider.calls) == 2  # the failing candidate + the retry it funded
+        retry = provider.calls[1]
+        assert retry["existing_code"] == NAMEERROR_CODE
+        assert "NameError" in retry["error"]
+        assert "missing_symbol" in retry["error"]
+        attempts = [
+            payload["attempt"] for event, payload in fixture.recorder.events if event == "on_generation_started"
+        ]
+        assert attempts == [1, 2]  # the budget accounting unchanged — one attempt per LLM request
+        assert fixture.budgets.try_generation(identity) is True  # 3 attempts allowed, 2 spent
 
     def test_generate_budget_exhaustion_raises_incurable(self, tmp_path: Path) -> None:
         provider = StubProvider([BROKEN_CODE, BROKEN_CODE, BROKEN_CODE, BROKEN_CODE], verdict=ROT_VERDICT)
@@ -614,7 +634,7 @@ class TestStepGeneratorLogic:
 
         assert step.code == NARROWING_CODE
         assert len(provider.calls) == 1  # the first candidate is green — zero retries
-        assert "element.first" in provider.calls[0]["page_api"]  # the surface listed the member — on-surface
+        assert "locator.first" in provider.calls[0]["cheat_sheet"]  # the cheat sheet listed the member
         assert ("get_by_text", "Welcome back") in page.calls  # the narrowing chain executed through the page
         loaded = fixture.cache.load(identity)  # StepCache has no save recording — load back
         assert loaded is not None
@@ -1486,56 +1506,39 @@ class TestStepGeneratorComplianceGate:
 
 
 class TestPromptConstants:
-    """Constant tests: prompts and the frozen page API surface."""
+    """Constant tests: prompts and the frozen cheat sheet."""
 
     def test_generation_prompt_is_frozen_text(self) -> None:
         assert SYSTEM_PROMPT.startswith("You generate executable Python code")
         assert "def step(page) -> None:" in SYSTEM_PROMPT
 
     def test_generation_prompt_rule_order_survives_the_edit(self) -> None:
-        # the assertion-mechanics rule sits exactly after the assertion-sentence rule, before the dialogs rule
-        assertion = SYSTEM_PROMPT.index("- Assertions happen only through")
-        dialogs = SYSTEM_PROMPT.index("- Dialogs: when the step verifies")
-        scroll = SYSTEM_PROMPT.index("- Scroll abilities exist")
-        no_delays = SYSTEM_PROMPT.index("- No fixed delays")
-        assert assertion < dialogs < scroll < no_delays
+        # the assertion rule sits exactly after the work-through rule, before the no-delays rule
+        work_through = SYSTEM_PROMPT.index("- Work through the standard Playwright sync API")
+        assertion = SYSTEM_PROMPT.index("- Assertions: for an assertion sentence end with a check")
+        no_delays = SYSTEM_PROMPT.index("- No fixed delays, no sleeps, no wait_for_timeout")
+        dialogs = SYSTEM_PROMPT.index("- Dialogs: capture with the stock means")
+        scrolling = SYSTEM_PROMPT.index("- Scrolling: locator.scroll_into_view_if_needed()")
+        assert work_through < assertion < no_delays < dialogs < scrolling
 
     def test_system_prompt_documents_user_instructions_input(self) -> None:
-        # the USER INSTRUCTIONS input line sits right after the PAGE API input line
-        page_api_input = SYSTEM_PROMPT.index("- PAGE API: the exact surface listing")
+        # the USER INSTRUCTIONS input line sits right after the CHEAT SHEET input line
+        cheat_sheet_input = SYSTEM_PROMPT.index("- CHEAT SHEET: a compact reference")
         user_instructions_input = SYSTEM_PROMPT.index("- USER INSTRUCTIONS: the project's binding code style guidance")
         code_input = SYSTEM_PROMPT.index("- CODE: the existing step code that failed")
-        assert page_api_input < user_instructions_input < code_input
-
-    def test_system_prompt_strategy_rules_are_gone(self) -> None:
-        assert (
-            "- Assertions happen only through the expectation calls of the facade — never a Python assert on a "
-            "locator, never SDK-style state reads" in SYSTEM_PROMPT
-        )
-        assert "Locating by role and accessible name is preferred" not in SYSTEM_PROMPT
-        assert "accessibility-first priority" not in SYSTEM_PROMPT
-        # the surviving mechanics rules stay intact through the strategy split
-        assert "the Playwright-mirroring page API" in SYSTEM_PROMPT
-        assert "- Dialogs: when the step verifies or steers a dialog, capture it" in SYSTEM_PROMPT
-        assert "with page.expect_dialog() as dialog:" in SYSTEM_PROMPT
-        assert "with page.expect_popup() as popup:" in SYSTEM_PROMPT
-        assert "bring_to_front() raises a page above the others" in SYSTEM_PROMPT
-        assert "Content inside an iframe goes through page.frame_locator(selector)" in SYSTEM_PROMPT
-        assert (
-            "- Scroll abilities exist for scenario scrolling: bring an element into view, scroll by an "
-            "amount, to the page end or start, inside a scrollable container" in SYSTEM_PROMPT
-        )
-        assert "- No fixed delays, no sleeps, no explicit waits — the facade waits itself" in SYSTEM_PROMPT
-        assert "def step(page) -> None:" in SYSTEM_PROMPT  # the fixed form
-        assert "- Output only the code block, no explanations" in SYSTEM_PROMPT
-        assert "find_by" not in SYSTEM_PROMPT
-        assert "Attribute, CSS and XPath locating" not in SYSTEM_PROMPT
+        assert cheat_sheet_input < user_instructions_input < code_input
 
     def test_system_prompt_mirrors_the_generation_practice(self) -> None:
         practice = GENERATION_PROMPT_PRACTICE.read_text(encoding="utf-8")
         prompt = practice.split("---", 1)[1].strip()  # the section after the separator is the prompt itself
 
         assert prompt == SYSTEM_PROMPT  # the frozen mirror — the constant changes only together with the file
+        # spot-asserts of the rewritten rules — the equality alone would hide a both-sides edit
+        assert "Import only from playwright.sync_api" in SYSTEM_PROMPT
+        assert "never call page.close() or context.close()" in SYSTEM_PROMPT
+        assert 'expect_event("dialog")' in SYSTEM_PROMPT
+        assert "assert locator.count() > 1" in SYSTEM_PROMPT
+        assert "page.expect_dialog()" not in SYSTEM_PROMPT  # the facade capture idiom is gone
 
     def test_system_prompt_carries_the_new_input_lines_and_rule(self) -> None:
         error_input = SYSTEM_PROMPT.index("- ERROR: the failure description")
@@ -1551,106 +1554,8 @@ class TestPromptConstants:
     def test_classification_prompt_moved_out_of_generator(self) -> None:
         assert not hasattr(generator_module, "CLASSIFICATION_PROMPT")  # moved to classification.py
 
-    def test_page_api_surface_lists_every_facade_call(self) -> None:
-        for call in (
-            "page.goto(url)",
-            "page.go_back()",
-            "page.go_forward()",
-            "page.reload()",
-            "page.wait_for_url(url)",
-            "page.wait_for_load_state(state)",
-            "page.expect_url(url)",
-            "page.expect_title(title, ignore_case)",
-            "page.get_by_role(role, name)",
-            "page.get_by_label(label)",
-            "page.get_by_text(text)",
-            "page.get_by_placeholder(placeholder)",
-            "page.get_by_alt_text(alt)",
-            "page.get_by_title(title)",
-            "page.get_by_test_id(test_id)",
-            "page.locator(selector)",
-            "page.expect_dialog()",
-            "page.expect_popup()",
-            "page.bring_to_front()",
-            "page.pages",
-            "page.frame_locator(selector)",
-            "page.aria_snapshot()",
-            "page.screenshot()",
-            "page.url",
-            "page.scroll_to_element(element)",
-            "page.scroll_down(pixels)",
-            "page.scroll_up(pixels)",
-            "page.scroll_to_bottom()",
-            "page.scroll_to_top()",
-            "page.scroll_into_view(element, container)",
-            "page.scroll_container_down(container, pixels)",
-            "page.scroll_container_up(container, pixels)",
-            "dialog.accept(prompt_text)",
-            "dialog.dismiss()",
-            "dialog.type",
-            "dialog.message",
-            "dialog.default_value",
-            "frame.get_by_role(role, name)",
-            "frame.locator(selector)",
-            "frame.frame_locator(selector)",
-            "element.first",
-            "element.last",
-            "element.nth(index)",
-            "element.filter(has_text=..., has_not_text=..., has=..., has_not=...)",
-            "element.or_(other)",
-            "element.and_(other)",
-            "element.click(button)",
-            "element.dblclick()",
-            "element.fill(value)",
-            "element.clear()",
-            "element.press(key)",
-            "element.check()",
-            "element.uncheck()",
-            "element.hover()",
-            "element.select_option(value)",
-            "element.drag_to(target)",
-            "element.set_input_files(path)",
-            "element.expect_visible()",
-            "element.expect_hidden()",
-            "element.expect_text(text, ignore_case)",
-            "element.expect_enabled()",
-            "element.expect_value(value)",
-            "element.expect_checked()",
-            "element.expect_count(count)",
-            "element.expect_attribute(name, value)",
-        ):
-            assert call in PAGE_API_SURFACE
-        assert "page.close" not in PAGE_API_SURFACE
+    def test_cheat_sheet_mirrors_the_practice(self) -> None:
+        practice = CHEAT_SHEET_PRACTICE.read_text(encoding="utf-8")
 
-    def test_page_api_surface_mirrors_facade_practice(self) -> None:
-        practice = FACADE_PRACTICE.read_text(encoding="utf-8")
-        page_rows = facade_surface_rows(practice, "page")
-        dialog_rows = facade_surface_rows(practice, "dialog")
-        frame_rows = facade_surface_rows(practice, "frame")
-        element_rows = facade_surface_rows(practice, "element")
-
-        for row in (*page_rows, *dialog_rows, *frame_rows, *element_rows):
-            if row.startswith("page.close"):
-                continue  # the runtime method of PrettyPlay — the standing exclusion
-            assert row.split("(", 1)[0] in PAGE_API_SURFACE
-
-        assert len(page_rows) == 33  # 32 listed + close excluded by the standing comment
-        assert len(dialog_rows) == 5
-        assert len(frame_rows) == 3  # the get_by_* family collapsed to its family row
-        assert len(element_rows) == 25  # 19 + the six narrowing rows at the head
-
-    def test_page_api_surface_covers_the_narrowing_family(self) -> None:
-        # the listing is the model's only view of the surface — a missing row reproduces the incident
-        for call in (
-            "element.first",
-            "element.last",
-            "element.nth(index)",
-            "element.filter(has_text=..., has_not_text=..., has=..., has_not=...)",
-            "element.or_(other)",
-            "element.and_(other)",
-        ):
-            assert call in PAGE_API_SURFACE
-
-        element_rows = facade_surface_rows(FACADE_PRACTICE.read_text(encoding="utf-8"), "element")
-        assert len(element_rows) == 25  # every narrowing row of the practice is listed
-        assert "page.close" not in PAGE_API_SURFACE  # the standing exclusion holds through the edit
+        assert practice == CHEAT_SHEET  # the whole file, verbatim — no extraction logic to drift
+        assert not hasattr(generator_module, "PAGE_API_SURFACE")  # the facade surface listing is gone
