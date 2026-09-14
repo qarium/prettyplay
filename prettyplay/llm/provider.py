@@ -23,14 +23,14 @@ class LLMProvider:
         previous_steps: list[str],
         snapshot: str,
         screenshot: bytes | None,
-        page_api: str,
+        cheat_sheet: str,
         existing_code: str | None,
         error: str | None,
         recommendation: str | None,
         guidance: str | None,
         guidance_history: list[str],
     ) -> str:
-        """Generate step code of the fixed form working only through the driver facade.
+        """Generate step code of the fixed form working through the standard Playwright sync API.
 
         Args:
             prompt: the system prompt text supplied by the calling engine;
@@ -46,8 +46,11 @@ class LLMProvider:
             snapshot: the accessibility snapshot of the current page.
             screenshot: an optional PNG image of the page; passed only when
                 the project enables screenshots.
-            page_api: the exact page facade surface listing — the calls the
-                model may use.
+            cheat_sheet: the compact standard Playwright sync API reference
+                supplied by the calling engine — rendered as the leading
+                CHEAT SHEET block of the user content, identically in both
+                implementations; guidance, not an allowlist — everything
+                standard stays allowed.
             existing_code: the existing step code that failed; non-empty only
                 on regeneration requests.
             error: the failure description of the existing code; non-empty
@@ -64,7 +67,9 @@ class LLMProvider:
                 HISTORY block after the USER GUIDANCE block, empty — no block.
 
         Returns:
-            The generated step code of the fixed form.
+            The generated step code of the fixed form, working through the
+            standard Playwright sync API — imports from playwright.sync_api
+            only.
 
         Raises:
             NotImplementedError: the port itself carries no implementation.

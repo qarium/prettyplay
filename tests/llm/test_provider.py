@@ -16,7 +16,7 @@ GENERATE_STEP_CODE_PARAMS = [
     "previous_steps",
     "snapshot",
     "screenshot",
-    "page_api",
+    "cheat_sheet",
     "existing_code",
     "error",
     "recommendation",
@@ -96,6 +96,17 @@ class TestLLMProviderContract:
             for name in ("recommendation", "guidance", "guidance_history"):
                 assert parameters[name].default is inspect.Signature.empty, (owner.__name__, name)
 
+    def test_generate_step_code_signature_carries_cheat_sheet_after_screenshot(self) -> None:
+        for owner in (LLMProvider, OpenAIProvider, AnthropicProvider):
+            parameters = inspect.signature(owner.generate_step_code).parameters
+            names = list(parameters)
+
+            assert "cheat_sheet" in names, owner.__name__
+            assert "page_api" not in names, owner.__name__
+            assert names[names.index("screenshot") + 1] == "cheat_sheet", owner.__name__
+            assert names[names.index("cheat_sheet") + 1] == "existing_code", owner.__name__
+            assert parameters["cheat_sheet"].annotation is str, owner.__name__
+
     def test_base_methods_raise_not_implemented(self) -> None:
         port = LLMProvider()
 
@@ -107,7 +118,7 @@ class TestLLMProviderContract:
                 previous_steps=[],
                 snapshot="- snap",
                 screenshot=None,
-                page_api="page.goto(...)",
+                cheat_sheet="expect(locator).to_be_visible()",
                 existing_code=None,
                 error=None,
                 recommendation=None,
@@ -283,7 +294,7 @@ class TestClassificationInstructionsPlacement:
 
             assert "USER INSTRUCTIONS" not in empty_requests[0]["messages"][-1]["content"]
 
-            # generation placement is unchanged: after PAGE API, before CODE/ERROR
+            # generation placement is unchanged: after CHEAT SHEET, before CODE/ERROR
             gen_client, gen_requests = make_client(GENERATION_ANSWER)
 
             with mock.patch.object(provider, "_get_client", return_value=gen_client):
@@ -294,7 +305,7 @@ class TestClassificationInstructionsPlacement:
                     previous_steps=[],
                     snapshot="snap",
                     screenshot=None,
-                    page_api="page.goto(...)",
+                    cheat_sheet="expect(locator).to_be_visible()",
                     existing_code="def step(page) -> None:\n    pass\n",
                     error="err",
                     recommendation=None,
@@ -303,7 +314,7 @@ class TestClassificationInstructionsPlacement:
                 )
 
             gen_user = gen_requests[0]["messages"][-1]["content"]
-            assert gen_user.index("PAGE API:") < gen_user.index("USER INSTRUCTIONS:") < gen_user.index("CODE:")
+            assert gen_user.index("CHEAT SHEET:") < gen_user.index("USER INSTRUCTIONS:") < gen_user.index("CODE:")
 
 
 class TestSteeringInputsParity:
@@ -331,7 +342,7 @@ class TestSteeringInputsParity:
                     previous_steps=["step one"],
                     snapshot="snap",
                     screenshot=None,
-                    page_api="page.goto(...)",
+                    cheat_sheet="expect(locator).to_be_visible()",
                     existing_code="old code",
                     error="err",
                     recommendation="use a role locator",
