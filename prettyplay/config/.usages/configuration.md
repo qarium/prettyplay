@@ -91,7 +91,7 @@ test = PrettyPlay(
 ## Settle polling
 
 `polling_timeout` is the total settle horizon of one step execution — the window starts with the first execution of
-the step's code (cached or candidate); the facade's internal waits count inside it. A transient failure of a pollable
+the step's code (cached or candidate); the step code's own auto-waits count inside it. A transient failure of a pollable
 kind with time remaining re-executes the same code after `polling_delay` until success or window end — no LLM budget
 is consumed, attempts are visible as settle_retry log records. Locator ambiguity and Python-level errors of the step
 code never poll. Polling is opt-in: the default `None` (and `0`) keeps it off; polling applies in strict replay too —

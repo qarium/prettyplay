@@ -42,6 +42,9 @@ inside the driver worker thread and receives the genuine sync Page:
 - Requires an opened page: call it after the first step — a loud error otherwise
 - The callable returns plain data; Playwright objects (locators, handles, pages) never cross back to the calling thread
 - Prompt rules do not bind the author: page.route, page.clock, tracing, HAR, CDP are the author's explicit tools
+- The callable must use the page API only — calling back into the test object (a step, a screenshot, a nested
+  run_on_page) re-enters the worker thread the action itself runs on and is rejected with a loud error instead of
+  a deadlock
 - The callable runs sequentially with the steps — the shared worker takes one unit at a time
 
 ## Screenshots

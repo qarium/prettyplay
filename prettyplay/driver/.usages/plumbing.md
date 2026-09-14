@@ -14,6 +14,8 @@ page handle: a callable executes wholly inside the worker thread and receives th
 - The calling thread never adopts the Playwright event loop — the IPython/Jupyter guarantee holds
 - The result returns as-is; an exception propagates as-is: an AssertionError of a step reaches failure classification
   untouched
+- A re-entrant crossing is rejected loudly: a callable calling back into the worker (a step, a screenshot, a nested
+  run from inside a run_on_page action) raises an Error instead of deadlocking both threads
 - Playwright objects never cross back: the callable returns plain data
 
 ## The handle members

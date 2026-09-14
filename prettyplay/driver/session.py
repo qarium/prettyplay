@@ -170,7 +170,7 @@ class DriverSession:
         self._worker: PlaywrightWorker | None = None
 
     def open_context(self) -> PageFacade:
-        """Open a fresh isolated context with one page wrapped into the facade.
+        """Open a fresh isolated context with one page wrapped into the handle.
 
         The driver and the browser start lazily on the first call exactly once
         per test; each subsequent call only creates a new isolated context.
@@ -191,7 +191,7 @@ class DriverSession:
         default).
 
         Returns:
-            The facade of the new page of a fresh isolated context.
+            The page handle of a fresh isolated context.
 
         Raises:
             Error: the ``screen`` value names a device absent from the
@@ -215,8 +215,8 @@ class DriverSession:
         page, context, router = worker.run(open_isolated)
 
         facade = PageFacade(page, context)
-        facade._worker = worker  # facade calls go to the driver thread
-        facade._router = router  # the captures of every page claim through the shared router
+        facade._worker = worker  # handle calls marshal into the driver thread
+        facade._router = router  # the shared router records every dialog of every page of the context
         return facade
 
     def _screen_context_params(self) -> dict[str, object]:

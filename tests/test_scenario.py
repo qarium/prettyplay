@@ -2,6 +2,7 @@
 
 import contextlib
 import inspect
+import threading
 import traceback
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -13,6 +14,8 @@ from playwright.sync_api import Error
 from prettyplay import BrowserConfig, PrettyPlay
 from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step_text
 from prettyplay.config import Config, PrettyConfig
+from prettyplay.driver import PageFacade
+from prettyplay.driver.session import PlaywrightWorker
 from prettyplay.engine.steering import StepSteering
 from prettyplay.executor import StepExecutor
 from prettyplay.failures import ComplianceVerdictError, FailureVerdict, IncurableStepError, PrettyplayError
@@ -60,6 +63,27 @@ class FakePage:
     def closed(self) -> bool:
         """Whether the page context was closed at least once."""
         return self.close_count > 0
+
+
+class FakeIsolatedContext:
+    """Fake isolated browser context behind a worker-backed handle; records ``close``."""
+
+    def __init__(self) -> None:
+        self.close_calls = 0
+
+    def close(self) -> None:
+        self.close_calls += 1
+
+
+class WorkerRecordingRawPage:
+    """Fake genuine page of a worker-backed handle: ``goto`` records the thread it ran on."""
+
+    def __init__(self) -> None:
+        self.context = FakeIsolatedContext()
+        self.goto_threads: list[int] = []
+
+    def goto(self, url: str) -> None:
+        self.goto_threads.append(threading.get_ident())
 
 
 class RecordingProvider(LLMProvider):
@@ -867,6 +891,52 @@ class TestPrettyPlayLogic:
         assert excinfo.value is failure  # the same object — no copy
         assert not isinstance(excinfo.value, PrettyplayError)  # no library wrapping
         assert str(excinfo.value) == "route failed"  # the actionable cause stays readable
+
+    def test_run_on_page_rejects_a_callback_into_the_test_object(self, tmp_path: Path) -> None:
+        worker = PlaywrightWorker()
+        worker.start()
+        handle = PageFacade(object(), FakeIsolatedContext())  # the raw page is never touched on this path
+        handle._worker = worker
+        try:
+            with scenario_on_tmp_cache(tmp_path):
+                test = PrettyPlay(CACHE_KEY)
+                test._page = handle  # the worker-backed handle plays the opened page
+
+                # the documented page-API-only rule: get_screenshot from inside the action
+                # marshals into the same worker the action runs on — rejected, not deadlocked
+                with pytest.raises(Error, match="re-entrant crossing"):
+                    test.run_on_page(lambda _page: test.get_screenshot())
+
+            assert handle.run(lambda _page: "ok") == "ok"  # the worker keeps serving after the rejection
+        finally:
+            worker.close()
+
+    def test_run_on_page_action_serializes_with_steps_on_the_worker(self, tmp_path: Path) -> None:
+        worker = PlaywrightWorker()
+        worker.start()
+        raw = WorkerRecordingRawPage()
+        handle = PageFacade(raw, raw.context)
+        handle._worker = worker
+        action_threads: list[int] = []
+
+        def author_action(page: object) -> str:
+            action_threads.append(threading.get_ident())
+            return "done"
+
+        try:
+            seed_cache(tmp_path)
+            with scenario_on_tmp_cache(tmp_path):
+                test = PrettyPlay(CACHE_KEY)
+                test._page = handle  # the worker-backed handle plays the opened page
+
+                test.step(STEP_TEXT)  # the cached step code runs as one worker unit
+                assert test.run_on_page(author_action) == "done"
+        finally:
+            worker.close()
+
+        assert len(raw.goto_threads) == 1  # the step ran once, through the worker
+        assert action_threads == raw.goto_threads  # the action serialized with the step — the same pump thread
+        assert action_threads[0] != threading.get_ident()  # never the calling thread
 
 
 class TestInstructionsIndependentCacheAddress:

@@ -41,6 +41,7 @@ class FakePlaywrightFactory:
     def __init__(self) -> None:
         self.start_calls = 0
         self.stop_calls = 0
+        self._loop: asyncio.AbstractEventLoop | None = None
         self.launches: list[str] = []
         self.launch_kwargs: list[dict] = []
         self.engine_starts: list[str] = []  # each engine start: launch or connect
@@ -58,11 +59,19 @@ class FakePlaywrightFactory:
     def start(self) -> "FakePlaywrightFactory":
         self.threads.append(threading.get_ident())
         self.start_calls += 1
+        # the running-loop marker the real sync driver leaves in its starting thread
+        # until the session stops — the marker the IPython bug is made of; there is
+        # no public setter, the getter reads exactly this thread-local slot
+        self._loop = asyncio.new_event_loop()
+        asyncio.events._set_running_loop(self._loop)
         return self
 
     def stop(self) -> None:
         self.threads.append(threading.get_ident())
         self.stop_calls += 1
+        asyncio.events._set_running_loop(None)
+        self._loop.close()
+        self._loop = None
 
 
 class FakeEngine:
@@ -733,11 +742,14 @@ class TestDriverSessionWorkerThread:
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
             session = DriverSession(Config(browser=BrowserConfig(name="chromium")))
             session.open_context()
-            session.close()
-
-        # regression guard for the IPython bug: no running loop may remain in the caller thread
-        with pytest.raises(RuntimeError):
-            asyncio.get_running_loop()
+            try:
+                # regression guard for the IPython bug, asserted while the session is live:
+                # the marker the driver leaves in its starting thread sits in the worker
+                # thread, never in the caller's — a session started inline would be caught
+                with pytest.raises(RuntimeError):
+                    asyncio.get_running_loop()
+            finally:
+                session.close()
 
     def test_worker_exception_propagates_with_type_and_message(self) -> None:
         factory = FakePlaywrightFactory()

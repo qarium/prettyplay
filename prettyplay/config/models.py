@@ -159,11 +159,11 @@ class Config(BaseModel):
             None — polling off (the default); 0 — an explicit disable
             equivalent to None; a finite non-negative number — failed step
             code is re-executed inside the window to absorb transient
-            page-state failures. Sizing: the window must exceed the facade's
-            longest internal wait the engineer wants to absorb — the Playwright
-            expect default is 5 s, so 6.0 covers one exhausted expectation
-            plus one re-execution; a 30 s action wait consumes any sane window
-            alone, polling targets expectation/element-state races.
+            page-state failures. Sizing: the window must exceed the longest
+            auto-wait of the step code the engineer wants to absorb — the
+            Playwright expect default is 5 s, so 6.0 covers one exhausted
+            expectation plus one re-execution; a 30 s action wait consumes any
+            sane window alone, polling targets expectation/element-state races.
         polling_delay: the pause between settle re-executions in seconds;
             default 0.5; 0 — repetition without a pause; must be a finite
             non-negative number.
