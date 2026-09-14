@@ -1,15 +1,17 @@
 Usages:
   conventions: .goga/usages/conventions.md
+  playwright: .goga/usages/cooks/playwright.md
 
 Annotations: |
   Use `conventions` for code writing rules and testing.
+  Use `playwright` for the error message shapes the decomposition recognizes.
 
   The failure taxonomy of the library: four distinct, user-distinguishable step failure kinds plus the shared verdict type; every failure carries an actionable message.
   The compliance verdict hard failure joins the LLM contour of the taxonomy — it blocks only the generation contour and never touches cached step execution; it is raised when the compliance gate cannot obtain a usable verdict, so unchecked candidate code is never cached.
   All failure types derive from the single library base `PrettyplayError`; ProductDefectError additionally derives from AssertionError — the failed check is a failure, never an error, in any runner.
-  The rendered message of a terminal failure follows the single structured template: the primary reason alone on the first line — no kind label and no internal colons, the exception type prefix rendered by the runner supplies the kind; then --- separated blocks.
-  One render — produced at exception construction through `render_terminal_message` — feeds the exception message, the log record and the on_step_failed hook payload; consumers never re-compose.
-  Reason texts authored by the engines and the executor are written without colons — the first-line contract of the render.
+  The rendered message of a terminal failure follows the single structured template: the first line — the class name of the terminal failure and the authored reason; then --- separated blocks: the step section (step/error), the conditional details section (received/cause/Call log), the verdict block. No label padding; a page snapshot never appears in any terminal error output.
+  One render — produced at exception construction through `render_terminal_message` from the decomposed parts of the underlying error — feeds the exception message, the log record and the on_step_failed hook payload; consumers never re-compose.
+  Reason texts authored by the engines and the executor are written without colons — the authored-reason part of the first line stays parseable.
   The verdict category label set is four: rot, product_defect, fixable, incurable — the fixable label names the world state where the step code is at fault (an ambiguous or wrong locator or strategy) while the intent stays satisfiable and regeneration for the same intent can help; rot keeps its pure meaning: the UI changed.
   IncurableStepError additionally carries the failed step code — empty when unknown; a field for programmatic consumers only: never rendered, never carried by hook or log payloads.
 
@@ -22,30 +24,100 @@ Annotations: |
 
     `message`: the failure description.
 
-"render_terminal_message(reason: str, step_text: str, error: str, verdict: FailureVerdict | None) -> text: str":
+"decompose_error_text(error: str) -> parts: ErrorParts":
   location: errors.py
   annotations: |
-    Compose the single structured render of a terminal failure — the one text used by the exception message, the log record and the on_step_failed hook payload.
+    Decompose the full underlying error text of a failed step into the parts of the
+    terminal render — recognition only, no state, no I/O.
 
-    `reason`: the primary reason — the first line of the render; authored without colons.
+    `error`: the full underlying error text as formatted by the engine error-text
+    policy; empty — all parts empty.
+    `parts`: the decomposed parts.
+
+    Algorithm:
+    1. An empty `error` yields all-empty parts
+    2. Extract the leading exception class prefix — a dotted-identifier head of the
+    first line (see `playwright` for the error surface); present — it becomes
+    class_name, the first-line remainder becomes reason; absent — the whole first
+    line becomes reason, class_name stays empty
+    3. In the remainder extract the detail parts by their fixed shapes (see
+    `playwright`): the received line(s), the cause line, the Call log block — every
+    extracted part is removed from the reason tail
+    4. Unrecognized shapes leave the parts empty — graceful degradation, never a raise
+
+    Requirements:
+    - Pure function: deterministic on `error` alone
+    - Multi-line detail values are preserved verbatim inside their parts
+
+"ErrorParts(class_name: str, reason: str, received: str, cause: str, call_log: str)":
+  location: errors.py
+  annotations: |
+    The decomposed parts of a terminal failure's underlying error — the data shape
+    `render_terminal_message` renders.
+
+    `class_name`: the exception class prefix of the underlying error; empty — the
+    text carries none.
+    `reason`: the underlying error headline — the expectation of a failed check or
+    the message head of a typed error.
+    `received`: the actual-value detail; empty — absent.
+    `cause`: the error-cause detail; empty — absent.
+    `call_log`: the Call log block; empty — absent.
+
+    Requirements:
+    - pydantic v2, kw_only, empty defaults (see `conventions`)
+  properties:
+    "class_name -> str": |
+      The exception class prefix of the underlying error; empty — none.
+    "reason -> str": |
+      The underlying error headline.
+    "received -> str": |
+      The actual-value detail; empty — absent.
+    "cause -> str": |
+      The error-cause detail; empty — absent.
+    "call_log -> str": |
+      The Call log block; empty — absent.
+
+"render_terminal_message(error_class: str, reason: str, step_text: str, error: str, verdict: FailureVerdict | None) -> text: str":
+  location: errors.py
+  annotations: |
+    Compose the single structured render of a terminal failure — the one text used
+    by the exception message, the log record and the on_step_failed hook payload.
+
+    `error_class`: the class name of the terminal failure being rendered —
+    passed by the raising type; the render embeds it so log records and hook
+    payloads carry the kind without the runner prefix.
+    `reason`: the authored primary reason — written without colons.
     `step_text`: the sentence of the failed step; empty — no step line.
-    `error`: the full underlying error text of the failed step code, locator details included; for failed checks passed without the AssertionError prefix — the exception type already carries the assertion semantics; empty — no error line.
-    `verdict`: the optional `FailureVerdict`; None or an empty render — no verdict block.
+    `error`: the full underlying error text; decomposed through
+    `decompose_error_text`; empty — no error line, no details section.
+    `verdict`: the optional `FailureVerdict`; None or an empty render — no verdict
+    block.
     `text`: the rendered message.
 
     Algorithm:
-    1. First line: `reason` verbatim
-    2. When `step_text` or `error` is non-empty: append the --- separator, then the step: line for a non-empty `step_text` and the error: line for a non-empty `error`
-    3. When `verdict` renders non-empty: append the --- separator, then the verdict block render
-    4. Join the lines
+    1. First line: `error_class` and `reason`
+    2. Step section: the --- separator, then the step: line for a non-empty
+    `step_text` and the error: line — the decomposed headline: class_name and
+    reason of the parts when class_name is non-empty, the parts reason alone
+    otherwise
+    3. Details section: only when at least one of received/cause/call_log of the
+    parts is non-empty — the --- separator, then the received: line, the cause:
+    line, the Call log: block with its lines indented
+    4. Verdict section: when `verdict` renders non-empty — the --- separator, then
+    the verdict block render
+    5. Join the lines
 
     Requirements:
-    - The block order is fixed: reason, step/error, verdict
-    - Both step and error empty — the whole middle block is omitted, no bare separator
+    - The block order is fixed: first line, step/error, details, verdict
+    - The details section is omitted entirely when no detail part is present
+    - Both step and error empty — the whole step section is omitted, no bare
+    separator
     - The render ends without a trailing separator
 
     Constraints:
     - Never embed the step code — it lives in the cache and the log
+    - Never embed a page snapshot in any terminal error output
+    - No label padding — labels render at column zero
 
 "FailureVerdict(category: str, explanation: str, recommendation: str)":
   location: errors.py
@@ -67,16 +139,20 @@ Annotations: |
       The recommended engineer action.
   methods:
     "render() -> text: str": |
-      Render the verdict block of the structured terminal message — the aligned explanation and recommendation lines.
+      Render the verdict block of the structured terminal message — the explanation
+      and recommendation lines.
 
       `text`: the rendered verdict block; empty when both fields are empty.
 
       Algorithm:
-      1. Build one line per non-empty field: explanation: and recommendation: — the values start at one column, aligned after the longest label; multi-line continuations indent to the same value column
+      1. Build one line per non-empty field: explanation: and recommendation: — no
+      column alignment, labels at column zero; multi-line continuations indent by
+      two spaces
       2. Join the lines
 
       Requirements:
-      - The category line is dropped: the category travels in the structured fields of the on_step_verdict event, never in the render
+      - The category line is dropped: the category travels in the structured fields
+      of the on_step_verdict event, never in the render
       - Labels are stable lowercase words — integrators parse them
 
 "PrettyplayError::ProductDefectError(step_text: str, message: str, error: str, verdict: FailureVerdict | None)":
@@ -91,7 +167,7 @@ Annotations: |
 
     Requirements:
     - Derives from `PrettyplayError` and AssertionError: catchable as any library failure and as an assertion failure in the same except clauses
-    - The rendered message is composed through `render_terminal_message` from `message`, `step_text`, `error` and `verdict`
+    - The rendered message is composed through `render_terminal_message` from `message`, `step_text`, `error` and `verdict`, passing its own class name as the error class
     - The traceback a runner sees starts at the library boundary — internal library frames are folded away
     - Propagates to the test runner as a failing test: no retry, no healing
 
@@ -120,7 +196,7 @@ Annotations: |
 
     Requirements:
     - The recommendation is carried by `verdict`; the recommendation property derives from it, falling back to the built-in path guidance when the verdict is absent
-    - The rendered message is composed through `render_terminal_message` from `reason`, `step_text`, `error` and `verdict`; the fallback recommendation keeps the message actionable without a verdict
+    - The rendered message is composed through `render_terminal_message` from `reason`, `step_text`, `error` and `verdict`, passing its own class name as the error class; the fallback recommendation keeps the message actionable without a verdict
     - An execution failure, not a failed check: derives from `PrettyplayError` only, never from AssertionError
 
     Constraints:

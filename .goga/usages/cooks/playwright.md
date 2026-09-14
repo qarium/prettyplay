@@ -6,7 +6,7 @@ prettyplay drives the browser exclusively through Playwright's **sync API** (ADR
 
 ## Generated step code — the standard API contour
 
-The whole step executes inside the driver worker thread as one unit; the step function receives the genuine sync `Page` — never a wrapper; imports restricted to `from playwright.sync_api import ...` (a prompt rule, no hard gate); safety core — the fixed form `def step(page) -> None:`, no fixed delays or sleeps, no `page.close()`/`context.close()` (the runtime owns the page lifecycle); stateful actions excluded from generated code (`page.route`, `page.clock`, `add_init_script`, tracing, HAR, CDP) — the author performs them explicitly through the escape hatch; waiting `expect(...)` chains advised for dynamic content, immediate reads with plain Python asserts allowed (`assert locator.count() > 1`); scrolling and dialogs through stock means; everything standard stays allowed — the cheat-sheet carried by every request is guidance, not an allowlist; the error-driven regeneration loop is the second line of defense.
+The whole step executes inside the driver worker thread as one unit; the step function receives the genuine sync `Page` — never a wrapper; imports allowed from `playwright.sync_api` and the Python standard library only — third-party libraries are forbidden; imports are global only: at the top level of the code block, before `def step`, never inside the function body (a prompt rule, no hard gate); safety core — the fixed form `def step(page) -> None:`, no fixed delays or sleeps, no `page.close()`/`context.close()` (the runtime owns the page lifecycle); stateful actions excluded from generated code (`page.route`, `page.clock`, `add_init_script`, tracing, HAR, CDP) — the author performs them explicitly through the escape hatch; waiting `expect(...)` chains advised for dynamic content, immediate reads with plain Python asserts allowed (`assert locator.count() > 1`); scrolling and dialogs through stock means; everything standard stays allowed — the cheat-sheet carried by every request is guidance, not an allowlist; the error-driven regeneration loop is the second line of defense.
 
 ## Lifecycle — one browser process per test
 
@@ -202,6 +202,7 @@ expect(page).to_have_title("Dashboard")
 
 Rules:
 - Every expectation auto-waits for its condition; a failed expectation raises `AssertionError`
+- the current URL is readable as the plain property `page.url` — an immediate read: `assert "/search" in page.url` beside the waiting forms `to_have_url` / `wait_for_url`
 
 ## Case-insensitive text expectations
 
@@ -252,6 +253,18 @@ Kinds and their message signatures:
   mid-flight, `Target closed`
 - **failed expectation** — a failed `expect_*` raises plain `AssertionError`: the check
   executed and did not hold
+
+Message anatomy of a failed expectation — the fixed shapes the terminal render decomposes:
+
+- the expectation headline — the first line of the failed `expect(...)` message
+  (e.g. `Locator expected to be visible`)
+- the actual-value line(s) — `Actual value: …` under the headline
+- the error-cause line — `Caused by: …` chained under the headline
+- the Call log block — a `Call log:` line followed by indented `- waiting for …`
+  / `- verifying …` entries
+
+A message may carry any subset; the shapes are recognized by their fixed prefixes,
+never by position alone.
 
 Transience guidance:
 - timeout, element state and navigation/context kinds typically reflect a page-state race —

@@ -91,8 +91,9 @@ The routine collects the fresh page snapshot (plus the screenshot when enabled) 
 
 ## The fixed form
 
-Generated code is one function receiving exactly one argument — the genuine Playwright sync Page — importing only
-from playwright.sync_api and working through the standard API: `page.get_by_role("button", name="Sign in").click()`,
+Generated code is one function receiving exactly one argument — the genuine sync Playwright Page — importing from
+playwright.sync_api and the Python standard library only (third-party libraries forbidden; imports global only, at the
+top level of the code block, before `def step`, never inside the function body) and working through the standard API: `page.get_by_role("button", name="Sign in").click()`,
 `page.locator("form > button.primary")`, `videos = page.get_by_role("listitem")` with
 `expect(videos.first).to_be_visible()` and `assert videos.count() > 1`,
 `with page.expect_event("dialog") as info: ... info.value.accept()`,

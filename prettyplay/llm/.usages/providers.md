@@ -33,7 +33,9 @@ Both providers expose the same three operations — generate_step_code, classify
 
 User instructions parity: each operation carries its own instructions — generation requests render the generation_prompt setting, classification requests render the classification_prompt setting — as a verbatim USER INSTRUCTIONS block with identical placement semantics in both providers. A parity requirement, not a capability difference.
 
-Regeneration block parity: a regeneration request may carry extra blocks after CODE and ERROR — RECOMMENDATION (the classification diagnosis), USER GUIDANCE (the engineer message of the interactive steering) and HISTORY (the accumulated steering turns), in this fixed order. Both providers render every non-empty block identically at the same position. A parity requirement, not a capability difference.
+Regeneration block parity: a regeneration request may carry extra blocks after CODE and ERROR — RECOMMENDATION (the classification diagnosis), USER GUIDANCE (the engineer message of the interactive steering) and HISTORY (the accumulated steering turns), in this fixed order. Every HISTORY record is a complete multi-line turn — engineer message, complete generated code, complete outcome — rendered verbatim, never collapsed, never size-limited; the dialog length is bounded by the human. Both providers render every non-empty block identically at the same position. A parity requirement, not a capability difference.
+
+Page-URL parity: a generation request with a non-empty page URL renders it as its own PAGE URL line immediately after the PAGE SNAPSHOT block — identically in both providers. The URL reaches guided regeneration requests of the interactive steering only. A parity requirement, not a capability difference.
 
 Cheat-sheet parity: every generation request renders the CHEAT SHEET block after the scenario inputs and
 immediately before the USER INSTRUCTIONS block — the compact standard Playwright sync API reference supplied by

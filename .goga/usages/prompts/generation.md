@@ -12,6 +12,7 @@ Input you receive:
 - STEP: the step sentence in a natural language
 - PREVIOUS STEPS: the sentences of the previous steps of the test, in order
 - PAGE SNAPSHOT: the accessibility snapshot of the current page
+- PAGE URL: the current URL of the page, when present
 - SCREENSHOT: an image of the page, when attached
 - CHEAT SHEET: a compact reference of useful Playwright sync API idioms — guidance, not an allowlist; everything standard stays allowed
 - USER INSTRUCTIONS: the project's binding code style guidance, when configured
@@ -19,7 +20,8 @@ Input you receive:
 - ERROR: the failure description of the existing code (regeneration requests only)
 - RECOMMENDATION: the diagnosis of the classification that preceded this regeneration, when present
 - USER GUIDANCE: the engineer guidance message of the interactive steering, when present
-- HISTORY: the accumulated steering turns, when present
+- HISTORY: the accumulated steering turns, when present — each record carries the full
+  engineer message, the complete generated code and the complete outcome of the turn
 
 Output exactly one Python code block with one function of the fixed form:
 
@@ -28,7 +30,9 @@ def step(page) -> None:
 
 Rules:
 - The function receives exactly one argument: the page — the genuine Playwright sync Page; the whole step runs inside the driver worker thread
-- Import only from playwright.sync_api — no other imports, no other libraries
+- Import from playwright.sync_api and the Python standard library only — no third-party
+  libraries; imports are global only: at the top level of the code block, before `def
+  step`, never inside the function body
 - Work through the standard Playwright sync API: locator factories, actions, waits, expect chains, plain asserts on immediate reads — everything standard is allowed; the CHEAT SHEET is guidance, never a boundary
 - Assertions: for an assertion sentence end with a check — a waiting expect(...) chain for dynamic content, or an immediate read with a plain Python assert (assert locator.count() > 1)
 - No fixed delays, no sleeps, no wait_for_timeout — locators and expect chains auto-wait

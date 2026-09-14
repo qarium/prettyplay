@@ -11,6 +11,9 @@ page handle: a callable executes wholly inside the worker thread and receives th
 
     result = page.run(action)  # action(page) runs inside the worker thread
 
+Immediate reads such as `page.url` cross the boundary the same way — one unit through the
+run primitive, plain string back; the calling thread never adopts the Playwright event loop.
+
 - The calling thread never adopts the Playwright event loop — the IPython/Jupyter guarantee holds
 - The result returns as-is; an exception propagates as-is: an AssertionError of a step reaches failure classification
   untouched
@@ -23,6 +26,7 @@ page handle: a callable executes wholly inside the worker thread and receives th
 | Call | Purpose |
 |---|---|
 | page.run(action) | execute the callable inside the worker thread with the genuine sync Page |
+| page.url | the current page URL — an immediate read through the worker-thread run primitive |
 | page.aria_snapshot() | the accessibility-tree page state — the primary LLM input |
 | page.screenshot() | full-page PNG bytes |
 | page.close() | close this page's isolated context |

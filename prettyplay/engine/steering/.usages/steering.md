@@ -13,29 +13,47 @@ LLM is unavailable.
 
 ```text
 ── step "click Checkout" — about to raise IncurableStepError ──────────
-intent:   click the checkout button
 code:     videos = page.get_by_role("listitem")
           expect(videos.first).to_be_visible()
           assert videos.count() > 1
-error:    TimeoutError: Timeout 10000ms exceeded ... element is not visible
-verdict:  fixable — the button is behind the "Terms" modal;
-          recommendation: dismiss the modal first, then click.
+error:    IncurableStepError: the generation budget is exhausted
+          ---
+          step: click Checkout
+          error: TimeoutError: Timeout 10000ms exceeded
+          ---
+          received: … / cause: … / Call log: …
+          ---
+          explanation: the button is behind the "Terms" modal
+          recommendation: dismiss the modal first, then click
+url:      https://shop.example.com/cart
+shot:     /tmp/prettyplay-steering-abc123.png
 
 commands: snapshot | screenshot | error | code | quit
-guidance> the modal has id=terms — close it via
-          page.get_by_label("Close").click() first
-⟳ regenerating with USER GUIDANCE … executing against the live page …
+guidance> the modal has id=terms — close it via page.get_by_label("Close").click() first
+⟳ regenerating with USER GUIDANCE — the complete candidate code is printed
+run? [y/N] y
 ✓ step green — healed step written to the cache
 ```
 
-- Local commands answer without the LLM: `snapshot` prints the full accessibility snapshot, `screenshot` writes a
-  full PNG to a temporary file and prints the path, `error` and `code` reprint the stored texts
-- Every other line is guidance: one regeneration request carrying a USER GUIDANCE block plus the conversation
-  history — the result executes against the live page, every turn ends green or red
-- A red turn shows the outcome and returns to the guidance prompt immediately — no re-execution loop, the settle
-  window does not re-arm inside the dialog
-- `quit`, EOF (Ctrl+D), SIGINT (Ctrl+C) and an unreadable stdin (a captured CI stream) end the dialog and the original
-  terminal failure propagates — nothing hangs
+- The banner shows the step, the failed code, the terminal error render, the current page
+  URL, the screenshot path and the commands — no snapshot fragment; the full snapshot
+  stays behind the `snapshot` command and in every request
+- Local commands answer without the LLM: `snapshot` prints the full accessibility snapshot,
+  `screenshot` writes a full PNG to a temporary file and prints the path, `error` and `code`
+  reprint the stored texts
+- Every other line is guidance: one regeneration request carrying a USER GUIDANCE block,
+  the current page URL and the full conversation history — the original failure stays the
+  CODE/ERROR anchor of every request
+- Every turn shows the complete generated code and asks `run? [y/N]`: `y` executes against
+  the live page; `n`, Enter or `quit` aborts the turn without execution and the guidance
+  prompt reopens — the rejected candidate lands in the history as a completed turn with the
+  outcome `rejected by the engineer, not executed`
+- Every completed turn — executed or rejected — enters the history in full: the engineer
+  message, the complete code, the complete outcome; nothing is collapsed or truncated
+- A red turn shows the complete error and returns to the guidance prompt immediately — no
+  re-execution loop, the settle window does not re-arm inside the dialog
+- `quit`, EOF (Ctrl+D), SIGINT (Ctrl+C) and an unreadable stdin (a captured CI stream) end
+  the dialog and the original terminal failure propagates — nothing hangs
 
 ## Effects
 

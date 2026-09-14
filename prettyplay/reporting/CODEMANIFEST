@@ -9,7 +9,7 @@ Annotations: |
   Never log secrets, credentials, tokens or personal sensitive data.
   Step lifecycle events — including the verdict event and the closing finished event — are logged at INFO; a skipped cache write and a failed hook call — WARNING.
   Hook events fire per step or per LLM attempt — never per execution retry: settle re-executions of the same code emit no hook events, their visibility is log-only.
-  The error field of the on_step_failed event and its log record carry the full structured render of the terminal failure — the same multi-line text the raised exception carries: the primary reason line, the --- separated step/error block and the verdict block; integrators display it verbatim.
+  The error field of the on_step_failed event and its log record carry the full structured render of the terminal failure — the same multi-line text the raised exception carries: the first line with the class name of the terminal failure and the authored reason, the --- separated step/error section, the conditional received/cause/Call log details section and the unpadded verdict block; integrators display it verbatim.
   The on_step_verdict event keeps its structured fields built from the verdict object of the failure — never parsed from the render.
 
 ---
@@ -26,7 +26,11 @@ Annotations: |
     "on_step_passed(step_text: str, step_type: str)": |
       The step finished successfully.
     "on_step_failed(step_text: str, step_type: str, error: str)": |
-      The step failed; `error` is the full rendered failure message — the same structured text carried by the raised exception and the log record: the primary reason line, the --- separated step/error block and the verdict block; display it verbatim.
+      The step failed; `error` is the full rendered failure message — the same structured
+      text carried by the raised exception and the log record: the first line with the
+      class name of the terminal failure and the authored reason, the --- separated
+      step/error section, the conditional received/cause/Call log details section and the
+      unpadded verdict block; display it verbatim.
     "on_step_verdict(step_text: str, category: str, explanation: str, recommendation: str)": |
       The terminal failure of the step carried a verdict; fires after on_step_failed.
 

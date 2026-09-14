@@ -35,6 +35,7 @@ this reference alone.
 
     page.goto(url) / page.go_back() / page.go_forward() / page.reload()
     page.wait_for_url("**/dashboard") / page.wait_for_load_state("networkidle")
+    page.url  # the current URL — an immediate read beside the waiting forms
 
 ## Waiting assertions — expect chains
 
@@ -58,6 +59,7 @@ An exact count is the rarer need: `expect(videos).to_have_count(3)`.
 
     assert locator.count() >= 1
     assert "Dashboard" in page.title()
+    assert "/dashboard" in page.url
 
 ## Dialogs
 
