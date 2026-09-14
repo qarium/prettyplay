@@ -125,6 +125,7 @@ class StubProvider(LLMProvider):
         step_text: str = "",
         previous_steps: list[str] | None = None,
         snapshot: str = "",
+        page_url: str | None = None,
         screenshot: bytes | None = None,
         cheat_sheet: str = "",
         existing_code: str | None = None,
@@ -140,6 +141,7 @@ class StubProvider(LLMProvider):
                 "step_text": step_text,
                 "previous_steps": list(previous_steps),  # copy: the scenario context lives on
                 "snapshot": snapshot,
+                "page_url": page_url,
                 "screenshot": screenshot,
                 "cheat_sheet": cheat_sheet,
                 "existing_code": existing_code,
@@ -207,6 +209,7 @@ class ForbiddenProvider(LLMProvider):
         step_text: str = "",
         previous_steps: list[str] | None = None,
         snapshot: str = "",
+        page_url: str | None = None,
         screenshot: bytes | None = None,
         cheat_sheet: str = "",
         existing_code: str | None = None,

@@ -129,6 +129,7 @@ class StubProvider:
         step_text: str = "",
         previous_steps: list[str] | None = None,
         snapshot: str = "",
+        page_url: str | None = None,
         screenshot: bytes | None = None,
         cheat_sheet: str = "",
         existing_code: str | None = None,
@@ -144,6 +145,7 @@ class StubProvider:
                 "step_text": step_text,
                 "previous_steps": previous_steps,
                 "snapshot": snapshot,
+                "page_url": page_url,
                 "screenshot": screenshot,
                 "cheat_sheet": cheat_sheet,
                 "existing_code": existing_code,
@@ -386,6 +388,29 @@ class TestStepGeneratorLogic:
         assert ("page" + "_api") not in request  # the dead slot name, assembled — no literal for the sweep
         assert request["snapshot"] == "- snapshot"
         assert request["screenshot"] is None  # send_screenshots defaults to False
+
+    def test_engine_requests_pass_page_url_none(self, tmp_path: Path) -> None:
+        """Every engine request carries no URL — the input is steering-only, uniform with guidance."""
+        provider = StubProvider([WORKING_CODE, WORKING_CODE])
+        fixture = GeneratorFixture(tmp_path, provider)
+        page = FakePage()
+
+        fixture.generator.generate(make_identity(), "open the page", [], page, fixture.window)
+        fixture.generator.regenerate(
+            make_identity(),
+            "click Sign in",
+            [],
+            page,
+            existing_code=BROKEN_CODE,
+            error="TimeoutError",
+            recommendation="retry with an id locator",
+            window=fixture.window,
+        )
+
+        assert provider.calls[0]["page_url"] is None  # the generation request — steering-only input
+        assert provider.calls[0]["guidance"] is None
+        assert provider.calls[1]["page_url"] is None  # the regeneration request — the same shared _request
+        assert provider.calls[1]["guidance"] is None
 
     def test_generate_attaches_screenshot_when_enabled(self, tmp_path: Path) -> None:
         provider = StubProvider([WORKING_CODE])
@@ -787,6 +812,7 @@ class TestStepGeneratorLogic:
         assert second["existing_code"] == CHECK_CODE  # the failed candidate
         assert second["error"] == "button is hidden"
         assert second["guidance"] is None  # engine requests never carry steering guidance
+        assert second["page_url"] is None  # the funded regeneration shares the same _request call shape
         assert second["guidance_history"] == []
         attempts = [event for event in fixture.recorder.events if event[0] == "on_generation_started"]
         assert attempts == [
@@ -1533,11 +1559,20 @@ class TestPromptConstants:
 
         assert prompt == SYSTEM_PROMPT  # the frozen mirror — the constant changes only together with the file
         # spot-asserts of the rewritten rules — the equality alone would hide a both-sides edit
-        assert "Import only from playwright.sync_api" in SYSTEM_PROMPT
+        assert "Import from playwright.sync_api and the Python standard library only" in SYSTEM_PROMPT
         assert "never call page.close() or context.close()" in SYSTEM_PROMPT
         assert 'expect_event("dialog")' in SYSTEM_PROMPT
         assert "assert locator.count() > 1" in SYSTEM_PROMPT
         assert ("page." + "expect" + "_dialog()") not in SYSTEM_PROMPT  # the facade capture idiom is gone
+        # the steering-context inputs the practice added — the URL line and the full HISTORY record
+        snapshot_input = SYSTEM_PROMPT.index("- PAGE SNAPSHOT: the accessibility snapshot")
+        url_input = SYSTEM_PROMPT.index("- PAGE URL: the current URL of the page, when present")
+        screenshot_input = SYSTEM_PROMPT.index("- SCREENSHOT: an image of the page, when attached")
+        assert snapshot_input < url_input < screenshot_input
+        assert (
+            "each record carries the full\n"
+            "  engineer message, the complete generated code and the complete outcome of the turn" in SYSTEM_PROMPT
+        )
 
     def test_system_prompt_carries_the_new_input_lines_and_rule(self) -> None:
         error_input = SYSTEM_PROMPT.index("- ERROR: the failure description")

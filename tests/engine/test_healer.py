@@ -138,6 +138,7 @@ class FakeProvider:
         step_text: str = "",
         previous_steps: list[str] | None = None,
         snapshot: str = "",
+        page_url: str | None = None,
         screenshot: bytes | None = None,
         cheat_sheet: str = "",
         existing_code: str | None = None,
@@ -153,6 +154,7 @@ class FakeProvider:
                 "step_text": step_text,
                 "previous_steps": previous_steps,
                 "snapshot": snapshot,
+                "page_url": page_url,
                 "screenshot": screenshot,
                 "cheat_sheet": cheat_sheet,
                 "existing_code": existing_code,
@@ -618,6 +620,7 @@ class TestStepHealerLogic:
         assert provider.classify_failure_call_count == 1  # the entry classification only
         retry_request = provider.generate_step_code_calls[1]
         assert retry_request["error"] == "banner missing"  # the fresh failure description of the check
+        assert retry_request["page_url"] is None  # the engine-driven request carries no URL — steering-only
         assert retry_request["recommendation"] == "refresh the cache"  # the entry diagnosis carries on
         assert page.clicks == ["click"]  # the healed candidate actually ran
         assert len(fixture.cache.save_calls) == 1  # only the proven healed code is stored

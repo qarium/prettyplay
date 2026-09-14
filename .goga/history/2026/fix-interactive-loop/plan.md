@@ -695,12 +695,12 @@ updates land in this task, not as a follow-up.
 Do NOT modify them. If implementation does not match the contract, fix the implementation — never
 fix the contract.**
 
-- [ ] **STEP 0 — Declaration**: declare this task (Task 5, engine cell) before starting
-- [ ] **Contract tests**: the existing mirror tests are the contract tests (currently red):
+- [x] **STEP 0 — Declaration**: declare this task (Task 5, engine cell) before starting
+- [x] **Contract tests**: the existing mirror tests are the contract tests (currently red):
   `test_system_prompt_mirrors_the_generation_practice` and
   `test_cheat_sheet_mirrors_the_practice` in `tests/engine/test_generator.py` — they compare the
   constants against the practice files and define done for the mirror half
-- [ ] **Code**: `prettyplay/engine/generator.py` — `SYSTEM_PROMPT` ← the section after the `---`
+- [x] **Code**: `prettyplay/engine/generator.py` — `SYSTEM_PROMPT` ← the section after the `---`
   separator of `.goga/usages/prompts/generation.md`, verbatim (adds: the `- PAGE URL:` input line
   after `- PAGE SNAPSHOT:`; the HISTORY input line carrying "each record carries the full engineer
   message, the complete generated code and the complete outcome of the turn"; the new import rule
@@ -710,12 +710,12 @@ fix the contract.**
   file, verbatim (adds `page.url  # the current URL — an immediate read beside the waiting forms`
   in "Navigation and waits" and `assert "/dashboard" in page.url` in "Immediate reads with plain
   asserts")
-- [ ] **Code**: `StepGenerator._request` — the `generate_step_code` call adds `page_url=None`
+- [x] **Code**: `StepGenerator._request` — the `generate_step_code` call adds `page_url=None`
   beside `guidance=None`, with the comment that the URL input is steering-only — uniform with the
   guidance None; `regenerate`/`_funded_regeneration` share `_request`, so every engine request is
   covered
-- [ ] **Interface verification**: `pytest tests/engine/test_generator.py -q` — mirror tests pass
-- [ ] **Logic tests**:
+- [x] **Interface verification**: `pytest tests/engine/test_generator.py -q` — mirror tests pass
+- [x] **Logic tests**:
   - `tests/engine/test_generator.py` — `StubProvider.generate_step_code` grows `page_url:
     str | None = None` (after `snapshot`) and records it in the calls dict; new
     `test_engine_requests_pass_page_url_none`: generator over the recording stub, a `FakePage`,
@@ -729,13 +729,13 @@ fix the contract.**
     without the parameter raises `TypeError`)
   - `tests/test_executor.py` — the three strict-mode stub providers carry the port signature for
     symmetry (never called for generation — optional, but keeps the stubs honest)
-- [ ] **Debugging**: `pytest tests/engine tests/test_integration.py tests/test_scenario.py
+- [x] **Debugging**: `pytest tests/engine tests/test_integration.py tests/test_scenario.py
   tests/test_executor.py -x` — fix implementation until green
-- [ ] **Contract re-verification**: engine CODEMANIFEST `generate` step 3 ("page_url None — the
+- [x] **Contract re-verification**: engine CODEMANIFEST `generate` step 3 ("page_url None — the
   URL input is steering-only, uniform with guidance None"); the mirrors equal the practices
   byte-for-byte; no engine request carries a URL or guidance
-- [ ] **Lint**: `ruff check prettyplay/engine tests/engine` — fix formatting if necessary
-- [ ] **STEP 8 — Completion**: mark the checkboxes complete; submit for review
+- [x] **Lint**: `ruff check prettyplay/engine tests/engine` — fix formatting if necessary
+- [x] **STEP 8 — Completion**: mark the checkboxes complete; submit for review
 
 ### Task 6: the nine-step `steer` rewrite — approval gate, full history, URL plumbing (steering)
 
