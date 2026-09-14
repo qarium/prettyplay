@@ -28,6 +28,7 @@ Input you receive:
 - STEP: the step sentence in a natural language
 - PREVIOUS STEPS: the sentences of the previous steps of the test, in order
 - PAGE SNAPSHOT: the accessibility snapshot of the current page
+- PAGE URL: the current URL of the page, when present
 - SCREENSHOT: an image of the page, when attached
 - CHEAT SHEET: a compact reference of useful Playwright sync API idioms — guidance, not an allowlist; everything standard stays allowed
 - USER INSTRUCTIONS: the project's binding code style guidance, when configured
@@ -35,7 +36,8 @@ Input you receive:
 - ERROR: the failure description of the existing code (regeneration requests only)
 - RECOMMENDATION: the diagnosis of the classification that preceded this regeneration, when present
 - USER GUIDANCE: the engineer guidance message of the interactive steering, when present
-- HISTORY: the accumulated steering turns, when present
+- HISTORY: the accumulated steering turns, when present — each record carries the full
+  engineer message, the complete generated code and the complete outcome of the turn
 
 Output exactly one Python code block with one function of the fixed form:
 
@@ -44,7 +46,9 @@ def step(page) -> None:
 
 Rules:
 - The function receives exactly one argument: the page — the genuine Playwright sync Page; the whole step runs inside the driver worker thread
-- Import only from playwright.sync_api — no other imports, no other libraries
+- Import from playwright.sync_api and the Python standard library only — no third-party
+  libraries; imports are global only: at the top level of the code block, before `def
+  step`, never inside the function body
 - Work through the standard Playwright sync API: locator factories, actions, waits, expect chains, plain asserts on immediate reads — everything standard is allowed; the CHEAT SHEET is guidance, never a boundary
 - Assertions: for an assertion sentence end with a check — a waiting expect(...) chain for dynamic content, or an immediate read with a plain Python assert (assert locator.count() > 1)
 - No fixed delays, no sleeps, no wait_for_timeout — locators and expect chains auto-wait
@@ -105,6 +109,7 @@ this reference alone.
 
     page.goto(url) / page.go_back() / page.go_forward() / page.reload()
     page.wait_for_url("**/dashboard") / page.wait_for_load_state("networkidle")
+    page.url  # the current URL — an immediate read beside the waiting forms
 
 ## Waiting assertions — expect chains
 
@@ -128,6 +133,7 @@ An exact count is the rarer need: `expect(videos).to_have_count(3)`.
 
     assert locator.count() >= 1
     assert "Dashboard" in page.title()
+    assert "/dashboard" in page.url
 
 ## Dialogs
 
@@ -158,8 +164,10 @@ An exact count is the rarer need: `expect(videos).to_have_count(3)`.
 #: The local commands of the dialog — context services without an LLM request.
 _LOCAL_COMMANDS = frozenset({"snapshot", "screenshot", "error", "code"})
 
-#: Lines of the accessibility snapshot shown in the banner fragment.
-_SNAPSHOT_FRAGMENT_LINES = 20
+#: The banner label column — every banner label aligns to the widest one,
+#: ``commands:``. The banner's own presentation padding; the render text
+#: inside stays unpadded.
+_BANNER_LABEL_WIDTH = len("commands:")
 
 #: Prefix of the temporary screenshot file of a dialog.
 _SCREENSHOT_PREFIX = "prettyplay-steering-"
@@ -167,23 +175,29 @@ _SCREENSHOT_PREFIX = "prettyplay-steering-"
 #: The explanation of the ``on_healed`` event of an interactively healed step.
 _HEALED_EXPLANATION = "healed interactively by engineer guidance"
 
+#: The outcome text of a turn the engineer did not approve — the code never ran.
+_REJECTED_OUTCOME = "rejected by the engineer, not executed"
+
 
 class StepSteering:
-    """Steers a terminally stuck step back to green through engineer guidance.
+    """Steers a terminally stuck step back to green through engineer-approved turns.
 
     The opt-in human-in-the-loop escape hatch opened by the step executor at
     the exact moment an ``IncurableStepError`` would propagate. The dialog
-    shows the full failure context, takes one guidance line at a time and
-    turns each into a regeneration request executed against the live page:
-    every turn ends green — the candidate passes the instruction compliance
-    gate, then the healed step is written back to the cache and reported —
-    or red — the outcome joins the history of the next request. A high
-    compliance finding is a red turn of its own: the violation joins the
-    history and the prompt reopens, the candidate never reaches the cache.
-    Local commands serve the context without the LLM; quit, EOF, SIGINT and
-    an unreadable stdin at the prompt end the dialog declined, a provider
-    failure and a gate hard failure end it, and no budget is ever consumed:
-    the human in the loop is the bound.
+    shows the full failure context — the terminal render, the current URL, a
+    screenshot file — then takes one guidance line at a time and turns each
+    into a regeneration request whose complete generated code shows at a
+    strict approval gate: nothing executes unseen, only a bare ``y`` runs
+    the candidate against the live page. Every turn ends green — the
+    candidate passes the instruction compliance gate, then the healed step
+    is written back to the cache and reported — or it returns to the prompt
+    with its full record (engineer message, complete code, complete
+    outcome) appended to the history of every later request: a rejection,
+    a red execution, a high compliance finding alike. Local commands serve
+    the context without the LLM; quit, EOF, SIGINT and an unreadable stdin
+    at either prompt end the dialog declined, a provider failure and a gate
+    hard failure end it, and no budget is ever consumed: the human in the
+    loop is the bound.
 
     Attributes:
         _config: project settings; the generation instructions and the
@@ -230,11 +244,16 @@ class StepSteering:
         """Run the steering dialog over a terminal failure.
 
         The dialog renders the context banner once, then takes one guidance
-        line at a time: local commands serve the context without the LLM, and
-        every guidance message becomes one regeneration request executed
-        against the live page. A green turn passes the instruction compliance
-        gate before the write-back: an empty findings list heals; medium and
-        low findings pass with a WARNING; a high finding never reaches the
+        line at a time: local commands serve the context without the LLM,
+        and every guidance message becomes one regeneration request whose
+        complete generated code shows at the strict ``run? [y/N]``
+        approval gate — only a bare ``y`` executes it against the live
+        page, nothing runs unseen. A rejected turn and a failed turn append
+        their full record (engineer message, complete code, complete
+        outcome) to the history of every later request and the prompt
+        reopens. A green turn passes the instruction compliance gate before
+        the write-back: an empty findings list heals; medium and low
+        findings pass with a WARNING; a high finding never reaches the
         cache — the violation joins the history and the prompt reopens; a
         gate hard failure (the provider unavailable or a malformed verdict)
         ends the dialog declined after the gate failure line.
@@ -250,13 +269,14 @@ class StepSteering:
             page: the live page facade of the test.
 
         Returns:
-            The healed cached step on a successful guided execution; ``None``
-            — the dialog was declined or died: the caller propagates the
+            The healed cached step on a successful approved turn; ``None`` —
+            the dialog was declined or died: the caller propagates the
             original failure.
 
         Raises:
-            KeyboardInterrupt: a SIGINT outside the prompt escapes directly —
-                never swallowed into a turn or a heal.
+            KeyboardInterrupt: a SIGINT outside the prompts and the approval
+                gate escapes directly — never swallowed into a turn or a
+                heal.
         """
         history: list[str] = []
         self._screenshot_path = None  # a fresh dialog owns no screenshot file yet
@@ -264,19 +284,12 @@ class StepSteering:
         logger.info("steering_opened", extra={"step_text": failure.step_text})
 
         while True:
-            message = self._read_guidance(failure)
+            message = self._await_guidance(failure, page)
             if message is None:  # quit, EOF, SIGINT or an unreadable stdin — declined
                 return None
 
-            command = message.strip()
-            if not command:  # blank line — re-prompt, no LLM request, no history
-                continue
-            if command in _LOCAL_COMMANDS:
-                self._serve_local_command(command, failure, page)
-                continue
-
             logger.info("steering_guidance", extra={"guidance": message})
-            print("regenerating with USER GUIDANCE — executing against the live page")
+            print("regenerating with USER GUIDANCE")
 
             try:
                 code = self._guided_request(failure, previous_steps, page, message, history)
@@ -285,10 +298,20 @@ class StepSteering:
                 return None
 
             try:
+                approved = self._confirm_run(code)
+            except (EOFError, KeyboardInterrupt, OSError):  # a dead approval prompt declines the dialog
+                logger.info("steering_declined", extra={"step_text": failure.step_text})
+                return None
+
+            if not approved:  # the code never runs — the full turn record joins the history
+                history.append(_turn_record(message, code, _REJECTED_OUTCOME))
+                continue
+
+            try:
                 run_step_code(code, page)  # bare — the settle window never re-arms inside the dialog
             except Exception as outcome:  # a red turn returns to the prompt, never escapes
                 print(f"turn failed: {outcome}")
-                history.append(f"{message} => {_first_line(str(outcome))}")
+                history.append(_turn_record(message, code, str(outcome)))
                 continue
 
             # the gate sits outside the execution try/except: its hard failures end the
@@ -307,7 +330,7 @@ class StepSteering:
             if high is not None:  # the violation never reaches the cache — steer the fix
                 violation = f"violated instruction: {high.instruction} — {high.explanation}"
                 print(f"compliance violation — not written back: {violation}")
-                history.append(f"{message} => instruction violated: {_first_line(high.instruction)}")
+                history.append(_turn_record(message, code, violation))
                 continue
 
             if findings:  # medium and low findings are visible, never blocking
@@ -325,30 +348,96 @@ class StepSteering:
     def _render_banner(self, failure: IncurableStepError, page: PageFacade) -> None:
         """Render the context banner of the dialog.
 
-        The step sentence, the failed code, the underlying error, the verdict
-        with its recommendation when present, a fragment of the fresh
-        accessibility snapshot and the path of a full screenshot written to a
-        temporary file. Every page interaction is guarded: a failed one
-        prints its own failure text and the banner continues.
+        The step header, the failed code, the full terminal render of the
+        failure, the current URL and the path of a full screenshot written
+        to a temporary file — no snapshot fragment: the ``snapshot``
+        command prints the whole tree on demand, and the render already
+        carries the verdict explanation and recommendation. Every page
+        interaction is guarded: a failed one prints its own failure text
+        and the banner continues.
 
         Args:
             failure: the terminal failure the dialog opens over.
             page: the live page facade of the test.
         """
         print(f'── step "{failure.step_text}" — about to raise IncurableStepError ──')
-        print(f"intent:   {failure.step_text}")
-        print("code:")
-        print(failure.code)
-        print(f"error:    {failure.error}")
-        if failure.verdict is not None:
-            print(f"verdict:  {failure.verdict.category} — {failure.verdict.explanation}")
-            print(f"          recommendation: {failure.verdict.recommendation}")
-        print("snapshot:")
-        print(_snapshot_fragment(self._guarded_snapshot(page)))
+        print(_banner_line("code:", failure.code))
+        print(_banner_line("error:", str(failure)))
+        url = self._guarded_url(page)
+        if url is not None:
+            print(_banner_line("url:", url))
         path = self._screenshot_file(page)
         if path is not None:
-            print(f"screenshot: {path}")
-        print("commands: snapshot | screenshot | error | code | quit")
+            print(_banner_line("shot:", path))
+        print(_banner_line("commands:", "snapshot | screenshot | error | code | quit"))
+
+    def _confirm_run(self, code: str) -> bool:
+        """Show the complete generated code and read the strict approval answer.
+
+        The approval gate of every turn: the candidate reaches the live page
+        only after this returns ``True`` — a bare ``y``, nothing else
+        executes.
+
+        Args:
+            code: the complete generated step code of this turn.
+
+        Returns:
+            ``True`` — the engineer approved the execution; ``False`` — any
+            other answer.
+
+        Raises:
+            EOFError: the approval prompt hit the end of the input.
+            KeyboardInterrupt: a SIGINT arrived at the approval prompt.
+            OSError: the approval prompt cannot read stdin at all.
+        """
+        print("generated code:")
+        print(code)
+        return input("run? [y/N] ").strip() == "y"
+
+    def _guarded_url(self, page: PageFacade) -> str | None:
+        """Read the current URL; a failed interaction degrades to None.
+
+        Args:
+            page: the live page facade of the test.
+
+        Returns:
+            The current URL of the page; ``None`` when the read failed —
+            its failure text was printed.
+        """
+        try:
+            return page.url
+        except Exception as failure:  # a dead page never kills the dialog
+            print(f"url unavailable: {failure}")
+            return None
+
+    def _await_guidance(self, failure: IncurableStepError, page: PageFacade) -> str | None:
+        """Read guidance lines until one is a real guidance message.
+
+        Blank lines re-prompt — no LLM request, no history entry — and the
+        local commands serve the context before the prompt reopens; only a
+        genuine guidance message returns to the turn loop.
+
+        Args:
+            failure: the terminal failure the dialog opens over.
+            page: the live page facade of the test.
+
+        Returns:
+            The raw guidance message; ``None`` — quit, EOF, SIGINT or an
+            unreadable stdin ended the dialog declined.
+        """
+        while True:
+            message = self._read_guidance(failure)
+            if message is None:
+                return None
+
+            command = message.strip()
+            if not command:  # blank line — re-prompt, no LLM request, no history
+                continue
+            if command in _LOCAL_COMMANDS:
+                self._serve_local_command(command, failure, page)
+                continue
+
+            return message
 
     def _read_guidance(self, failure: IncurableStepError) -> str | None:
         """Read one guidance line from the prompt.
@@ -407,13 +496,18 @@ class StepSteering:
     ) -> str:
         """Run one guided regeneration request against the provider.
 
+        The fresh page state — the snapshot, the screenshot when the project
+        sends them, the current URL read fresh per request — plus the
+        original failure context (the failed code and the error, anchored
+        every turn) and the full turn history compose the request.
+
         Args:
             failure: the terminal failure the dialog opens over — the source
                 of the step sentence, the failed code and the error.
             previous_steps: the sentences of the previous steps of the test.
             page: the live page facade of the test.
             guidance: the engineer guidance message of this turn.
-            history: the accumulated steering turns of the dialog so far.
+            history: the accumulated full turn records of the dialog so far.
 
         Returns:
             The generated step code of the fixed form.
@@ -430,6 +524,7 @@ class StepSteering:
             step_text=failure.step_text,
             previous_steps=previous_steps,
             snapshot=self._guarded_snapshot(page),
+            page_url=self._guarded_url(page),
             screenshot=screenshot,
             cheat_sheet=CHEAT_SHEET,
             existing_code=failure.code,
@@ -530,26 +625,39 @@ class StepSteering:
             return None
 
 
-def _snapshot_fragment(snapshot: str) -> str:
-    """Return the first lines of a snapshot — the banner fragment.
+def _turn_record(message: str, code: str, outcome: str) -> str:
+    """Compose one full steering-turn record for the request history.
 
     Args:
-        snapshot: the full accessibility snapshot text.
+        message: the engineer guidance message of the turn.
+        code: the complete generated code of the turn.
+        outcome: the complete outcome of the turn — the rejection notice,
+            the full execution error or the compliance violation.
 
     Returns:
-        The first lines of the snapshot, joined with newlines; empty when the
-        snapshot itself is empty.
+        The record: the engineer message line, the complete code block and
+        the complete outcome, verbatim — no collapsing, no size limits.
     """
-    return "\n".join(snapshot.splitlines()[:_SNAPSHOT_FRAGMENT_LINES])
+    return f"engineer message: {message}\ncode:\n{code}\noutcome: {outcome}"
 
 
-def _first_line(text: str) -> str:
-    """Return the first line of a failure text — the history-entry tail.
+def _banner_line(label: str, text: str) -> str:
+    """Align one banner label with its value text.
+
+    The label pads to the banner label column — the banner's own
+    presentation padding; the render text inside stays unpadded. Multi-line
+    values indent every continuation line to the value column.
 
     Args:
-        text: the full failure text of a red turn.
+        label: the banner label including its colon.
+        text: the value text of the line; its continuation lines indent to
+            the value column.
 
     Returns:
-        The text up to the first newline; the whole text when single-line.
+        The aligned banner line with its continuation lines, joined with
+        newlines.
     """
-    return text.partition("\n")[0]
+    value_column = " " * (_BANNER_LABEL_WIDTH + 1)
+    lines = [f"{label.ljust(_BANNER_LABEL_WIDTH)} {text}", *(value_column + line for line in text.splitlines()[1:])]
+
+    return "\n".join(line.rstrip() for line in lines)

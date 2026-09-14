@@ -757,15 +757,15 @@ Facade and constructor signature unchanged (the executor calls stay valid).
 Do NOT modify them. If implementation does not match the contract, fix the implementation — never
 fix the contract.**
 
-- [ ] **STEP 0 — Declaration**: declare this task (Task 6, steering cell) before starting
-- [ ] **Contract tests**: `test_steering_mirrors_the_practices` (currently red) — the steering
+- [x] **STEP 0 — Declaration**: declare this task (Task 6, steering cell) before starting
+- [x] **Contract tests**: `test_steering_mirrors_the_practices` (currently red) — the steering
   `SYSTEM_PROMPT` equals the post-`---` section of `generation.md`, `CHEAT_SHEET` equals the whole
   `cheatsheet.md`; `FakeProvider.generate_step_code` grows the `page_url` parameter and records
   it; `FakePage` grows `url` (property or plain attribute), `DeadPage.url` raises
   `PlaywrightError("Target closed")`
-- [ ] **Code**: re-copy `SYSTEM_PROMPT` and `CHEAT_SHEET` verbatim from the practice files (same
+- [x] **Code**: re-copy `SYSTEM_PROMPT` and `CHEAT_SHEET` verbatim from the practice files (same
   bytes as the engine mirrors in Task 5)
-- [ ] **Code**: implement `steer` exactly per the design algorithm:
+- [x] **Code**: implement `steer` exactly per the design algorithm:
   ```
   1. banner once (step header; code; error = str(failure); url = guarded page.url;
      shot = temp screenshot path when taken; commands) — no snapshot fragment
@@ -793,14 +793,14 @@ fix the contract.**
   guidance replaces it); `KeyboardInterrupt` during execution escapes directly (no swallow); the
   gate sits outside every exception-swallowing try; no re-execution of the same code; no budget,
   no polling
-- [ ] **Code**: the record format `_turn_record(message, code, outcome)`:
+- [x] **Code**: the record format `_turn_record(message, code, outcome)`:
   ```
   engineer message: <message>
   code:
   <complete code>
   outcome: <complete outcome>
   ```
-- [ ] **Code**: the helpers —
+- [x] **Code**: the helpers —
   - `_confirm_run(code) -> bool` — prints `generated code:` + the code, returns
     `input("run? [y/N] ").strip() == "y"`; raises EOFError/KeyboardInterrupt/OSError upward
   - `_guarded_url(page) -> str | None` — `try: return page.url except Exception as failure:
@@ -826,9 +826,9 @@ fix the contract.**
     error=failure.error, recommendation=None, guidance=message, guidance_history=history)`
   - delete `_snapshot_fragment`, `_SNAPSHOT_FRAGMENT_LINES`, `_first_line`; leave no unused
     imports (ruff enforces)
-- [ ] **Interface verification**: `pytest tests/engine/steering/test_steering.py -q` — contract
+- [x] **Interface verification**: `pytest tests/engine/steering/test_steering.py -q` — contract
   tests pass (mirrors green, facade unchanged)
-- [ ] **Logic tests**: in `tests/engine/steering/test_steering.py` — every turn test feeds the
+- [x] **Logic tests**: in `tests/engine/steering/test_steering.py` — every turn test feeds the
   approval answer after each guidance line via the existing `_script_input` queue. The design
   scenarios:
   - `test_steer_green_approved_turn_heals`: FakeProvider returns working code; stdin
@@ -887,19 +887,19 @@ fix the contract.**
     `test_steer_no_candidate_failure_empty_code`, `test_steer_banner_renders_*` (drop
     fragment/verdict/intent assertions; assert render + URL), `test_steer_guided_request_*`
     (recorded dicts grow `page_url`)
-- [ ] **Debugging**: `pytest tests/engine/steering/test_steering.py -x` — fix implementation
+- [x] **Debugging**: `pytest tests/engine/steering/test_steering.py -x` — fix implementation
   until green
-- [ ] **Contract re-verification**: no code executes without the engineer approval of this turn
+- [x] **Contract re-verification**: no code executes without the engineer approval of this turn
   (the execution call is structurally unreachable without a `y`); a rejected or failed turn
   always enters the history before the guidance prompt reopens; no budget, no polling; the
   history/guidance never persist (the cache file never sees them; `page_url` and history take no
   part in step addressing); no new cross-cell imports — `format_step_error` is deliberately NOT
   imported into steering (the red-turn outcome stays `str(outcome)` verbatim); `run_step_code`
   and `check_step_compliance` signatures unchanged
-- [ ] **Lint**: `ruff check prettyplay/engine/steering tests/engine/steering` — fix formatting;
+- [x] **Lint**: `ruff check prettyplay/engine/steering tests/engine/steering` — fix formatting;
   confirm `_snapshot_fragment`, `_SNAPSHOT_FRAGMENT_LINES`, `_first_line` are gone and no unused
   imports remain
-- [ ] **STEP 8 — Completion**: mark the checkboxes complete; submit for review
+- [x] **STEP 8 — Completion**: mark the checkboxes complete; submit for review
 
 ### Task 7: `on_step_failed` docstring alignment (reporting)
 
