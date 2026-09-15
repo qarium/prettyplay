@@ -69,15 +69,14 @@ def require_completion_text(text: str | None, provider: str) -> str:
 def build_fields_text(  # noqa: PLR0913, PLR0917 — the parameters mirror the fixed port signature
     user_instructions: str,
     step_text: str,
+    step_type: str,
     previous_steps: list[str],
     snapshot: str,
     page_url: str | None,
     cheat_sheet: str,
-    existing_code: str | None,
-    error: str | None,
+    attempt_history: list[str],
     recommendation: str | None,
     guidance: str | None,
-    guidance_history: list[str],
 ) -> str:
     """Build the plain-text generation request fields shared by both providers.
 
@@ -86,7 +85,10 @@ def build_fields_text(  # noqa: PLR0913, PLR0917 — the parameters mirror the f
             generation_prompt setting; empty — the request carries no
             instructions block, non-empty — rendered verbatim as a separate
             USER INSTRUCTIONS block after the CHEAT SHEET block.
-        step_text: the sentence of the step to generate.
+        step_text: the raw sentence of the step to generate, as passed by
+            the calling engine — never the normalized addressing form.
+        step_type: the type of the step; rendered as a STEP TYPE line
+            immediately before the STEP line, inside the scenario section.
         previous_steps: the sentences of the previous steps of the test, in
             execution order — scenario context.
         snapshot: the accessibility snapshot of the current page.
@@ -95,34 +97,31 @@ def build_fields_text(  # noqa: PLR0913, PLR0917 — the parameters mirror the f
             None or empty — no line.
         cheat_sheet: the compact standard Playwright sync API reference
             supplied by the calling engine — guidance, not an allowlist.
-        existing_code: the existing step code that failed; non-empty only on
-            regeneration requests.
-        error: the failure description of the existing code; non-empty only on
-            regeneration requests.
-        recommendation: the diagnosis of the classification that preceded the
-            regeneration; non-empty — rendered as a separate RECOMMENDATION
-            block after the CODE and ERROR blocks, None — no block.
+        attempt_history: the rendered per-step attempt records — every
+            record a complete multi-line verbatim record composed by the
+            calling engine, the original cached code anchored as record 0
+            when it exists, the last record the code being fixed;
+            non-empty — rendered as a separate HISTORY block after the
+            USER INSTRUCTIONS block with the records joined by newlines,
+            every record verbatim, no collapsing, no size limits; empty —
+            no block; the list takes the place of the former
+            existing_code, error and guidance_history inputs.
+        recommendation: the diagnosis of the classification that preceded
+            the regeneration; non-empty — rendered as a separate
+            RECOMMENDATION block after the HISTORY block, None — no block.
         guidance: the engineer guidance message of the interactive steering;
             non-empty — rendered as a separate USER GUIDANCE block, None — no
             block.
-        guidance_history: the accumulated steering turns — each a complete
-            multi-line turn record: the engineer message, the complete
-            generated code, the complete outcome; composed by the calling
-            steering; non-empty — rendered as a separate HISTORY block after
-            the USER GUIDANCE block with the records joined by newlines,
-            every record verbatim, no collapsing, no size limits; empty — no
-            block.
 
     Returns:
-        The request fields as one text with STEP / PREVIOUS STEPS /
-        PAGE SNAPSHOT sections, the optional PAGE URL line, the CHEAT SHEET
-        section, the optional USER INSTRUCTIONS section and, on regeneration
-        and steering requests, CODE / ERROR / RECOMMENDATION /
-        USER GUIDANCE / HISTORY sections — a non-empty input renders its
-        named block.
+        The request fields as one text with the STEP TYPE line, the STEP /
+        PREVIOUS STEPS / PAGE SNAPSHOT sections, the optional PAGE URL line,
+        the CHEAT SHEET section and the optional USER INSTRUCTIONS /
+        HISTORY / RECOMMENDATION / USER GUIDANCE sections — a non-empty
+        input renders its named block.
     """
     sections = [
-        f"STEP:\n{step_text}",
+        f"STEP TYPE: {step_type}\nSTEP:\n{step_text}",
         _format_previous_steps(previous_steps),
         f"PAGE SNAPSHOT:\n{snapshot}",
         *([f"PAGE URL: {page_url}"] if page_url else []),
@@ -131,16 +130,12 @@ def build_fields_text(  # noqa: PLR0913, PLR0917 — the parameters mirror the f
 
     if user_instructions:
         sections.append(f"USER INSTRUCTIONS:\n{user_instructions}")
-    if existing_code is not None:
-        sections.append(f"CODE:\n{existing_code}")
-    if error is not None:
-        sections.append(f"ERROR:\n{error}")
+    if attempt_history:
+        sections.append("HISTORY:\n" + "\n".join(attempt_history))
     if recommendation:
         sections.append(f"RECOMMENDATION:\n{recommendation}")
     if guidance:
         sections.append(f"USER GUIDANCE:\n{guidance}")
-    if guidance_history:
-        sections.append("HISTORY:\n" + "\n".join(guidance_history))
 
     return "\n\n".join(sections)
 
@@ -176,7 +171,13 @@ def build_classification_fields(user_instructions: str, step_text: str, code: st
     return "\n\n".join(sections)
 
 
-def build_compliance_fields(user_instructions: str, step_text: str, code: str) -> str:
+def build_compliance_fields(
+    user_instructions: str,
+    step_text: str,
+    step_type: str,
+    attempt_history: list[str],
+    code: str,
+) -> str:
     """Build the plain-text compliance verdict request fields shared by both providers.
 
     Args:
@@ -184,19 +185,29 @@ def build_compliance_fields(user_instructions: str, step_text: str, code: str) -
             generation_prompt setting; the calling engine guarantees
             non-empty — the gate never runs on empty instructions, so the
             block always renders.
-        step_text: the sentence of the generated step.
+        step_text: the raw sentence of the generated step.
+        step_type: the type of the step; rendered as a STEP TYPE line
+            immediately before the STEP line, inside the STEP block.
+        attempt_history: the rendered per-step attempt records — the ground
+            truth of what was already tried; non-empty — rendered as a
+            separate ATTEMPT HISTORY block with the records joined by
+            newlines, every record verbatim; empty — no block.
         code: the successfully executed candidate code.
 
     Returns:
-        The request fields as one text with INSTRUCTIONS / STEP / CODE
-        sections in this fixed order — no optional blocks, identically in
-        both implementations.
+        The request fields as one text with INSTRUCTIONS, STEP (with its
+        STEP TYPE line), ATTEMPT HISTORY and CODE sections in this fixed
+        order — the ATTEMPT HISTORY block omitted when the history is
+        empty, identically in both implementations.
     """
     sections = [
         f"INSTRUCTIONS:\n{user_instructions}",
-        f"STEP:\n{step_text}",
-        f"CODE:\n{code}",
+        f"STEP TYPE: {step_type}\nSTEP:\n{step_text}",
     ]
+
+    if attempt_history:
+        sections.append("ATTEMPT HISTORY:\n" + "\n".join(attempt_history))
+    sections.append(f"CODE:\n{code}")
 
     return "\n\n".join(sections)
 
