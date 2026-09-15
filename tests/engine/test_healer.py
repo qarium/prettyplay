@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 from prettyplay.cache import CachedStep, RunBudgets, StepCache, StepIdentity
 from prettyplay.config import Config
-from prettyplay.engine import StepGenerator, StepHealer
+from prettyplay.engine import StepAttempt, StepGenerator, StepHealer
+from prettyplay.engine.attempts import OUTCOME_ORIGINAL
 from prettyplay.engine.classification import CLASSIFICATION_PROMPT
 from prettyplay.engine.polling import SettleWindow
 from prettyplay.failures import (
@@ -24,6 +25,7 @@ FAILED_CODE = "def step(page) -> None:\n    page.get_by_role('button', name='Sig
 HEALED_CODE = "def step(page) -> None:\n    page.get_by_text('Sign in').click()\n"
 TIMEOUT_CODE = "def step(page) -> None:\n    page.get_by_role('button', name='Submit').click()\n"
 CHECK_CODE = "def step(page) -> None:\n    page.get_by_text('Welcome back').expect_visible()\n"
+STEP_SENTENCE = "click the sign in button"
 
 
 class FakePage:
@@ -154,32 +156,30 @@ class FakeProvider:
         prompt: str,
         user_instructions: str = "",
         step_text: str = "",
+        step_type: str = "",
         previous_steps: list[str] | None = None,
         snapshot: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
         cheat_sheet: str = "",
-        existing_code: str | None = None,
-        error: str | None = None,
+        attempt_history: list[str] | None = None,
         recommendation: str | None = None,
         guidance: str | None = None,
-        guidance_history: list[str] | None = None,
     ) -> str:
         self.generate_step_code_calls.append(
             {
                 "prompt": prompt,
                 "user_instructions": user_instructions,
                 "step_text": step_text,
+                "step_type": step_type,
                 "previous_steps": previous_steps,
                 "snapshot": snapshot,
                 "page_url": page_url,
                 "screenshot": screenshot,
                 "cheat_sheet": cheat_sheet,
-                "existing_code": existing_code,
-                "error": error,
+                "attempt_history": attempt_history,
                 "recommendation": recommendation,
                 "guidance": guidance,
-                "guidance_history": guidance_history,
             }
         )
         return self.answers.pop(0)
@@ -197,10 +197,10 @@ class SpyGenerator:
         self,
         identity: StepIdentity,
         step_text: str,
+        step_type: str,
         previous_steps: list[str],
         page: FakePage,
-        existing_code: str,
-        error: str,
+        attempt_history: list[StepAttempt],
         recommendation: str = "",
         window: object = None,
     ) -> CachedStep:
@@ -208,10 +208,10 @@ class SpyGenerator:
             {
                 "identity": identity,
                 "step_text": step_text,
+                "step_type": step_type,
                 "previous_steps": previous_steps,
                 "page": page,
-                "existing_code": existing_code,
-                "error": error,
+                "attempt_history": attempt_history,
                 "recommendation": recommendation,
                 "window": window,
             }
@@ -244,6 +244,19 @@ class RecorderHook(StepHooks):
         self.events.append(("on_healed", {"step_text": step_text, "explanation": explanation}))
 
 
+def anchored_history(code: str = FAILED_CODE, error: str = "element not found") -> list[StepAttempt]:
+    """Build the per-step attempt history as the executor seeds it before the heal delegation."""
+    return [
+        StepAttempt(
+            code=code,
+            error=error,
+            outcome=OUTCOME_ORIGINAL,
+            url_before="https://example.com",
+            url_after="https://example.com",
+        )
+    ]
+
+
 class TestStepHealerContract:
     """Contract tests: facade import, constructor and method signatures, verdict building."""
 
@@ -268,10 +281,30 @@ class TestStepHealerContract:
         assert [parameter.name for parameter in parameters] == [
             "step",
             "error",
+            "step_text",
+            "step_type",
             "previous_steps",
             "page",
+            "attempt_history",
             "window",
         ]
+
+    def test_heal_is_keyword_callable_with_the_contract_inputs(self, tmp_path: Path) -> None:
+        provider = FakeProvider([FailureClassification(category="rot", explanation="e", recommendation="r")])
+        fixture = HealerFixture(provider, tmp_path)
+
+        fixture.healer.heal(
+            step=fixture.failed_step,
+            error="err",
+            step_text=STEP_SENTENCE,
+            step_type="action",
+            previous_steps=[],
+            page=FakePage(),
+            attempt_history=[],
+            window=SettleWindow(None, 0.5),
+        )
+
+        assert len(fixture.generator.calls) == 1  # the call above succeeded through the whole branch
 
     def test_classification_prompt_names_all_four_category_labels(self) -> None:
         rot = CLASSIFICATION_PROMPT.index("- rot — ")
@@ -290,7 +323,9 @@ class TestStepHealerContract:
         fixture = HealerFixture(provider, tmp_path)
 
         with pytest.raises(IncurableStepError) as excinfo:
-            fixture.healer.heal(fixture.failed_step, "err", [], FakePage(), SettleWindow(None, 0.5))
+            fixture.healer.heal(
+                fixture.failed_step, "err", STEP_SENTENCE, "action", [], FakePage(), [], SettleWindow(None, 0.5)
+            )
 
         verdict = excinfo.value.verdict
         assert isinstance(verdict, FailureVerdict)  # the verdict object, not a string recommendation
@@ -349,26 +384,65 @@ class TestStepHealerLogic:
         )
         fixture = HealerFixture(provider, tmp_path)
         page = FakePage()
+        history = anchored_history()
 
         healed = fixture.healer.heal(
             step=fixture.failed_step,
             error="element not found",
+            step_text=STEP_SENTENCE,
+            step_type="action",
             previous_steps=["open the page"],
             page=page,
+            attempt_history=history,
             window=fixture.window,
         )
 
         assert healed is fixture.healed_step
         assert len(fixture.generator.calls) == 1
         call = fixture.generator.calls[0]
-        assert call["existing_code"] == FAILED_CODE
+        assert call["attempt_history"] is history  # threaded by reference — the loop grows the same list
         assert call["previous_steps"] == ["open the page"]
         assert call["identity"] == fixture.failed_step.identity
+        assert history[0].code == FAILED_CODE  # record 0 intact
+        assert history[0].outcome == OUTCOME_ORIGINAL
         assert fixture.recorder.events == [
-            ("on_healing_started", {"step_text": "click the sign in button", "category": "rot"}),
-            ("on_healed", {"step_text": "click the sign in button", "explanation": "the button was renamed"}),
+            ("on_healing_started", {"step_text": STEP_SENTENCE, "category": "rot"}),
+            ("on_healed", {"step_text": STEP_SENTENCE, "explanation": "the button was renamed"}),
         ]
         assert fixture.cache.save_calls == []  # the cache is written by generator after successful execution
+
+    def test_heal_passes_raw_sentence_and_anchored_history_into_regenerate(self, tmp_path: Path) -> None:
+        """The raw sentence reaches classification and regeneration — never the normalization."""
+        provider = FakeProvider(
+            [
+                FailureClassification(
+                    category="rot",
+                    explanation="the button was renamed",
+                    recommendation="use role locators",
+                )
+            ]
+        )
+        fixture = HealerFixture(provider, tmp_path)
+        history = anchored_history()
+
+        fixture.healer.heal(
+            fixture.failed_step,
+            "element not found",
+            "Click the «Sign IN» button",
+            "action",
+            [],
+            FakePage(),
+            history,
+            fixture.window,
+        )
+
+        assert provider.classify_failure_calls[0]["step_text"] == "Click the «Sign IN» button"  # raw, not normalized
+        call = fixture.generator.calls[0]
+        assert call["step_text"] == "Click the «Sign IN» button"  # the same raw sentence into regeneration
+        assert call["step_type"] == "action"
+        assert call["attempt_history"] is history  # the same list object — threaded, never copied
+        assert history[0].code == FAILED_CODE  # record 0 never re-seeded
+        assert history[0].outcome == OUTCOME_ORIGINAL
 
     def test_heal_fixable_category_regenerates_with_recommendation(self, tmp_path: Path) -> None:
         """The fixable verdict takes the rot path — the code is at fault, the intent stands."""
@@ -388,21 +462,30 @@ class TestStepHealerLogic:
             created_at="2026-09-07",
         )
         window = SettleWindow(None, 0.5)
+        history = anchored_history(code="old", error="strict mode violation: locator resolved to 2 elements")
 
         healed = fixture.healer.heal(
-            ambiguous_step, "strict mode violation: locator resolved to 2 elements", [], FakePage(), window
+            ambiguous_step,
+            "strict mode violation: locator resolved to 2 elements",
+            STEP_SENTENCE,
+            "action",
+            [],
+            FakePage(),
+            history,
+            window,
         )
 
         assert healed is fixture.healed_step  # the regenerated one
         assert len(fixture.generator.calls) == 1
         call = fixture.generator.calls[0]
-        assert call["existing_code"] == "old"
-        assert call["error"] == "strict mode violation: locator resolved to 2 elements"
+        assert call["attempt_history"] is history
+        assert history[0].code == "old"  # record 0 anchors the old code
+        assert history[0].outcome == OUTCOME_ORIGINAL
         assert call["recommendation"] == "use an unambiguous role locator"
         assert call["window"] is window  # the window of the current step execution, threaded through
         assert fixture.recorder.events == [
-            ("on_healing_started", {"step_text": "click the sign in button", "category": "fixable"}),
-            ("on_healed", {"step_text": "click the sign in button", "explanation": "the locator is ambiguous"}),
+            ("on_healing_started", {"step_text": STEP_SENTENCE, "category": "fixable"}),
+            ("on_healed", {"step_text": STEP_SENTENCE, "explanation": "the locator is ambiguous"}),
         ]
         assert provider.generate_step_code_call_count == 0  # the spy generator holds the request
 
@@ -410,11 +493,20 @@ class TestStepHealerLogic:
         provider = FakeProvider([FailureClassification(category="rot", explanation="e", recommendation="r")])
         fixture = HealerFixture(provider, tmp_path)
 
-        fixture.healer.heal(fixture.failed_step, "element not found", ["open the page"], FakePage(), fixture.window)
+        fixture.healer.heal(
+            fixture.failed_step,
+            "element not found",
+            "Click the «Sign in» button",
+            "action",
+            ["open the page"],
+            FakePage(),
+            anchored_history(),
+            fixture.window,
+        )
 
         request = provider.classify_failure_calls[0]
         assert request["prompt"] == CLASSIFICATION_PROMPT
-        assert request["step_text"] == "click the sign in button"
+        assert request["step_text"] == "Click the «Sign in» button"  # the raw parameter, not normalized_text
         assert request["code"] == FAILED_CODE
         assert request["error"] == "element not found"
         assert request["snapshot"] == "- snapshot"
@@ -439,7 +531,7 @@ class TestStepHealerLogic:
             reporter,
         )
 
-        healer.heal(failed_step, "err", [], FakePage(), SettleWindow(None, 0.5))
+        healer.heal(failed_step, "err", "click submit", "action", [], FakePage(), [], SettleWindow(None, 0.5))
 
         assert provider.classify_failure_calls[0]["screenshot"] == b"png"
 
@@ -456,7 +548,10 @@ class TestStepHealerLogic:
         fixture = HealerFixture(provider, tmp_path)
 
         with pytest.raises(ProductDefectError) as excinfo:
-            fixture.healer.heal(fixture.failed_step, "text mismatch", ["open the page"], FakePage(), fixture.window)
+            fixture.healer.heal(
+                fixture.failed_step, "text mismatch", STEP_SENTENCE, "action", ["open the page"], FakePage(),
+                anchored_history(error="text mismatch"), fixture.window,
+            )
 
         rendered = str(excinfo.value)
         assert isinstance(excinfo.value.verdict, FailureVerdict)
@@ -465,7 +560,7 @@ class TestStepHealerLogic:
         assert rendered.count("expected the total 100, observed 90") == 2  # message + verdict-render explanation
         assert "recommendation: file a bug" in rendered
         assert fixture.recorder.events == [
-            ("on_healing_started", {"step_text": "click the sign in button", "category": "product_defect"})
+            ("on_healing_started", {"step_text": STEP_SENTENCE, "category": "product_defect"})
         ]
         assert provider.generate_step_code_call_count == 0  # a product defect is not regenerated
         assert fixture.generator.calls == []
@@ -484,7 +579,9 @@ class TestStepHealerLogic:
         fixture = HealerFixture(provider, tmp_path)
 
         with pytest.raises(IncurableStepError) as excinfo:
-            fixture.healer.heal(fixture.failed_step, "err", [], FakePage(), fixture.window)
+            fixture.healer.heal(
+                fixture.failed_step, "err", STEP_SENTENCE, "action", [], FakePage(), [], fixture.window
+            )
 
         rendered = str(excinfo.value)
         assert isinstance(excinfo.value, PrettyplayError)  # a single except at the suite boundary
@@ -509,9 +606,13 @@ class TestStepHealerLogic:
             answers=[TIMEOUT_CODE],
         )
         fixture = HealerFixture(provider, tmp_path, real_generator=True, limits=(1, 1))
+        history = anchored_history()
 
         with pytest.raises(IncurableStepError) as excinfo:
-            fixture.healer.heal(fixture.failed_step, "element not found", [], TimeoutPage(), fixture.window)
+            fixture.healer.heal(
+                fixture.failed_step, "element not found", STEP_SENTENCE, "action", [], TimeoutPage(), history,
+                fixture.window,
+            )
 
         assert excinfo.value.verdict.category == "rot"  # the step 1 verdict, no second LLM request
         assert excinfo.value.reason.startswith("healing attempt budget exhausted")
@@ -520,6 +621,9 @@ class TestStepHealerLogic:
         assert isinstance(excinfo.value.__cause__, IncurableStepError)  # raise … from incurable
         assert provider.classify_failure_call_count == 1
         assert provider.generate_step_code_call_count == 1
+        assert provider.generate_step_code_calls[0]["attempt_history"] == [history[0].render()]  # record 0 anchors
+        assert len(history) == 2  # the failed attempt appended after record 0
+        assert history[0].outcome == OUTCOME_ORIGINAL
         assert fixture.cache.save_calls == []  # no proven candidate — cache untouched
 
     def test_heal_exhaustion_rewrite_carries_entry_verdict_and_step_code(self, tmp_path: Path) -> None:
@@ -534,7 +638,7 @@ class TestStepHealerLogic:
             ]
         )
         identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="click the sign in button")
-        inner = IncurableStepError("click the sign in button", "healing attempt budget exhausted", "TimeoutError: boom")
+        inner = IncurableStepError(STEP_SENTENCE, "healing attempt budget exhausted", "TimeoutError: boom")
         generator = SpyGenerator(CachedStep(identity=identity, code="new", created_at="2026-09-08"), failure=inner)
         recorder = RecorderHook()
         reporter = StepReporter(hooks=[recorder])
@@ -544,7 +648,10 @@ class TestStepHealerLogic:
         rotted_step = CachedStep(identity=identity, code="old", created_at="2026-09-07")
 
         with pytest.raises(IncurableStepError) as excinfo:
-            healer.heal(rotted_step, "element not found", [], FakePage(), SettleWindow(None, 0.5))
+            healer.heal(
+                rotted_step, "element not found", STEP_SENTENCE, "action", [], FakePage(),
+                anchored_history(code="old"), SettleWindow(None, 0.5),
+            )
 
         assert excinfo.value.verdict is not None
         assert excinfo.value.verdict.category == "fixable"  # the entry verdict of this classification
@@ -553,7 +660,7 @@ class TestStepHealerLogic:
         assert excinfo.value.code == "old"  # the cached step code, never the inner failed candidate
         assert excinfo.value.__cause__ is inner  # raise … from inner
         assert recorder.events == [
-            ("on_healing_started", {"step_text": "click the sign in button", "category": "fixable"})
+            ("on_healing_started", {"step_text": STEP_SENTENCE, "category": "fixable"})
         ]  # no on_healed — nothing healed
         assert provider.classify_failure_call_count == 1  # no second LLM request
 
@@ -570,7 +677,10 @@ class TestStepHealerLogic:
         fixture = HealerFixture(provider, tmp_path)
 
         with pytest.raises(ProductDefectError) as excinfo:
-            fixture.healer.heal(fixture.failed_step, "TimeoutError: click timeout", [], FakePage(), fixture.window)
+            fixture.healer.heal(
+                fixture.failed_step, "TimeoutError: click timeout", STEP_SENTENCE, "action", [], FakePage(),
+                [], fixture.window,
+            )
 
         assert excinfo.value.error == "TimeoutError: click timeout"  # the full underlying error
         assert "error: TimeoutError: click timeout" in str(excinfo.value)
@@ -588,7 +698,10 @@ class TestStepHealerLogic:
         rot_fixture = HealerFixture(rot_provider, tmp_path, real_generator=True, limits=(1, 1))
 
         with pytest.raises(IncurableStepError) as rot:
-            rot_fixture.healer.heal(rot_fixture.failed_step, "element not found", [], TimeoutPage(), rot_fixture.window)
+            rot_fixture.healer.heal(
+                rot_fixture.failed_step, "element not found", STEP_SENTENCE, "action", [], TimeoutPage(),
+                anchored_history(), rot_fixture.window,
+            )
 
         assert rot.value.verdict is not None
         assert rot.value.verdict.category == "rot"  # the outer verdict is the rot classification verdict
@@ -609,7 +722,9 @@ class TestStepHealerLogic:
         fixture = HealerFixture(provider, tmp_path)
 
         with pytest.raises(LLMUnavailableError) as excinfo:
-            fixture.healer.heal(fixture.failed_step, "err", [], FakePage(), fixture.window)
+            fixture.healer.heal(
+                fixture.failed_step, "err", STEP_SENTENCE, "action", [], FakePage(), [], fixture.window
+            )
 
         assert "anthropic" in str(excinfo.value)
         assert provider.classify_failure_call_count == 1
@@ -630,14 +745,18 @@ class TestStepHealerLogic:
         )
         fixture = HealerFixture(provider, tmp_path, real_generator=True)
         page = RecoveringCheckPage()
+        history = anchored_history()
 
-        healed = fixture.healer.heal(fixture.failed_step, "element not found", [], page, fixture.window)
+        healed = fixture.healer.heal(
+            fixture.failed_step, "element not found", STEP_SENTENCE, "action", [], page, history, fixture.window
+        )
 
         assert healed.code == HEALED_CODE
         assert provider.generate_step_code_call_count == 2  # the failed check retried, never classified
         assert provider.classify_failure_call_count == 1  # the entry classification only
         retry_request = provider.generate_step_code_calls[1]
-        assert retry_request["error"] == "banner missing"  # the fresh failure description of the check
+        assert retry_request["attempt_history"] == [history[0].render(), history[1].render()]  # the grown history
+        assert history[1].error == "banner missing"  # the fresh failure description of the check
         assert retry_request["page_url"] is None  # the engine-driven request carries no URL — steering-only
         assert retry_request["recommendation"] == "refresh the cache"  # the entry diagnosis carries on
         assert page.clicks == ["click"]  # the healed candidate actually ran
@@ -658,7 +777,10 @@ class TestStepHealerLogic:
         fixture = HealerFixture(provider, tmp_path, real_generator=True, limits=(3, 1))
 
         with pytest.raises(IncurableStepError) as excinfo:
-            fixture.healer.heal(fixture.failed_step, "element not found", [], CheckFailingPage(), fixture.window)
+            fixture.healer.heal(
+                fixture.failed_step, "element not found", STEP_SENTENCE, "action", [], CheckFailingPage(),
+                anchored_history(), fixture.window,
+            )
 
         assert excinfo.value.verdict is not None
         assert excinfo.value.verdict.category == "rot"  # the entry verdict, never a fresh one
@@ -701,9 +823,10 @@ def test_real_cache_spy_not_needed_for_healer(tmp_path: Path) -> None:
     )
     provider = FakeProvider([FailureClassification(category="rot", explanation="e", recommendation="r")])
     healer = StepHealer(config, provider, SpyGenerator(failed_step), cache, RunBudgets(3, 2), reporter)
+    history = anchored_history()
 
-    healed = healer.heal(failed_step, "err", [], FakePage(), SettleWindow(None, 0.5))
+    healed = healer.heal(failed_step, "err", "click submit", "action", [], FakePage(), history, SettleWindow(None, 0.5))
 
     assert healed.code == FAILED_CODE  # the generator stub returned the same object
-    assert healer._generator.calls[0]["existing_code"] == FAILED_CODE  # regenerate actually requested
+    assert healer._generator.calls[0]["attempt_history"] is history  # regenerate actually requested, threaded
     assert cache.load(failed_step.identity) is None  # cache not written directly by the healer

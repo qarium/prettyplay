@@ -47,7 +47,8 @@ def classify_step_failure(  # noqa: PLR0913, PLR0917 — the parameter list is f
         config: project settings; ``send_screenshots`` attaches page images
             and ``classification_prompt`` supplies the user instructions.
         provider: the LLM port implementation classifying the failure.
-        step_text: the sentence of the failed step.
+        step_text: the raw sentence of the failed step as passed by the
+            calling engine — never the casefolded normalization.
         code: the step code that failed.
         error: the human-readable failure description.
         page: the page facade of the current test.

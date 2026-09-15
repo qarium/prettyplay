@@ -6,6 +6,7 @@ from ..driver import PageFacade
 from ..failures import FailureVerdict, IncurableStepError, ProductDefectError
 from ..llm import LLMProvider
 from ..reporting import StepReporter
+from .attempts import StepAttempt
 from .classification import classify_step_failure
 from .generator import StepGenerator
 from .polling import SettleWindow
@@ -55,12 +56,15 @@ class StepHealer:
         self._generator = generator
         self._reporter = reporter
 
-    def heal(
+    def heal(  # noqa: PLR0913, PLR0917 — the signature is fixed by the engine contract
         self,
         step: CachedStep,
         error: str,
+        step_text: str,
+        step_type: str,
         previous_steps: list[str],
         page: PageFacade,
+        attempt_history: list[StepAttempt],
         window: SettleWindow,
     ) -> CachedStep:
         """Heal a failed cached step according to the classification verdict.
@@ -68,8 +72,17 @@ class StepHealer:
         Args:
             step: the cached step whose code failed.
             error: the failure description of the cached code.
+            step_text: the raw sentence of the step as passed by the executor —
+                forwarded into the classification and every regeneration
+                request verbatim, never the casefolded normalization.
+            step_type: action or assertion — forwarded into every regeneration
+                request.
             previous_steps: the sentences of the previous steps of the test.
             page: the live page facade the healed code runs against.
+            attempt_history: the anchored per-step attempt history — record 0
+                carries the original cached code seeded by the executor;
+                threaded by reference into the regeneration loop, which
+                appends every further attempt of the healing.
             window: the settle window of the current step execution — the
                 regenerated candidates absorb transient failures inside it.
 
@@ -86,7 +99,6 @@ class StepHealer:
                 cached step code.
             LLMUnavailableError: the provider service failed; no retry.
         """
-        step_text = step.identity.normalized_text
         classification = classify_step_failure(self._config, self._provider, step_text, step.code, error, page)
 
         verdict = FailureVerdict(
@@ -102,15 +114,15 @@ class StepHealer:
         if classification.category == "incurable":
             raise IncurableStepError(step_text, classification.explanation, error, code=step.code, verdict=verdict)
 
-        # rot | fixable — regeneration carrying the classification recommendation
+        # rot | fixable — regeneration carrying the recommendation and the anchored history
         try:
             healed = self._generator.regenerate(
                 identity=step.identity,
                 step_text=step_text,
+                step_type=step_type,
                 previous_steps=previous_steps,
                 page=page,
-                existing_code=step.code,
-                error=error,
+                attempt_history=attempt_history,
                 recommendation=classification.recommendation,
                 window=window,
             )

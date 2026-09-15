@@ -433,16 +433,16 @@ Edge cases: record 0 already seeded by the executor — `heal` never re-seeds; t
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (in `tests/engine/test_healer.py`, expected to fail at this stage): `heal` accepts `step_text`, `step_type` and `attempt_history` in the contract order (keyword-callable)
-- [ ] **Code**: update `StepHealer.heal` — new parameters; classification receives the raw `step_text` parameter; `regenerate` called with the threaded history and the step type; inner `IncurableStepError` re-raised carrying the entry verdict (`raise … from inner`)
-- [ ] **Code**: update the `classify_step_failure` docstring in `classification.py` to pin the raw-sentence semantics (wording only — signature and behavior unchanged)
-- [ ] **Code**: update the existing healer tests to the new signature
-- [ ] **Interface verification**: `.venv/bin/python -m pytest tests/engine/test_healer.py tests/engine/test_classification.py -x` — contract tests pass
-- [ ] **Logic tests** (add to `tests/engine/test_healer.py`; scenario verbatim from the design):
-  - [ ] `test_heal_passes_raw_sentence_and_anchored_history_into_regenerate` — **Setup**: `StubProvider` scripted with a rot classification; `StepHealer` wrapping the generator; anchored history with record 0. **Input**: `healer.heal(cached_step, error_text, "Click the «Sign IN» button", "action", [], page, history, window)` (note the non-normalized casing). **Trace**: `heal(...)` → `classify_step_failure(..., step_text="Click the «Sign IN» button", ...)` (raw, not normalized_text) → rot → `generator.regenerate(..., step_text="Click the «Sign IN» button", step_type="action", attempt_history=history, recommendation="use role locators", ...)`. **Assertions**: `provider.classify_failure_calls[0]["step_text"] == "Click the «Sign IN» button"`; generator received the same raw sentence (recorded by the stub); history object passed by reference — record 0 intact
-- [ ] **Debugging**: `.venv/bin/python -m pytest tests/engine/test_healer.py tests/engine/test_classification.py -x` — fix implementation code until all tests pass (do NOT fix test code)
-- [ ] **Contract re-verification**: the decision table unchanged (product_defect never healed); record 0 never re-seeded; the history threaded, not copied
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/engine/healer.py prettyplay/engine/classification.py tests/engine/test_healer.py` — fix formatting if necessary
+- [x] **Contract tests** (in `tests/engine/test_healer.py`, expected to fail at this stage): `heal` accepts `step_text`, `step_type` and `attempt_history` in the contract order (keyword-callable)
+- [x] **Code**: update `StepHealer.heal` — new parameters; classification receives the raw `step_text` parameter; `regenerate` called with the threaded history and the step type; inner `IncurableStepError` re-raised carrying the entry verdict (`raise … from inner`)
+- [x] **Code**: update the `classify_step_failure` docstring in `classification.py` to pin the raw-sentence semantics (wording only — signature and behavior unchanged)
+- [x] **Code**: update the existing healer tests to the new signature
+- [x] **Interface verification**: `.venv/bin/python -m pytest tests/engine/test_healer.py tests/engine/test_classification.py -x` — contract tests pass
+- [x] **Logic tests** (add to `tests/engine/test_healer.py`; scenario verbatim from the design):
+  - [x] `test_heal_passes_raw_sentence_and_anchored_history_into_regenerate` — **Setup**: `StubProvider` scripted with a rot classification; `StepHealer` wrapping the generator; anchored history with record 0. **Input**: `healer.heal(cached_step, error_text, "Click the «Sign IN» button", "action", [], page, history, window)` (note the non-normalized casing). **Trace**: `heal(...)` → `classify_step_failure(..., step_text="Click the «Sign IN» button", ...)` (raw, not normalized_text) → rot → `generator.regenerate(..., step_text="Click the «Sign IN» button", step_type="action", attempt_history=history, recommendation="use role locators", ...)`. **Assertions**: `provider.classify_failure_calls[0]["step_text"] == "Click the «Sign IN» button"`; generator received the same raw sentence (recorded by the stub); history object passed by reference — record 0 intact
+- [x] **Debugging**: `.venv/bin/python -m pytest tests/engine/test_healer.py tests/engine/test_classification.py -x` — fix implementation code until all tests pass (do NOT fix test code)
+- [x] **Contract re-verification**: the decision table unchanged (product_defect never healed); record 0 never re-seeded; the history threaded, not copied
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/engine/healer.py prettyplay/engine/classification.py tests/engine/test_healer.py` — fix formatting if necessary
 
 ### Task 8: `StepSteering.steer` joins the shared history with per-turn URL brackets and the two-dimension write-back gate (prettyplay/engine/steering)
 
