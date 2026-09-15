@@ -622,7 +622,10 @@ class TestOpenAIProviderLogic:
 
     def test_openai_check_instruction_compliance_request_and_parse(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
-        verdict = '[{"instruction": "Prefer id attributes", "priority": "high", "explanation": "locates by text"}]'
+        verdict = (
+            '[{"instruction": "Prefer id attributes", "priority": "high", "explanation": "locates by text",'
+            ' "dimension": "instruction"}]'
+        )
         client, requests = make_client_create(answer=verdict)
         provider = OpenAIProvider(Config(model="gpt-x"))
 

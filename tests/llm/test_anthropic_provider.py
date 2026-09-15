@@ -617,7 +617,10 @@ class TestAnthropicProviderLogic:
 
     def test_anthropic_check_instruction_compliance_parity(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
-        verdict = '[{"instruction": "Prefer id attributes", "priority": "high", "explanation": "locates by text"}]'
+        verdict = (
+            '[{"instruction": "Prefer id attributes", "priority": "high", "explanation": "locates by text",'
+            ' "dimension": "instruction"}]'
+        )
         client, requests = make_client_create(answer=verdict)
         provider = AnthropicProvider(Config(model="claude-x"))
 

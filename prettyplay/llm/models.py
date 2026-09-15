@@ -9,6 +9,9 @@ from ..failures import ComplianceVerdictError
 #: The frozen set of the three compliance priority labels.
 COMPLIANCE_PRIORITIES = frozenset({"high", "medium", "low"})
 
+#: The frozen set of the two compliance dimension labels.
+COMPLIANCE_DIMENSIONS = frozenset({"instruction", "adequacy"})
+
 
 class FailureClassification(BaseModel):
     """The verdict of a failure classification.
@@ -36,12 +39,15 @@ class ComplianceFinding(BaseModel):
     """One finding of the instruction compliance verdict.
 
     Attributes:
-        instruction: the violated instruction — the verbatim quote of the
-            project's user instructions the finding names.
+        instruction: the verbatim quote the finding names — the violated
+            instruction or the fragment of the step sentence the code
+            fails to accomplish.
         priority: the finding priority: high, medium or low; only high
-            blocks the candidate.
+            blocks the candidate, in both dimensions.
         explanation: one short sentence why the code violates the
-            instruction.
+            instruction or fails the step.
+        dimension: the finding dimension: instruction or adequacy —
+            which side of the gate produced the finding.
     """
 
     model_config = ConfigDict(kw_only=True)
@@ -49,6 +55,7 @@ class ComplianceFinding(BaseModel):
     instruction: str = ""
     priority: str = ""
     explanation: str = ""
+    dimension: str = ""
 
 
 def _answer_fragment(verdict_text: str) -> str:
@@ -74,7 +81,8 @@ def _malformed(verdict_text: str) -> ComplianceVerdictError:
     """
     return ComplianceVerdictError(
         "compliance verdict unparsable — expected a JSON list of findings with "
-        "instruction, priority high|medium|low and explanation; received fragment: " + _answer_fragment(verdict_text)
+        "instruction, priority high|medium|low, explanation and dimension instruction|adequacy; "
+        "received fragment: " + _answer_fragment(verdict_text)
     )
 
 
@@ -82,9 +90,11 @@ def parse_compliance_verdict(verdict_text: str) -> list[ComplianceFinding]:
     """Parse the raw answer of the compliance verdict request into findings.
 
     The strict single parsing point of the gate: anything but a JSON list of
-    objects carrying a str instruction, a high|medium|low priority and a str
-    explanation is a malformed verdict — raised loudly, never waved through.
-    No fence unwrapping and no protective fallback (contrast
+    objects carrying a str instruction, a high|medium|low priority, a str
+    explanation and an instruction|adequacy dimension is a malformed
+    verdict — raised loudly, never waved through. An answer of the old
+    shape, a finding without a dimension, is malformed too — never a
+    silent pass. No fence unwrapping and no protective fallback (contrast
     :func:`~prettyplay.llm._request.parse_classification_line`): an
     unparsable verdict answer is a hard failure of the gate.
 
@@ -98,8 +108,8 @@ def parse_compliance_verdict(verdict_text: str) -> list[ComplianceFinding]:
     Raises:
         ComplianceVerdictError: the answer is not valid JSON, not a list,
             or an item misses a field, carries a non-string field or names
-            an unknown priority — the candidate stays unchecked and is
-            never cached.
+            an unknown priority or dimension — the candidate stays
+            unchecked and is never cached.
     """
     try:
         data = json.loads(verdict_text.strip())
@@ -118,13 +128,26 @@ def parse_compliance_verdict(verdict_text: str) -> list[ComplianceFinding]:
         instruction = item.get("instruction")
         priority = item.get("priority")
         explanation = item.get("explanation")
+        dimension = item.get("dimension")
 
-        if not isinstance(instruction, str) or not isinstance(priority, str) or not isinstance(explanation, str):
+        if (
+            not isinstance(instruction, str)
+            or not isinstance(priority, str)
+            or not isinstance(explanation, str)
+            or not isinstance(dimension, str)
+        ):
             raise _malformed(verdict_text)
 
         if priority not in COMPLIANCE_PRIORITIES:
             raise _malformed(verdict_text)
 
-        findings.append(ComplianceFinding(instruction=instruction, priority=priority, explanation=explanation))
+        if dimension not in COMPLIANCE_DIMENSIONS:
+            raise _malformed(verdict_text)
+
+        findings.append(
+            ComplianceFinding(
+                instruction=instruction, priority=priority, explanation=explanation, dimension=dimension
+            )
+        )
 
     return findings
