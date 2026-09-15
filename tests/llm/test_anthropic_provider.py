@@ -17,16 +17,15 @@ GENERATE_STEP_CODE_PARAMS = [
     "prompt",
     "user_instructions",
     "step_text",
+    "step_type",
     "previous_steps",
     "snapshot",
     "page_url",
     "screenshot",
     "cheat_sheet",
-    "existing_code",
-    "error",
+    "attempt_history",
     "recommendation",
     "guidance",
-    "guidance_history",
 ]
 CLASSIFY_FAILURE_PARAMS = [
     "self",
@@ -43,7 +42,9 @@ CHECK_INSTRUCTION_COMPLIANCE_PARAMS = [
     "prompt",
     "user_instructions",
     "step_text",
+    "step_type",
     "code",
+    "attempt_history",
 ]
 
 WORKING_CODE = "def step(page) -> None:\n    page.goto('https://example.com')\n"
@@ -123,16 +124,15 @@ class TestAnthropicProviderLogic:
                 prompt="p",
                 user_instructions="",
                 step_text="s",
+                step_type="action",
                 previous_steps=[],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
                 cheat_sheet="expect(locator).to_be_visible()",
-                existing_code=None,
-                error=None,
+                attempt_history=[],
                 recommendation=None,
                 guidance=None,
-                guidance_history=[],
             )
 
         assert "anthropic" in str(excinfo.value)
@@ -151,16 +151,15 @@ class TestAnthropicProviderLogic:
                 prompt="p",
                 user_instructions="",
                 step_text="s",
+                step_type="action",
                 previous_steps=[],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
                 cheat_sheet="expect(locator).to_be_visible()",
-                existing_code=None,
-                error=None,
+                attempt_history=[],
                 recommendation=None,
                 guidance=None,
-                guidance_history=[],
             )
 
         assert "empty completion" in str(excinfo.value)
@@ -177,16 +176,15 @@ class TestAnthropicProviderLogic:
                 prompt="p",
                 user_instructions="",
                 step_text="s",
+                step_type="action",
                 previous_steps=[],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
                 cheat_sheet="expect(locator).to_be_visible()",
-                existing_code=None,
-                error=None,
+                attempt_history=[],
                 recommendation=None,
                 guidance=None,
-                guidance_history=[],
             )
 
         assert code == WORKING_CODE  # a non-text first block does not break extraction
@@ -262,16 +260,15 @@ class TestAnthropicProviderLogic:
                 prompt="system prompt text",
                 user_instructions="",
                 step_text="открыть страницу",
+                step_type="action",
                 previous_steps=["шаг один"],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
                 cheat_sheet="expect(locator).to_be_visible()",
-                existing_code=None,
-                error=None,
+                attempt_history=[],
                 recommendation=None,
                 guidance=None,
-                guidance_history=[],
             )
 
         assert code == WORKING_CODE
@@ -300,16 +297,15 @@ class TestAnthropicProviderLogic:
                 prompt="p",
                 user_instructions="",
                 step_text="s",
+                step_type="action",
                 previous_steps=[],
                 snapshot="- snap",
                 page_url="https://shop.example.com/cart",
                 screenshot=None,
                 cheat_sheet="expect(locator).to_be_visible()",
-                existing_code=None,
-                error=None,
+                attempt_history=[],
                 recommendation=None,
                 guidance=None,
-                guidance_history=[],
             )
 
         user = requests[0]["messages"][0]["content"]
@@ -328,45 +324,53 @@ class TestAnthropicProviderLogic:
                 prompt="p",
                 user_instructions="",
                 step_text="s",
+                step_type="action",
                 previous_steps=[],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
                 cheat_sheet="expect(locator).to_be_visible()",
-                existing_code=None,
-                error=None,
+                attempt_history=[],
                 recommendation=None,
                 guidance=None,
-                guidance_history=[],
             )
 
         assert code == WORKING_CODE  # fence stripped — fixed-form code
 
-    def test_generate_regeneration_request_carries_code_and_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_generate_regeneration_request_carries_the_attempt_history_records(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
         client, requests = make_client_create(answer=WORKING_CODE)
         provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+        records = [
+            "original cached code\nurl: https://a.example -> https://a.example\n"
+            "code:\ndef step(page) -> None:\n    pass\nerror:\nAssertionError: boom",
+            "execution failed\nurl: https://a.example -> https://b.example\n"
+            "code:\ndef step(page) -> None:\n    pass\nerror:\nRuntimeError: crash",
+        ]
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             provider.generate_step_code(
                 prompt="p",
                 user_instructions="",
                 step_text="s",
+                step_type="action",
                 previous_steps=[],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
                 cheat_sheet="expect(locator).to_be_visible()",
-                existing_code="def step(page) -> None:\n    pass\n",
-                error="AssertionError: boom",
-                recommendation=None,
+                attempt_history=records,
+                recommendation="use role locators",
                 guidance=None,
-                guidance_history=[],
             )
 
         user = requests[0]["messages"][0]["content"]
-        assert "def step(page) -> None:" in user
+        # parity: every record verbatim in the HISTORY block, exactly as in the openai implementation
+        assert f"HISTORY:\n{records[0]}\n{records[1]}" in user
         assert "AssertionError: boom" in user
+        assert user.index("HISTORY:") < user.index("RECOMMENDATION:\nuse role locators")
 
     def test_classification_unknown_category_defaults_to_incurable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
@@ -414,16 +418,15 @@ class TestAnthropicProviderLogic:
                 prompt="p",
                 user_instructions="",
                 step_text="s",
+                step_type="action",
                 previous_steps=[],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=b"png-bytes",
                 cheat_sheet="expect(locator).to_be_visible()",
-                existing_code=None,
-                error=None,
+                attempt_history=[],
                 recommendation=None,
                 guidance=None,
-                guidance_history=[],
             )
 
         user_content = requests[0]["messages"][0]["content"]
@@ -445,16 +448,15 @@ class TestAnthropicProviderLogic:
                 prompt="p",
                 user_instructions="",
                 step_text="s",
+                step_type="action",
                 previous_steps=[],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
                 cheat_sheet="expect(locator).to_be_visible()",
-                existing_code=None,
-                error=None,
+                attempt_history=[],
                 recommendation=None,
                 guidance=None,
-                guidance_history=[],
             )
 
         sdk.assert_called_once()
@@ -471,16 +473,15 @@ class TestAnthropicProviderLogic:
                 prompt="p",
                 user_instructions="",
                 step_text="s",
+                step_type="action",
                 previous_steps=[],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
                 cheat_sheet="expect(locator).to_be_visible()",
-                existing_code=None,
-                error=None,
+                attempt_history=[],
                 recommendation=None,
                 guidance=None,
-                guidance_history=[],
             )
 
         assert sdk.call_args.kwargs["api_key"] == "test"
@@ -559,16 +560,15 @@ class TestAnthropicProviderLogic:
                 prompt="SYS",
                 user_instructions=USER_INSTRUCTIONS,
                 step_text="s",
+                step_type="action",
                 previous_steps=[],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
                 cheat_sheet="expect(locator).to_be_visible()",
-                existing_code=None,
-                error=None,
+                attempt_history=[],
                 recommendation=None,
                 guidance=None,
-                guidance_history=[],
             )
 
         user = requests[0]["messages"][0]["content"]
@@ -623,13 +623,19 @@ class TestAnthropicProviderLogic:
         )
         client, requests = make_client_create(answer=verdict)
         provider = AnthropicProvider(Config(model="claude-x"))
+        record = (
+            "original cached code\nurl: https://a.example -> https://a.example\n"
+            f"code:\n{WORKING_CODE}error:\nAssertionError: boom"
+        )
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             findings = provider.check_instruction_compliance(
                 prompt="gate prompt",
                 user_instructions="Prefer id attributes",
                 step_text="нажать Войти",
+                step_type="action",
                 code=WORKING_CODE,
+                attempt_history=[record],
             )
 
         assert len(requests) == 1  # exactly one verdict request
@@ -640,12 +646,15 @@ class TestAnthropicProviderLogic:
         user = request["messages"][0]
         assert user["role"] == "user"
         # parity: the shared builder — the user content equals the openai implementation's
-        assert user["content"] == build_compliance_fields("Prefer id attributes", "нажать Войти", WORKING_CODE)
+        assert user["content"] == build_compliance_fields(
+            "Prefer id attributes", "нажать Войти", "action", [record], WORKING_CODE
+        )
 
         assert len(findings) == 1
         assert findings[0].instruction == "Prefer id attributes"
         assert findings[0].priority == "high"
         assert findings[0].explanation == "locates by text"
+        assert findings[0].dimension == "instruction"
 
     def test_anthropic_compliance_sdk_error_maps_to_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
@@ -660,7 +669,9 @@ class TestAnthropicProviderLogic:
                 prompt="p",
                 user_instructions="Prefer id attributes",
                 step_text="s",
+                step_type="action",
                 code="c",
+                attempt_history=[],
             )
 
         assert str(excinfo.value) == "llm unavailable: anthropic request failed"

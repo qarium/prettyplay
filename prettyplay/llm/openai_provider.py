@@ -83,16 +83,15 @@ class OpenAIProvider(LLMProvider):
         prompt: str,
         user_instructions: str,
         step_text: str,
+        step_type: str,
         previous_steps: list[str],
         snapshot: str,
         page_url: str | None,
         screenshot: bytes | None,
         cheat_sheet: str,
-        existing_code: str | None,
-        error: str | None,
+        attempt_history: list[str],
         recommendation: str | None,
         guidance: str | None,
-        guidance_history: list[str],
     ) -> str:
         """Generate step code of the fixed form working through the standard Playwright sync API.
 
@@ -104,7 +103,11 @@ class OpenAIProvider(LLMProvider):
                 instructions block, non-empty — rendered verbatim as a
                 separate USER INSTRUCTIONS block of the user content,
                 identically to the anthropic implementation.
-            step_text: the sentence of the step to generate.
+            step_text: the raw sentence of the step to generate, as passed by
+                the calling engine — never the normalized addressing form.
+            step_type: the type of the step; rendered as a STEP TYPE line
+                immediately before the STEP line, identically to the
+                anthropic implementation; takes no part in step addressing.
             previous_steps: the sentences of the previous steps of the test,
                 in execution order — scenario context.
             snapshot: the accessibility snapshot of the current page.
@@ -120,23 +123,23 @@ class OpenAIProvider(LLMProvider):
                 block after the scenario inputs of the user content,
                 identically to the anthropic implementation; guidance, not
                 an allowlist — everything standard stays allowed.
-            existing_code: the existing step code that failed; non-empty only
-                on regeneration requests.
-            error: the failure description of the existing code; non-empty
-                only on regeneration requests.
+            attempt_history: the rendered per-step attempt records — every
+                record a complete multi-line verbatim record composed by the
+                calling engine, the original cached code anchored as record 0
+                when it exists, the last record the code being fixed;
+                non-empty — rendered as a separate HISTORY block after the
+                USER INSTRUCTIONS block, every record verbatim, no
+                collapsing, no size limits; empty — no block; the list takes
+                the place of the former existing_code, error and
+                guidance_history inputs; rendered identically to the
+                anthropic implementation.
             recommendation: the diagnosis of the classification that preceded
                 the regeneration; non-empty — rendered as a separate
-                RECOMMENDATION block after the CODE and ERROR blocks,
-                None — no block.
+                RECOMMENDATION block after the HISTORY block, None — no
+                block.
             guidance: the engineer guidance message of the interactive
                 steering; non-empty — rendered as a separate USER GUIDANCE
                 block, None — no block.
-            guidance_history: the accumulated steering turns — each a
-                complete multi-line turn record: the engineer message, the
-                complete generated code, the complete outcome; composed by
-                the calling steering; non-empty — rendered as a separate
-                HISTORY block after the USER GUIDANCE block, every record
-                verbatim, no collapsing, no size limits; empty — no block.
 
         Returns:
             The generated step code of the fixed form, working through the
@@ -151,15 +154,14 @@ class OpenAIProvider(LLMProvider):
         text = build_fields_text(
             user_instructions=user_instructions,
             step_text=step_text,
+            step_type=step_type,
             previous_steps=previous_steps,
             snapshot=snapshot,
             page_url=page_url,
             cheat_sheet=cheat_sheet,
-            existing_code=existing_code,
-            error=error,
+            attempt_history=attempt_history,
             recommendation=recommendation,
             guidance=guidance,
-            guidance_history=guidance_history,
         )
         messages = [
             {"role": "system", "content": prompt},
@@ -234,21 +236,24 @@ class OpenAIProvider(LLMProvider):
         category, explanation, recommendation = parsed
         return FailureClassification(category=category, explanation=explanation, recommendation=recommendation)
 
-    def check_instruction_compliance(
+    def check_instruction_compliance(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
         prompt: str,
         user_instructions: str,
         step_text: str,
+        step_type: str,
         code: str,
+        attempt_history: list[str],
     ) -> list[ComplianceFinding]:
-        """Check the successfully executed candidate code against the project user instructions.
+        """Check the successfully executed candidate code in two dimensions.
 
         The compliance verdict request of the gate: the user content carries
-        the INSTRUCTIONS, STEP and CODE blocks in this fixed order as a
-        plain string (no screenshot input on this operation), sent as one
-        request through the effective generation model; the text answer
-        parses strictly through ``parse_compliance_verdict`` — no fence
-        unwrapping, a malformed verdict raises
+        the INSTRUCTIONS, STEP (with its STEP TYPE line), ATTEMPT HISTORY
+        and CODE blocks in this fixed order as a plain string (no screenshot
+        input on this operation), sent as one request through the effective
+        generation model; the text answer parses strictly through
+        ``parse_compliance_verdict`` — no fence unwrapping, a malformed
+        verdict raises
         :class:`~prettyplay.failures.ComplianceVerdictError`, never a
         silent pass. Identically to the anthropic implementation.
 
@@ -259,8 +264,17 @@ class OpenAIProvider(LLMProvider):
                 the generation_prompt setting; the calling engine
                 guarantees non-empty — the gate never runs on empty
                 instructions.
-            step_text: the sentence of the generated step.
+            step_text: the raw sentence of the generated step, as passed by
+                the calling engine — never the normalized addressing form.
+            step_type: the type of the step; rendered as a STEP TYPE line
+                immediately before the STEP line, identically to the
+                anthropic implementation.
             code: the successfully executed candidate code.
+            attempt_history: the rendered per-step attempt records — the
+                ground truth of what was already tried; non-empty — rendered
+                as a separate ATTEMPT HISTORY block, every record verbatim,
+                no collapsing, no size limits; empty — no block; rendered
+                identically to the anthropic implementation.
 
         Returns:
             The parsed findings; an empty list means compliant.
@@ -269,7 +283,7 @@ class OpenAIProvider(LLMProvider):
             LLMUnavailableError: the SDK client is unavailable or the
                 service request failed.
         """
-        text = build_compliance_fields(user_instructions, step_text, code)
+        text = build_compliance_fields(user_instructions, step_text, step_type, attempt_history, code)
         messages = [
             {"role": "system", "content": prompt},
             {"role": "user", "content": text},

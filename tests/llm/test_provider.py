@@ -2,6 +2,7 @@
 
 import inspect
 from types import SimpleNamespace
+from typing import ClassVar
 from unittest import mock
 
 import pytest
@@ -13,16 +14,15 @@ GENERATE_STEP_CODE_PARAMS = [
     "prompt",
     "user_instructions",
     "step_text",
+    "step_type",
     "previous_steps",
     "snapshot",
     "page_url",
     "screenshot",
     "cheat_sheet",
-    "existing_code",
-    "error",
+    "attempt_history",
     "recommendation",
     "guidance",
-    "guidance_history",
 ]
 CLASSIFY_FAILURE_PARAMS = [
     "self",
@@ -39,7 +39,9 @@ CHECK_INSTRUCTION_COMPLIANCE_PARAMS = [
     "prompt",
     "user_instructions",
     "step_text",
+    "step_type",
     "code",
+    "attempt_history",
 ]
 
 
@@ -84,17 +86,35 @@ class TestLLMProviderContract:
             assert names[names.index("prompt") + 1] == "user_instructions", owner.__name__
             assert parameters["user_instructions"].annotation is str, owner.__name__
 
-    def test_generate_step_code_signature_carries_the_steering_inputs(self) -> None:
+    def test_generate_step_code_signature_carries_the_new_inputs(self) -> None:
         for owner in (LLMProvider, OpenAIProvider, AnthropicProvider):
             parameters = inspect.signature(owner.generate_step_code).parameters
             names = list(parameters)
 
-            expected_tail = ["recommendation", "guidance", "guidance_history"]
-            assert names[names.index("error") + 1 :] == expected_tail, owner.__name__
-            assert parameters["recommendation"].annotation == parameters["existing_code"].annotation, owner.__name__
-            assert parameters["guidance"].annotation == parameters["existing_code"].annotation, owner.__name__
-            assert parameters["guidance_history"].annotation == parameters["previous_steps"].annotation, owner.__name__
-            for name in ("recommendation", "guidance", "guidance_history"):
+            expected_tail = ["attempt_history", "recommendation", "guidance"]
+            assert names[names.index("cheat_sheet") + 1 :] == expected_tail, owner.__name__
+            assert parameters["step_type"].annotation is str, owner.__name__
+            assert parameters["attempt_history"].annotation == parameters["previous_steps"].annotation, owner.__name__
+            assert parameters["recommendation"].annotation == parameters["page_url"].annotation, owner.__name__
+            assert parameters["guidance"].annotation == parameters["page_url"].annotation, owner.__name__
+            for name in ("step_type", "attempt_history", "recommendation", "guidance"):
+                assert parameters[name].default is inspect.Signature.empty, (owner.__name__, name)
+
+    def test_generate_step_code_signature_drops_the_removed_regeneration_inputs(self) -> None:
+        for owner in (LLMProvider, OpenAIProvider, AnthropicProvider):
+            names = list(inspect.signature(owner.generate_step_code).parameters)
+
+            assert "existing_code" not in names, owner.__name__  # the removed inputs are gone, not optional
+            assert "error" not in names, owner.__name__
+            assert "guidance_history" not in names, owner.__name__
+
+    def test_check_instruction_compliance_signature_carries_the_new_inputs(self) -> None:
+        for owner in (LLMProvider, OpenAIProvider, AnthropicProvider):
+            parameters = inspect.signature(owner.check_instruction_compliance).parameters
+
+            assert parameters["step_type"].annotation is str, owner.__name__
+            assert parameters["attempt_history"].annotation == list[str], owner.__name__
+            for name in ("step_type", "code", "attempt_history"):
                 assert parameters[name].default is inspect.Signature.empty, (owner.__name__, name)
 
     def test_generate_step_code_signature_carries_cheat_sheet_after_screenshot(self) -> None:
@@ -105,7 +125,7 @@ class TestLLMProviderContract:
             assert "cheat_sheet" in names, owner.__name__
             assert ("page" + "_api") not in names, owner.__name__  # the dead slot name, assembled — no literal
             assert names[names.index("screenshot") + 1] == "cheat_sheet", owner.__name__
-            assert names[names.index("cheat_sheet") + 1] == "existing_code", owner.__name__
+            assert names[names.index("cheat_sheet") + 1] == "attempt_history", owner.__name__
             assert parameters["cheat_sheet"].annotation is str, owner.__name__
 
     def test_base_methods_raise_not_implemented(self) -> None:
@@ -116,16 +136,15 @@ class TestLLMProviderContract:
                 prompt="p",
                 user_instructions="",
                 step_text="s",
+                step_type="action",
                 previous_steps=[],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
                 cheat_sheet="expect(locator).to_be_visible()",
-                existing_code=None,
-                error=None,
+                attempt_history=[],
                 recommendation=None,
                 guidance=None,
-                guidance_history=[],
             )
 
         with pytest.raises(NotImplementedError):
@@ -144,7 +163,9 @@ class TestLLMProviderContract:
                 prompt="p",
                 user_instructions="i",
                 step_text="s",
+                step_type="action",
                 code="c",
+                attempt_history=[],
             )
 
 
@@ -296,7 +317,7 @@ class TestClassificationInstructionsPlacement:
 
             assert "USER INSTRUCTIONS" not in empty_requests[0]["messages"][-1]["content"]
 
-            # generation placement is unchanged: after CHEAT SHEET, before CODE/ERROR
+            # generation placement: after CHEAT SHEET, before the HISTORY block
             gen_client, gen_requests = make_client(GENERATION_ANSWER)
 
             with mock.patch.object(provider, "_get_client", return_value=gen_client):
@@ -304,70 +325,111 @@ class TestClassificationInstructionsPlacement:
                     prompt="sys",
                     user_instructions="be terse",
                     step_text="s",
+                    step_type="action",
                     previous_steps=[],
                     snapshot="snap",
                     page_url=None,
                     screenshot=None,
                     cheat_sheet="expect(locator).to_be_visible()",
-                    existing_code="def step(page) -> None:\n    pass\n",
-                    error="err",
+                    attempt_history=["execution failed\nurl: https://a.example -> https://b.example"],
                     recommendation=None,
                     guidance=None,
-                    guidance_history=[],
                 )
 
             gen_user = gen_requests[0]["messages"][-1]["content"]
-            assert gen_user.index("CHEAT SHEET:") < gen_user.index("USER INSTRUCTIONS:") < gen_user.index("CODE:")
+            assert gen_user.index("CHEAT SHEET:") < gen_user.index("USER INSTRUCTIONS:") < gen_user.index("HISTORY:")
 
 
-class TestSteeringInputsParity:
-    """Logic tests: both providers forward the steering inputs to one builder output."""
+class TestNewInputsParity:
+    """Logic tests: both providers render identical user content for the new inputs."""
 
     PAGE_URL = "https://www.google.com/sorry?continuation=token"
-    HISTORY_RECORD = (
-        "engineer message: hover the menu first\n"
-        'code:\ndef step(page) -> None:\n    page.get_by_role("button").hover()\n'
-        "outcome: AssertionError: Locator expected to be visible"
+    ATTEMPT_RECORDS: ClassVar[list[str]] = [
+        (
+            "original cached code\n"
+            "url: https://a.example -> https://a.example\n"
+            "code:\ndef step(page) -> None:\n    ...\n"
+            "error:\nAssertionError: Locator expected to be visible"
+        ),
+        (
+            "execution failed\n"
+            "url: https://a.example -> https://b.example\n"
+            "code:\ndef step(page) -> None:\n    ...\n"
+            "error:\nRuntimeError: click timed out"
+        ),
+    ]
+    VERDICT_ANSWER = (
+        '[{"instruction": "Prefer id attributes", "priority": "high", "explanation": "locates by text",'
+        ' "dimension": "instruction"}]'
     )
 
-    def test_providers_render_identical_user_text_from_the_steering_inputs(
+    def test_providers_render_identical_user_content_for_the_new_inputs(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
 
-        user_texts = []
+        generation_texts = []
+        compliance_texts = []
 
         for provider, make_client in (
             (OpenAIProvider(Config(model="gpt-5")), _openai_client),
             (AnthropicProvider(Config(model="claude-sonnet-4-5")), _anthropic_client),
         ):
-            client, requests = make_client(GENERATION_ANSWER)
+            gen_client, gen_requests = make_client(GENERATION_ANSWER)
 
-            with mock.patch.object(provider, "_get_client", return_value=client):
+            with mock.patch.object(provider, "_get_client", return_value=gen_client):
                 provider.generate_step_code(
                     prompt="sys",
                     user_instructions="be terse",
                     step_text="s",
+                    step_type="assertion",
                     previous_steps=["step one"],
                     snapshot="snap",
                     page_url=self.PAGE_URL,
                     screenshot=None,
                     cheat_sheet="expect(locator).to_be_visible()",
-                    existing_code="old code",
-                    error="err",
+                    attempt_history=self.ATTEMPT_RECORDS,
                     recommendation="use a role locator",
                     guidance="dismiss the modal first",
-                    guidance_history=[self.HISTORY_RECORD],
                 )
 
-            user_texts.append(requests[0]["messages"][-1]["content"])
+            generation_texts.append(gen_requests[0]["messages"][-1]["content"])
 
-        # parity: one shared builder — identical inputs render identical user text
-        assert user_texts[0] == user_texts[1]
-        assert "RECOMMENDATION:\nuse a role locator" in user_texts[0]
-        assert "USER GUIDANCE:\ndismiss the modal first" in user_texts[0]
-        assert f"HISTORY:\n{self.HISTORY_RECORD}" in user_texts[0]
-        assert f"PAGE URL: {self.PAGE_URL}" in user_texts[0]
-        assert user_texts[0].index("PAGE SNAPSHOT:\nsnap") < user_texts[0].index(f"PAGE URL: {self.PAGE_URL}")
-        assert user_texts[0].index(f"PAGE URL: {self.PAGE_URL}") < user_texts[0].index("CHEAT SHEET:")
+            gate_client, gate_requests = make_client(self.VERDICT_ANSWER)
+
+            with mock.patch.object(provider, "_get_client", return_value=gate_client):
+                provider.check_instruction_compliance(
+                    prompt="gate",
+                    user_instructions="be terse",
+                    step_text="s",
+                    step_type="assertion",
+                    code="def step(page) -> None:\n    ...\n",
+                    attempt_history=self.ATTEMPT_RECORDS,
+                )
+
+            compliance_texts.append(gate_requests[0]["messages"][-1]["content"])
+
+        # parity: one shared builder — identical inputs render identical user text, field for field
+        assert generation_texts[0] == generation_texts[1]
+        assert compliance_texts[0] == compliance_texts[1]
+
+        for text in generation_texts:
+            assert "STEP TYPE: assertion\nSTEP:\ns" in text
+            assert f"HISTORY:\n{self.ATTEMPT_RECORDS[0]}\n{self.ATTEMPT_RECORDS[1]}" in text
+            assert text.index("USER INSTRUCTIONS:") < text.index("HISTORY:") < text.index("RECOMMENDATION:")
+            assert "RECOMMENDATION:\nuse a role locator" in text
+            assert "USER GUIDANCE:\ndismiss the modal first" in text
+            assert f"PAGE URL: {self.PAGE_URL}" in text
+            assert text.index("PAGE SNAPSHOT:\nsnap") < text.index(f"PAGE URL: {self.PAGE_URL}")
+            assert text.index(f"PAGE URL: {self.PAGE_URL}") < text.index("CHEAT SHEET:")
+
+        for text in compliance_texts:
+            assert "STEP TYPE: assertion\nSTEP:\ns" in text
+            assert f"ATTEMPT HISTORY:\n{self.ATTEMPT_RECORDS[0]}\n{self.ATTEMPT_RECORDS[1]}" in text
+            assert (
+                text.index("INSTRUCTIONS:")
+                < text.index("STEP TYPE:")
+                < text.index("ATTEMPT HISTORY:")
+                < text.index("CODE:")
+            )

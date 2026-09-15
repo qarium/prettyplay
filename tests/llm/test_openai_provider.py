@@ -15,16 +15,15 @@ GENERATE_STEP_CODE_PARAMS = [
     "prompt",
     "user_instructions",
     "step_text",
+    "step_type",
     "previous_steps",
     "snapshot",
     "page_url",
     "screenshot",
     "cheat_sheet",
-    "existing_code",
-    "error",
+    "attempt_history",
     "recommendation",
     "guidance",
-    "guidance_history",
 ]
 CLASSIFY_FAILURE_PARAMS = [
     "self",
@@ -41,7 +40,9 @@ CHECK_INSTRUCTION_COMPLIANCE_PARAMS = [
     "prompt",
     "user_instructions",
     "step_text",
+    "step_type",
     "code",
+    "attempt_history",
 ]
 
 WORKING_CODE = "def step(page) -> None:\n    page.goto('https://example.com')\n"
@@ -118,16 +119,15 @@ class TestOpenAIProviderLogic:
                 prompt="p",
                 user_instructions="",
                 step_text="s",
+                step_type="action",
                 previous_steps=[],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
                 cheat_sheet="expect(locator).to_be_visible()",
-                existing_code=None,
-                error=None,
+                attempt_history=[],
                 recommendation=None,
                 guidance=None,
-                guidance_history=[],
             )
 
         assert "openai" in str(excinfo.value)
@@ -182,16 +182,15 @@ class TestOpenAIProviderLogic:
                 prompt="system prompt text",
                 user_instructions="",
                 step_text="открыть страницу",
+                step_type="action",
                 previous_steps=["шаг один"],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
                 cheat_sheet="expect(locator).to_be_visible()",
-                existing_code=None,
-                error=None,
+                attempt_history=[],
                 recommendation=None,
                 guidance=None,
-                guidance_history=[],
             )
 
         assert code == WORKING_CODE
@@ -219,16 +218,15 @@ class TestOpenAIProviderLogic:
                 prompt="p",
                 user_instructions="",
                 step_text="s",
+                step_type="action",
                 previous_steps=[],
                 snapshot="- snap",
                 page_url="https://shop.example.com/cart",
                 screenshot=None,
                 cheat_sheet="expect(locator).to_be_visible()",
-                existing_code=None,
-                error=None,
+                attempt_history=[],
                 recommendation=None,
                 guidance=None,
-                guidance_history=[],
             )
 
         user = requests[0]["messages"][1]["content"]
@@ -247,45 +245,53 @@ class TestOpenAIProviderLogic:
                 prompt="p",
                 user_instructions="",
                 step_text="s",
+                step_type="action",
                 previous_steps=[],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
                 cheat_sheet="expect(locator).to_be_visible()",
-                existing_code=None,
-                error=None,
+                attempt_history=[],
                 recommendation=None,
                 guidance=None,
-                guidance_history=[],
             )
 
         assert code == WORKING_CODE  # fence stripped — provider parity
 
-    def test_generate_regeneration_request_carries_code_and_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_generate_regeneration_request_carries_the_attempt_history_records(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, requests = make_client_create(answer=WORKING_CODE)
         provider = OpenAIProvider(Config(model="gpt-5"))
+        records = [
+            "original cached code\nurl: https://a.example -> https://a.example\n"
+            "code:\ndef step(page) -> None:\n    pass\nerror:\nAssertionError: boom",
+            "execution failed\nurl: https://a.example -> https://b.example\n"
+            "code:\ndef step(page) -> None:\n    pass\nerror:\nRuntimeError: crash",
+        ]
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             provider.generate_step_code(
                 prompt="p",
                 user_instructions="",
                 step_text="s",
+                step_type="action",
                 previous_steps=[],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
                 cheat_sheet="expect(locator).to_be_visible()",
-                existing_code="def step(page) -> None:\n    pass\n",
-                error="AssertionError: boom",
-                recommendation=None,
+                attempt_history=records,
+                recommendation="use role locators",
                 guidance=None,
-                guidance_history=[],
             )
 
         user = requests[0]["messages"][1]["content"]
-        assert "def step(page) -> None:" in user
+        # every record verbatim in the HISTORY block — the last record is the code being fixed
+        assert f"HISTORY:\n{records[0]}\n{records[1]}" in user
         assert "AssertionError: boom" in user
+        assert user.index("HISTORY:") < user.index("RECOMMENDATION:\nuse role locators")
 
     def test_generate_with_screenshot_attaches_image_block(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
@@ -297,16 +303,15 @@ class TestOpenAIProviderLogic:
                 prompt="p",
                 user_instructions="",
                 step_text="s",
+                step_type="action",
                 previous_steps=[],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=b"png-bytes",
                 cheat_sheet="expect(locator).to_be_visible()",
-                existing_code=None,
-                error=None,
+                attempt_history=[],
                 recommendation=None,
                 guidance=None,
-                guidance_history=[],
             )
 
         user_content = requests[0]["messages"][1]["content"]
@@ -349,16 +354,15 @@ class TestOpenAIProviderLogic:
                 prompt="p",
                 user_instructions="",
                 step_text="s",
+                step_type="action",
                 previous_steps=[],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
                 cheat_sheet="expect(locator).to_be_visible()",
-                existing_code=None,
-                error=None,
+                attempt_history=[],
                 recommendation=None,
                 guidance=None,
-                guidance_history=[],
             )
 
         sdk.assert_called_once()
@@ -480,16 +484,15 @@ class TestOpenAIProviderLogic:
                 prompt="p",
                 user_instructions="",
                 step_text="s",
+                step_type="action",
                 previous_steps=[],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
                 cheat_sheet="expect(locator).to_be_visible()",
-                existing_code=None,
-                error=None,
+                attempt_history=[],
                 recommendation=None,
                 guidance=None,
-                guidance_history=[],
             )
 
         assert "empty completion" in str(excinfo.value)
@@ -511,16 +514,15 @@ class TestOpenAIProviderLogic:
                 prompt="p",
                 user_instructions="",
                 step_text="s",
+                step_type="action",
                 previous_steps=[],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
                 cheat_sheet="expect(locator).to_be_visible()",
-                existing_code=None,
-                error=None,
+                attempt_history=[],
                 recommendation=None,
                 guidance=None,
-                guidance_history=[],
             )
 
         assert "empty completion" in str(excinfo.value)
@@ -537,16 +539,15 @@ class TestOpenAIProviderLogic:
                 prompt="SYS",
                 user_instructions=USER_INSTRUCTIONS,
                 step_text="s",
+                step_type="action",
                 previous_steps=[],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
                 cheat_sheet="expect(locator).to_be_visible()",
-                existing_code=None,
-                error=None,
+                attempt_history=[],
                 recommendation=None,
                 guidance=None,
-                guidance_history=[],
             )
 
         assert code == WORKING_CODE  # fenced block unwrapped
@@ -628,13 +629,19 @@ class TestOpenAIProviderLogic:
         )
         client, requests = make_client_create(answer=verdict)
         provider = OpenAIProvider(Config(model="gpt-x"))
+        record = (
+            "original cached code\nurl: https://a.example -> https://a.example\n"
+            f"code:\n{WORKING_CODE}error:\nAssertionError: boom"
+        )
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             findings = provider.check_instruction_compliance(
                 prompt="gate prompt",
                 user_instructions="Prefer id attributes",
                 step_text="нажать Войти",
+                step_type="action",
                 code=WORKING_CODE,
+                attempt_history=[record],
             )
 
         assert len(requests) == 1  # exactly one verdict request
@@ -644,14 +651,18 @@ class TestOpenAIProviderLogic:
         user = request["messages"][1]
         assert user["role"] == "user"
         assert user["content"] == (
-            f"INSTRUCTIONS:\nPrefer id attributes\n\nSTEP:\nнажать Войти\n\nCODE:\n{WORKING_CODE}"
-        )  # the three blocks in the fixed order
+            "INSTRUCTIONS:\nPrefer id attributes\n\n"
+            "STEP TYPE: action\nSTEP:\nнажать Войти\n\n"
+            f"ATTEMPT HISTORY:\n{record}\n\n"
+            f"CODE:\n{WORKING_CODE}"
+        )  # the four blocks in the fixed order
         assert set(request) == {"model", "messages"}  # plain string content — no screenshot keys anywhere
 
         assert len(findings) == 1
         assert findings[0].instruction == "Prefer id attributes"
         assert findings[0].priority == "high"
         assert findings[0].explanation == "locates by text"
+        assert findings[0].dimension == "instruction"
 
     def test_openai_compliance_sdk_error_maps_to_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
@@ -668,7 +679,9 @@ class TestOpenAIProviderLogic:
                 prompt="p",
                 user_instructions="Prefer id attributes",
                 step_text="s",
+                step_type="action",
                 code="c",
+                attempt_history=[],
             )
 
         assert str(excinfo.value) == "llm unavailable: openai request failed"
