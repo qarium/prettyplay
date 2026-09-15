@@ -135,6 +135,8 @@ class TestParseComplianceVerdict:
             "[1]",
             '[{"priority": "high", "explanation": "e"}]',
             '[{"instruction": "i", "priority": "critical", "explanation": "e"}]',
+            # a valid dimension and an unknown priority — the priority check itself fires
+            '[{"instruction": "i", "priority": "critical", "explanation": "e", "dimension": "instruction"}]',
             '[{"instruction": 7, "priority": "high", "explanation": "e"}]',
             # a fenced answer is malformed too — the strict parse does no fence unwrapping
             "```json\n[]\n```",
