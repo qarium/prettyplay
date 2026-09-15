@@ -82,11 +82,14 @@ Usages:
 
     Priority calibration:
     - high — a confident, material finding evident from the code, the step type
-      and the attempt history; for adequacy: an action step whose code contains no
-      action of the step — the page state the code relies on was produced by a
-      prior attempt or manual intervention, not by the code itself; use the URL
-      lines and the records of the history to see it; only high blocks the
-      candidate
+      and the attempt history; for instruction: a material violation evident
+      from the code itself — the instruction was expressible through the page
+      API the code already uses, and the code plainly skipped or contradicted
+      it without any fallback attempt; for adequacy: an action step whose code
+      contains no action of the step — the page state the code relies on was
+      produced by a prior attempt or manual intervention, not by the code
+      itself; use the URL lines and the records of the history to see it; only
+      high blocks the candidate
     - medium and low — minor observations, partial compliance or doubt: visible,
       never blocking; when in doubt, never high
     - an empty list [] means the code complies and accomplishes the step

@@ -61,6 +61,11 @@ class TestComplianceGateContract:
         assert '"dimension": "instruction|adequacy"' in COMPLIANCE_PROMPT
         assert "Output only the JSON list, no other text" in COMPLIANCE_PROMPT
 
+    def test_compliance_prompt_carries_the_instruction_high_calibration(self) -> None:
+        assert "for instruction: a material violation evident" in COMPLIANCE_PROMPT
+        assert "plainly skipped or contradicted" in COMPLIANCE_PROMPT
+        assert "without any fallback attempt" in COMPLIANCE_PROMPT
+
 
 class TestCheckStepComplianceLogic:
     """Logic tests: the off switch, the empty-instructions guard, the request shape."""
