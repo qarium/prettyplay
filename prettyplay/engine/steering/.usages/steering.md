@@ -7,7 +7,8 @@ Domain: the opt-in REPL that rescues a terminally stuck step with engineer guida
 The step executor opens the dialog at the exact moment an `IncurableStepError` would propagate — budget exhausted,
 incurable verdict, failed-check final classification — when `interactive` is on and the run is not strict. It never
 opens on `product_defect` (a dialog must never repaint a red test green), never in replay-strict, and never when the
-LLM is unavailable.
+LLM is unavailable. The dialog receives the per-step attempt history the engine loops grew — anchored by record 0,
+the original cached code — and continues growing it; the history survives the dialog.
 
 ## The dialog
 
@@ -41,15 +42,16 @@ run? [y/N] y
 - Local commands answer without the LLM: `snapshot` prints the full accessibility snapshot,
   `screenshot` writes a full PNG to a temporary file and prints the path, `error` and `code`
   reprint the stored texts
-- Every other line is guidance: one regeneration request carrying a USER GUIDANCE block,
-  the current page URL and the full conversation history — the original failure stays the
-  CODE/ERROR anchor of every request
+- Every other line is guidance: one regeneration request carrying the step type, the raw
+  step sentence, a USER GUIDANCE block, the current page URL and the grown attempt history
+  as the HISTORY block — record 0 anchors the original failure
 - Every turn shows the complete generated code and asks `run? [y/N]`: `y` executes against
   the live page; `n`, Enter or `quit` aborts the turn without execution and the guidance
-  prompt reopens — the rejected candidate lands in the history as a completed turn with the
-  outcome `rejected by the engineer, not executed`
-- Every completed turn — executed or rejected — enters the history in full: the engineer
-  message, the complete code, the complete outcome; nothing is collapsed or truncated
+  prompt reopens — the rejected candidate lands in the history as a completed record with
+  the outcome `rejected by the engineer, not executed` and the same URL on both sides
+- Every completed turn — executed or rejected — enters the shared per-step history in full:
+  the outcome label, the `URL before -> after` pair of the turn, the complete code, the
+  complete outcome; nothing is collapsed or truncated
 - A red turn shows the complete error and returns to the guidance prompt immediately — no
   re-execution loop, the settle window does not re-arm inside the dialog
 - `quit`, EOF (Ctrl+D), SIGINT (Ctrl+C) and an unreadable stdin (a captured CI stream) end
@@ -64,11 +66,13 @@ run? [y/N] y
 
 ## The compliance gate of a guided heal
 
-A guided candidate that executes successfully is verified against the generation_prompt
-instructions before the write-back — the same compliance check as unattended generation:
+A guided candidate that executes successfully is verified on two dimensions before the
+write-back — instruction compliance and step adequacy, judged from the step type and the
+shared attempt history — the same gate as unattended generation:
 
-- a high violation never reaches the cache: the dialog shows it, the turn lands in the
-  history and the guidance prompt reopens — steer the model to fix the violation
+- a high finding of either dimension never reaches the cache: the dialog shows it, the turn
+  lands in the history with the violation text and the guidance prompt reopens — steer the
+  model to fix the finding
 - medium and low findings pass with a WARNING naming the instructions
 - a malformed verdict (ComplianceVerdictError) or provider unavailability
   (LLMUnavailableError) ends the dialog — the gate failure is shown in the dialog and

@@ -29,6 +29,17 @@ with PrettyPlay("login-flow") as t:
 - step(text) — performs what the sentence says
 - expect(text) — verifies what the sentence says; a legitimately failed expectation fails the test as a product defect
 
+## The honest step context
+
+The step cycle carries an honest context window end to end: every generation, healing and
+steering request receives the step type (action or assertion), the raw step sentence as
+written by the engineer, and the verbatim per-step attempt history — every prior candidate
+with its outcome, its URL before -> after line, its complete code and complete error, the
+original cached code anchored first. The cache write is guarded by a two-dimension gate —
+instruction compliance and step adequacy — so a cached step contains the action the
+sentence asks for, not a check of an already-achieved state. All of this is internal: the
+authoring surface — step(), expect(), the cache addressing — is unchanged.
+
 ## Author page access
 
 The excluded-from-generation stateful actions are performed explicitly by the author — the callable runs wholly
@@ -40,11 +51,11 @@ inside the driver worker thread and receives the genuine sync Page:
         t.expect("the page shows a list of videos")
 
 - Requires an opened page: call it after the first step — a loud error otherwise
-- The callable returns plain data; Playwright objects (locators, handles, pages) never cross back to the calling thread
+- The callable returns plain data; Playwright objects (locators, handles, pages, contexts) never cross back to the calling thread
 - Prompt rules do not bind the author: page.route, page.clock, tracing, HAR, CDP are the author's explicit tools
 - The callable must use the page API only — calling back into the test object (a step, a screenshot, a nested
-  run_on_page) re-enters the worker thread the action itself runs on and is rejected with a loud error instead of
-  a deadlock
+  run_on_page) re-enters the worker thread the action itself runs on and is rejected with a loud error instead of a
+  deadlock
 - The callable runs sequentially with the steps — the shared worker takes one unit at a time
 
 ## Screenshots
@@ -63,7 +74,7 @@ with PrettyPlay("login-flow") as t:
 
 ## Addressing
 
-The constructor arguments form the cache address: cache_key (mandatory) and cache_path (optional subdirectory). Equal cache keys in the shared root reuse one cached step across tests; a different language, step type or key is a different step. User instructions (generation_prompt, classification_prompt) take no part in the address — a cached step never regenerates because the instructions changed. Replayed cached code is never re-checked against the current instructions: purge the cache manually after changing them.
+The constructor arguments form the cache address: cache_key (mandatory) and cache_path (optional subdirectory). Equal cache keys in the shared root reuse one cached step across tests; a different language, step type or key is a different step. User instructions (generation_prompt, classification_prompt) take no part in the address — a cached step never regenerates because the instructions changed. Replayed cached code is never re-checked against the current instructions: purge the cache manually after changing them. The attempt history and the honest request inputs take no part in the address either.
 
 ## What you see
 

@@ -8,14 +8,19 @@ Domain: generating executable code for an unknown step. Audience: library intern
 step = generator.generate(
     identity=identity,
     step_text="click the «Sign in» button",
+    step_type="action",
     previous_steps=["open the login page", "enter the login and password"],
     page=page,
+    attempt_history=history,
     window=window,
 )
 ```
 
-- The loop: request code → execute against the live page → on failure re-request with the fresh error and snapshot
-- Every candidate execution runs under the settle window: transient failures re-execute the same code inside the window (settle_retry log records), no LLM budget consumed; deterministic failures go to the next request or classification
+- The loop: request code → execute against the live page → append the full attempt record → on failure re-request with the fresh snapshot and the grown history
+- The attempt history is one continuous verbatim list: every record carries the outcome, the `URL before -> after` line, the complete candidate code and the complete error; no collapsing, no size limits — the attempt budgets are the only bound
+- Every request carries the honest inputs: the step type (action or assertion) and the raw step sentence as written by the engineer — never the casefolded normalization
+- The page may carry side effects of failed candidates and manual intervention — the replayability requirement of the system prompt tells the model the code must produce the step outcome itself
+- Every candidate execution runs under the settle window: transient failures re-execute the same code inside the window (settle_retry log records), no LLM budget consumed; deterministic failures go to the next request or classification; the URL pair brackets the whole attempt, settle re-executions included
 - A non-empty generation_prompt setting adds a USER INSTRUCTIONS block to every generation and regeneration request; classification requests never carry it; changing the instructions never invalidates the cache — cached steps run as stored
 - A non-empty classification_prompt setting adds a USER INSTRUCTIONS block to classification requests only; generation requests never carry it
 - Every generation and regeneration request carries the CHEAT SHEET block right before the USER INSTRUCTIONS block — the compact standard Playwright sync API reference carried by every request; guidance, not an allowlist: everything standard stays allowed, the error-driven regeneration loop is the second line of defense
@@ -39,24 +44,29 @@ Every classification verdict drives the same table — the category decides, the
 
 ## Failed candidate check (bounded healing)
 
-A failed check — an assertion that executed and did not hold, survived the settle window — is classified, then:
+A failed check — an assertion that executed and did not hold, survived the settle window — appends its attempt
+record, then is classified:
 
 - product_defect → ProductDefectError with the verdict; one failed check is spent, never the whole budget
-- rot or fixable → exactly one regeneration funded from the healing budget, the request carrying the recommendation as a RECOMMENDATION block; success stores the healed step; a repeat failure gets one final classification deciding only the terminal kind — product_defect → ProductDefectError, anything else → IncurableStepError; no further regeneration
+- rot or fixable → exactly one regeneration funded from the healing budget, the request carrying the recommendation as a RECOMMENDATION block and the grown history; success stores the healed step; a repeat failure gets one final classification deciding only the terminal kind — product_defect → ProductDefectError, anything else → IncurableStepError; no further regeneration
 - incurable → IncurableStepError with the verdict
 - LLM unavailable at the classification → the verdict is skipped quietly (WARNING in the log) and IncurableStepError raises without it
 
 ## The instruction compliance gate
 
-Every successfully executed candidate is verified against the generation_prompt
-instructions before it is cached — the default behavior; switch it off with
+Every successfully executed candidate is verified on two dimensions before it is cached —
+instruction compliance and step adequacy — the default behavior; switch it off with
 generation_approve = false:
 
 - one verdict request per candidate through the provider (the effective generation
   model); zero requests when the switch is off or the instructions are empty
-- a high finding fails the attempt: the retry request carries the violation text as its
-  ERROR, so the model fixes it targeted; budget exhaustion with a standing high finding
-  is the terminal incurable failure naming the violated instruction
+- the request carries INSTRUCTIONS, STEP with its STEP TYPE line, the ATTEMPT HISTORY
+  records and the CODE block; the reviewer is instructed to use the attempt history as
+  the ground truth of what already happened on the page
+- a high finding of either dimension fails the attempt: the record lands in the history
+  with the violation text in its error field, the retry carries the grown history — the
+  model fixes the finding targeted; budget exhaustion with a standing high finding is the
+  terminal incurable failure naming the violated instruction or the unaccomplished step
 - medium and low findings pass with a WARNING naming the instructions
 - a malformed verdict (ComplianceVerdictError) and provider unavailability
   (LLMUnavailableError) are hard failures — a candidate is never cached unchecked
@@ -87,13 +97,13 @@ classification = classify_step_failure(
 )
 ```
 
-The routine collects the fresh page snapshot (plus the screenshot when enabled) and calls the provider with the engine classification prompt; a non-empty classification_prompt setting of the config reaches the request as a USER INSTRUCTIONS block. The category set is four: rot, product_defect, fixable, incurable. Provider unavailability propagates: the calling path decides whether it is a terminal infrastructure failure or a quiet verdict skip.
+The routine collects the fresh page snapshot (plus the screenshot when enabled) and calls the provider with the engine classification prompt; a non-empty classification_prompt setting of the config reaches the request as a USER INSTRUCTIONS block. The step sentence is the raw sentence passed by the caller — the casefolded normalization is an addressing key only. The category set is four: rot, product_defect, fixable, incurable. Provider unavailability propagates: the calling path decides whether it is a terminal infrastructure failure or a quiet verdict skip.
 
 ## The fixed form
 
 Generated code is one function receiving exactly one argument — the genuine sync Playwright Page — importing from
-playwright.sync_api and the Python standard library only (third-party libraries forbidden; imports global only, at the
-top level of the code block, before `def step`, never inside the function body) and working through the standard API: `page.get_by_role("button", name="Sign in").click()`,
+playwright.sync_api and the Python standard library only (third-party libraries forbidden; imports global only, at
+the top level of the code block, before `def step`, never inside the function body) and working through the standard API: `page.get_by_role("button", name="Sign in").click()`,
 `page.locator("form > button.primary")`, `videos = page.get_by_role("listitem")` with
 `expect(videos.first).to_be_visible()` and `assert videos.count() > 1`,
 `with page.expect_event("dialog") as info: ... info.value.accept()`,

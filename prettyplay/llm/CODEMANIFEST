@@ -21,11 +21,12 @@ Annotations: |
   The user instructions input participates in both provider implementations with identical semantics: generation requests render the generation instructions, classification requests render the classification instructions — each verbatim as a separate USER INSTRUCTIONS block; classification requests never carry the generation instructions and generation requests never carry the classification instructions; a parity requirement, not a capability difference.
   The cheat-sheet input participates in both provider implementations with identical semantics: every generation request renders the CHEAT SHEET block after the scenario inputs and immediately before the USER INSTRUCTIONS block — the compact standard Playwright sync API reference supplied by the calling engine; guidance, not an allowlist; a parity requirement, not a capability difference.
   The page-URL input participates in both provider implementations with identical semantics: a non-empty page_url of a generation request renders as its own PAGE URL line immediately after the PAGE SNAPSHOT block of the user content; None or empty — no line; a parity requirement, not a capability difference.
-  The HISTORY block renders every accumulated steering turn record verbatim — each record is a complete multi-line turn (engineer message, complete generated code, complete outcome) composed by the calling steering; no collapsing, no size limits; a parity requirement, not a capability difference.
+  The step-type input participates in both provider implementations with identical semantics: every generation request and every compliance verdict request renders the STEP TYPE line — action or assertion — immediately before the STEP line of the user content; a parity requirement, not a capability difference.
+  The attempt-history input participates in both provider implementations with identical semantics: the HISTORY block renders every attempt-history record verbatim — each record a complete multi-line record (the attempt outcome, the URL before -> after line, the complete candidate code, the complete error) composed by the calling engine; the record list carries the whole attempt history of the step, the anchored original cached code first when it exists; no collapsing, no size limits; the block takes the place of the former CODE and ERROR request inputs and the former steering-only history block; a parity requirement, not a capability difference.
   API keys come only from environment variables; never log keys or payloads containing secrets.
   One completion request per attempt: attempt budgets are owned by the calling engine, never by a provider.
   Cached step code never depends on the provider: the provider serves generation, classification and the compliance verdict only.
-  The compliance verdict operation is the third operation of the port with the same absolute parity: one verdict request per successfully executed candidate, the answer parsed strictly — a malformed verdict raises the hard compliance failure, never a silent pass.
+  The compliance verdict operation is the third operation of the port with the same absolute parity: one verdict request per successfully executed candidate judging two dimensions in one request — instruction compliance and step adequacy — the answer parsed strictly through `parse_compliance_verdict`; a malformed verdict raises the hard compliance failure, never a silent pass.
   The one-request-per-attempt rule covers the verdict request too: attempt budgets are owned by the calling engine, never by a provider.
 
 ---
@@ -33,46 +34,37 @@ Annotations: |
 "LLMProvider()":
   location: provider.py
   annotations: |
-    The unified LLM port of the library: code generation for a step, failure classification for healing and the compliance verdict of the gate. One contract, two interchangeable implementations selected by configuration.
+    The unified LLM port of the library: code generation for a step, failure classification for healing and the two-dimension compliance verdict of the gate. One contract, two interchangeable implementations selected by configuration.
   methods:
-    "generate_step_code(prompt: str, user_instructions: str, step_text: str, previous_steps: list[str], snapshot: str, page_url: str | None, screenshot: bytes | None, cheat_sheet: str, existing_code: str | None, error: str | None, recommendation: str | None, guidance: str | None, guidance_history: list[str]) -> code: str": |
+    "generate_step_code(prompt: str, user_instructions: str, step_text: str, step_type: str, previous_steps: list[str], snapshot: str, page_url: str | None, screenshot: bytes | None, cheat_sheet: str, attempt_history: list[str], recommendation: str | None, guidance: str | None) -> code: str": |
       Generate step code of the fixed form.
 
       `prompt`: the system prompt text supplied by the calling engine — applied verbatim as the system message.
       `user_instructions`: the project's code style instructions supplied by the calling engine from the generation_prompt setting; empty — the request carries no instructions block; non-empty — rendered by the provider implementations verbatim as a separate USER INSTRUCTIONS block of the user content, identically in both.
-      `step_text`: the sentence of the step to generate.
+      `step_text`: the raw sentence of the step to generate — as written by the engineer, verbatim; never the normalized addressing form.
+      `step_type`: action or assertion — rendered by the provider implementations as the STEP TYPE line immediately before the STEP line, identically in both.
       `previous_steps`: the sentences of the previous steps of the test, in execution order — scenario context.
       `snapshot`: the accessibility snapshot of the current page.
-      `page_url`: the current URL of the page; non-empty — rendered by the provider
-      implementations as its own PAGE URL line immediately after the PAGE SNAPSHOT block,
-      identically in both; None — no line; supplied by the interactive steering only.
+      `page_url`: the current URL of the page; non-empty — rendered by the provider implementations as its own PAGE URL line immediately after the PAGE SNAPSHOT block, identically in both; None — no line; supplied by the interactive steering only.
       `screenshot`: an optional PNG image of the page; passed only when the project enables screenshots.
       `cheat_sheet`: the compact standard Playwright sync API reference supplied by the calling engine — rendered by the provider implementations as the leading CHEAT SHEET block of the user content, identically in both; guidance, not an allowlist — everything standard stays allowed.
-      `existing_code`: the existing step code that failed; non-empty only on regeneration requests.
-      `error`: the failure description of the existing code; non-empty only on regeneration requests.
-      `recommendation`: the diagnosis of the classification that preceded the regeneration; non-empty — rendered as a separate RECOMMENDATION block after the CODE and ERROR blocks: regeneration starts from the diagnosis, not the raw error; None — no block.
+      `attempt_history`: the attempt history of the step — every record a complete multi-line verbatim record (the attempt outcome, the URL before -> after line, the complete candidate code, the complete error) composed by the calling engine; the original cached code anchors the list as record 0 when it exists; non-empty — rendered as the HISTORY block after the USER INSTRUCTIONS block; empty — no block; no collapsing, no size limits; the list takes the place of the former existing_code, error and guidance_history inputs — the last record is the code being fixed.
+      `recommendation`: the diagnosis of the classification that preceded the regeneration; non-empty — rendered as a separate RECOMMENDATION block after the HISTORY block; None — no block.
       `guidance`: the engineer guidance message of the interactive steering; non-empty — rendered as a separate USER GUIDANCE block; None — no block.
-      `guidance_history`: the accumulated steering turns — each a complete multi-line turn
-      record: the engineer message, the complete generated code, the complete outcome;
-      composed by the calling steering; non-empty — rendered as a separate HISTORY block
-      after the USER GUIDANCE block, every record verbatim, no collapsing, no size limits;
-      empty — no block.
       `code`: the generated step code of the fixed form, working through the standard Playwright sync API — imports from playwright.sync_api and the Python standard library only, global at the top level of the code block; the first markdown-fenced block of the answer is unwrapped — an answer with no closed fence returns verbatim.
 
       Requirements:
       - A provider service failure (connectivity, timeout, rate limit, authentication) raises `LLMUnavailableError` naming the provider
       - The generated code contains no provider-specific constructs
-      - The block order of a generation request is fixed: CHEAT SHEET, user instructions, CODE, ERROR, RECOMMENDATION, USER GUIDANCE, HISTORY — a non-empty input renders its named block, identically in both implementations
-      - The PAGE URL line renders in the scenario part — immediately after the PAGE
-        SNAPSHOT block; the fixed order of the regeneration tail (CODE, ERROR,
-        RECOMMENDATION, USER GUIDANCE, HISTORY) is unchanged
+      - The block order of a generation request is fixed: CHEAT SHEET, user instructions, HISTORY, RECOMMENDATION, USER GUIDANCE — a non-empty input renders its named block, identically in both implementations
+      - The PAGE URL line renders in the scenario part — immediately after the PAGE SNAPSHOT block; the STEP TYPE line renders immediately before the STEP line; the fixed order of the regeneration tail (HISTORY, RECOMMENDATION, USER GUIDANCE) is unchanged within it
       - The new inputs take no part in step addressing: a cached step never regenerates because they changed
     "classify_failure(prompt: str, user_instructions: str, step_text: str, code: str, error: str, snapshot: str, screenshot: bytes | None) -> classification: FailureClassification": |
       Classify a failed cached step.
 
       `prompt`: the system prompt text supplied by the calling engine — applied verbatim as the system message.
       `user_instructions`: the project's classification instructions supplied by the calling engine from the classification_prompt setting; empty — the request carries no instructions block; non-empty — rendered by the provider implementations verbatim as a separate USER INSTRUCTIONS block of the user content, identically in both.
-      `step_text`: the sentence of the failed step.
+      `step_text`: the raw sentence of the failed step as passed by the calling engine.
       `code`: the existing step code that failed.
       `error`: the human-readable description of the failure.
       `snapshot`: the accessibility snapshot of the current page.
@@ -81,28 +73,23 @@ Annotations: |
 
       Requirements:
       - A provider service failure raises `LLMUnavailableError` naming the provider
-    "check_instruction_compliance(prompt: str, user_instructions: str, step_text: str, code: str) -> verdict: list[ComplianceFinding]": |
-      Check the successfully executed candidate code against the project user instructions —
-      the compliance verdict request of the gate.
+    "check_instruction_compliance(prompt: str, user_instructions: str, step_text: str, step_type: str, code: str, attempt_history: list[str]) -> verdict: list[ComplianceFinding]": |
+      Check the successfully executed candidate code on two dimensions — instruction compliance and step adequacy — the compliance verdict request of the gate.
 
-      `prompt`: the gate system prompt text supplied by the calling engine — applied
-        verbatim as the system message.
-      `user_instructions`: the project's generation instructions supplied by the calling
-        engine from the generation_prompt setting; the calling engine guarantees non-empty —
-        the gate never runs on empty instructions.
-      `step_text`: the sentence of the generated step.
+      `prompt`: the gate system prompt text supplied by the calling engine — applied verbatim as the system message.
+      `user_instructions`: the project's generation instructions supplied by the calling engine from the generation_prompt setting; the calling engine guarantees non-empty — the gate never runs on empty instructions.
+      `step_text`: the raw sentence of the generated step.
+      `step_type`: action or assertion — the adequacy dimension judges by it; rendered as the STEP TYPE line immediately before the STEP line.
       `code`: the successfully executed candidate code.
-      `verdict`: the parsed findings; an empty list means compliant.
+      `attempt_history`: the attempt history of the step — verbatim records composed by the calling engine; non-empty — rendered as the ATTEMPT HISTORY block after the STEP block; the gate prompt instructs the reviewer to use it.
+      `verdict`: the parsed findings of both dimensions; an empty list means compliant and adequate.
 
       Requirements:
       - A provider service failure raises `LLMUnavailableError` naming the provider
-      - The answer parses strictly through `parse_compliance_verdict`; a malformed verdict
-        raises `ComplianceVerdictError` — unchecked code is never waved through
-      - The user content carries three blocks in the fixed order INSTRUCTIONS, STEP, CODE —
-        identically in both implementations
+      - The answer parses strictly through `parse_compliance_verdict`; a malformed verdict raises `ComplianceVerdictError` — unchecked code is never waved through
+      - The user content carries four blocks in the fixed order INSTRUCTIONS, STEP, ATTEMPT HISTORY, CODE — with the STEP TYPE line immediately before the STEP line — identically in both implementations
       - The gate model is the effective generation model of the provider settings
-      - The input takes no part in step addressing: a cached step never regenerates because
-        it changed
+      - The input takes no part in step addressing: a cached step never regenerates because it changed
 
 "LLMProvider::OpenAIProvider(config: Config)":
   location: openai_provider.py
@@ -112,12 +99,12 @@ Annotations: |
     `config`: project settings; the generation model is the effective_generation_model of `config`, the classification model is the effective_classification_model of `config`; the base_url setting of `config` overrides the endpoint when set.
 
     Algorithm (all three operations):
-    1. Build the request: the prompt text as the system message, the user content carrying the inputs — the CHEAT SHEET block renders after the scenario inputs; a non-empty page_url renders as its own PAGE URL line immediately after the PAGE SNAPSHOT block; a non-empty user_instructions of a generation request renders as a separate USER INSTRUCTIONS block placed immediately after the CHEAT SHEET block; the regeneration-only blocks render in the fixed order CODE, ERROR, RECOMMENDATION, USER GUIDANCE, HISTORY — the HISTORY block renders every accumulated steering turn record verbatim — complete multi-line records, no collapsing; a non-empty input renders its named block, identically in both implementations; a non-empty user_instructions of a classification request renders as the separate USER INSTRUCTIONS block placed last in the user content, after all classification inputs (STEP, CODE, ERROR, PAGE SNAPSHOT)
+    1. Build the request: the prompt text as the system message, the user content carrying the inputs — the STEP TYPE line renders immediately before the STEP line; the CHEAT SHEET block renders after the scenario inputs; a non-empty page_url renders as its own PAGE URL line immediately after the PAGE SNAPSHOT block; a non-empty user_instructions of a generation request renders as a separate USER INSTRUCTIONS block placed immediately after the CHEAT SHEET block; the attempt-history records render as the HISTORY block placed after the USER INSTRUCTIONS block — every record verbatim, complete multi-line records, no collapsing; the remaining regeneration-only blocks render in the fixed order RECOMMENDATION, USER GUIDANCE; a non-empty input renders its named block, identically in both implementations; a non-empty user_instructions of a classification request renders as the separate USER INSTRUCTIONS block placed last in the user content, after all classification inputs (STEP, CODE, ERROR, PAGE SNAPSHOT)
     2. Send one completion request via the SDK
     3. Extract the text answer; a generation answer unwraps its first markdown-fenced block — an unfenced answer passes through verbatim
     4. An SDK error maps to `LLMUnavailableError` (see `openai`)
 
-    The compliance operation: the prompt as the system message, the user content carrying the INSTRUCTIONS, STEP and CODE blocks in this fixed order; sent as one request through the effective generation model; the text answer parses strictly through `parse_compliance_verdict` — no fence unwrapping, a malformed verdict raises `ComplianceVerdictError`; an SDK error maps to `LLMUnavailableError` (see `openai`)
+    The compliance operation: the prompt as the system message, the user content carrying the INSTRUCTIONS, STEP (with its STEP TYPE line), ATTEMPT HISTORY and CODE blocks in this fixed order; sent as one request through the effective generation model; the text answer parses strictly through `parse_compliance_verdict` — no fence unwrapping, a malformed verdict (an answer of the old shape included) raises `ComplianceVerdictError`; an SDK error maps to `LLMUnavailableError` (see `openai`)
 
 "LLMProvider::AnthropicProvider(config: Config)":
   location: anthropic_provider.py
@@ -127,12 +114,12 @@ Annotations: |
     `config`: the same settings semantics as the openai implementation.
 
     Algorithm (all three operations):
-    1. Build the request: the prompt text as the system message, the user content carrying the inputs — the CHEAT SHEET block renders after the scenario inputs; a non-empty page_url renders as its own PAGE URL line immediately after the PAGE SNAPSHOT block; a non-empty user_instructions of a generation request renders as a separate USER INSTRUCTIONS block placed immediately after the CHEAT SHEET block; the regeneration-only blocks render in the fixed order CODE, ERROR, RECOMMENDATION, USER GUIDANCE, HISTORY — the HISTORY block renders every accumulated steering turn record verbatim — complete multi-line records, no collapsing; a non-empty input renders its named block, identically in both implementations; a non-empty user_instructions of a classification request renders as the separate USER INSTRUCTIONS block placed last in the user content, after all classification inputs (STEP, CODE, ERROR, PAGE SNAPSHOT)
+    1. Build the request: the prompt text as the system message, the user content carrying the inputs — the STEP TYPE line renders immediately before the STEP line; the CHEAT SHEET block renders after the scenario inputs; a non-empty page_url renders as its own PAGE URL line immediately after the PAGE SNAPSHOT block; a non-empty user_instructions of a generation request renders as a separate USER INSTRUCTIONS block placed immediately after the CHEAT SHEET block; the attempt-history records render as the HISTORY block placed after the USER INSTRUCTIONS block — every record verbatim, complete multi-line records, no collapsing; the remaining regeneration-only blocks render in the fixed order RECOMMENDATION, USER GUIDANCE; a non-empty input renders its named block, identically in both implementations; a non-empty user_instructions of a classification request renders as the separate USER INSTRUCTIONS block placed last in the user content, after all classification inputs (STEP, CODE, ERROR, PAGE SNAPSHOT)
     2. Send one message request via the SDK
     3. Extract the text answer; a generation answer unwraps its first markdown-fenced block — an unfenced answer passes through verbatim
     4. An SDK error maps to `LLMUnavailableError` (see `anthropic`)
 
-    The compliance operation: the prompt as the system message, the user content carrying the INSTRUCTIONS, STEP and CODE blocks in this fixed order; sent as one request through the effective generation model; the text answer parses strictly through `parse_compliance_verdict` — no fence unwrapping, a malformed verdict raises `ComplianceVerdictError`; an SDK error maps to `LLMUnavailableError` (see `anthropic`)
+    The compliance operation: the prompt as the system message, the user content carrying the INSTRUCTIONS, STEP (with its STEP TYPE line), ATTEMPT HISTORY and CODE blocks in this fixed order; sent as one request through the effective generation model; the text answer parses strictly through `parse_compliance_verdict` — no fence unwrapping, a malformed verdict (an answer of the old shape included) raises `ComplianceVerdictError`; an SDK error maps to `LLMUnavailableError` (see `anthropic`)
 
 "create_provider(config: Config) -> provider: LLMProvider":
   location: provider.py
@@ -170,55 +157,50 @@ Annotations: |
     "recommendation -> str": |
       The recommended engineer action.
 
-"ComplianceFinding(instruction: str, priority: str, explanation: str)":
+"ComplianceFinding(instruction: str, priority: str, explanation: str, dimension: str)":
   location: models.py
   annotations: |
-    One finding of the instruction compliance verdict: which instruction the candidate
-    code violated, how severely, and why.
+    One finding of the two-dimension compliance verdict: which dimension it belongs to, what it names, how severely, and why.
 
-    `instruction`: the violated instruction — the verbatim quote of the project's user
-    instructions the finding names.
-    `priority`: high, medium or low; only high blocks the candidate.
-    `explanation`: one short sentence why the code violates the instruction.
+    `instruction`: the verbatim quote the finding names — the violated instruction of the project's user instructions (instruction dimension) or the fragment of the step sentence the code fails to accomplish (adequacy dimension).
+    `priority`: high, medium or low; only high blocks the candidate — in both dimensions.
+    `explanation`: one short sentence why.
+    `dimension`: instruction or adequacy — which side of the gate produced the finding.
 
     Requirements:
     - pydantic v2, kw_only, empty defaults (see `conventions`)
-    - `priority` accepts exactly the three labels; anything else never reaches this type
-      — the parse fails loudly before
+    - `priority` accepts exactly the three labels and `dimension` exactly the two; anything else never reaches this type — the parse fails loudly before
   properties:
     "instruction -> str": |
-      The violated instruction quote.
+      The verbatim quote the finding names.
     "priority -> str": |
       The finding priority: high, medium or low.
     "explanation -> str": |
-      One short sentence why the code violates the instruction.
+      One short sentence why.
+    "dimension -> str": |
+      The finding dimension: instruction or adequacy.
 
 "parse_compliance_verdict(verdict_text: str) -> findings: list[ComplianceFinding]":
   location: models.py
   annotations: |
-    Parse the raw answer of the compliance verdict request into findings — the strict
-    single parsing point of the gate.
+    Parse the raw answer of the compliance verdict request into findings — the strict single parsing point of the gate.
 
     `verdict_text`: the raw text answer of the verdict model.
-    `findings`: the parsed findings; empty — compliant.
+    `findings`: the parsed findings; empty — compliant and adequate.
 
     Algorithm:
-    1. Parse the trimmed text as a JSON list of objects; anything else — not valid
-       JSON, not a list, a non-object item — is a malformed verdict
-    2. Validate every item: instruction, priority of the {high, medium, low} set,
-       explanation — a missing field or an unknown priority label is a malformed verdict
-    3. A malformed verdict raises `ComplianceVerdictError` carrying a fragment of the
-       raw answer — a flaky verdict model surfaces loudly, never a silent pass
-    4. Return the findings; an empty list means compliant
+    1. Parse the trimmed text as a JSON list of objects; anything else — not valid JSON, not a list, a non-object item — is a malformed verdict
+    2. Validate every item: instruction, priority of the {high, medium, low} set, explanation, dimension of the {instruction, adequacy} set — a missing field, an unknown priority label or an unknown dimension is a malformed verdict; an answer of the old shape — a finding without a dimension — is malformed, never a silent pass
+    3. A malformed verdict raises `ComplianceVerdictError` carrying a fragment of the raw answer — a flaky verdict model surfaces loudly, never a silent pass
+    4. Return the findings; an empty list means compliant and adequate
 
     Requirements:
     - Pure function: no state, no I/O, deterministic on the input text
-    - No fence unwrapping and no protective fallback: the verdict answer parses as
-      received (see `openai` and `anthropic`)
+    - No fence unwrapping and no protective fallback: the verdict answer parses as received (see `openai` and `anthropic`)
 
 ---
 
 Author: Goga
 CreatedAt: 10/09/26
 Description: |
-  The LLM port of prettyplay: one contract, the openai and anthropic SDK implementations in full parity — generation, classification and compliance verdict operations with identical user-instructions and cheat-sheet semantics — the failure classification verdict and the instruction compliance findings.
+  The LLM port of prettyplay: one contract, the openai and anthropic SDK implementations in full parity — generation, classification and the two-dimension compliance verdict with identical user-instructions, cheat-sheet, step-type and attempt-history semantics — the failure classification verdict and the instruction-compliance and step-adequacy findings.
