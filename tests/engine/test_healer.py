@@ -27,7 +27,25 @@ CHECK_CODE = "def step(page) -> None:\n    page.get_by_text('Welcome back').expe
 
 
 class FakePage:
-    """Fake page facade boundary: snapshot for the classification request."""
+    """Fake page facade boundary: snapshot for the classification request and a scripted URL."""
+
+    def __init__(self, url: str | Exception | Callable[[], str] = "https://example.com") -> None:
+        """Keep the URL script of the attempt brackets.
+
+        Args:
+            url: the scripted page URL — a fixed value, a zero-arg callable returning
+                successive values, or an exception instance raised on every read (a dead page).
+        """
+        self._url = url
+
+    @property
+    def url(self) -> str:
+        """The scripted page URL: a value, a callable's answer, or the scripted failure."""
+        if isinstance(self._url, Exception):
+            raise self._url
+        if callable(self._url):
+            return self._url()
+        return self._url
 
     def run(self, action: Callable[[object], object]) -> object:
         """Minimal page-handle shim: the run primitive executes the action against the fake itself."""
@@ -660,6 +678,7 @@ class TestEngineCellFacade:
         from prettyplay import engine  # noqa: PLC0415 — cell facade check
 
         assert sorted(engine.__all__) == [
+            "StepAttempt",
             "StepGenerator",
             "StepHealer",
             "check_step_compliance",

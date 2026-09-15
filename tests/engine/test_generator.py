@@ -78,11 +78,32 @@ class FakeLocator:
 
 
 class FakePage:
-    """Fake page facade boundary: snapshot plus recorded facade calls."""
+    """Fake page facade boundary: snapshot plus recorded facade calls and a scripted URL."""
 
-    def __init__(self, assertion_message: str | None = None) -> None:
+    def __init__(
+        self,
+        assertion_message: str | None = None,
+        url: str | Exception | Callable[[], str] = "https://example.com",
+    ) -> None:
+        """Keep the assertion script and the URL script of the attempt brackets.
+
+        Args:
+            assertion_message: the message every locator expectation raises; ``None`` stays green.
+            url: the scripted page URL — a fixed value, a zero-arg callable returning
+                successive values, or an exception instance raised on every read (a dead page).
+        """
         self.calls: list[tuple[str, ...]] = []
         self._assertion_message = assertion_message
+        self._url = url
+
+    @property
+    def url(self) -> str:
+        """The scripted page URL: a value, a callable's answer, or the scripted failure."""
+        if isinstance(self._url, Exception):
+            raise self._url
+        if callable(self._url):
+            return self._url()
+        return self._url
 
     def goto(self, url: str) -> None:
         self.calls.append(("goto", url))
