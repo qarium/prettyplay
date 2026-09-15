@@ -61,9 +61,16 @@ if step is None:
 ### File format
 
 Each file carries the metadata fields (step sentence, cache key, step type,
-creation date) followed by the generated step code of the fixed form (see
-[Driver facade](driver-facade.md)). Files carry no library version and are
-never invalidated by a library upgrade.
+creation date), then the `# --- step code ---` sentinel line, then the
+generated step code — top-level imports when present, then the fixed-form
+`def step` function (see [Driver facade](driver-facade.md)), restored
+verbatim on load. Files carry no library version: an
+upgrade never invalidates them mechanically. The code inside targets the
+standard Playwright sync API, so it keeps replaying across upgrades that
+keep that API — the one recorded break is the switch to the genuine page:
+caches written against the retired page facade call methods that no longer
+exist (an `AttributeError` at replay, a hard failure in strict mode), so
+purge the cache directory once when upgrading across that change.
 
 ### Write behavior
 

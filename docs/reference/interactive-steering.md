@@ -16,18 +16,35 @@ test green), never in replay-strict, and never when the LLM is unavailable.
 
 ```text
 ── step "click Checkout" — about to raise IncurableStepError ──────────
-intent:   click the checkout button
-code:     page.get_by_text("Checkout").click()
-error:    TimeoutError: Timeout 10000ms exceeded ... element is not visible
-verdict:  fixable — the button is behind the "Terms" modal;
-          recommendation: dismiss the modal first, then click.
-
+code:     videos = page.get_by_role("listitem")
+          expect(videos.first).to_be_visible()
+          assert videos.count() > 1
+error:    IncurableStepError: the generation budget is exhausted
+          ---
+          step: click Checkout
+          error: TimeoutError: Timeout 10000ms exceeded
+          ---
+          received: … / cause: … / Call log: …
+          ---
+          explanation: the button is behind the "Terms" modal
+          recommendation: dismiss the modal first, then click
+url:      https://shop.example.com/cart
+shot:     /tmp/prettyplay-steering-abc123.png
 commands: snapshot | screenshot | error | code | quit
-guidance> the modal has id=terms — close it via
-          page.get_by_label("Close").click() first
-⟳ regenerating with USER GUIDANCE … executing against the live page …
+guidance> the modal has id=terms — close it via page.get_by_label("Close").click() first
+⟳ regenerating with USER GUIDANCE
+generated code:
+def step(page) -> None:
+    page.get_by_label("Close").click()
+
+run? [y/N] y
 ✓ step green — healed step written to the cache
 ```
+
+The banner shows the step, the failed code, the full terminal error render
+(see [Failure taxonomy](failure-taxonomy.md)), the current page URL, the
+screenshot path and the commands — no snapshot fragment: the full snapshot
+stays behind the `snapshot` command and rides every request.
 
 Local commands answer without the LLM:
 
@@ -40,13 +57,23 @@ Local commands answer without the LLM:
 | `quit` | end the dialog — the original terminal failure propagates |
 
 Every other line is guidance: one regeneration request carrying a
-`USER GUIDANCE` block plus the conversation history (see
-[LLM providers](llm-providers.md#parity)) — the result executes against the
-live page, every turn ends green or red.
+`USER GUIDANCE` block, the fresh page URL and the full turn history (see
+[LLM providers](llm-providers.md#parity)) — the original failure stays the
+CODE/ERROR anchor of every request.
 
-- A red turn shows the outcome and returns to the guidance prompt immediately
-  — no re-execution loop, the settle window never re-arms inside the dialog
-  (see [Settle polling](settle-polling.md))
+Every turn shows the complete generated code and asks `run? [y/N]` —
+nothing executes unseen:
+
+- `y` executes the candidate against the live page
+- any other answer (`n`, Enter, `quit`) aborts the turn without execution
+  and the guidance prompt reopens — the rejected candidate enters the
+  history with the outcome `rejected by the engineer, not executed`
+- a completed turn — executed or rejected — enters the history in full:
+  the engineer message, the complete code, the complete outcome; nothing
+  is collapsed or truncated, and every later request carries every record
+- a red turn shows the complete outcome and returns to the guidance prompt
+  immediately — no re-execution loop, the settle window never re-arms
+  inside the dialog (see [Settle polling](settle-polling.md))
 - `quit`, EOF (Ctrl+D), SIGINT (Ctrl+C) and an unreadable stdin (a captured
   CI stream) end the dialog and the original terminal failure propagates —
   nothing hangs

@@ -52,10 +52,26 @@ Regeneration block parity: a regeneration request may carry three extra
 inputs after the failed code and its error — `RECOMMENDATION` (the diagnosis
 of the classification that preceded the regeneration, when present),
 `USER GUIDANCE` (the engineer guidance message of the interactive steering,
-when present) and `HISTORY` (the accumulated steering turns, when present) —
-rendered in this fixed order, identically in both providers. An unset input
-renders no block. Unrecognized classification labels fall back to `incurable`
-in both providers alike.
+when present) and `HISTORY` (the full turn records of the interactive
+steering, when present — each record carries the engineer message, the
+complete generated code and the complete outcome of the turn, verbatim, no
+collapsing) — rendered in this fixed order, identically in both providers.
+An unset input renders no block. Unrecognized classification labels fall back
+to `incurable` in both providers alike.
+
+Page-URL parity: a generation request may carry the current page URL — a
+non-empty `page_url` renders as its own `PAGE URL` line immediately after
+the `PAGE SNAPSHOT` block, identically in both providers; `None` renders no
+line. Supplied by the interactive steering only — engine generation and
+healing requests never carry it. A parity requirement, not a capability
+difference.
+
+Cheat-sheet parity: every generation request renders the `CHEAT SHEET` block
+after the scenario inputs and immediately before the `USER INSTRUCTIONS`
+block — the compact standard Playwright sync API reference supplied by the
+calling engine; guidance, not an allowlist. Both providers render it
+identically at the same position. A parity requirement, not a capability
+difference.
 
 The one transport-level asymmetry: the anthropic Messages API requires
 `max_tokens`, so anthropic requests carry a fixed completion cap (4096

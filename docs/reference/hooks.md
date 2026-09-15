@@ -53,8 +53,9 @@ root, so `from prettyplay import StepHooks` works too.
 
 `error` carries the full structured render of the terminal failure — the same
 multi-line text the raised exception carries and the log record writes: the
-primary reason line, the `---` separated step/error block and the
-column-aligned verdict block. Display it verbatim in reports; do not parse it
+first line with the terminal class name and the authored reason, the `---`
+separated step/error block, the conditional received/cause/Call log details
+section and the column-zero verdict block. Display it verbatim in reports; do not parse it
 — structured data arrives through `on_step_verdict` fields. In strict mode
 `on_generation_started` and `on_healing_started` never fire: classification is
 the only LLM call.
@@ -89,6 +90,11 @@ logs its outcomes at WARNING: `compliance findings passed` — the medium and
 low findings a green candidate passed with, on the generation path and in the
 steering dialog alike — and `compliance gate failed` — a gate hard failure
 that ends a steering dialog before the original failure propagates. The
+deferred dialog resolver logs a failed resolution of an unclaimed dialog at
+WARNING as `dialog resolution failed` — logged and dropped, never masking
+the outcome of the action — and a drain that hits the pass bound as
+`dialog drain limit reached; the rest resolves at the next unit tail`, so
+a page firing a dialog per resolution cannot wedge the unit. The
 error field of the `on_step_failed` event and
 its log record carry the full structured render of the terminal failure;
 integrators display it verbatim.

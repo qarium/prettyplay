@@ -27,24 +27,46 @@ ProductDefectError: the "Sign in" button stayed invisible after submitting the f
 step: Check that the "Sign in" button appears
 error: Locator expected to be visible
 ---
-explanation:    the page has no element with role button and name "Sign in"
+received: display:none
+Call log:
+  - waiting for get_by_role("button", name="Sign in")
+---
+explanation: the page has no element with role button and name "Sign in"
 recommendation: check the selector or the button text in the application
 ```
 
-- The first line is the primary reason only — no kind label, no colons; the
-  exception type prefix (rendered by the runner) supplies the kind
-- The `step:`/`error:` block carries the step sentence and the full underlying
-  error of the failed step code, locator details included; for failed checks
-  the `error:` text never carries an `AssertionError` prefix — the exception
-  type already carries the assertion semantics; the block is omitted entirely
-  when both are empty
-- The verdict block shows column-aligned `explanation:` and `recommendation:`
-  values — multi-line continuations indent to the same value column; the
-  `category:` line is gone — the category travels in the structured fields of
+- The first line is the terminal class name and the authored reason —
+  `ClassName: reason`, no padding
+- The `step:`/`error:` block carries the step sentence and the decomposed
+  headline of the underlying error (the dotted class prefix of a typed error
+  reconstructs its kind, e.g. `error: TimeoutError: Timeout 30000ms
+  exceeded`; for failed checks the `error:` text never carries an
+  `AssertionError` prefix — the exception type already carries the assertion
+  semantics); the block is omitted entirely when both are empty
+- The details section appears only when the underlying error carries the
+  recognized shapes: `received:` (the `Actual value:` detail, multi-line
+  verbatim), `cause:` (the `Caused by:` line) and `Call log:` with its
+  verbatim indented lines
+- The verdict block shows `explanation:` and `recommendation:` labels at
+  column zero — multi-line continuations indent two spaces; the `category:`
+  line is gone — the category travels in the structured fields of
   `on_step_verdict`, never in the render
 - Empty blocks are omitted entirely: no verdict → no verdict block; no
-  underlying error → no `error:` line
+  underlying error → no `error:` line; no detail parts → no details section
 - The failed step's code is never included — it lives in the cache and the log
+
+The recognition behind the details section is exposed as public API:
+`decompose_error_text(error)` returns an `ErrorParts` (a pydantic model with
+`class_name`, `reason`, `received`, `cause`, `call_log` — all strings, empty
+when absent) — the pure, never-raising halves of the render, for integrators
+who want the parts instead of parsing the message:
+
+```python
+from prettyplay.failures import ErrorParts, decompose_error_text
+
+parts = decompose_error_text(str(failure))  # or any underlying error text
+# parts.class_name, parts.reason, parts.received, parts.cause, parts.call_log
+```
 
 ## Verdicts on terminal failures
 
