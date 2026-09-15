@@ -22,7 +22,6 @@ Imports:
   - Types:
       - run_step_code
       - check_step_compliance
-      - format_step_error
       - StepAttempt
     From: prettyplay/engine
 
@@ -79,7 +78,7 @@ Annotations: |
       5. Show the complete generated code to the engineer, then the confirmation prompt run? [y/N]: y — proceed to step 6; n, Enter or quit — the turn is aborted without execution, the rejected candidate enters `attempt_history` as a completed record with the outcome rejected by the engineer, not executed, and the same URL on both sides, back to step 2
       6. Read the page URL, execute the candidate via `run_step_code` against `page` — the whole step runs inside the driver worker thread; the settle window never re-arms inside the dialog; read the page URL again — the pair brackets the turn
       7. Success: gate the executed candidate through `check_step_compliance` with `step_text`, `step_type` and `attempt_history` — the gate switch off or empty generation instructions yield an empty findings list with zero provider calls. An empty findings list: build `CachedStep` with `identity`, save it to the cache, report on_healed with an explanation naming the interactive healing, return the healed step. A high finding of either dimension: no write-back — show the violation in the dialog (the finding instruction and explanation), append the completed record — outcome compliance blocked, complete code, complete violation text — to `attempt_history`, return to step 2. Medium and low findings pass with a WARNING naming the instructions, then the write-back. The gate hard failures — provider unavailability and a malformed verdict — end the dialog after showing the gate failure line in the dialog and logging a WARNING through the library logger naming the step and the gate failure: return None, the original terminal failure propagates; nothing is cached
-      8. A failed execution: show the complete error, append the completed record to `attempt_history` — outcome failed check for an AssertionError, execution failed otherwise, complete code, the `format_step_error` text of the outcome (the uniform failure format of the shared history) — return to step 2 — no re-execution of the same code, the settle window never re-arms
+      8. A failed execution: show the complete error, append the completed record to `attempt_history` — outcome failed check for an AssertionError, execution failed otherwise, complete code, complete outcome — return to step 2 — no re-execution of the same code, the settle window never re-arms
       9. Provider unavailability of the request: the dialog ends, return None
 
       Requirements:
