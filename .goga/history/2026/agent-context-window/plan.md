@@ -599,13 +599,13 @@ Context: after every coding task, verify the full chain end to end — the three
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] Update the integration-suite provider stubs to the new port signature; assert `step_type` reaches generation and verdict requests end to end
-- [ ] Test Scenario A end to end: a cache-miss step whose first candidate fails and whose retry request carries the grown rendered history; the green candidate stores a `CachedStep`; the history never reaches the cache file
-- [ ] Test Scenario B end to end: a failed cached hit seeds record 0 and heals through regeneration; the raw sentence reaches the classification request; record 0 stays intact through the healed write-back
-- [ ] Test Scenario C end to end (scripted stdin): a stuck step steered to a healed write-back — the shared history threads engine records into the dialog requests; the write-back passes the two-dimension gate; the declined path propagates the original failure
-- [ ] Test edge case: a high adequacy finding blocks the write-back end to end (never cached), mirroring the unit-level guarantee at the facade level
-- [ ] Run validation: `.venv/bin/python -m pytest tests/ -x` — the full suite passes
-- [ ] Lint: `.venv/bin/ruff check prettyplay/ tests/` — fix formatting if necessary
+- [x] Update the integration-suite provider stubs to the new port signature; assert `step_type` reaches generation and verdict requests end to end
+- [x] Test Scenario A end to end: a cache-miss step whose first candidate fails and whose retry request carries the grown rendered history; the green candidate stores a `CachedStep`; the history never reaches the cache file
+- [x] Test Scenario B end to end: a failed cached hit seeds record 0 and heals through regeneration; the raw sentence reaches the classification request; record 0 stays intact through the healed write-back
+- [x] Test Scenario C end to end (scripted stdin): a stuck step steered to a healed write-back — the shared history threads engine records into the dialog requests; the write-back passes the two-dimension gate; the declined path propagates the original failure
+- [x] Test edge case: a high adequacy finding blocks the write-back end to end (never cached), mirroring the unit-level guarantee at the facade level
+- [x] Run validation: `.venv/bin/python -m pytest tests/ -x` — the full suite passes
+- [x] Lint: `.venv/bin/ruff check prettyplay/ tests/` — fix formatting if necessary
 
 ---
 
@@ -638,11 +638,11 @@ Context: after every coding task, verify the full chain end to end — the three
 - [x] Re-exports are accessible from the facade (`PrettyConfig`, `BrowserConfig`, `StepHooks` — unchanged)
 - [x] Every coding task followed the TDD workflow (contract tests → code → verification → logic tests → debugging → re-verification → lint)
 - [x] Contract tests and logic tests cover facade, API, and behavior within each coding task
-- [ ] Integration tests exist where cross-entity scenarios require them (Task 10: scenarios A/B/C)
+- [x] Integration tests exist where cross-entity scenarios require them (Task 10: scenarios A/B/C)
 - [x] No package boundary was expanded (no new cells, no new cross-cell exports — the guarded URL reads stay cell-local)
 - [x] `CODEMANIFEST` files were not modified (contract is read-only)
-- [ ] All validation commands pass
+- [x] All validation commands pass
 - [x] Every Usages entry is mentioned in at least one task (`conventions`, `system_prompt`, `cheat_sheet`, `classification_prompt`, `compliance_prompt`, `openai`, `anthropic`, imported `classification`, `hooks`, `taxonomy`, `generation`, `healing`)
-- [ ] The removed inputs survive nowhere (port, providers, engine loops, stubs, tests): `existing_code`, `error` (of `generate_step_code`/`regenerate`), `guidance_history`; the steering `_turn_record` helper is deleted
+- [x] The removed inputs survive nowhere (port, providers, engine loops, stubs, tests): `existing_code`, `error` (of `generate_step_code`/`regenerate`), `guidance_history`; the steering `_turn_record` helper is deleted
 - [x] The frozen mirrors are byte-equal (`SYSTEM_PROMPT` in `generator.py` and `steering.py`, `COMPLIANCE_PROMPT` in `compliance.py`, `CHEAT_SHEET` unchanged)
-- [ ] Nothing from the attempt history is persisted to the cache file or dumped to logs
+- [x] Nothing from the attempt history is persisted to the cache file or dumped to logs

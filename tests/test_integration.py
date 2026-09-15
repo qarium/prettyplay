@@ -107,15 +107,17 @@ class FakePage:
 
 
 class StubProvider(LLMProvider):
-    """Stub LLM boundary: scripted generation answers, a fixed verdict, recorded requests."""
+    """Stub LLM boundary: scripted generation answers, verdicts, recorded requests."""
 
     def __init__(
         self,
         answers: list[str] | None = None,
         verdict: FailureClassification | None = None,
+        compliance_verdicts: list[list[ComplianceFinding]] | None = None,
     ) -> None:
         self.answers = list(answers or [])
         self.verdict = verdict
+        self.compliance_verdicts = list(compliance_verdicts) if compliance_verdicts is not None else None
         self.generation_requests: list[dict[str, object]] = []
         self.classification_requests: list[dict[str, object]] = []
         self.compliance_requests: list[dict[str, object]] = []
@@ -125,32 +127,30 @@ class StubProvider(LLMProvider):
         prompt: str,
         user_instructions: str = "",
         step_text: str = "",
+        step_type: str = "",
         previous_steps: list[str] | None = None,
         snapshot: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
         cheat_sheet: str = "",
-        existing_code: str | None = None,
-        error: str | None = None,
+        attempt_history: list[str] | None = None,
         recommendation: str | None = None,
         guidance: str | None = None,
-        guidance_history: list[str] | None = None,
     ) -> str:
         self.generation_requests.append(
             {
                 "prompt": prompt,
                 "user_instructions": user_instructions,
                 "step_text": step_text,
+                "step_type": step_type,
                 "previous_steps": list(previous_steps),  # copy: the scenario context lives on
                 "snapshot": snapshot,
                 "page_url": page_url,
                 "screenshot": screenshot,
                 "cheat_sheet": cheat_sheet,
-                "existing_code": existing_code,
-                "error": error,
+                "attempt_history": list(attempt_history or []),  # copy: the history lives on
                 "recommendation": recommendation,
                 "guidance": guidance,
-                "guidance_history": list(guidance_history or []),
             }
         )
         if not self.answers:
@@ -180,21 +180,27 @@ class StubProvider(LLMProvider):
         )
         return self.verdict
 
-    def check_instruction_compliance(
+    def check_instruction_compliance(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
         prompt: str,
         user_instructions: str,
         step_text: str,
+        step_type: str,
         code: str,
+        attempt_history: list[str] | None = None,
     ) -> list[ComplianceFinding]:
         self.compliance_requests.append(
             {
                 "prompt": prompt,
                 "user_instructions": user_instructions,
                 "step_text": step_text,
+                "step_type": step_type,
                 "code": code,
+                "attempt_history": list(attempt_history or []),
             }
         )
+        if self.compliance_verdicts is not None:
+            return self.compliance_verdicts.pop(0)
         return []  # compliant by default — the gate passes, the generation assertions hold
 
 
@@ -209,16 +215,15 @@ class ForbiddenProvider(LLMProvider):
         prompt: str,
         user_instructions: str = "",
         step_text: str = "",
+        step_type: str = "",
         previous_steps: list[str] | None = None,
         snapshot: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
         cheat_sheet: str = "",
-        existing_code: str | None = None,
-        error: str | None = None,
+        attempt_history: list[str] | None = None,
         recommendation: str | None = None,
         guidance: str | None = None,
-        guidance_history: list[str] | None = None,
     ) -> str:
         self.calls += 1
         raise AssertionError("provider must not be called")
@@ -236,12 +241,14 @@ class ForbiddenProvider(LLMProvider):
         self.calls += 1
         raise AssertionError("provider must not be called")
 
-    def check_instruction_compliance(
+    def check_instruction_compliance(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
         prompt: str,
         user_instructions: str,
         step_text: str,
+        step_type: str,
         code: str,
+        attempt_history: list[str] | None = None,
     ) -> list[ComplianceFinding]:
         self.calls += 1
         raise AssertionError("provider must not be called")
@@ -443,10 +450,14 @@ def test_per_test_generation_prompt_reaches_the_provider_request(tmp_path: Path,
             test.close()
 
     assert provider.generation_requests[0]["user_instructions"] == "prefer data-test-id"
+    assert provider.generation_requests[0]["step_type"] == "action"  # the honest inputs reach the request
+    assert provider.generation_requests[0]["attempt_history"] == []  # first attempt — no records yet
     # the gate-on generation made exactly one verdict request carrying the instructions and the executed code
     assert len(provider.compliance_requests) == 1
     assert provider.compliance_requests[0]["user_instructions"] == "prefer data-test-id"
+    assert provider.compliance_requests[0]["step_type"] == "action"  # the step type reaches the verdict request
     assert provider.compliance_requests[0]["code"] == WORKING_CODE
+    assert provider.compliance_requests[0]["attempt_history"] == []  # green first attempt — no ATTEMPT HISTORY block
     assert page.calls == [("goto", "https://app.example.com")]  # generated code executed
 
 
@@ -490,13 +501,19 @@ def test_rot_healing_regenerates_rewrites_cache_and_passes(tmp_path: Path) -> No
     # a cache file carries the code with a trailing newline — compare without the tail
     assert provider.classification_requests[0]["code"].rstrip("\n") == broken_code.rstrip("\n")
     assert provider.classification_requests[0]["error"] == "element not found"
-    assert provider.generation_requests[0]["existing_code"].rstrip("\n") == broken_code.rstrip("\n")
+    # record 0 anchors the regeneration request: the original cached code with its replay error
+    record0 = provider.generation_requests[0]["attempt_history"][0]
+    assert record0.startswith("original cached code\n")
+    assert broken_code.rstrip("\n") in record0
+    assert "error:\nelement not found" in record0
     assert hook.events == [
         ("on_step_started", {"step_text": "нажать Войти", "step_type": "action"}),
-        ("on_healing_started", {"step_text": "нажать войти", "category": "rot"}),
-        ("on_generation_started", {"step_text": "нажать войти", "attempt": 1}),
+        # the engine events carry the raw sentence — the normalization is an addressing key only
+        ("on_healing_started", {"step_text": "нажать Войти", "category": "rot"}),
+        ("on_generation_started", {"step_text": "нажать Войти", "attempt": 1}),
+        # the cache event carries the identity text — the cache cell addresses by the normalized form
         ("on_cache_saved", {"step_text": "нажать войти", "filename": identity.filename}),
-        ("on_healed", {"step_text": "нажать войти", "explanation": "кнопка переименована"}),
+        ("on_healed", {"step_text": "нажать Войти", "explanation": "кнопка переименована"}),
         ("on_step_passed", {"step_text": "нажать Войти", "step_type": "action"}),
         ("on_step_finished", {"step_text": "нажать Войти", "step_type": "action", "outcome": "passed"}),
     ]
@@ -529,7 +546,11 @@ def test_retired_members_fail_loudly_on_cached_steps(tmp_path: Path) -> None:
     assert provider.classification_requests[0]["error"] == (
         "AttributeError: 'FakePage' object has no attribute 'find_by_role'"
     )
-    assert provider.generation_requests[0]["existing_code"].rstrip("\n") == retired_code.rstrip("\n")
+    # record 0 anchors the regeneration request: the retired code with its replay error
+    record0 = provider.generation_requests[0]["attempt_history"][0]
+    assert record0.startswith("original cached code\n")
+    assert retired_code.rstrip("\n") in record0
+    assert "error:\nAttributeError: 'FakePage' object has no attribute 'find_by_role'" in record0
     assert page.calls == [("get_by_role", "button", "Войти"), ("click",)]  # the regenerated candidate ran
     assert [event for event, _payload in hook.events] == [
         "on_step_started",
@@ -629,14 +650,14 @@ def test_product_defect_verdict_fails_the_test_loudly(tmp_path: Path) -> None:
             test.step(step_text)
         test.close()
 
-    assert excinfo.value.step_text == normalize_step_text(step_text)
+    assert excinfo.value.step_text == step_text  # the raw sentence — never the casefolded form
     assert excinfo.value.message == "ожидание не оправдалось"
     assert provider.generation_requests == []  # product defect is not regenerated
     rewritten = (tmp_path / identity.filename).read_text(encoding="utf-8")
     assert "get_by_role" in rewritten  # cache untouched
     assert hook.events == [
         ("on_step_started", {"step_text": "нажать Войти", "step_type": "action"}),
-        ("on_healing_started", {"step_text": "нажать войти", "category": "product_defect"}),
+        ("on_healing_started", {"step_text": "нажать Войти", "category": "product_defect"}),
         (
             "on_step_failed",
             # the full structured render — str(exc), never re-composed
@@ -692,7 +713,7 @@ def test_incurable_verdict_fails_with_verdict_fields(tmp_path: Path) -> None:
     assert "get_by_role" in rewritten  # cache untouched
     assert hook.events == [
         ("on_step_started", {"step_text": "нажать Войти", "step_type": "action"}),
-        ("on_healing_started", {"step_text": "нажать войти", "category": "incurable"}),
+        ("on_healing_started", {"step_text": "нажать Войти", "category": "incurable"}),
         (
             "on_step_failed",
             # the full structured render — str(exc), never re-composed
@@ -855,9 +876,13 @@ def test_interactive_steering_heals_a_stuck_step_end_to_end(tmp_path: Path, monk
 
     request = provider.generation_requests[0]  # the one guided regeneration request of the dialog
     assert request["guidance"] == "кнопка переехала в модалку"
+    assert request["step_type"] == "action"  # the honest inputs reach the guided request
     assert request["page_url"] == "https://app.example.com"  # the fresh URL rode the guided request
-    assert request["existing_code"].rstrip("\n") == failing_code.rstrip("\n")  # CODE anchored to the original failure
-    assert "element not found" in request["error"]
+    # record 0 anchors the shared history the dialog joined — the original failure the guidance refers to
+    record0 = request["attempt_history"][0]
+    assert record0.startswith("original cached code\n")
+    assert failing_code.rstrip("\n") in record0
+    assert "RuntimeError: element not found" in record0
     assert provider.compliance_requests == []  # the gate is off without configured instructions
 
     out = capsys.readouterr().out
@@ -865,6 +890,252 @@ def test_interactive_steering_heals_a_stuck_step_end_to_end(tmp_path: Path, monk
     assert "IncurableStepError" in out  # the banner showed the terminal render
     assert "https://app.example.com" in out  # and the page URL
     assert "healed step written to the cache" in out
+
+
+@contextlib.contextmanager
+def cleaned_dialog_screenshots() -> Iterator[None]:
+    """Delete the temporary screenshot files a steering dialog created inside the block."""
+    existing = set(Path(tempfile.gettempdir()).glob("prettyplay-steering-*.png"))
+    try:
+        yield
+    finally:
+        for png in set(Path(tempfile.gettempdir()).glob("prettyplay-steering-*.png")) - existing:
+            png.unlink(missing_ok=True)  # a dialog's temporary screenshots never outlive the test
+
+
+def test_scenario_a_generation_retry_carries_grown_history_and_caches_only_the_green_candidate(
+    tmp_path: Path,
+) -> None:
+    """Scenario A end to end: the failed candidate records, the retry carries the grown history, only green persists."""
+    failing_code = "def step(page) -> None:\n    raise RuntimeError('boom')\n"
+    provider = StubProvider(answers=[failing_code, WORKING_CODE])
+    page = FakePage()
+    identity = StepIdentity(
+        cache_key="login-flow", step_type="action", normalized_text=normalize_step_text("open the app page")
+    )
+
+    with configured_test(Config(cache_root=str(tmp_path)), provider, page) as test:
+        test.step("open the app page")
+        test.close()
+
+    # attempt 1 carried the empty history; the retry carried the grown rendered history
+    assert provider.generation_requests[0]["step_type"] == "action"
+    assert provider.generation_requests[0]["attempt_history"] == []
+    retry_history = provider.generation_requests[1]["attempt_history"]
+    assert len(retry_history) == 1
+    assert retry_history[0].startswith("execution failed\n")
+    assert "url: https://app.example.com -> https://app.example.com" in retry_history[0]
+    assert failing_code.rstrip("\n") in retry_history[0]
+    assert "error:\nRuntimeError: boom" in retry_history[0]
+
+    # the green candidate is the only thing persisted — the history dies with the step
+    cached = (tmp_path / identity.filename).read_text(encoding="utf-8")
+    assert WORKING_CODE.rstrip("\n") in cached
+    assert "execution failed" not in cached
+    assert "RuntimeError: boom" not in cached
+    assert "url: " not in cached
+
+
+def test_scenario_b_failed_cached_hit_seeds_record_zero_and_heals_with_the_raw_sentence(
+    tmp_path: Path,
+) -> None:
+    """Scenario B end to end: record 0 anchors the healing and the raw sentence reaches the classification."""
+    step_text = "Press the «Sign in» button"  # raw casing — never the casefolded addressing form
+    broken_code = "def step(page) -> None:\n    page.get_by_role('button', name='Sign in').click()\n"
+    healed_code = "def step(page) -> None:\n    page.get_by_text('Sign in').click()\n"
+    identity = seed_step(tmp_path, step_text, broken_code, cache_key="login-flow")
+    provider = StubProvider(
+        answers=[healed_code],
+        verdict=FailureClassification(
+            category="rot", explanation="the selector rotted", recommendation="use text locators"
+        ),
+    )
+    page = FakePage(broken_lookups=frozenset({"get_by_role"}))
+
+    with installed_test(tmp_path, provider, page, "login-flow") as test:
+        test.step(step_text)
+        test.close()
+
+    # the raw sentence reached the classification request verbatim — the normalization stays addressing-only
+    assert provider.classification_requests[0]["step_text"] == "Press the «Sign in» button"
+    # record 0 anchors the regeneration request: the original cached code with its replay error and URL pair
+    record0 = provider.generation_requests[0]["attempt_history"][0]
+    assert record0.startswith("original cached code\n")
+    assert "url: https://app.example.com -> https://app.example.com" in record0
+    assert broken_code.rstrip("\n") in record0
+    assert "error:\nelement not found" in record0
+    assert provider.generation_requests[0]["recommendation"] == "use text locators"
+    assert provider.generation_requests[0]["step_type"] == "action"
+
+    # the healed write-back persists only the healed code — record 0 never reaches the file
+    rewritten = (tmp_path / identity.filename).read_text(encoding="utf-8")
+    assert "get_by_text" in rewritten
+    assert "get_by_role" not in rewritten
+    assert "original cached code" not in rewritten
+
+
+def test_scenario_c_steering_write_back_threads_shared_history_and_passes_the_gate(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """Scenario C end to end: the dialog joins the engine-grown history; the write-back passes the gate."""
+    failing_code = "def step(page) -> None:\n    raise RuntimeError('still broken')\n"
+    rejected_code = "def step(page) -> None:\n    page.goto('https://rejected.example.com')\n"
+    provider = StubProvider(
+        answers=[failing_code, failing_code, failing_code, rejected_code, WORKING_CODE],
+        verdict=FailureClassification(
+            category="incurable", explanation="the budget ran out", recommendation="reword the step"
+        ),
+        compliance_verdicts=[[]],
+    )
+    page = FakePage()
+    hook = RecorderHook()
+    answers = iter(["the button moved into the modal", "n", "click it now", "y"])
+
+    def scripted_input(prompt: str = "") -> str:
+        print(prompt, end="")  # the real input echoes its prompt — captured stdout keeps the dialog shape
+        return next(answers)
+
+    monkeypatch.setattr(builtins, "input", scripted_input)
+    identity = StepIdentity(
+        cache_key="login-flow", step_type="action", normalized_text=normalize_step_text("open the app page")
+    )
+
+    with (
+        cleaned_dialog_screenshots(),
+        configured_test(
+            Config(cache_root=str(tmp_path), interactive=True, generation_prompt="prefer data-test-id"),
+            provider,
+            page,
+        ) as test,
+    ):
+        test.add_hooks(hook)
+        test.step("open the app page")  # three failures exhaust the generation budget into the dialog
+        test.close()
+
+    # the dialog joined the engine-grown history: the first guided request carries the three engine records
+    assert len(provider.generation_requests[3]["attempt_history"]) == 3
+    assert provider.generation_requests[3]["guidance"] == "the button moved into the modal"
+    assert provider.generation_requests[3]["step_text"] == "open the app page"
+    assert provider.generation_requests[3]["step_type"] == "action"
+
+    # the rejected turn appended its record — the same URL on both sides — and the next request carries it grown
+    turn_two_history = provider.generation_requests[4]["attempt_history"]
+    assert len(turn_two_history) == 4
+    assert turn_two_history[3].startswith("rejected by the engineer, not executed\n")
+    assert "url: https://app.example.com -> https://app.example.com" in turn_two_history[3]
+    assert provider.generation_requests[4]["guidance"] == "click it now"
+
+    # the write-back passed the two-dimension gate judging from the step type and the shared history
+    assert len(provider.compliance_requests) == 1
+    assert provider.compliance_requests[0]["code"] == WORKING_CODE
+    assert provider.compliance_requests[0]["step_type"] == "action"
+    assert provider.compliance_requests[0]["attempt_history"] == turn_two_history  # the candidate rides the CODE block
+
+    events = [event for event, _payload in hook.events]
+    assert "on_step_failed" not in events  # the heal never let the terminal failure surface
+    assert events.count("on_cache_saved") == 1  # exactly one write-back
+    assert "on_healed" in events
+    assert events[-1] == "on_step_finished"
+    assert hook.events[-1][1]["outcome"] == "passed"
+    cached = (tmp_path / identity.filename).read_text(encoding="utf-8")
+    assert WORKING_CODE.rstrip("\n") in cached
+    assert "rejected.example.com" not in cached  # the rejected candidate never executed, never persisted
+
+    out = capsys.readouterr().out
+    assert "healed step written to the cache" in out
+
+
+def test_scenario_c_declined_dialog_propagates_the_original_failure(tmp_path: Path, monkeypatch) -> None:
+    """Scenario C declined path: quitting the dialog propagates the original terminal failure unchanged."""
+    step_text = "нажать Войти"
+    failing_code = "def step(page) -> None:\n    raise RuntimeError('element not found')\n"
+    identity = seed_step(tmp_path, step_text, failing_code, cache_key="login-flow")
+    provider = StubProvider(
+        verdict=FailureClassification(
+            category="incurable", explanation="шаг не соответствует реальности", recommendation="переформулируйте шаг"
+        ),
+    )
+    page = FakePage()
+    monkeypatch.setattr(builtins, "input", lambda _prompt="": "quit")
+
+    with (
+        cleaned_dialog_screenshots(),
+        configured_test(Config(cache_root=str(tmp_path), interactive=True), provider, page) as test,
+    ):
+        with pytest.raises(IncurableStepError) as excinfo:
+            test.step(step_text)
+        test.close()
+
+    assert excinfo.value.reason == "шаг не соответствует реальности"  # the original failure, unchanged
+    assert excinfo.value.recommendation == "переформулируйте шаг"
+    rewritten = (tmp_path / identity.filename).read_text(encoding="utf-8")
+    assert failing_code.rstrip("\n") in rewritten  # a declined dialog writes nothing back
+
+
+def test_high_adequacy_finding_blocks_the_write_back_end_to_end(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """A high adequacy finding never reaches the cache through the dialog — the facade-level gate guarantee."""
+    failing_code = "def step(page) -> None:\n    raise RuntimeError('still broken')\n"
+    blocked_code = "def step(page) -> None:\n    page.goto('https://one.example.com')\n"
+    passing_code = "def step(page) -> None:\n    page.goto('https://two.example.com')\n"
+    finding = ComplianceFinding(
+        instruction="open the app page",
+        priority="high",
+        explanation="code only checks an already-achieved state",
+        dimension="adequacy",
+    )
+    provider = StubProvider(
+        answers=[failing_code, failing_code, failing_code, blocked_code, passing_code],
+        verdict=FailureClassification(
+            category="incurable", explanation="the budget ran out", recommendation="reword the step"
+        ),
+        compliance_verdicts=[[finding], []],
+    )
+    page = FakePage()
+    hook = RecorderHook()
+    answers = iter(["look again", "y", "make it act", "y"])
+
+    def scripted_input(prompt: str = "") -> str:
+        print(prompt, end="")
+        return next(answers)
+
+    monkeypatch.setattr(builtins, "input", scripted_input)
+    identity = StepIdentity(
+        cache_key="login-flow", step_type="action", normalized_text=normalize_step_text("open the app page")
+    )
+
+    with (
+        cleaned_dialog_screenshots(),
+        configured_test(
+            Config(cache_root=str(tmp_path), interactive=True, generation_prompt="prefer data-test-id"),
+            provider,
+            page,
+        ) as test,
+    ):
+        test.add_hooks(hook)
+        test.step("open the app page")  # the blocked turn is steered, the acting turn is written back
+        test.close()
+
+    # turn 1 ran green but the gate blocked it — no write-back; the violation text rode the shared history
+    assert len(provider.compliance_requests) == 2
+    assert provider.compliance_requests[0]["step_type"] == "action"
+    assert len(provider.compliance_requests[0]["attempt_history"]) == 3  # the engine records only
+    blocked_record = provider.generation_requests[4]["attempt_history"][3]
+    assert blocked_record.startswith("compliance blocked\n")
+    assert "adequacy violation: open the app page — code only checks an already-achieved state" in blocked_record
+
+    # exactly one write-back — the passing candidate; the blocked one never touched the cache
+    events = [event for event, _payload in hook.events]
+    assert events.count("on_cache_saved") == 1
+    cached = (tmp_path / identity.filename).read_text(encoding="utf-8")
+    assert "two.example.com" in cached
+    assert "one.example.com" not in cached
+    assert events[-1] == "on_step_finished"
+    assert hook.events[-1][1]["outcome"] == "passed"
+
+    out = capsys.readouterr().out
+    assert "compliance violation — not written back: adequacy violation: open the app page" in out
 
 
 def test_classification_instructions_reach_only_classification_requests(tmp_path: Path) -> None:

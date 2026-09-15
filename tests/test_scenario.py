@@ -97,16 +97,15 @@ class RecordingProvider(LLMProvider):
         prompt: str,
         user_instructions: str,
         step_text: str,
+        step_type: str,
         previous_steps: list[str],
         snapshot: str,
         page_url: str | None,
         screenshot: bytes | None,
         cheat_sheet: str,
-        existing_code: str | None,
-        error: str | None,
+        attempt_history: list[str],
         recommendation: str | None,
         guidance: str | None,
-        guidance_history: list[str] | None,
     ) -> str:
         self.generate_calls += 1
         raise AssertionError("provider must not be called: the cached step runs without a generation request")
@@ -127,7 +126,8 @@ class RecordingProvider(LLMProvider):
 #: the scripted hard failure of the compliance gate — the strict-parse message shape
 GATE_FAILURE_MESSAGE = (
     "compliance verdict unparsable — expected a JSON list of findings with "
-    "instruction, priority high|medium|low and explanation; received fragment: not json at all"
+    "instruction, priority high|medium|low, explanation and dimension instruction|adequacy; "
+    "received fragment: not json at all"
 )
 
 
@@ -143,32 +143,30 @@ class GateHardFailingProvider(LLMProvider):
         prompt: str,
         user_instructions: str,
         step_text: str,
+        step_type: str,
         previous_steps: list[str],
         snapshot: str,
         page_url: str | None,
         screenshot: bytes | None,
         cheat_sheet: str,
-        existing_code: str | None,
-        error: str | None,
+        attempt_history: list[str],
         recommendation: str | None,
         guidance: str | None,
-        guidance_history: list[str],
     ) -> str:
         self.generate_calls.append(
             {
                 "prompt": prompt,
                 "user_instructions": user_instructions,
                 "step_text": step_text,
+                "step_type": step_type,
                 "previous_steps": previous_steps,
                 "snapshot": snapshot,
                 "page_url": page_url,
                 "screenshot": screenshot,
                 "cheat_sheet": cheat_sheet,
-                "existing_code": existing_code,
-                "error": error,
+                "attempt_history": attempt_history,
                 "recommendation": recommendation,
                 "guidance": guidance,
-                "guidance_history": guidance_history,
             }
         )
         return CACHED_CODE  # a candidate that executes green on the fake page
@@ -185,19 +183,23 @@ class GateHardFailingProvider(LLMProvider):
     ) -> FailureClassification:
         raise AssertionError("provider must not be called: the gate hard failure precedes any classification")
 
-    def check_instruction_compliance(
+    def check_instruction_compliance(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
         prompt: str,
         user_instructions: str,
         step_text: str,
+        step_type: str,
         code: str,
+        attempt_history: list[str],
     ) -> list[ComplianceFinding]:
         self.compliance_calls.append(
             {
                 "prompt": prompt,
                 "user_instructions": user_instructions,
                 "step_text": step_text,
+                "step_type": step_type,
                 "code": code,
+                "attempt_history": attempt_history,
             }
         )
         raise ComplianceVerdictError(GATE_FAILURE_MESSAGE)
