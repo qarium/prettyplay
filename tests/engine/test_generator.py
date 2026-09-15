@@ -12,8 +12,14 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from prettyplay.cache import RunBudgets, StepCache, StepIdentity
 from prettyplay.config import Config
-from prettyplay.engine import StepGenerator
+from prettyplay.engine import StepAttempt, StepGenerator
 from prettyplay.engine import generator as generator_module  # to verify the CLASSIFICATION_PROMPT move
+from prettyplay.engine.attempts import (
+    OUTCOME_COMPLIANCE_BLOCKED,
+    OUTCOME_EXECUTION_FAILED,
+    OUTCOME_FAILED_CHECK,
+    OUTCOME_ORIGINAL,
+)
 from prettyplay.engine.generator import CHEAT_SHEET, SYSTEM_PROMPT
 from prettyplay.engine.polling import SettleWindow
 from prettyplay.failures import ComplianceVerdictError, IncurableStepError, LLMUnavailableError, ProductDefectError
@@ -22,6 +28,9 @@ from prettyplay.reporting import StepHooks, StepReporter
 
 WORKING_CODE = "def step(page) -> None:\n    page.goto('https://example.com')\n"
 BROKEN_CODE = "def step(page) -> None:\n    page.get_by_role('button', name='Войти').click()\n"
+
+#: a candidate whose execution fails with a RuntimeError raised by the step itself
+BAD_CODE = "def step(page) -> None:\n    raise RuntimeError('boom')\n"
 
 #: a candidate whose check fails — the locator expectation raises AssertionError
 CHECK_CODE = "def step(page) -> None:\n    page.get_by_text('Welcome back').expect_visible()\n"
@@ -148,32 +157,30 @@ class StubProvider:
         prompt: str,
         user_instructions: str = "",
         step_text: str = "",
+        step_type: str = "",
         previous_steps: list[str] | None = None,
         snapshot: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
         cheat_sheet: str = "",
-        existing_code: str | None = None,
-        error: str | None = None,
+        attempt_history: list[str] | None = None,
         recommendation: str | None = None,
         guidance: str | None = None,
-        guidance_history: list[str] | None = None,
     ) -> str:
         self.calls.append(
             {
                 "prompt": prompt,
                 "user_instructions": user_instructions,
                 "step_text": step_text,
+                "step_type": step_type,
                 "previous_steps": previous_steps,
                 "snapshot": snapshot,
                 "page_url": page_url,
                 "screenshot": screenshot,
                 "cheat_sheet": cheat_sheet,
-                "existing_code": existing_code,
-                "error": error,
+                "attempt_history": attempt_history,
                 "recommendation": recommendation,
                 "guidance": guidance,
-                "guidance_history": guidance_history,
             }
         )
         if not self.answers:
@@ -289,44 +296,57 @@ class TestStepGeneratorContract:
         assert [parameter.name for parameter in parameters] == [
             "identity",
             "step_text",
+            "step_type",
             "previous_steps",
             "page",
+            "attempt_history",
             "window",
         ]
 
     def test_regenerate_signature_matches_contract(self) -> None:
         parameters = list(inspect.signature(StepGenerator.regenerate).parameters.values())[1:]
 
+        # existing_code and error are gone — the anchored history takes their place
         assert [parameter.name for parameter in parameters] == [
             "identity",
             "step_text",
+            "step_type",
             "previous_steps",
             "page",
-            "existing_code",
-            "error",
+            "attempt_history",
             "recommendation",
             "window",
         ]
 
-    def test_generate_and_regenerate_accept_window_through_direct_calls(self, tmp_path: Path) -> None:
+    def test_generate_and_regenerate_accept_the_new_inputs_keyword_callable(self, tmp_path: Path) -> None:
         provider = StubProvider([WORKING_CODE, WORKING_CODE])
         fixture = GeneratorFixture(tmp_path, provider)
         page = FakePage()
 
-        generated = fixture.generator.generate(make_identity(), "открыть страницу", [], page, fixture.window)
+        generated = fixture.generator.generate(
+            identity=make_identity(),
+            step_text="открыть страницу",
+            step_type="action",
+            previous_steps=[],
+            page=page,
+            attempt_history=[],
+            window=fixture.window,
+        )
         regenerated = fixture.generator.regenerate(
-            make_identity(),
-            "click Sign in",
-            [],
-            page,
-            existing_code=BROKEN_CODE,
-            error="TimeoutError",
+            identity=make_identity(),
+            step_text="click Sign in",
+            step_type="action",
+            previous_steps=[],
+            page=page,
+            attempt_history=[],
             recommendation="retry with an id locator",
             window=fixture.window,
         )
 
         assert generated.code == WORKING_CODE
         assert regenerated.code == WORKING_CODE
+        assert provider.calls[0]["step_type"] == "action"
+        assert provider.calls[0]["attempt_history"] == []
         assert provider.calls[1]["recommendation"] == "retry with an id locator"
 
     def test_system_prompt_constant_renamed(self) -> None:
@@ -360,16 +380,35 @@ ROT_VERDICT = FailureClassification(
     recommendation="refresh the cache",
 )
 
-#: the standing high finding of the gate tests — the violated instruction and its explanation
-HIGH_FINDING = ComplianceFinding(instruction="Prefer id attributes", priority="high", explanation="locates by text")
+#: the standing high instruction finding of the gate tests — the violated instruction and its explanation
+HIGH_FINDING = ComplianceFinding(
+    instruction="Prefer id attributes", priority="high", explanation="locates by text", dimension="instruction"
+)
 
-#: the fixed violation wording of HIGH_FINDING — the ERROR block of the failed attempt
-VIOLATION_TEXT = "violated instruction: Prefer id attributes — locates by text"
+#: the fixed violation wording of HIGH_FINDING — the attempt record's error field
+VIOLATION_TEXT = "instruction violation: Prefer id attributes — locates by text"
 
 
 def make_identity() -> StepIdentity:
     """Build a step identity for the tests."""
     return StepIdentity(cache_key="login-flow", step_type="action", normalized_text="открыть страницу")
+
+
+def make_anchored_history() -> list[StepAttempt]:
+    """Build an anchored healing history — record 0 carrying the original cached code."""
+    return [
+        StepAttempt(
+            code="def step(page) -> None:\n    page.goto('https://old')\n",
+            error="TimeoutError",
+            outcome=OUTCOME_ORIGINAL,
+        )
+    ]
+
+
+def url_cycle(*urls: str) -> Callable[[], str]:
+    """Script a FakePage URL returning the given values in order, one per read."""
+    values = iter(urls)
+    return lambda: next(values)
 
 
 class TestStepGeneratorLogic:
@@ -381,13 +420,13 @@ class TestStepGeneratorLogic:
         identity = make_identity()
         page = FakePage()
 
-        step = fixture.generator.generate(identity, "открыть страницу", [], page, fixture.window)
+        step = fixture.generator.generate(identity, "открыть страницу", "action", [], page, [], fixture.window)
 
         assert step.code == WORKING_CODE
         assert step.identity == identity
         assert len(provider.calls) == 1
-        assert provider.calls[0]["existing_code"] is None
-        assert provider.calls[0]["error"] is None
+        assert provider.calls[0]["step_type"] == "action"
+        assert provider.calls[0]["attempt_history"] == []  # the first request of a fresh step
         assert fixture.recorder.events[0] == (
             "on_generation_started",
             {"step_text": "открыть страницу", "attempt": 1},
@@ -401,7 +440,7 @@ class TestStepGeneratorLogic:
         fixture = GeneratorFixture(tmp_path, provider)
         page = FakePage()
 
-        fixture.generator.generate(make_identity(), "open the videos page", [], page, fixture.window)
+        fixture.generator.generate(make_identity(), "open the videos page", "action", [], page, [], fixture.window)
 
         request = provider.calls[0]
         assert request["prompt"] == SYSTEM_PROMPT
@@ -416,16 +455,9 @@ class TestStepGeneratorLogic:
         fixture = GeneratorFixture(tmp_path, provider)
         page = FakePage()
 
-        fixture.generator.generate(make_identity(), "open the page", [], page, fixture.window)
+        fixture.generator.generate(make_identity(), "open the page", "action", [], page, [], fixture.window)
         fixture.generator.regenerate(
-            make_identity(),
-            "click Sign in",
-            [],
-            page,
-            existing_code=BROKEN_CODE,
-            error="TimeoutError",
-            recommendation="retry with an id locator",
-            window=fixture.window,
+            make_identity(), "click Sign in", "action", [], page, [], "retry with an id locator", fixture.window
         )
 
         assert provider.calls[0]["page_url"] is None  # the generation request — steering-only input
@@ -441,7 +473,7 @@ class TestStepGeneratorLogic:
         generator = StepGenerator(config, provider, StepCache(config, None, reporter), RunBudgets(3, 2), reporter)
         page = FakePage()
 
-        generator.generate(make_identity(), "открыть страницу", [], page, SettleWindow(None, 0.5))
+        generator.generate(make_identity(), "открыть страницу", "action", [], page, [], SettleWindow(None, 0.5))
 
         assert provider.calls[0]["screenshot"] == b"png"
 
@@ -453,37 +485,33 @@ class TestStepGeneratorLogic:
         generator = StepGenerator(config, provider, StepCache(config, None, reporter), RunBudgets(3, 2), reporter)
         page = FakePage()
 
-        generator.generate(make_identity(), "click Sign in", [], page, SettleWindow(None, 0.5))
+        generator.generate(make_identity(), "click Sign in", "action", [], page, [], SettleWindow(None, 0.5))
 
         captured = provider.calls[0]
         assert captured["user_instructions"] == "prefer data-test-id"
         assert captured["prompt"] == SYSTEM_PROMPT
         assert 'page.get_by_test_id("submit")' in captured["cheat_sheet"]
 
-    def test_regenerate_carries_user_instructions_with_code_and_error(self, tmp_path: Path) -> None:
+    def test_regenerate_carries_user_instructions_with_recommendation_and_anchored_history(
+        self, tmp_path: Path
+    ) -> None:
         provider = StubProvider([WORKING_CODE])
         recorder = RecorderHook()
         reporter = StepReporter(hooks=[recorder])
         config = Config(cache_root=str(tmp_path), generation_prompt="prefer data-test-id")
         generator = StepGenerator(config, provider, StepCache(config, None, reporter), RunBudgets(1, 1), reporter)
         page = FakePage()
+        history = make_anchored_history()
 
         generator.regenerate(
-            make_identity(),
-            "click Sign in",
-            [],
-            page,
-            existing_code="def step(page) -> None:\n    page.goto('https://old')\n",
-            error="TimeoutError",
-            recommendation="retry with an id locator",
-            window=SettleWindow(None, 0.5),
+            make_identity(), "click Sign in", "action", [], page, history, "retry with an id locator",
+            SettleWindow(None, 0.5),
         )
 
         captured = provider.calls[0]
         # instructions travel with the regeneration-only fields through the one shared call site
         assert captured["user_instructions"] == "prefer data-test-id"
-        assert captured["existing_code"] == "def step(page) -> None:\n    page.goto('https://old')\n"
-        assert captured["error"] == "TimeoutError"
+        assert captured["attempt_history"] == [record.render() for record in history]  # the anchored record rides it
         assert captured["recommendation"] == "retry with an id locator"
         assert captured["prompt"] == SYSTEM_PROMPT
 
@@ -492,42 +520,48 @@ class TestStepGeneratorLogic:
         fixture = GeneratorFixture(tmp_path, provider)
         page = FakePage()
 
-        fixture.generator.generate(make_identity(), "click Sign in", [], page, fixture.window)
+        fixture.generator.generate(make_identity(), "click Sign in", "action", [], page, [], fixture.window)
 
         # the engine passes the value unconditionally; an empty string means "no block" in the provider helper
         assert provider.calls[0]["user_instructions"] == ""
 
-    def test_generate_retries_with_existing_code_then_succeeds(self, tmp_path: Path) -> None:
+    def test_generate_retries_with_grown_history_then_succeeds(self, tmp_path: Path) -> None:
         provider = StubProvider([BROKEN_CODE, WORKING_CODE], verdict=ROT_VERDICT)
         fixture = GeneratorFixture(tmp_path, provider)
         page = TimeoutPage()
+        history: list[StepAttempt] = []
 
-        step = fixture.generator.generate(make_identity(), "нажать Войти", [], page, fixture.window)
+        step = fixture.generator.generate(make_identity(), "нажать Войти", "action", [], page, history, fixture.window)
 
         assert step.code == WORKING_CODE
         assert len(provider.calls) == 2
-        assert provider.calls[1]["existing_code"] == BROKEN_CODE
-        assert "navigation timed out" in provider.calls[1]["error"]
+        assert provider.calls[1]["attempt_history"] == [history[0].render()]  # the failed attempt rides the retry
+        assert history[0].outcome == OUTCOME_EXECUTION_FAILED
+        assert history[0].code == BROKEN_CODE
+        assert "navigation timed out" in history[0].error
         attempts = [
             payload["attempt"] for event, payload in fixture.recorder.events if event == "on_generation_started"
         ]
         assert attempts == [1, 2]
 
     def test_step_code_error_fails_the_generation_attempt(self, tmp_path: Path) -> None:
-        """A NameError inside the step code fails the attempt and drives the next request's ERROR block."""
+        """A NameError inside the step code fails the attempt and drives the retry's HISTORY record."""
         provider = StubProvider([NAMEERROR_CODE, WORKING_CODE])
         fixture = GeneratorFixture(tmp_path, provider)
         identity = make_identity()
         page = FakePage()
+        history: list[StepAttempt] = []
 
-        step = fixture.generator.generate(identity, "open the page", [], page, fixture.window)
+        step = fixture.generator.generate(identity, "open the page", "action", [], page, history, fixture.window)
 
         assert step.code == WORKING_CODE
         assert len(provider.calls) == 2  # the failing candidate + the retry it funded
         retry = provider.calls[1]
-        assert retry["existing_code"] == NAMEERROR_CODE
-        assert "NameError" in retry["error"]
-        assert "missing_symbol" in retry["error"]
+        assert retry["attempt_history"] == [history[0].render()]
+        assert history[0].outcome == OUTCOME_EXECUTION_FAILED
+        assert history[0].code == NAMEERROR_CODE
+        assert "NameError" in history[0].error
+        assert "missing_symbol" in history[0].error
         attempts = [
             payload["attempt"] for event, payload in fixture.recorder.events if event == "on_generation_started"
         ]
@@ -540,7 +574,7 @@ class TestStepGeneratorLogic:
         page = TimeoutPage()
 
         with pytest.raises(IncurableStepError) as excinfo:
-            fixture.generator.generate(make_identity(), "невозможный шаг", [], page, fixture.window)
+            fixture.generator.generate(make_identity(), "невозможный шаг", "action", [], page, [], fixture.window)
 
         assert excinfo.value.reason == "generation attempt budget exhausted"  # repeat failure keeps the entry reason
         assert excinfo.value.error == "TimeoutError: navigation timed out"  # the funded candidate, full and typed
@@ -561,7 +595,7 @@ class TestStepGeneratorLogic:
         assert fixture.budgets.try_generation(identity) is False  # the budget is already spent before the call
 
         with pytest.raises(IncurableStepError) as excinfo:
-            fixture.generator.generate(identity, "невозможный шаг", [], page, fixture.window)
+            fixture.generator.generate(identity, "невозможный шаг", "action", [], page, [], fixture.window)
 
         assert excinfo.value.reason == "generation attempt budget exhausted"
         assert excinfo.value.code == ""  # no candidate ever existed
@@ -574,7 +608,7 @@ class TestStepGeneratorLogic:
         page = FakePage()
 
         with pytest.raises(LLMUnavailableError):
-            fixture.generator.generate(identity, "шаг", [], page, fixture.window)
+            fixture.generator.generate(identity, "шаг", "action", [], page, [], fixture.window)
 
         assert provider.calls == 1  # no retries on an infrastructure failure
         assert fixture.budgets.try_generation(identity) is False  # exactly 1 attempt spent
@@ -584,21 +618,14 @@ class TestStepGeneratorLogic:
         fixture = GeneratorFixture(tmp_path, provider, limits=(1, 1))
         identity = make_identity()
         page = FakePage()
+        history = make_anchored_history()
 
         step = fixture.generator.regenerate(
-            identity,
-            "открыть страницу",
-            [],
-            page,
-            existing_code="def step(page) -> None:\n    page.goto('https://old')\n",
-            error="assertion failed",
-            recommendation="retry with an id locator",
-            window=fixture.window,
+            identity, "открыть страницу", "action", [], page, history, "retry with an id locator", fixture.window
         )
 
         assert step.code == WORKING_CODE
-        assert provider.calls[0]["existing_code"] == "def step(page) -> None:\n    page.goto('https://old')\n"
-        assert provider.calls[0]["error"] == "assertion failed"
+        assert provider.calls[0]["attempt_history"] == [history[0].render()]  # record 0 anchors the request
         assert provider.calls[0]["recommendation"] == "retry with an id locator"
         # the healing budget is spent, the generation budget untouched
         assert fixture.budgets.try_healing(identity) is False
@@ -609,37 +636,36 @@ class TestStepGeneratorLogic:
         fixture = GeneratorFixture(tmp_path, provider, limits=(3, 1))
         identity = make_identity()
         page = TimeoutPage()
+        history = make_anchored_history()
 
         with pytest.raises(IncurableStepError) as excinfo:
             fixture.generator.regenerate(
-                identity,
-                "невозможный шаг",
-                [],
-                page,
-                existing_code=BROKEN_CODE,
-                error="assertion failed",  # the original cache error — reason must carry the candidate's last error
-                recommendation="retry with an id locator",
-                window=fixture.window,
+                identity, "невозможный шаг", "action", [], page, history, "retry with an id locator", fixture.window
             )
 
         assert excinfo.value.reason == "healing attempt budget exhausted"
-        assert excinfo.value.error == "TimeoutError: navigation timed out"  # the last candidate of the pool
-        assert excinfo.value.code == BROKEN_CODE  # the last candidate of the pool
+        assert excinfo.value.error == "TimeoutError: navigation timed out"  # the last record of the history
+        assert excinfo.value.code == BROKEN_CODE  # the last record of the history, not the anchored original
         assert excinfo.value.verdict is None  # the healer attaches the verdict — no second LLM request
         assert excinfo.value.recommendation == "reword the step or refresh the cache"  # fallback without a verdict
         assert len(provider.calls) == 1  # the healing budget (1) is exhausted after the first attempt
         assert provider.classify_failure_calls == []  # the healing pool does not classify exhaustion
+        assert len(history) == 2  # record 0 + the failed healing attempt
 
     def test_messageless_candidate_failure_is_retried_not_crashed(self, tmp_path: Path) -> None:
         provider = StubProvider([WORKING_CODE, WORKING_CODE], verdict=ROT_VERDICT)
         fixture = GeneratorFixture(tmp_path, provider)
         page = FakePage(assertion_message="")  # message-less assert: str(exc) == ''
+        history: list[StepAttempt] = []
 
-        first = fixture.generator.generate(make_identity(), "проверить страницу", [], page, fixture.window)
+        first = fixture.generator.generate(
+            make_identity(), "проверить страницу", "action", [], page, history, fixture.window
+        )
 
         assert first.code == WORKING_CODE
         assert len(provider.calls) == 1  # even a message-less AssertionError — stop without retries
-        assert provider.calls[0]["error"] is None
+        assert provider.calls[0]["attempt_history"] == []
+        assert history == []  # the green attempt records nothing
 
     def test_messageless_candidate_check_keeps_plain_reason(self, tmp_path: Path) -> None:
         provider = StubProvider(
@@ -650,7 +676,7 @@ class TestStepGeneratorLogic:
         page = FakePage(assertion_message="")  # message-less assert: str(exc) == ''
 
         with pytest.raises(IncurableStepError) as excinfo:
-            fixture.generator.generate(make_identity(), "невозможный шаг", [], page, fixture.window)
+            fixture.generator.generate(make_identity(), "невозможный шаг", "action", [], page, [], fixture.window)
 
         # an empty failure description leaves the em-dash reason without an error tail
         assert excinfo.value.reason == "candidate check failed — "
@@ -661,7 +687,7 @@ class TestStepGeneratorLogic:
         identity = make_identity()
         page = FakePage()
 
-        fixture.generator.generate(identity, "открыть страницу", [], page, fixture.window)
+        fixture.generator.generate(identity, "открыть страницу", "action", [], page, [], fixture.window)
 
         loaded = fixture.cache.load(identity)
         assert loaded is not None
@@ -675,7 +701,9 @@ class TestStepGeneratorLogic:
         identity = make_identity()
         page = FakePage()
 
-        step = fixture.generator.generate(identity, "the «Welcome back» message appears", [], page, fixture.window)
+        step = fixture.generator.generate(
+            identity, "the «Welcome back» message appears", "action", [], page, [], fixture.window
+        )
 
         assert step.code == NARROWING_CODE
         assert len(provider.calls) == 1  # the first candidate is green — zero retries
@@ -690,7 +718,7 @@ class TestStepGeneratorLogic:
         fixture = GeneratorFixture(tmp_path, provider)
         page = FakePage()
 
-        step = fixture.generator.generate(make_identity(), "открыть страницу", [], page, fixture.window)
+        step = fixture.generator.generate(make_identity(), "открыть страницу", "action", [], page, [], fixture.window)
 
         assert step.created_at == date.today().isoformat()  # noqa: DTZ011 — calendar date comparison
 
@@ -707,7 +735,9 @@ class TestStepGeneratorLogic:
         page = FakePage(assertion_message="banner missing")
 
         with pytest.raises(ProductDefectError) as excinfo:
-            fixture.generator.generate(make_identity(), "see the welcome banner", [], page, fixture.window)
+            fixture.generator.generate(
+                make_identity(), "see the welcome banner", "action", [], page, [], fixture.window
+            )
 
         assert excinfo.value.verdict is not None
         assert excinfo.value.verdict.category == "product_defect"
@@ -731,7 +761,9 @@ class TestStepGeneratorLogic:
         page = FakePage(assertion_message="banner missing")
 
         with pytest.raises(IncurableStepError) as excinfo:
-            fixture.generator.generate(make_identity(), "see the welcome banner", [], page, fixture.window)
+            fixture.generator.generate(
+                make_identity(), "see the welcome banner", "action", [], page, [], fixture.window
+            )
 
         assert excinfo.value.reason.startswith("candidate check failed")
         assert excinfo.value.verdict is not None
@@ -753,7 +785,7 @@ class TestStepGeneratorLogic:
         page = TimeoutPage()
 
         with pytest.raises(IncurableStepError) as excinfo:
-            fixture.generator.generate(make_identity(), "невозможный шаг", [], page, fixture.window)
+            fixture.generator.generate(make_identity(), "невозможный шаг", "action", [], page, [], fixture.window)
 
         assert excinfo.value.reason.startswith("generation attempt budget exhausted")
         assert excinfo.value.error == "TimeoutError: navigation timed out"
@@ -773,7 +805,9 @@ class TestStepGeneratorLogic:
         page = FakePage(assertion_message="banner missing")
 
         with caplog.at_level(logging.WARNING, logger="prettyplay"), pytest.raises(IncurableStepError) as excinfo:
-            fixture.generator.generate(make_identity(), "see the welcome banner", [], page, fixture.window)
+            fixture.generator.generate(
+                make_identity(), "see the welcome banner", "action", [], page, [], fixture.window
+            )
 
         assert excinfo.value.verdict is None
         assert excinfo.value.reason.startswith("candidate check failed")
@@ -789,7 +823,7 @@ class TestStepGeneratorLogic:
         page = TimeoutPage()
 
         with caplog.at_level(logging.WARNING, logger="prettyplay"), pytest.raises(IncurableStepError) as excinfo:
-            fixture.generator.generate(make_identity(), "impossible step", [], page, fixture.window)
+            fixture.generator.generate(make_identity(), "impossible step", "action", [], page, [], fixture.window)
 
         assert excinfo.value.reason.startswith("generation attempt budget exhausted")
         assert excinfo.value.error == "TimeoutError: navigation timed out"  # error field even without a verdict
@@ -804,12 +838,16 @@ class TestStepGeneratorLogic:
         provider = StubProvider([BROKEN_CODE, WORKING_CODE], verdict=ROT_VERDICT)
         fixture = GeneratorFixture(tmp_path, provider)
         page = PlaywrightTimeoutPage()
+        history: list[StepAttempt] = []
 
-        step = fixture.generator.generate(make_identity(), "press the sign in button", [], page, fixture.window)
+        step = fixture.generator.generate(
+            make_identity(), "press the sign in button", "action", [], page, history, fixture.window
+        )
 
         assert step.code == WORKING_CODE
         assert len(provider.calls) == 2  # a locator timeout spends an attempt and retries, no check-stop
-        assert provider.calls[1]["existing_code"] == BROKEN_CODE
+        assert provider.calls[1]["attempt_history"] == [history[0].render()]  # the timed-out attempt rides the retry
+        assert history[0].outcome == OUTCOME_EXECUTION_FAILED  # a locator timeout is a candidate failure, not a check
         assert provider.classify_failure_calls == []
 
     def test_generate_failed_check_rot_grants_one_funded_regeneration(self, tmp_path: Path) -> None:
@@ -823,18 +861,20 @@ class TestStepGeneratorLogic:
         )
         fixture = GeneratorFixture(tmp_path, provider)  # RunBudgets(3, 2)
         page = FakePage(assertion_message="button is hidden")
+        history: list[StepAttempt] = []
 
-        step = fixture.generator.generate(make_identity(), "click Pay", [], page, fixture.window)
+        step = fixture.generator.generate(make_identity(), "click Pay", "action", [], page, history, fixture.window)
 
         assert step.code == WORKING_CODE
         assert len(provider.calls) == 2  # the failed candidate + the one funded regeneration
         second = provider.calls[1]
         assert second["recommendation"] == "retry with an id locator"
-        assert second["existing_code"] == CHECK_CODE  # the failed candidate
-        assert second["error"] == "button is hidden"
+        assert second["attempt_history"] == [history[0].render()]  # the failed check rides the funded request
+        assert history[0].outcome == OUTCOME_FAILED_CHECK  # the failed candidate
+        assert history[0].code == CHECK_CODE
+        assert history[0].error == "button is hidden"
         assert second["guidance"] is None  # engine requests never carry steering guidance
         assert second["page_url"] is None  # the funded regeneration shares the same _request call shape
-        assert second["guidance_history"] == []
         attempts = [event for event in fixture.recorder.events if event[0] == "on_generation_started"]
         assert attempts == [
             ("on_generation_started", {"step_text": "click Pay", "attempt": 1}),
@@ -856,15 +896,18 @@ class TestStepGeneratorLogic:
         )
         fixture = GeneratorFixture(tmp_path, provider)  # RunBudgets(3, 2)
         page = FakePage(assertion_message="button is hidden")
+        history: list[StepAttempt] = []
 
-        step = fixture.generator.generate(make_identity(), "click Pay", [], page, fixture.window)
+        step = fixture.generator.generate(make_identity(), "click Pay", "action", [], page, history, fixture.window)
 
         assert step.code == WORKING_CODE
         assert len(provider.calls) == 2  # the failed candidate + the one funded regeneration
         second = provider.calls[1]
         assert second["recommendation"] == "use a precise role-and-name locator"
-        assert second["existing_code"] == CHECK_CODE
-        assert second["error"] == "button is hidden"
+        assert second["attempt_history"] == [history[0].render()]  # the failed check rides the funded request
+        assert history[0].outcome == OUTCOME_FAILED_CHECK
+        assert history[0].code == CHECK_CODE
+        assert history[0].error == "button is hidden"
 
     def test_exhaustion_rot_verdict_grants_extra_regeneration_and_repeat_failure_is_terminal(
         self, tmp_path: Path
@@ -877,7 +920,7 @@ class TestStepGeneratorLogic:
         page = TypeErrorPage()
 
         with pytest.raises(IncurableStepError) as excinfo:
-            fixture.generator.generate(make_identity(), "click Pay", [], page, fixture.window)
+            fixture.generator.generate(make_identity(), "click Pay", "action", [], page, [], fixture.window)
 
         assert excinfo.value.reason == "generation attempt budget exhausted"  # the exhausted generation pool
         assert excinfo.value.verdict is not None
@@ -903,7 +946,7 @@ class TestStepGeneratorLogic:
         page = TypeErrorPage()
 
         with pytest.raises(IncurableStepError) as excinfo:
-            fixture.generator.generate(make_identity(), "click Pay", [], page, fixture.window)
+            fixture.generator.generate(make_identity(), "click Pay", "action", [], page, [], fixture.window)
 
         assert excinfo.value.reason == "generation attempt budget exhausted"
         assert excinfo.value.verdict is not None
@@ -928,7 +971,7 @@ class TestStepGeneratorLogic:
         page = FakePage(assertion_message="button is hidden")
 
         with caplog.at_level(logging.WARNING, logger="prettyplay"), pytest.raises(IncurableStepError) as excinfo:
-            fixture.generator.generate(make_identity(), "click Pay", [], page, fixture.window)
+            fixture.generator.generate(make_identity(), "click Pay", "action", [], page, [], fixture.window)
 
         assert excinfo.value.reason == "candidate check failed — button is hidden"
         assert excinfo.value.verdict is None  # the quiet skip — never an infrastructure failure
@@ -948,7 +991,7 @@ class TestStepGeneratorLogic:
         page = FakePage(assertion_message="button is hidden")
 
         with pytest.raises(IncurableStepError) as excinfo:
-            fixture.generator.generate(make_identity(), "click Pay", [], page, fixture.window)
+            fixture.generator.generate(make_identity(), "click Pay", "action", [], page, [], fixture.window)
 
         assert excinfo.value.reason == "healing attempt budget exhausted"
         assert excinfo.value.verdict is not None
@@ -970,7 +1013,7 @@ class TestStepGeneratorLogic:
         page = FakePage(assertion_message="button is hidden")
 
         with pytest.raises(IncurableStepError) as excinfo:
-            fixture.generator.generate(make_identity(), "click Pay", [], page, fixture.window)
+            fixture.generator.generate(make_identity(), "click Pay", "action", [], page, [], fixture.window)
 
         assert excinfo.value.reason == "candidate check failed — button is hidden"  # the repeat names the check
         assert excinfo.value.verdict is not None
@@ -996,7 +1039,7 @@ class TestStepGeneratorLogic:
         page = FakePage(assertion_message="button is hidden")
 
         with pytest.raises(ProductDefectError) as excinfo:
-            fixture.generator.generate(make_identity(), "click Pay", [], page, fixture.window)
+            fixture.generator.generate(make_identity(), "click Pay", "action", [], page, [], fixture.window)
 
         assert excinfo.value.verdict is not None
         assert excinfo.value.verdict.category == "product_defect"  # the final verdict decides the kind
@@ -1021,7 +1064,7 @@ class TestStepGeneratorLogic:
         page = TypeErrorPage(assertion_message="button is hidden")
 
         with pytest.raises(IncurableStepError) as excinfo:
-            fixture.generator.generate(make_identity(), "click Pay", [], page, fixture.window)
+            fixture.generator.generate(make_identity(), "click Pay", "action", [], page, [], fixture.window)
 
         # not "candidate check failed"; the first-line contract strips the colon of the embedded text
         assert excinfo.value.reason == "candidate failed — TypeError  bad code"
@@ -1043,7 +1086,7 @@ class TestStepGeneratorLogic:
         page = FakePage(assertion_message="button is hidden")
 
         with pytest.raises(LLMUnavailableError) as excinfo:
-            fixture.generator.generate(make_identity(), "click Pay", [], page, fixture.window)
+            fixture.generator.generate(make_identity(), "click Pay", "action", [], page, [], fixture.window)
 
         assert excinfo.value is outage  # the identical object — never swallowed into a terminal kind
         assert len(provider.calls) == 2  # the failed candidate + the funded request that died
@@ -1060,7 +1103,9 @@ class TestStepGeneratorLogic:
         page = TimeoutPage()
 
         with pytest.raises(ProductDefectError) as excinfo:
-            fixture.generator.generate(make_identity(), "see the welcome banner", [], page, fixture.window)
+            fixture.generator.generate(
+                make_identity(), "see the welcome banner", "action", [], page, [], fixture.window
+            )
 
         assert excinfo.value.verdict is not None
         assert excinfo.value.verdict.category == "product_defect"
@@ -1077,7 +1122,7 @@ class TestStepGeneratorLogic:
         page = TimeoutPage()
 
         with pytest.raises(IncurableStepError) as excinfo:
-            fixture.generator.generate(make_identity(), "click Pay", [], page, fixture.window)
+            fixture.generator.generate(make_identity(), "click Pay", "action", [], page, [], fixture.window)
 
         assert excinfo.value.reason == "healing attempt budget exhausted"  # the exhaustion entry, refused funding
         assert excinfo.value.verdict is not None
@@ -1095,7 +1140,7 @@ class TestStepGeneratorLogic:
         identity = make_identity()
         page = TimeoutPage()
 
-        step = fixture.generator.generate(identity, "click Pay", [], page, fixture.window)
+        step = fixture.generator.generate(identity, "click Pay", "action", [], page, [], fixture.window)
 
         assert step.code == WORKING_CODE  # the exhausted pool was saved by the funded regeneration
         assert step.identity == identity
@@ -1118,7 +1163,9 @@ class TestStepGeneratorLogic:
         page = FlakyPlaywrightPage(failures=2)
 
         with caplog.at_level(logging.INFO, logger="prettyplay"):
-            step = fixture.generator.generate(identity, "open the page", [], page, SettleWindow(10.0, 0))
+            step = fixture.generator.generate(
+                identity, "open the page", "action", [], page, [], SettleWindow(10.0, 0)
+            )
 
         assert step.code == WORKING_CODE
         started = [event for event in fixture.recorder.events if event[0] == "on_generation_started"]
@@ -1139,7 +1186,7 @@ class TestStepGeneratorLogic:
         assert fixture.budgets.try_generation(identity) is False
 
         with pytest.raises(IncurableStepError) as excinfo:
-            fixture.generator.generate(identity, "невозможный шаг", [], page, fixture.window)
+            fixture.generator.generate(identity, "невозможный шаг", "action", [], page, [], fixture.window)
 
         assert excinfo.value.reason == "generation attempt budget exhausted"
         assert excinfo.value.verdict is None  # nothing to classify
@@ -1162,7 +1209,7 @@ class TestStepGeneratorLogic:
 
         with pytest.raises(ProductDefectError) as defect:
             defect_fixture.generator.generate(
-                make_identity(), "see the welcome banner", [], defect_page, defect_fixture.window
+                make_identity(), "see the welcome banner", "action", [], defect_page, [], defect_fixture.window
             )
 
         assert defect.value.error == long_message  # full, no prefix, no truncation at 200 chars
@@ -1177,15 +1224,153 @@ class TestStepGeneratorLogic:
 
         with pytest.raises(IncurableStepError) as exhausted:
             exhausted_fixture.generator.generate(
-                make_identity(), "невозможный шаг", [], timeout_page, exhausted_fixture.window
+                make_identity(), "невозможный шаг", "action", [], timeout_page, [], exhausted_fixture.window
             )
 
         assert exhausted.value.error == "TimeoutError: navigation timed out"  # the last candidate full text
         assert exhausted.value.reason == "generation attempt budget exhausted"  # no colon, no embedded error
 
 
+class TestStepGeneratorAttemptHistory:
+    """Logic tests: the per-step attempt history growth, URL brackets and honest inputs."""
+
+    def test_generate_appends_execution_failed_record_and_retries_with_grown_history(self, tmp_path: Path) -> None:
+        provider = StubProvider([BAD_CODE, WORKING_CODE], compliance_verdicts=[[]])
+        fixture = GeneratorFixture(tmp_path, provider, generation_prompt="Prefer id attributes")
+        page = FakePage(
+            url=url_cycle("https://a.example", "https://b.example", "https://c.example", "https://d.example")
+        )
+        history: list[StepAttempt] = []
+
+        step = fixture.generator.generate(
+            make_identity(), "open the videos page", "action", [], page, history, fixture.window
+        )
+
+        assert step.code == WORKING_CODE
+        assert provider.calls[0]["attempt_history"] == []  # the first request of a fresh step
+        assert provider.calls[1]["attempt_history"] == [history[0].render()]  # the failed attempt rides the retry
+        assert history[0].outcome == OUTCOME_EXECUTION_FAILED
+        assert history[0].error == "RuntimeError: boom"
+        assert history[0].code == BAD_CODE
+        assert history[0].url_before == "https://a.example"  # the URL pair brackets the whole attempt
+        assert history[0].url_after == "https://b.example"
+        assert len(history) == 1  # the green attempt never records
+
+    def test_generate_appends_compliance_blocked_record_on_high_adequacy_finding(self, tmp_path: Path) -> None:
+        adequacy = ComplianceFinding(
+            instruction="click the «Sign in» button",
+            priority="high",
+            explanation="code only checks an already-achieved state",
+            dimension="adequacy",
+        )
+        provider = StubProvider([CHECK_CODE, WORKING_CODE], compliance_verdicts=[[adequacy], []])
+        fixture = GeneratorFixture(tmp_path, provider, generation_prompt="Prefer id attributes")
+        page = FakePage()
+        history: list[StepAttempt] = []
+
+        step = fixture.generator.generate(
+            make_identity(), "click the «Sign in» button", "action", [], page, history, fixture.window
+        )
+
+        assert step.code == WORKING_CODE
+        assert history[0].outcome == OUTCOME_COMPLIANCE_BLOCKED
+        assert history[0].error.startswith("adequacy violation: click the «Sign in» button")
+        assert provider.calls[1]["attempt_history"] == [history[0].render()]  # the retry sees the blocked attempt
+
+    def test_regenerate_never_loses_record_zero_through_retries(self, tmp_path: Path) -> None:
+        provider = StubProvider([BAD_CODE, WORKING_CODE], compliance_verdicts=[[]])
+        fixture = GeneratorFixture(tmp_path, provider, generation_prompt="Prefer id attributes")
+        page = FakePage()
+        cached_code = "def step(page) -> None:\n    page.goto('https://old')\n"
+        history = [StepAttempt(code=cached_code, error="old rot", outcome=OUTCOME_ORIGINAL)]
+
+        step = fixture.generator.regenerate(
+            make_identity(), "click the «Sign in» button", "action", [], page, history, "use role locators",
+            fixture.window,
+        )
+
+        assert step.code == WORKING_CODE
+        assert history[0].code == cached_code  # record 0 stays untouched at index 0 through every retry
+        assert history[0].outcome == OUTCOME_ORIGINAL
+        assert provider.calls[0]["attempt_history"] == [history[0].render()]
+        assert provider.calls[1]["attempt_history"] == [history[0].render(), history[1].render()]
+        assert history[1].outcome == OUTCOME_EXECUTION_FAILED  # the failed regeneration appended after record 0
+
+    def test_url_read_failure_degrades_to_empty_string_and_attempt_proceeds(self, tmp_path: Path) -> None:
+        provider = StubProvider([WORKING_CODE], compliance_verdicts=[[]])
+        fixture = GeneratorFixture(tmp_path, provider, generation_prompt="Prefer id attributes")
+        page = FakePage(url=RuntimeError("page crashed"))  # a dead page — every URL read fails
+        history: list[StepAttempt] = []
+
+        step = fixture.generator.generate(make_identity(), "open the page", "action", [], page, history, fixture.window)
+
+        assert step.code == WORKING_CODE  # the failed reads never kill the attempt
+        assert history == []  # the green attempt records nothing; the failed reads never surface
+
+    def test_generation_exhaustion_with_standing_adequacy_finding_names_the_step_fragment(
+        self, tmp_path: Path
+    ) -> None:
+        adequacy = ComplianceFinding(
+            instruction="click the «Sign in» button",
+            priority="high",
+            explanation="code only checks an already-achieved state",
+            dimension="adequacy",
+        )
+        provider = StubProvider([WORKING_CODE], compliance_verdicts=[[adequacy]])
+        fixture = GeneratorFixture(tmp_path, provider, limits=(1, 0), generation_prompt="Prefer id attributes")
+        page = FakePage()
+
+        with pytest.raises(IncurableStepError) as excinfo:
+            fixture.generator.generate(
+                make_identity(), "click the «Sign in» button", "action", [], page, [], fixture.window
+            )
+
+        assert excinfo.value.verdict is not None
+        assert excinfo.value.verdict.category == "incurable"  # built from the finding — no classification call
+        assert (
+            excinfo.value.verdict.explanation
+            == "click the «Sign in» button — code only checks an already-achieved state"
+        )
+        assert excinfo.value.verdict.recommendation.startswith("satisfy the finding in the step code:")
+        assert "generation attempt budget exhausted" in excinfo.value.reason
+        assert ":" not in excinfo.value.reason  # the first-line contract holds — the reason names the fragment
+        assert excinfo.value.error.startswith("adequacy violation:")  # the violation text rides the error field
+        assert provider.classify_failure_calls == []  # zero classifications on the standing branch
+
+    def test_regenerate_exhaustion_derives_terminal_facts_from_last_record(self, tmp_path: Path) -> None:
+        provider = StubProvider([BAD_CODE])
+        fixture = GeneratorFixture(tmp_path, provider, limits=(3, 1))  # exactly one healing attempt
+        page = FakePage()
+        cached_code = "def step(page) -> None:\n    page.goto('https://old')\n"
+        history = [
+            StepAttempt(
+                code=cached_code,
+                error="old rot",
+                outcome=OUTCOME_ORIGINAL,
+                url_before="https://a.example",
+                url_after="https://b.example",
+            )
+        ]
+
+        with pytest.raises(IncurableStepError) as excinfo:
+            fixture.generator.regenerate(
+                make_identity(), "click the «Sign in» button", "action", [], page, history, "use role locators",
+                fixture.window,
+            )
+
+        assert excinfo.value.reason == "healing attempt budget exhausted"
+        assert excinfo.value.code == BAD_CODE  # the last record's code — not the anchored original
+        assert excinfo.value.error == "RuntimeError: boom"  # the last record's error
+        assert excinfo.value.verdict is None  # the healer attaches the entry verdict — none built inside the loop
+        assert len(history) == 2
+        assert history[0].code == cached_code  # record 0 stays intact through the failed healing
+        assert history[0].outcome == OUTCOME_ORIGINAL
+        assert history[1].code == BAD_CODE
+        assert history[1].outcome == OUTCOME_EXECUTION_FAILED
+
+
 class TestStepGeneratorComplianceGate:
-    """Logic tests: the instruction compliance gate on every caching path of the generator."""
+    """Logic tests: the two-dimension compliance gate on every caching path of the generator."""
 
     def test_generate_gates_candidate_and_stores_on_compliant(self, tmp_path: Path) -> None:
         provider = StubProvider([WORKING_CODE])  # the default compliance verdict is [] — compliant
@@ -1193,13 +1378,15 @@ class TestStepGeneratorComplianceGate:
         identity = make_identity()
         page = FakePage()
 
-        step = fixture.generator.generate(identity, "open the page", [], page, fixture.window)
+        step = fixture.generator.generate(identity, "open the page", "action", [], page, [], fixture.window)
 
         assert step.code == WORKING_CODE
         assert fixture.cache.load(identity) is not None  # the cache file exists
         assert len(provider.calls) == 1  # one generation call
         assert len(provider.compliance_calls) == 1  # one compliance call
         assert provider.compliance_calls[0]["code"] == WORKING_CODE  # the green candidate is the gated one
+        assert provider.compliance_calls[0]["step_type"] == "action"  # the honest gate inputs
+        assert provider.compliance_calls[0]["attempt_history"] == []  # a green first attempt records nothing yet
 
     def test_generate_high_finding_fails_attempt_and_retry_carries_violation(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
@@ -1211,14 +1398,16 @@ class TestStepGeneratorComplianceGate:
         fixture = GeneratorFixture(tmp_path, provider, generation_prompt="Prefer id attributes")
         identity = make_identity()
         page = FakePage()
+        history: list[StepAttempt] = []
 
         with caplog.at_level(logging.WARNING, logger="prettyplay"):
-            step = fixture.generator.generate(identity, "click Sign in", [], page, fixture.window)
+            step = fixture.generator.generate(identity, "click Sign in", "action", [], page, history, fixture.window)
 
         assert step.code == WORKING_CODE
         second = provider.calls[1]
-        assert second["error"] == VIOLATION_TEXT  # the retry targets the violation
-        assert second["existing_code"] == CHECK_CODE  # the violating candidate rides the request
+        assert second["attempt_history"] == [history[0].render()]  # the blocked attempt rides the retry
+        assert history[0].outcome == OUTCOME_COMPLIANCE_BLOCKED
+        assert history[0].error == VIOLATION_TEXT  # the violation text rides the record's error field
         assert len(provider.calls) == 2  # exactly 2 generation calls
         assert len(provider.compliance_calls) == 2  # exactly 2 compliance calls
         loaded = fixture.cache.load(identity)
@@ -1231,8 +1420,12 @@ class TestStepGeneratorComplianceGate:
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         findings = [
-            ComplianceFinding(instruction="Prefer id attributes", priority="medium", explanation="partial"),
-            ComplianceFinding(instruction="Avoid fixed delays", priority="low", explanation="note"),
+            ComplianceFinding(
+                instruction="Prefer id attributes", priority="medium", explanation="partial", dimension="instruction"
+            ),
+            ComplianceFinding(
+                instruction="Avoid fixed delays", priority="low", explanation="note", dimension="adequacy"
+            ),
         ]
         provider = StubProvider([WORKING_CODE], compliance_verdicts=[findings])
         fixture = GeneratorFixture(tmp_path, provider, generation_prompt="Prefer id attributes")
@@ -1240,17 +1433,17 @@ class TestStepGeneratorComplianceGate:
         page = FakePage()
 
         with caplog.at_level(logging.WARNING, logger="prettyplay"):
-            step = fixture.generator.generate(identity, "click Sign in", [], page, fixture.window)
+            step = fixture.generator.generate(identity, "click Sign in", "action", [], page, [], fixture.window)
 
         assert step.code == WORKING_CODE  # non-blocking findings never fail the attempt
         assert fixture.cache.load(identity) is not None  # the step is stored and returned
         passed = [record for record in caplog.records if record.message == "compliance findings passed"]
         assert len(passed) == 1
         assert passed[0].step_text == "click Sign in"  # the structured extra names the step
-        assert any(rendered.startswith("medium:") for rendered in passed[0].findings)
-        assert any(rendered.startswith("low:") for rendered in passed[0].findings)
+        assert any(rendered.startswith("medium instruction:") for rendered in passed[0].findings)
+        assert any(rendered.startswith("low adequacy:") for rendered in passed[0].findings)
 
-    def test_generate_budget_exhaustion_with_standing_high_names_instruction(self, tmp_path: Path) -> None:
+    def test_generate_budget_exhaustion_with_standing_high_names_finding(self, tmp_path: Path) -> None:
         provider = StubProvider(
             [WORKING_CODE, WORKING_CODE],  # every candidate is green — the gate is what fails them
             compliance_verdicts=[[HIGH_FINDING], [HIGH_FINDING]],
@@ -1260,13 +1453,13 @@ class TestStepGeneratorComplianceGate:
         page = FakePage()
 
         with pytest.raises(IncurableStepError) as excinfo:
-            fixture.generator.generate(identity, "click Sign in", [], page, fixture.window)
+            fixture.generator.generate(identity, "click Sign in", "action", [], page, [], fixture.window)
 
         assert excinfo.value.verdict is not None
         assert excinfo.value.verdict.category == "incurable"  # built from the finding — no classification call
         assert excinfo.value.verdict.explanation == "Prefer id attributes — locates by text"
-        assert "Prefer id attributes" in excinfo.value.verdict.recommendation
-        assert excinfo.value.reason == "generation attempt budget exhausted — violated instruction Prefer id attributes"
+        assert excinfo.value.verdict.recommendation == "satisfy the finding in the step code: Prefer id attributes"
+        assert excinfo.value.reason == "generation attempt budget exhausted — Prefer id attributes"
         assert ":" not in excinfo.value.reason.split("\n")[0]  # the first-line contract holds
         assert excinfo.value.error == VIOLATION_TEXT  # the violation text rides the error field
         assert excinfo.value.code == WORKING_CODE
@@ -1281,7 +1474,7 @@ class TestStepGeneratorComplianceGate:
         page = FakePage()
 
         with pytest.raises(ComplianceVerdictError) as excinfo:
-            fixture.generator.generate(identity, "click Sign in", [], page, fixture.window)
+            fixture.generator.generate(identity, "click Sign in", "action", [], page, [], fixture.window)
 
         assert excinfo.value is outage  # propagates — no retry, no budget table
         assert len(provider.calls) == 1  # exactly one generation call
@@ -1295,21 +1488,17 @@ class TestStepGeneratorComplianceGate:
         fixture = GeneratorFixture(tmp_path, provider, generation_prompt="Prefer id attributes")
         identity = make_identity()
         page = FakePage()
+        history = make_anchored_history()
 
         step = fixture.generator.regenerate(
-            identity,
-            "click Sign in",
-            [],
-            page,
-            existing_code=BROKEN_CODE,
-            error="TimeoutError",
-            recommendation="retry with an id locator",
-            window=fixture.window,
+            identity, "click Sign in", "action", [], page, history, "retry with an id locator", fixture.window
         )
 
         assert step.code == WORKING_CODE
-        assert provider.calls[1]["error"] == VIOLATION_TEXT  # the healing retry targets the violation
-        assert provider.calls[1]["existing_code"] == CHECK_CODE
+        assert history[1].outcome == OUTCOME_COMPLIANCE_BLOCKED  # the blocked heal appended after record 0
+        assert history[1].error == VIOLATION_TEXT
+        # the healing retry carries the anchored record plus the blocked attempt
+        assert provider.calls[1]["attempt_history"] == [history[0].render(), history[1].render()]
         assert len(provider.compliance_calls) == 2  # the healed candidate is gated too
         loaded = fixture.cache.load(identity)
         assert loaded is not None
@@ -1325,20 +1514,14 @@ class TestStepGeneratorComplianceGate:
         fixture = GeneratorFixture(tmp_path, provider, limits=(3, 1), generation_prompt="Prefer id attributes")
         identity = make_identity()
         page = FakePage()
+        history = make_anchored_history()
 
         with pytest.raises(IncurableStepError) as excinfo:
             fixture.generator.regenerate(
-                identity,
-                "click Sign in",
-                [],
-                page,
-                existing_code=BROKEN_CODE,
-                error="TimeoutError",
-                recommendation="retry with an id locator",
-                window=fixture.window,
+                identity, "click Sign in", "action", [], page, history, "retry with an id locator", fixture.window
             )
 
-        assert excinfo.value.error == VIOLATION_TEXT
+        assert excinfo.value.error == VIOLATION_TEXT  # the last record's error — the blocked candidate
         assert excinfo.value.reason == "healing attempt budget exhausted"  # the unchanged exhaustion raise
         assert excinfo.value.verdict is None  # the healer reattaches the entry verdict — not built inside the loop
         assert excinfo.value.code == WORKING_CODE  # the last gated candidate
@@ -1362,7 +1545,7 @@ class TestStepGeneratorComplianceGate:
         page = FakePage(assertion_message="button is hidden")  # the entry candidate's check fails
 
         with pytest.raises(IncurableStepError) as excinfo:
-            fixture.generator.generate(identity, "click Pay", [], page, fixture.window)
+            fixture.generator.generate(identity, "click Pay", "action", [], page, [], fixture.window)
 
         assert provider.classify_failure_calls[1]["error"] == VIOLATION_TEXT  # the final classification sees it
         assert len(provider.calls) == 2  # the failed candidate + exactly one funded request
@@ -1371,7 +1554,9 @@ class TestStepGeneratorComplianceGate:
         assert excinfo.value.verdict is not None
         assert excinfo.value.verdict.category == "incurable"
         # the repeat reason embeds the violation text first-line safe — the colon is stripped
-        assert excinfo.value.reason == "candidate failed — violated instruction  Prefer id attributes — locates by text"
+        assert (
+            excinfo.value.reason == "candidate failed — instruction violation  Prefer id attributes — locates by text"
+        )
         assert ":" not in excinfo.value.reason.split("\n")[0]  # the first-line contract holds
 
     def test_funded_regeneration_compliance_block_quiet_skip_keeps_candidate_failure_reason(
@@ -1391,7 +1576,7 @@ class TestStepGeneratorComplianceGate:
         page = FakePage(assertion_message="button is hidden")  # the entry candidate's check fails
 
         with caplog.at_level(logging.WARNING, logger="prettyplay"), pytest.raises(IncurableStepError) as excinfo:
-            fixture.generator.generate(identity, "click Pay", [], page, fixture.window)
+            fixture.generator.generate(identity, "click Pay", "action", [], page, [], fixture.window)
 
         assert excinfo.value.verdict is None  # the quiet skip — never an infrastructure failure
         assert excinfo.value.error == VIOLATION_TEXT
@@ -1399,7 +1584,9 @@ class TestStepGeneratorComplianceGate:
         assert fixture.cache.load(identity) is None  # nothing is cached on the blocked path
         # the label stays "candidate failed" — a compliance block is never a check — and the
         # first-line contract holds even without a final verdict to carry the wording
-        assert excinfo.value.reason == "candidate failed — violated instruction  Prefer id attributes — locates by text"
+        assert (
+            excinfo.value.reason == "candidate failed — instruction violation  Prefer id attributes — locates by text"
+        )
         assert ":" not in excinfo.value.reason.split("\n")[0]
         warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
         assert any("verdict skipped" in record.message for record in warnings)
@@ -1411,17 +1598,11 @@ class TestStepGeneratorComplianceGate:
         fixture = GeneratorFixture(tmp_path, provider, generation_prompt="Prefer id attributes")
         identity = make_identity()
         page = FakePage()
+        history = make_anchored_history()
 
         with pytest.raises(ComplianceVerdictError) as excinfo:
             fixture.generator.regenerate(
-                identity,
-                "click Sign in",
-                [],
-                page,
-                existing_code=BROKEN_CODE,
-                error="TimeoutError",
-                recommendation="retry with an id locator",
-                window=fixture.window,
+                identity, "click Sign in", "action", [], page, history, "retry with an id locator", fixture.window
             )
 
         assert excinfo.value is outage  # propagates — the loop's except Exception never sees the gate
@@ -1444,7 +1625,7 @@ class TestStepGeneratorComplianceGate:
         page = FakePage(assertion_message="button is hidden")
 
         with pytest.raises(ComplianceVerdictError) as excinfo:
-            fixture.generator.generate(identity, "click Pay", [], page, fixture.window)
+            fixture.generator.generate(identity, "click Pay", "action", [], page, [], fixture.window)
 
         assert excinfo.value is outage  # propagates — the settle try never swallows the gate
         assert len(provider.calls) == 2  # the failed candidate + the one funded request that turned green
@@ -1464,10 +1645,10 @@ class TestStepGeneratorComplianceGate:
         page = FakePage()  # no get_by_role — candidate 2 fails with a non-assertion AttributeError
 
         with pytest.raises(IncurableStepError) as excinfo:
-            fixture.generator.generate(identity, "click Pay", [], page, fixture.window)
+            fixture.generator.generate(identity, "click Pay", "action", [], page, [], fixture.window)
 
         assert excinfo.value.reason == "healing attempt budget exhausted"  # the refused funding of the rot verdict
-        assert "violated instruction" not in excinfo.value.reason  # the reset standing finding no longer names it
+        assert "violation" not in excinfo.value.reason  # the reset standing finding no longer names it
         assert excinfo.value.verdict is not None
         assert excinfo.value.verdict.category == "rot"  # the classification verdict, never the standing-built one
         assert len(provider.classify_failure_calls) == 1  # the exhaustion classified — the standing branch never does
@@ -1478,7 +1659,9 @@ class TestStepGeneratorComplianceGate:
     ) -> None:
         """A colon-bearing multi-line instruction stays first-line safe in the authored standing reason."""
         instruction = "Use page.locator: prefer ids\nalways narrow positionally"
-        finding = ComplianceFinding(instruction=instruction, priority="high", explanation="locates by text")
+        finding = ComplianceFinding(
+            instruction=instruction, priority="high", explanation="locates by text", dimension="instruction"
+        )
         provider = StubProvider(
             [WORKING_CODE, WORKING_CODE], compliance_verdicts=[[finding], [finding]]
         )
@@ -1487,36 +1670,35 @@ class TestStepGeneratorComplianceGate:
         page = FakePage()
 
         with pytest.raises(IncurableStepError) as excinfo:
-            fixture.generator.generate(identity, "click Sign in", [], page, fixture.window)
+            fixture.generator.generate(identity, "click Sign in", "action", [], page, [], fixture.window)
 
         assert (
             excinfo.value.reason
-            == "generation attempt budget exhausted — violated instruction Use page.locator  prefer ids"
+            == "generation attempt budget exhausted — Use page.locator  prefer ids"
         )
         assert ":" not in excinfo.value.reason.split("\n")[0]  # the first-line contract holds through the colon
         assert "\n" not in excinfo.value.reason  # the newline of the instruction is cut at the first line
-        assert excinfo.value.error == f"violated instruction: {instruction} — locates by text"  # the error keeps it all
+        # the error keeps it all
+        assert excinfo.value.error == f"instruction violation: {instruction} — locates by text"
 
     def test_regenerate_medium_findings_pass_with_warning(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         """Non-blocking findings of a healed candidate pass with a WARNING — the heal is written back."""
-        findings = [ComplianceFinding(instruction="Prefer id attributes", priority="medium", explanation="partial")]
+        findings = [
+            ComplianceFinding(
+                instruction="Prefer id attributes", priority="medium", explanation="partial", dimension="instruction"
+            )
+        ]
         provider = StubProvider([WORKING_CODE], compliance_verdicts=[findings])
         fixture = GeneratorFixture(tmp_path, provider, generation_prompt="Prefer id attributes")
         identity = make_identity()
         page = FakePage()
+        history = make_anchored_history()
 
         with caplog.at_level(logging.WARNING, logger="prettyplay"):
             step = fixture.generator.regenerate(
-                identity,
-                "click Sign in",
-                [],
-                page,
-                existing_code=BROKEN_CODE,
-                error="TimeoutError",
-                recommendation="retry with an id locator",
-                window=fixture.window,
+                identity, "click Sign in", "action", [], page, history, "retry with an id locator", fixture.window
             )
 
         assert step.code == WORKING_CODE  # non-blocking findings never fail the heal
@@ -1529,7 +1711,11 @@ class TestStepGeneratorComplianceGate:
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         """Non-blocking findings of the funded candidate pass with a WARNING — the heal is stored."""
-        findings = [ComplianceFinding(instruction="Prefer id attributes", priority="medium", explanation="partial")]
+        findings = [
+            ComplianceFinding(
+                instruction="Prefer id attributes", priority="medium", explanation="partial", dimension="instruction"
+            )
+        ]
         provider = StubProvider(
             [CHECK_CODE, WORKING_CODE],  # the entry candidate fails the check; the funded one is green
             verdicts=[
@@ -1542,7 +1728,7 @@ class TestStepGeneratorComplianceGate:
         page = FakePage(assertion_message="button is hidden")
 
         with caplog.at_level(logging.WARNING, logger="prettyplay"):
-            step = fixture.generator.generate(identity, "click Pay", [], page, fixture.window)
+            step = fixture.generator.generate(identity, "click Pay", "action", [], page, [], fixture.window)
 
         assert step.code == WORKING_CODE  # the funded regeneration healed through the warning
         assert fixture.cache.load(identity) is not None
@@ -1568,11 +1754,11 @@ class TestPromptConstants:
         assert work_through < assertion < no_delays < dialogs < scrolling
 
     def test_system_prompt_documents_user_instructions_input(self) -> None:
-        # the USER INSTRUCTIONS input line sits right after the CHEAT SHEET input line
+        # the USER INSTRUCTIONS input line sits right after the CHEAT SHEET input line, before HISTORY
         cheat_sheet_input = SYSTEM_PROMPT.index("- CHEAT SHEET: a compact reference")
         user_instructions_input = SYSTEM_PROMPT.index("- USER INSTRUCTIONS: the project's binding code style guidance")
-        code_input = SYSTEM_PROMPT.index("- CODE: the existing step code that failed")
-        assert cheat_sheet_input < user_instructions_input < code_input
+        history_input = SYSTEM_PROMPT.index("- HISTORY: the verbatim record of every attempt")
+        assert cheat_sheet_input < user_instructions_input < history_input
 
     def test_system_prompt_mirrors_the_generation_practice(self) -> None:
         practice = GENERATION_PROMPT_PRACTICE.read_text(encoding="utf-8")
@@ -1585,26 +1771,30 @@ class TestPromptConstants:
         assert 'expect_event("dialog")' in SYSTEM_PROMPT
         assert "assert locator.count() > 1" in SYSTEM_PROMPT
         assert ("page." + "expect" + "_dialog()") not in SYSTEM_PROMPT  # the facade capture idiom is gone
-        # the steering-context inputs the practice added — the URL line and the full HISTORY record
-        snapshot_input = SYSTEM_PROMPT.index("- PAGE SNAPSHOT: the accessibility snapshot")
-        url_input = SYSTEM_PROMPT.index("- PAGE URL: the current URL of the page, when present")
-        screenshot_input = SYSTEM_PROMPT.index("- SCREENSHOT: an image of the page, when attached")
-        assert snapshot_input < url_input < screenshot_input
+        # the honest inputs — the STEP TYPE line rides immediately before the STEP line
+        step_type_input = SYSTEM_PROMPT.index("- STEP TYPE: action or assertion — the kind of the step")
+        step_input = SYSTEM_PROMPT.index("- STEP: the step sentence in a natural language")
+        assert step_type_input < step_input
+        # the history record the practice added — the complete verbatim attempt record
         assert (
-            "each record carries the full\n"
-            "  engineer message, the complete generated code and the complete outcome of the turn" in SYSTEM_PROMPT
+            "each record carries the attempt outcome, the URL before -> after line, "
+            "the complete candidate code and the complete error" in SYSTEM_PROMPT
         )
 
     def test_system_prompt_carries_the_new_input_lines_and_rule(self) -> None:
-        error_input = SYSTEM_PROMPT.index("- ERROR: the failure description")
+        history_input = SYSTEM_PROMPT.index("- HISTORY: the verbatim record")
         recommendation_input = SYSTEM_PROMPT.index("- RECOMMENDATION: the diagnosis of the classification")
         guidance_input = SYSTEM_PROMPT.index("- USER GUIDANCE: the engineer guidance message")
-        history_input = SYSTEM_PROMPT.index("- HISTORY: the accumulated steering turns")
-        assert error_input < recommendation_input < guidance_input < history_input
+        assert history_input < recommendation_input < guidance_input
         assert (
             "RECOMMENDATION and USER GUIDANCE carry the diagnosis and the engineer's intent — "
             "follow them when they conflict with your first instinct" in SYSTEM_PROMPT
         )
+        # the replayability rule sits between the scrolling rule and the RECOMMENDATION rule
+        scrolling_rule = SYSTEM_PROMPT.index("- Scrolling: locator.scroll_into_view_if_needed()")
+        replayability_rule = SYSTEM_PROMPT.index("Your code must produce the step outcome itself")
+        recommendation_rule = SYSTEM_PROMPT.index("- RECOMMENDATION and USER GUIDANCE carry the diagnosis")
+        assert scrolling_rule < replayability_rule < recommendation_rule
 
     def test_classification_prompt_moved_out_of_generator(self) -> None:
         assert not hasattr(generator_module, "CLASSIFICATION_PROMPT")  # moved to classification.py

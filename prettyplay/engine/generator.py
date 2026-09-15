@@ -9,6 +9,13 @@ from ..driver import PageFacade
 from ..failures import FailureVerdict, IncurableStepError, LLMUnavailableError, ProductDefectError
 from ..llm import ComplianceFinding, FailureClassification, LLMProvider
 from ..reporting import StepReporter
+from .attempts import (
+    OUTCOME_COMPLIANCE_BLOCKED,
+    OUTCOME_EXECUTION_FAILED,
+    OUTCOME_FAILED_CHECK,
+    StepAttempt,
+    _read_url,
+)
 from .classification import classify_step_failure
 from .compliance import check_step_compliance
 from .execution import run_step_code
@@ -23,6 +30,7 @@ logger = logging.getLogger("prettyplay")
 SYSTEM_PROMPT = """You generate executable Python code for one step of a web UI test.
 
 Input you receive:
+- STEP TYPE: action or assertion — the kind of the step
 - STEP: the step sentence in a natural language
 - PREVIOUS STEPS: the sentences of the previous steps of the test, in order
 - PAGE SNAPSHOT: the accessibility snapshot of the current page
@@ -30,12 +38,9 @@ Input you receive:
 - SCREENSHOT: an image of the page, when attached
 - CHEAT SHEET: a compact reference of useful Playwright sync API idioms — guidance, not an allowlist; everything standard stays allowed
 - USER INSTRUCTIONS: the project's binding code style guidance, when configured
-- CODE: the existing step code that failed (regeneration requests only)
-- ERROR: the failure description of the existing code (regeneration requests only)
+- HISTORY: the verbatim record of every attempt of this step so far, when present — the original cached code first when it exists; each record carries the attempt outcome, the URL before -> after line, the complete candidate code and the complete error
 - RECOMMENDATION: the diagnosis of the classification that preceded this regeneration, when present
 - USER GUIDANCE: the engineer guidance message of the interactive steering, when present
-- HISTORY: the accumulated steering turns, when present — each record carries the full
-  engineer message, the complete generated code and the complete outcome of the turn
 
 Output exactly one Python code block with one function of the fixed form:
 
@@ -56,6 +61,7 @@ Rules:
 - Popups and new tabs: capture with with page.expect_popup() as popup_info: — trigger the opening action inside the block, work through popup_info.value; page.bring_to_front() raises a page above the others
 - Content inside an iframe goes through page.frame_locator(selector) — locate elements within the returned scope; nested frames chain
 - Scrolling: locator.scroll_into_view_if_needed() and page.mouse.wheel(dx, dy) are the standard means
+- The page state may already include the effects of prior attempts or manual intervention — the HISTORY records and their URL before -> after lines show what already happened. Your code must produce the step outcome itself: never rely on the current page state already satisfying the step; complete the action or the check even if the page looks done
 - RECOMMENDATION and USER GUIDANCE carry the diagnosis and the engineer's intent — follow them when they conflict with your first instinct
 - USER INSTRUCTIONS are binding for everything below the safety core of these Rules: follow them when configured; silently ignoring an instruction is a violation
 - The safety core of these Rules always outranks the instructions: the fixed function form, the import rule, the lifecycle rule, the stateful-action exclusions, no fixed delays. An instruction conflicting with a Rule or demanding a stateful action is unfollowable: never implement it silently — raise in the step code with the message "instruction conflicts with rule Y" naming the conflict, so the failure surfaces loudly
@@ -162,16 +168,18 @@ class StepGenerator:
     """Generates working step code by executing LLM candidates against the live page.
 
     Each attempt is one provider request: the generator snapshots the page,
-    asks for code of the fixed form, and immediately executes the candidate
-    under the settle window of the current step execution — transient
-    page-state failures re-execute inside the window before any costly move.
-    A failed check no longer burns the whole budget: the classification
-    decides, and a rot or fixable verdict grants exactly one healing-funded
-    regeneration carrying the recommendation (also at budget exhaustion). Any
-    other candidate failure is retried as a regeneration request carrying the
-    code and its error, until one candidate works or the attempt budget of
-    the step runs out. Only a proven candidate is cached — failures are never
-    stored.
+    asks for code of the fixed form — carrying the raw step sentence, the
+    step type and the rendered per-step attempt history — and immediately
+    executes the candidate under the settle window of the current step
+    execution, the URL pair bracketing the whole attempt. Every attempt that
+    does not produce a cached step appends one verbatim record into the
+    shared history owned by the executor, and the retry request carries the
+    grown history. A failed check no longer burns the whole budget: the
+    classification decides, and a rot or fixable verdict grants exactly one
+    healing-funded regeneration carrying the recommendation (also at budget
+    exhaustion). A green candidate passes the two-dimension compliance gate
+    before it is cached; a high finding of either dimension fails the
+    attempt. Only a proven candidate is cached — failures are never stored.
 
     Attributes:
         _config: project settings; the screenshot flag feeds the requests.
@@ -204,21 +212,28 @@ class StepGenerator:
         self._budgets = budgets
         self._reporter = reporter
 
-    def generate(
+    def generate(  # noqa: PLR0913, PLR0917 — the signature is fixed by the engine contract
         self,
         identity: StepIdentity,
         step_text: str,
+        step_type: str,
         previous_steps: list[str],
         page: PageFacade,
+        attempt_history: list[StepAttempt],
         window: SettleWindow,
     ) -> CachedStep:
         """Generate step code until a candidate works, then cache it.
 
         Args:
             identity: the address of the step.
-            step_text: the sentence of the step.
+            step_text: the raw sentence of the step — carried into every
+                request verbatim.
+            step_type: action or assertion — carried into every request.
             previous_steps: the sentences of the previous steps of the test.
             page: the live page facade the candidates run against.
+            attempt_history: the per-step attempt history created by the
+                executor — this loop appends a record after every attempt
+                that does not produce a cached step.
             window: the settle window of the current step execution — every
                 candidate execution absorbs transient failures inside it.
 
@@ -236,35 +251,41 @@ class StepGenerator:
             ComplianceVerdictError: the compliance verdict of a green
                 candidate did not parse; nothing is cached.
         """
-        return self._generation_loop(identity, step_text, previous_steps, page, window)
+        return self._generation_loop(identity, step_text, step_type, previous_steps, page, attempt_history, window)
 
     def regenerate(  # noqa: PLR0913, PLR0917 — the signature is fixed by the engine contract
         self,
         identity: StepIdentity,
         step_text: str,
+        step_type: str,
         previous_steps: list[str],
         page: PageFacade,
-        existing_code: str,
-        error: str,
+        attempt_history: list[StepAttempt],
         recommendation: str,
         window: SettleWindow,
     ) -> CachedStep:
-        """Regenerate step code starting from the failed code and its diagnosis.
+        """Regenerate step code starting from the anchored history and the diagnosis.
 
-        The loop is the generation loop with three differences: attempts draw
-        from the healing budget pool, every request carries the failed code,
-        its error and the classification recommendation, and every failed
-        attempt — a failed check included — takes the retry branch: the entry
+        The loop is the generation loop with four differences: attempts draw
+        from the healing budget pool, every request carries the raw sentence,
+        the step type, the rendered anchored history and the classification
+        recommendation, and every failed attempt — a failed check included —
+        takes the retry branch with the grown history: the entry
         classification already guards the anti-masking, so no per-attempt
-        classification happens inside the loop.
+        classification happens inside the loop. Exhaustion derives the
+        terminal-failure facts from the last record of the history.
 
         Args:
             identity: the address of the step.
-            step_text: the sentence of the step.
+            step_text: the raw sentence of the step — carried into every
+                request verbatim, never the casefolded normalization.
+            step_type: action or assertion — carried into every request.
             previous_steps: the sentences of the previous steps of the test.
             page: the live page facade the candidates run against.
-            existing_code: the cached step code that failed.
-            error: the failure description of the existing code.
+            attempt_history: the anchored per-step attempt history — record 0
+                carries the original cached code composed by the caller; this
+                loop appends after every attempt that does not produce a
+                cached step; the original is never lost to a re-binding.
             recommendation: the diagnosis of the classification that launched
                 the healing; rendered into every request.
             window: the settle window of the current step execution.
@@ -275,19 +296,23 @@ class StepGenerator:
         Raises:
             IncurableStepError: the healing attempt budget is exhausted; the
                 verdict stays None — the calling healer attaches its entry
-                verdict — and the code field carries the last candidate.
+                verdict — and the code field carries the last record's code.
             LLMUnavailableError: the provider service failed; no retry.
             ComplianceVerdictError: the compliance verdict of a green
                 candidate did not parse; nothing is cached.
         """
-        return self._healing_loop(identity, step_text, previous_steps, page, existing_code, error, recommendation, window)
+        return self._healing_loop(
+            identity, step_text, step_type, previous_steps, page, attempt_history, recommendation, window
+        )
 
-    def _generation_loop(
+    def _generation_loop(  # noqa: PLR0913, PLR0917 — the shared attempt loop with its fixed inputs
         self,
         identity: StepIdentity,
         step_text: str,
+        step_type: str,
         previous_steps: list[str],
         page: PageFacade,
+        history: list[StepAttempt],
         window: SettleWindow,
     ) -> CachedStep:
         """Run the generation pool loop until a candidate works or the budget runs out.
@@ -295,22 +320,26 @@ class StepGenerator:
         A failed check — a candidate ``AssertionError`` that survived the
         settle window — goes through the bounded-healing decision table: the
         classification decides between a terminal kind and exactly one
-        healing-funded regeneration carrying the recommendation. Any other
-        candidate failure is retried as a regeneration request carrying the
-        code and its error. A green candidate is gated through
-        ``check_step_compliance`` before it is cached: a high finding fails
-        the attempt and the retry carries the violation text, medium and low
-        findings pass with a WARNING, the gate hard failures propagate.
-        Budget exhaustion classifies the last candidate and follows the same
-        table — the rot and fixable verdicts grant one extra funded
-        regeneration there too; a standing high finding raises carrying the
-        verdict built from the finding, with no classification.
+        healing-funded regeneration carrying the recommendation and the grown
+        history. Any other candidate failure appends its record and retries
+        with the grown history. A green candidate is gated through
+        ``check_step_compliance`` before it is cached: a high finding of
+        either dimension fails the attempt and the retry carries the grown
+        history, medium and low findings pass with a WARNING, the gate hard
+        failures propagate. Budget exhaustion classifies the last candidate
+        and follows the same table — the rot and fixable verdicts grant one
+        extra funded regeneration there too; a standing high finding raises
+        carrying the verdict built from the finding, with no classification.
 
         Args:
             identity: the address of the step.
-            step_text: the sentence of the step.
+            step_text: the raw sentence of the step.
+            step_type: action or assertion — carried into every request.
             previous_steps: the sentences of the previous steps of the test.
             page: the live page facade the candidates run against.
+            history: the per-step attempt history this loop grows — every
+                attempt that does not produce a cached step appends its
+                record; the green attempt never records.
             window: the settle window of the current step execution.
 
         Returns:
@@ -326,41 +355,65 @@ class StepGenerator:
                 candidate did not parse; nothing is cached.
         """
         attempt = 0  # every LLM request of this pool run — loop attempts and funded regenerations
-        existing_code: str | None = None
-        error: str | None = None
-        code = ""
         standing: ComplianceFinding | None = None  # the high finding the retries still carry
 
         while True:
             if not self._budgets.try_generation(identity):
                 return self._exhaustion_outcome(
-                    identity, step_text, previous_steps, page, code, error, window, attempt, standing
+                    identity, step_text, step_type, previous_steps, page, history, window, attempt, standing
                 )
 
             attempt += 1
             self._emit_generation_started(step_text, attempt)
 
-            code = self._request(step_text, previous_steps, page, existing_code, error, recommendation=None)
+            code = self._request(step_text, step_type, previous_steps, page, history, recommendation=None)
 
+            url_before = _read_url(page)
             try:
                 settle(run_step_code, code, page, window)
             except AssertionError as check_failure:
                 # failed check survived the window — the decision table, never blind retries
-                error_field = str(check_failure)  # full text, no prefix — the type is the semantics
+                url_after = _read_url(page)
+                history.append(
+                    StepAttempt(
+                        code=code,
+                        error=str(check_failure),  # full text, no prefix — the type is the semantics
+                        outcome=OUTCOME_FAILED_CHECK,
+                        url_before=url_before,
+                        url_after=url_after,
+                    )
+                )
                 return self._failed_check_outcome(
-                    identity, step_text, previous_steps, page, code, error_field, window, attempt
+                    identity, step_text, step_type, previous_steps, page, history, code, str(check_failure),
+                    window, attempt,
                 )
             except Exception as candidate_error:  # other candidate failures heal via retry
+                url_after = _read_url(page)
+                history.append(
+                    StepAttempt(
+                        code=code,
+                        error=format_step_error(candidate_error),
+                        outcome=OUTCOME_EXECUTION_FAILED,
+                        url_before=url_before,
+                        url_after=url_after,
+                    )
+                )
                 standing = None  # a real candidate failure replaces the standing violation
-                existing_code = code
-                error = format_step_error(candidate_error)
             else:
+                url_after = _read_url(page)
                 # the gate sits outside every exception-swallowing try: its hard failures propagate
-                findings = check_step_compliance(self._config, self._provider, step_text, code)
+                findings = check_step_compliance(self._config, self._provider, step_text, step_type, code, history)
                 high = _high_finding(findings)
                 if high is not None:  # the attempt failed on the violation — retry targeted at it
-                    existing_code = code
-                    error = _violation_text(high)
+                    history.append(
+                        StepAttempt(
+                            code=code,
+                            error=_violation_text(high),
+                            outcome=OUTCOME_COMPLIANCE_BLOCKED,
+                            url_before=url_before,
+                            url_after=url_after,
+                        )
+                    )
                     standing = high
                     continue
                 if findings:
@@ -371,33 +424,36 @@ class StepGenerator:
         self,
         identity: StepIdentity,
         step_text: str,
+        step_type: str,
         previous_steps: list[str],
         page: PageFacade,
-        existing_code: str,
-        error: str,
+        history: list[StepAttempt],
         recommendation: str,
         window: SettleWindow,
     ) -> CachedStep:
         """Run the healing pool loop until a candidate works or the budget runs out.
 
-        Every failed attempt — a failed check included — takes the retry
-        branch with the fresh failure description and snapshot while attempts
-        remain: the entry classification already guards the anti-masking, so
-        no per-attempt classification happens inside the loop. Every green
-        candidate is gated through ``check_step_compliance`` before it is
-        cached — the same semantics as the generation loop minus the standing
-        state: a high finding fails the attempt and the retry carries the
-        violation text, the gate hard failures propagate. Exhaustion raises
-        without a classification — the calling healer attaches the verdict it
+        Every failed attempt — a failed check included — appends its record
+        and retries with the fresh failure description, the fresh snapshot
+        and the grown history while attempts remain: the entry classification
+        already guards the anti-masking, so no per-attempt classification
+        happens inside the loop. Every green candidate is gated through
+        ``check_step_compliance`` before it is cached — the same semantics as
+        the generation loop minus the standing state: a high finding of
+        either dimension fails the attempt and the retry carries the grown
+        history, the gate hard failures propagate. Exhaustion raises without
+        a classification — the terminal-failure facts derive from the last
+        record of the history and the calling healer attaches the verdict it
         already holds.
 
         Args:
             identity: the address of the step.
-            step_text: the sentence of the step.
+            step_text: the raw sentence of the step.
+            step_type: action or assertion — carried into every request.
             previous_steps: the sentences of the previous steps of the test.
             page: the live page facade the candidates run against.
-            existing_code: the cached step code that failed.
-            error: the failure description of the existing code.
+            history: the anchored per-step attempt history — record 0 stays
+                untouched at index 0 through every retry.
             recommendation: the diagnosis of the classification that launched
                 the healing; rendered into every request.
             window: the settle window of the current step execution.
@@ -412,41 +468,73 @@ class StepGenerator:
                 candidate did not parse; nothing is cached.
         """
         attempt = 0
-        code = existing_code
 
         while True:
             if not self._budgets.try_healing(identity):
-                # colon-free authored reason; the last candidate failure travels in the error field
+                # colon-free authored reason; the last record carries the terminal-failure facts
+                code, error = _last_facts(history)
                 raise IncurableStepError(step_text, "healing attempt budget exhausted", error, code=code)
 
             attempt += 1
             self._emit_generation_started(step_text, attempt)
 
-            code = self._request(step_text, previous_steps, page, existing_code, error, recommendation)
+            code = self._request(step_text, step_type, previous_steps, page, history, recommendation)
 
+            url_before = _read_url(page)
             try:
                 settle(run_step_code, code, page, window)
-            except Exception as candidate_error:  # failed checks included — the entry classification guards
-                existing_code = code
-                error = format_step_error(candidate_error)
-            else:
-                # the gate sits outside every exception-swallowing try: its hard failures propagate
-                findings = check_step_compliance(self._config, self._provider, step_text, code)
-                high = _high_finding(findings)
-                if high is not None:  # the attempt failed on the violation — retry targeted at it
-                    existing_code = code
-                    error = _violation_text(high)
-                    continue
-                if findings:
-                    _medium_warning(step_text, findings)
-                return self._store(identity, code)
+            except AssertionError as check_failure:  # failed checks included — the entry classification guards
+                url_after = _read_url(page)
+                history.append(
+                    StepAttempt(
+                        code=code,
+                        error=str(check_failure),
+                        outcome=OUTCOME_FAILED_CHECK,
+                        url_before=url_before,
+                        url_after=url_after,
+                    )
+                )
+                continue
+            except Exception as candidate_error:
+                url_after = _read_url(page)
+                history.append(
+                    StepAttempt(
+                        code=code,
+                        error=format_step_error(candidate_error),
+                        outcome=OUTCOME_EXECUTION_FAILED,
+                        url_before=url_before,
+                        url_after=url_after,
+                    )
+                )
+                continue
+            url_after = _read_url(page)
+
+            # the gate sits outside every exception-swallowing try: its hard failures propagate
+            findings = check_step_compliance(self._config, self._provider, step_text, step_type, code, history)
+            high = _high_finding(findings)
+            if high is not None:  # the attempt failed on the violation — retry targeted at it
+                history.append(
+                    StepAttempt(
+                        code=code,
+                        error=_violation_text(high),
+                        outcome=OUTCOME_COMPLIANCE_BLOCKED,
+                        url_before=url_before,
+                        url_after=url_after,
+                    )
+                )
+                continue
+            if findings:
+                _medium_warning(step_text, findings)
+            return self._store(identity, code)
 
     def _failed_check_outcome(  # noqa: PLR0913, PLR0917 — the decision table of one failed candidate check
         self,
         identity: StepIdentity,
         step_text: str,
+        step_type: str,
         previous_steps: list[str],
         page: PageFacade,
+        history: list[StepAttempt],
         code: str,
         error_field: str,
         window: SettleWindow,
@@ -456,16 +544,20 @@ class StepGenerator:
 
         The uniform decision table: product_defect raises at once, incurable
         raises carrying the verdict, and rot or fixable grants exactly one
-        healing-funded regeneration carrying the recommendation — a refused
-        funding is terminal, and a repeat failure gets one final
-        classification that decides only the terminal kind, never another
-        regeneration.
+        healing-funded regeneration carrying the recommendation and the grown
+        history — a refused funding is terminal, and a repeat failure gets
+        one final classification that decides only the terminal kind, never
+        another regeneration. The loop already appended the failed check's
+        record before this table runs.
 
         Args:
             identity: the address of the step — the healing funding key.
-            step_text: the sentence of the failed step.
+            step_text: the raw sentence of the failed step.
+            step_type: action or assertion — carried into the funded request.
             previous_steps: the sentences of the previous steps of the test.
             page: the live page facade of the test.
+            history: the per-step attempt history — the failed check's
+                record already appended; the funded request carries it grown.
             code: the code of the failed candidate.
             error_field: the full failure text of the failed check.
             window: the settle window of the current step execution.
@@ -496,7 +588,7 @@ class StepGenerator:
             ) from None
 
         healed, failed_code, failure_text, repeat_was_check = self._funded_regeneration(
-            identity, step_text, previous_steps, page, code, error_field, verdict.recommendation, window, attempt
+            identity, step_text, step_type, previous_steps, page, history, verdict.recommendation, window, attempt
         )
         if healed is not None:
             return healed
@@ -518,10 +610,10 @@ class StepGenerator:
         self,
         identity: StepIdentity,
         step_text: str,
+        step_type: str,
         previous_steps: list[str],
         page: PageFacade,
-        code: str,
-        error: str | None,
+        history: list[StepAttempt],
         window: SettleWindow,
         attempt: int,
         standing: ComplianceFinding | None,
@@ -533,18 +625,21 @@ class StepGenerator:
         healing-funded regeneration: the standing violation already consumed
         the failed attempt and the pool is exhausted. Otherwise: no candidate
         ever existed — the plain budget failure with an empty error; else the
-        last candidate is classified and follows the decision table: the rot
-        and fixable verdicts grant one extra healing-funded regeneration
-        carrying the recommendation; a repeat failure is terminal without
-        reclassification, carrying the verdict of the entry classification.
+        last record of the history carries the last candidate's facts and is
+        classified through the decision table: the rot and fixable verdicts
+        grant one extra healing-funded regeneration carrying the
+        recommendation and the grown history; a repeat failure is terminal
+        without reclassification, carrying the verdict of the entry
+        classification.
 
         Args:
             identity: the address of the step — the healing funding key.
-            step_text: the sentence of the failed step.
+            step_text: the raw sentence of the failed step.
+            step_type: action or assertion — carried into the funded request.
             previous_steps: the sentences of the previous steps of the test.
             page: the live page facade of the test.
-            code: the code of the last candidate.
-            error: the failure description of the last candidate; None — no
+            history: the per-step attempt history of the pool run — its last
+                record carries the last candidate's facts; empty — no
                 candidate ever existed.
             window: the settle window of the current step execution.
             attempt: the number of LLM requests the pool run made so far.
@@ -557,29 +652,30 @@ class StepGenerator:
         Raises:
             ProductDefectError: the verdict says product defect.
             IncurableStepError: the generation attempt budget is exhausted —
-                with the violated instruction named when a high finding
-                stands, the verdict says incurable, or the healing funding is
-                refused — the code field carries the failed step code.
+                with the finding named when a high one stands, the verdict
+                says incurable, or the healing funding is refused — the code
+                field carries the failed step code.
         """
         if standing is not None:
             # the verdict is built from the finding — no classification, no regrant of a funded attempt
             verdict = FailureVerdict(
                 category="incurable",
                 explanation=f"{standing.instruction} — {standing.explanation}",
-                recommendation=f"follow the violated instruction in the step code: {standing.instruction}",
+                recommendation=f"satisfy the finding in the step code: {standing.instruction}",
             )
             raise IncurableStepError(
                 step_text,
-                f"generation attempt budget exhausted — violated instruction {_reason_safe(standing.instruction)}",
+                f"generation attempt budget exhausted — {_reason_safe(standing.instruction)}",
                 _violation_text(standing),
-                code=code,
+                code=_last_facts(history)[0],
                 verdict=verdict,
             ) from None
 
         reason = "generation attempt budget exhausted"
-        if error is None:
+        if not history:
             raise IncurableStepError(step_text, reason, "", code="") from None  # nothing to classify
 
+        code, error = _last_facts(history)  # the last failed attempt's record carries the facts
         verdict = self._classify(step_text, code, error, page)
         if verdict is None:  # quiet skip — the budget failure is the primary signal
             raise IncurableStepError(step_text, reason, error, code=code) from None
@@ -593,7 +689,7 @@ class StepGenerator:
             raise IncurableStepError(step_text, "healing attempt budget exhausted", error, code=code, verdict=verdict) from None
 
         healed, failed_code, failure_text, _repeat_was_check = self._funded_regeneration(
-            identity, step_text, previous_steps, page, code, error, verdict.recommendation, window, attempt
+            identity, step_text, step_type, previous_steps, page, history, verdict.recommendation, window, attempt
         )
         if healed is not None:
             return healed
@@ -605,10 +701,10 @@ class StepGenerator:
         self,
         identity: StepIdentity,
         step_text: str,
+        step_type: str,
         previous_steps: list[str],
         page: PageFacade,
-        existing_code: str,
-        error: str,
+        history: list[StepAttempt],
         recommendation: str,
         window: SettleWindow,
         attempt: int,
@@ -617,23 +713,25 @@ class StepGenerator:
 
         A single inline request — never a call to the retrying regenerate
         loop. It is an LLM attempt: the ordinal continues the pool run's
-        count and ``on_generation_started`` fires. A provider failure
-        propagates immediately — no retry, no final classification; only the
-        execution of the funded candidate can fail softly, yielding the
-        failed code and its formatted error for the caller's terminal
-        handling. A green candidate is gated through
-        ``check_step_compliance`` before it is stored; a high finding is a
-        repeat failure of the funded attempt — a candidate failure, never a
-        check — so the caller runs its one final classification on the
-        violation text.
+        count and ``on_generation_started`` fires. The request carries the
+        grown history — the failed attempt that funded it rides its record.
+        A provider failure propagates immediately — no retry, no final
+        classification; only the execution of the funded candidate can fail
+        softly, appending its record into the history and yielding the failed
+        code and its formatted error for the caller's terminal handling. A
+        green candidate is gated through ``check_step_compliance`` before it
+        is stored; a high finding is a repeat failure of the funded attempt —
+        a candidate failure, never a check — so the caller runs its one final
+        classification on the violation text.
 
         Args:
             identity: the address of the step — the identity of the stored step.
-            step_text: the sentence of the step.
+            step_text: the raw sentence of the step.
+            step_type: action or assertion — carried into the request.
             previous_steps: the sentences of the previous steps of the test.
             page: the live page facade the candidate runs against.
-            existing_code: the code of the failed candidate.
-            error: the failure description of the failed candidate.
+            history: the per-step attempt history — the request carries it
+                grown; the funded attempt's own failure appends its record.
             recommendation: the classification diagnosis carried by the request.
             window: the settle window of the current step execution — shared
                 with the loop, the same step execution.
@@ -653,18 +751,49 @@ class StepGenerator:
         attempt += 1
         self._emit_generation_started(step_text, attempt)
 
-        code = self._request(step_text, previous_steps, page, existing_code, error, recommendation)
+        code = self._request(step_text, step_type, previous_steps, page, history, recommendation)
+        url_before = _read_url(page)
         try:
             settle(run_step_code, code, page, window)
         except AssertionError as check_failure:
+            url_after = _read_url(page)
+            history.append(
+                StepAttempt(
+                    code=code,
+                    error=str(check_failure),
+                    outcome=OUTCOME_FAILED_CHECK,
+                    url_before=url_before,
+                    url_after=url_after,
+                )
+            )
             return None, code, str(check_failure), True
         except Exception as failure:
+            url_after = _read_url(page)
+            history.append(
+                StepAttempt(
+                    code=code,
+                    error=format_step_error(failure),
+                    outcome=OUTCOME_EXECUTION_FAILED,
+                    url_before=url_before,
+                    url_after=url_after,
+                )
+            )
             return None, code, format_step_error(failure), False
+        url_after = _read_url(page)
 
         # the gate sits outside the settle try: its hard failures propagate
-        findings = check_step_compliance(self._config, self._provider, step_text, code)
+        findings = check_step_compliance(self._config, self._provider, step_text, step_type, code, history)
         high = _high_finding(findings)
         if high is not None:  # a compliance block is a candidate failure, not a check
+            history.append(
+                StepAttempt(
+                    code=code,
+                    error=_violation_text(high),
+                    outcome=OUTCOME_COMPLIANCE_BLOCKED,
+                    url_before=url_before,
+                    url_after=url_after,
+                )
+            )
             return None, code, _violation_text(high), False
         if findings:
             _medium_warning(step_text, findings)
@@ -674,20 +803,21 @@ class StepGenerator:
     def _request(  # noqa: PLR0913, PLR0917 — the fixed request inputs of the port signature
         self,
         step_text: str,
+        step_type: str,
         previous_steps: list[str],
         page: PageFacade,
-        existing_code: str | None,
-        error: str | None,
+        history: list[StepAttempt],
         recommendation: str | None,
     ) -> str:
         """Collect the request inputs and ask the provider for one candidate.
 
         Args:
-            step_text: the sentence of the step.
+            step_text: the raw sentence of the step — carried verbatim.
+            step_type: action or assertion — carried into every request.
             previous_steps: the sentences of the previous steps of the test.
             page: the live page facade of the test.
-            existing_code: the failed code of the request, if any.
-            error: the failure description of the request, if any.
+            history: the per-step attempt history — rendered record by
+                record into the HISTORY block of the request.
             recommendation: the classification diagnosis of the request, if any.
 
         Returns:
@@ -700,16 +830,15 @@ class StepGenerator:
             prompt=SYSTEM_PROMPT,
             user_instructions=self._config.generation_prompt,
             step_text=step_text,
+            step_type=step_type,
             previous_steps=previous_steps,
             snapshot=snapshot,
             page_url=None,  # the URL input is steering-only — uniform with the guidance None below
             screenshot=screenshot,
             cheat_sheet=CHEAT_SHEET,
-            existing_code=existing_code,
-            error=error,
+            attempt_history=[record.render() for record in history],
             recommendation=recommendation,
             guidance=None,  # steering-only input — the engine never carries guidance
-            guidance_history=[],
         )
 
     def _emit_generation_started(self, step_text: str, attempt: int) -> None:
@@ -796,7 +925,7 @@ def _reason_safe(instruction: str) -> str:
 
 
 def _high_finding(findings: list[ComplianceFinding]) -> ComplianceFinding | None:
-    """Return the first high finding of a compliance verdict.
+    """Return the first high finding of a compliance verdict — either dimension blocks.
 
     Args:
         findings: the findings of the verdict, in the verdict's own ordering.
@@ -810,15 +939,16 @@ def _high_finding(findings: list[ComplianceFinding]) -> ComplianceFinding | None
 
 
 def _violation_text(finding: ComplianceFinding) -> str:
-    """Render the violation text of a high finding — the ERROR block of the failed attempt.
+    """Render the violation text of a high finding — the record's error field.
 
     Args:
-        finding: the high finding that blocked the candidate.
+        finding: the high finding of either dimension that blocked the candidate.
 
     Returns:
-        The instruction and its explanation in the fixed violation wording.
+        The dimension, the named instruction or step fragment, and its
+        explanation in the fixed violation wording.
     """
-    return f"violated instruction: {finding.instruction} — {finding.explanation}"
+    return f"{finding.dimension} violation: {finding.instruction} — {finding.explanation}"
 
 
 def _medium_warning(step_text: str, findings: list[ComplianceFinding]) -> None:
@@ -826,15 +956,33 @@ def _medium_warning(step_text: str, findings: list[ComplianceFinding]) -> None:
 
     Args:
         step_text: the sentence of the gated step.
-        findings: the non-blocking findings of the verdict.
+        findings: the non-blocking findings of both dimensions of the verdict.
     """
     logger.warning(
         "compliance findings passed",
         extra={
             "step_text": step_text,
-            "findings": [f"{finding.priority}: {finding.instruction} — {finding.explanation}" for finding in findings],
+            "findings": [
+                f"{finding.priority} {finding.dimension}: {finding.instruction} — {finding.explanation}"
+                for finding in findings
+            ],
         },
     )
+
+
+def _last_facts(history: list[StepAttempt]) -> tuple[str, str]:
+    """Derive the terminal-failure facts from the last record of the history.
+
+    Args:
+        history: the per-step attempt history of the exhausted pool run.
+
+    Returns:
+        The code and the error of the last record; the empty pair when the
+        history holds no record — no candidate ever existed.
+    """
+    if not history:
+        return "", ""
+    return history[-1].code, history[-1].error
 
 
 def _verdict(classification: FailureClassification) -> FailureVerdict:
