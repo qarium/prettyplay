@@ -7,6 +7,7 @@ from .cache import CachedStep, RunBudgets, StepCache, StepIdentity, normalize_st
 from .config import PrettyConfig
 from .driver import PageFacade
 from .engine import StepGenerator, StepHealer, classify_step_failure, format_step_error, run_step_code
+from .engine.attempts import OUTCOME_ORIGINAL, StepAttempt
 from .engine.polling import SettleWindow, settle
 from .engine.steering import StepSteering
 from .failures import FailureVerdict, IncurableStepError, LLMUnavailableError, ProductDefectError
@@ -20,6 +21,26 @@ _STRICT_MISS_REASON = "strict mode forbids generation — the step is missing fr
 
 #: Strict-mode terminal failure produced by the quiet verdict skip.
 _STRICT_NO_VERDICT_REASON = "the step failed in strict mode without an llm verdict"
+
+
+def _read_url(page: PageFacade) -> str:
+    """Read the page URL for the replay bracket; never kills the step.
+
+    The guarded read of the cached-replay bracket — the cell-local twin of
+    the engine helper: a dead page or a driver failure on the read degrades
+    honestly to the empty string on that side; the replay itself proceeds
+    normally.
+
+    Args:
+        page: the page facade handle of the current test.
+
+    Returns:
+        The current URL of the page, or the empty string when the read fails.
+    """
+    try:
+        return page.url
+    except Exception:
+        return ""
 
 
 class StepExecutor:
@@ -36,8 +57,16 @@ class StepExecutor:
     category; the settle window still applies to the cached code. A terminal
     IncurableStepError of a non-strict interactive run makes one detour
     through the steering dialog — a healed return continues the step as a
-    success. The scenario context — the sentences of the previous steps of
-    this test — feeds every generation and healing request.
+    success. The executor owns the per-step attempt history: one empty
+    ``StepAttempt`` record list created per execution — it dies with the
+    step, never persisted, never carried across steps — anchored on a
+    failed cached hit by record 0 (the original cached code with its replay
+    error and the URL pair of the replay) and threaded by reference into
+    every engine call, which append the records of their own attempts. The
+    scenario context — the sentences of the previous steps of this test —
+    feeds every generation and healing request; the raw step sentence and
+    the step type reach every engine call verbatim, the casefolded
+    normalization stays an addressing key only.
 
     Attributes:
         cache_key: the context key of the owning test object.
@@ -124,29 +153,52 @@ class StepExecutor:
                 normalized_text=normalize_step_text(step_text),
             )
             window = SettleWindow(self._config.polling_timeout, self._config.polling_delay)
+            attempt_history: list[StepAttempt] = []  # the per-step history — created here, dies with the step
             cached = self._cache.load(identity)
 
             if cached is not None:
+                url_before = _read_url(page)  # the replay bracket opens before the cached execution
                 try:
                     settle(run_step_code, cached.code, page, window)
                 except Exception as error:  # cached code failed — the mode picks the reaction
                     error_text = format_step_error(error)
+                    url_after = _read_url(page)  # the bracket closes on the failure record 0 anchors
 
                     if self._config.strict:
                         self._strict_failure(step_text, step_type, cached, error_text, page)  # always raises
                     else:
+                        # record 0 — the anchor of the healing: the original cached code with its
+                        # replay error and the replay URL pair, composed before the heal delegation
+                        attempt_history.append(
+                            StepAttempt(
+                                code=cached.code,
+                                error=error_text,
+                                outcome=OUTCOME_ORIGINAL,
+                                url_before=url_before,
+                                url_after=url_after,
+                            )
+                        )
                         try:
                             # healed = re-executed
-                            self._healer.heal(cached, error_text, self._scenario, page, window)
+                            self._healer.heal(
+                                cached, error_text, step_text, step_type, self._scenario, page,
+                                attempt_history, window,
+                            )
                         except IncurableStepError as failure:  # the only kind the steering intercept serves
-                            self._steer_or_raise(failure, identity, page)
+                            self._steer_or_raise(
+                                failure, identity, step_text, step_type, self._scenario, page, attempt_history
+                            )
             elif self._config.strict:
                 raise IncurableStepError(step_text, _STRICT_MISS_REASON, "", code="")
             else:
                 try:
-                    self._generator.generate(identity, step_text, self._scenario, page, window)
+                    self._generator.generate(
+                        identity, step_text, step_type, self._scenario, page, attempt_history, window
+                    )
                 except IncurableStepError as failure:  # the only kind the steering intercept serves
-                    self._steer_or_raise(failure, identity, page)
+                    self._steer_or_raise(
+                        failure, identity, step_text, step_type, self._scenario, page, attempt_history
+                    )
 
             self._scenario.append(step_text)
             self._reporter.emit("on_step_passed", {"step_text": step_text, "step_type": step_type})
@@ -176,11 +228,15 @@ class StepExecutor:
                 {"step_text": step_text, "step_type": step_type, "outcome": outcome},
             )
 
-    def _steer_or_raise(
+    def _steer_or_raise(  # noqa: PLR0913, PLR0917 — the threading is fixed by the root cell contract
         self,
         failure: IncurableStepError,
         identity: StepIdentity,
+        step_text: str,
+        step_type: str,
+        previous_steps: list[str],
         page: PageFacade,
+        attempt_history: list[StepAttempt],
     ) -> CachedStep:
         """Offer a terminal step failure to the steering dialog before it propagates.
 
@@ -197,7 +253,15 @@ class StepExecutor:
             failure: the terminal failure about to propagate.
             identity: the address of the stuck step — the healed step is
                 written back under it.
+            step_text: the raw sentence of the stuck step — carried into
+                every guided regeneration request verbatim.
+            step_type: action or assertion — carried into every guided
+                regeneration request.
+            previous_steps: the sentences of the previous steps of the test.
             page: the live page facade of the test.
+            attempt_history: the per-step attempt history already grown by
+                the engine loop — the dialog joins it and appends the
+                records of its own turns.
 
         Returns:
             The healed cached step — the step continues as a success.
@@ -209,7 +273,9 @@ class StepExecutor:
         if not (self._config.interactive and not self._config.strict):
             raise failure
 
-        healed = self._steering.steer(failure, identity, self._scenario, page)
+        healed = self._steering.steer(
+            failure, identity, step_text, step_type, previous_steps, page, attempt_history
+        )
         if healed is None:  # quit, EOF, SIGINT, an unreadable stdin or a dead provider
             raise failure
 

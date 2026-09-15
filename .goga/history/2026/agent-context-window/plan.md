@@ -566,20 +566,20 @@ Update the existing `tests/test_executor.py` fixtures (fake generator/healer/ste
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (in `tests/test_executor.py`, expected to fail at this stage): `execute(step_text, step_type, page)` signature unchanged; the executor delegates with the contract call shapes — `generate(identity, step_text, step_type, scenario, page, attempt_history, window)`, `heal(cached, error_text, step_text, step_type, scenario, page, attempt_history, window)`, `steer(failure, identity, step_text, step_type, scenario, page, attempt_history)`
-- [ ] **Code**: import `StepAttempt` (and the outcome constants) from `prettyplay.engine`; create the per-step history in step 2 (fresh empty list per execution)
-- [ ] **Code**: bracket the cached replay with the guarded `_read_url` reads (step 3); seed record 0 on a non-strict hit failure before the heal delegation (step 4)
-- [ ] **Code**: thread the raw sentence, the step type and the history into generate / heal / `_steer_or_raise` → `steer` (steps 4–6)
-- [ ] **Code**: update the existing executor tests' fake engines to record the new kwargs
-- [ ] **Code**: extend the executor-test `FakePage` with a `url` property (a scripted value or raise) as the URL-bracket tests require
-- [ ] **Interface verification**: `.venv/bin/python -m pytest tests/test_executor.py -x` — contract tests pass
-- [ ] **Logic tests** (add to `tests/test_executor.py`; scenarios verbatim from the design):
-  - [ ] `test_execute_seeds_record_zero_on_failed_cached_hit` — **Setup**: executor fixtures (fake cache returning a cached step, fake healer recording kwargs); `FakePage.url` returns `"https://a.example"` then `"https://b.example"`; cached code raises on replay. **Input**: `executor.execute("Click the «Sign in» button", "action", page)`. **Trace**: hit; url_before read; settle raises; url_after read → `history.append(StepAttempt(code=cached.code, error=format_step_error(exc), outcome=OUTCOME_ORIGINAL, url_before="https://a.example", url_after="https://b.example"))` → `healer.heal(cached, error_text, "Click the «Sign in» button", "action", scenario, page, history, window)`. **Assertions**: healer received attempt_history with exactly one record before the call; `record.outcome == OUTCOME_ORIGINAL and record.code == cached.code`; `record.url_before == "https://a.example" and record.url_after == "https://b.example"`; healer received step_text="Click the «Sign in» button" (raw) and step_type="action"
-  - [ ] `test_execute_passes_empty_history_and_raw_sentence_to_generate` — **Setup**: executor fixtures; fake cache miss; fake generator recording kwargs. **Input**: `executor.execute("Open the LOGIN page", "action", page)`. **Trace**: miss → `generator.generate(identity, "Open the LOGIN page", "action", scenario, page, history=[], window)`. **Assertions**: generator received step_text="Open the LOGIN page" (raw, not casefolded); generator received step_type="action" and attempt_history == []; `identity.normalized_text == "open the login page"` (addressing still normalized)
-  - [ ] `test_execute_creates_history_per_step_and_never_carries_it_across_steps` — **Setup**: executor fixtures; two consecutive cache-miss steps. **Input**: `execute("open the page", "action", page)` then `execute("click the button", "action", page)`. **Trace**: step 1 → generator receives history_a == []; step 2 → generator receives history_b == [] (a fresh list, not history_a grown). **Assertions**: `generator.calls[0]["attempt_history"] == [] and generator.calls[1]["attempt_history"] == []`; the two lists are distinct objects (identity check via the recorded call args or a marker append)
-- [ ] **Debugging**: `.venv/bin/python -m pytest tests/test_executor.py -x` — fix implementation code until all tests pass (do NOT fix test code)
-- [ ] **Contract re-verification**: the strict path untouched; `on_step_finished` fires exactly once per step; record 0 composed before the heal delegation
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/executor.py tests/test_executor.py` — fix formatting if necessary
+- [x] **Contract tests** (in `tests/test_executor.py`, expected to fail at this stage): `execute(step_text, step_type, page)` signature unchanged; the executor delegates with the contract call shapes — `generate(identity, step_text, step_type, scenario, page, attempt_history, window)`, `heal(cached, error_text, step_text, step_type, scenario, page, attempt_history, window)`, `steer(failure, identity, step_text, step_type, scenario, page, attempt_history)`
+- [x] **Code**: import `StepAttempt` (and the outcome constants) from `prettyplay.engine`; create the per-step history in step 2 (fresh empty list per execution)
+- [x] **Code**: bracket the cached replay with the guarded `_read_url` reads (step 3); seed record 0 on a non-strict hit failure before the heal delegation (step 4)
+- [x] **Code**: thread the raw sentence, the step type and the history into generate / heal / `_steer_or_raise` → `steer` (steps 4–6)
+- [x] **Code**: update the existing executor tests' fake engines to record the new kwargs
+- [x] **Code**: extend the executor-test `FakePage` with a `url` property (a scripted value or raise) as the URL-bracket tests require
+- [x] **Interface verification**: `.venv/bin/python -m pytest tests/test_executor.py -x` — contract tests pass
+- [x] **Logic tests** (add to `tests/test_executor.py`; scenarios verbatim from the design):
+  - [x] `test_execute_seeds_record_zero_on_failed_cached_hit` — **Setup**: executor fixtures (fake cache returning a cached step, fake healer recording kwargs); `FakePage.url` returns `"https://a.example"` then `"https://b.example"`; cached code raises on replay. **Input**: `executor.execute("Click the «Sign in» button", "action", page)`. **Trace**: hit; url_before read; settle raises; url_after read → `history.append(StepAttempt(code=cached.code, error=format_step_error(exc), outcome=OUTCOME_ORIGINAL, url_before="https://a.example", url_after="https://b.example"))` → `healer.heal(cached, error_text, "Click the «Sign in» button", "action", scenario, page, history, window)`. **Assertions**: healer received attempt_history with exactly one record before the call; `record.outcome == OUTCOME_ORIGINAL and record.code == cached.code`; `record.url_before == "https://a.example" and record.url_after == "https://b.example"`; healer received step_text="Click the «Sign in» button" (raw) and step_type="action"
+  - [x] `test_execute_passes_empty_history_and_raw_sentence_to_generate` — **Setup**: executor fixtures; fake cache miss; fake generator recording kwargs. **Input**: `executor.execute("Open the LOGIN page", "action", page)`. **Trace**: miss → `generator.generate(identity, "Open the LOGIN page", "action", scenario, page, history=[], window)`. **Assertions**: generator received step_text="Open the LOGIN page" (raw, not casefolded); generator received step_type="action" and attempt_history == []; `identity.normalized_text == "open the login page"` (addressing still normalized)
+  - [x] `test_execute_creates_history_per_step_and_never_carries_it_across_steps` — **Setup**: executor fixtures; two consecutive cache-miss steps. **Input**: `execute("open the page", "action", page)` then `execute("click the button", "action", page)`. **Trace**: step 1 → generator receives history_a == []; step 2 → generator receives history_b == [] (a fresh list, not history_a grown). **Assertions**: `generator.calls[0]["attempt_history"] == [] and generator.calls[1]["attempt_history"] == []`; the two lists are distinct objects (identity check via the recorded call args or a marker append)
+- [x] **Debugging**: `.venv/bin/python -m pytest tests/test_executor.py -x` — fix implementation code until all tests pass (do NOT fix test code)
+- [x] **Contract re-verification**: the strict path untouched; `on_step_finished` fires exactly once per step; record 0 composed before the heal delegation
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/executor.py tests/test_executor.py` — fix formatting if necessary
 
 ### Task 10: Integration tests for the end-to-end step cycle with the shared attempt history
 
@@ -630,19 +630,19 @@ Context: after every coding task, verify the full chain end to end — the three
 
 ## Completion Criteria
 
-- [ ] Every contract entity is implemented in the correct `location` (`StepAttempt` in `prettyplay/engine/attempts.py`; all changed signatures in their declared locations)
-- [ ] Every contract entity is accessible from the facade (`StepAttempt` importable from `prettyplay.engine`; `PrettyPlay` importable from `prettyplay`)
-- [ ] Properties and methods match the declared API (port signatures, engine method signatures, `steer`, `execute` call shapes)
-- [ ] Descriptions are reflected in behavior (render format, block orders, outcome label set, guarded reads, anchoring, two-dimension gate)
-- [ ] Contract dependencies are met (`StepAttempt` travels only along the pre-existing edges engine→steering and engine→root; zero new dependency edges)
-- [ ] Re-exports are accessible from the facade (`PrettyConfig`, `BrowserConfig`, `StepHooks` — unchanged)
-- [ ] Every coding task followed the TDD workflow (contract tests → code → verification → logic tests → debugging → re-verification → lint)
-- [ ] Contract tests and logic tests cover facade, API, and behavior within each coding task
+- [x] Every contract entity is implemented in the correct `location` (`StepAttempt` in `prettyplay/engine/attempts.py`; all changed signatures in their declared locations)
+- [x] Every contract entity is accessible from the facade (`StepAttempt` importable from `prettyplay.engine`; `PrettyPlay` importable from `prettyplay`)
+- [x] Properties and methods match the declared API (port signatures, engine method signatures, `steer`, `execute` call shapes)
+- [x] Descriptions are reflected in behavior (render format, block orders, outcome label set, guarded reads, anchoring, two-dimension gate)
+- [x] Contract dependencies are met (`StepAttempt` travels only along the pre-existing edges engine→steering and engine→root; zero new dependency edges)
+- [x] Re-exports are accessible from the facade (`PrettyConfig`, `BrowserConfig`, `StepHooks` — unchanged)
+- [x] Every coding task followed the TDD workflow (contract tests → code → verification → logic tests → debugging → re-verification → lint)
+- [x] Contract tests and logic tests cover facade, API, and behavior within each coding task
 - [ ] Integration tests exist where cross-entity scenarios require them (Task 10: scenarios A/B/C)
-- [ ] No package boundary was expanded (no new cells, no new cross-cell exports — the guarded URL reads stay cell-local)
-- [ ] `CODEMANIFEST` files were not modified (contract is read-only)
+- [x] No package boundary was expanded (no new cells, no new cross-cell exports — the guarded URL reads stay cell-local)
+- [x] `CODEMANIFEST` files were not modified (contract is read-only)
 - [ ] All validation commands pass
-- [ ] Every Usages entry is mentioned in at least one task (`conventions`, `system_prompt`, `cheat_sheet`, `classification_prompt`, `compliance_prompt`, `openai`, `anthropic`, imported `classification`, `hooks`, `taxonomy`, `generation`, `healing`)
+- [x] Every Usages entry is mentioned in at least one task (`conventions`, `system_prompt`, `cheat_sheet`, `classification_prompt`, `compliance_prompt`, `openai`, `anthropic`, imported `classification`, `hooks`, `taxonomy`, `generation`, `healing`)
 - [ ] The removed inputs survive nowhere (port, providers, engine loops, stubs, tests): `existing_code`, `error` (of `generate_step_code`/`regenerate`), `guidance_history`; the steering `_turn_record` helper is deleted
-- [ ] The frozen mirrors are byte-equal (`SYSTEM_PROMPT` in `generator.py` and `steering.py`, `COMPLIANCE_PROMPT` in `compliance.py`, `CHEAT_SHEET` unchanged)
+- [x] The frozen mirrors are byte-equal (`SYSTEM_PROMPT` in `generator.py` and `steering.py`, `COMPLIANCE_PROMPT` in `compliance.py`, `CHEAT_SHEET` unchanged)
 - [ ] Nothing from the attempt history is persisted to the cache file or dumped to logs

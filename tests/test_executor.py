@@ -11,6 +11,8 @@ from playwright.sync_api import Error as PlaywrightError
 from prettyplay import StepExecutor
 from prettyplay.cache import CachedStep, RunBudgets, StepCache, StepIdentity, normalize_step_text
 from prettyplay.config import Config
+from prettyplay.engine import StepAttempt
+from prettyplay.engine.attempts import OUTCOME_ORIGINAL
 from prettyplay.engine.polling import SettleWindow, settle
 from prettyplay.failures import FailureVerdict, IncurableStepError, LLMUnavailableError, ProductDefectError
 from prettyplay.llm import FailureClassification, LLMProvider
@@ -21,17 +23,35 @@ BROKEN_CODE = "def step(page) -> None:\n    page.get_by_role('button', name='В�
 
 
 class FakePage:
-    """Fake page handle in the hand-built shape: ``run``/``aria_snapshot``/``screenshot``.
+    """Fake page handle in the hand-built shape: ``run``/``aria_snapshot``/``screenshot``/``url``.
 
     The fake doubles as the handle and the raw page it hands out — the run
     primitive executes the action against the fake itself, so the step code
     drives the ``goto``/``get_by_role`` surface directly. Records calls; every
-    lookup fails with the scripted error.
+    lookup fails with the scripted error. The ``url`` property serves the
+    bracket reads: the next value of the scripted sequence (the last one
+    repeats), or the scripted raise, or the empty string with no script.
     """
 
-    def __init__(self, lookup_error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        lookup_error: Exception | None = None,
+        urls: list[str] | None = None,
+        url_error: Exception | None = None,
+    ) -> None:
         self.calls: list[tuple[str, ...]] = []
         self._lookup_error = lookup_error if lookup_error is not None else AssertionError("element not found")
+        self._urls = list(urls) if urls else []
+        self._url_error = url_error
+
+    @property
+    def url(self) -> str:
+        """The page URL as the bracket reads see it: scripted value, scripted raise, or empty."""
+        if self._url_error is not None:
+            raise self._url_error
+        if len(self._urls) > 1:
+            return self._urls.pop(0)
+        return self._urls[0] if self._urls else ""
 
     def goto(self, url: str) -> None:
         self.calls.append(("goto", url))
@@ -58,20 +78,24 @@ class RecordingGenerator:
         self.calls: list[dict[str, object]] = []
         self.step = step
 
-    def generate(
+    def generate(  # noqa: PLR0913, PLR0917 — the signature is fixed by the engine contract
         self,
         identity: StepIdentity,
         step_text: str,
+        step_type: str,
         previous_steps: list[str],
         page: FakePage,
+        attempt_history: list[StepAttempt],
         window: SettleWindow,
     ) -> CachedStep | None:
         self.calls.append(
             {
                 "identity": identity,
                 "step_text": step_text,
+                "step_type": step_type,
                 "previous_steps": list(previous_steps),  # snapshot: the live list grows after the call
                 "page": page,
+                "attempt_history": attempt_history,  # live reference: the per-step identity check needs it
                 "window": window,
             }
         )
@@ -85,12 +109,14 @@ class RaisingGenerator:
         self.error = error
         self.calls = 0
 
-    def generate(
+    def generate(  # noqa: PLR0913, PLR0917 — the signature is fixed by the engine contract
         self,
         identity: StepIdentity,
         step_text: str,
+        step_type: str,
         previous_steps: list[str],
         page: FakePage,
+        attempt_history: list[StepAttempt],
         window: SettleWindow,
     ) -> CachedStep:
         self.calls += 1
@@ -105,12 +131,14 @@ class FlakyGenerator:
         self.error = error
         self.calls = 0
 
-    def generate(
+    def generate(  # noqa: PLR0913, PLR0917 — the signature is fixed by the engine contract
         self,
         identity: StepIdentity,
         step_text: str,
+        step_type: str,
         previous_steps: list[str],
         page: FakePage,
+        attempt_history: list[StepAttempt],
         window: SettleWindow,
     ) -> CachedStep | None:
         self.calls += 1
@@ -126,20 +154,26 @@ class RecordingHealer:
         self.calls: list[dict[str, object]] = []
         self.step = step
 
-    def heal(
+    def heal(  # noqa: PLR0913, PLR0917 — the signature is fixed by the engine contract
         self,
         step: CachedStep,
         error: str,
+        step_text: str,
+        step_type: str,
         previous_steps: list[str],
         page: FakePage,
+        attempt_history: list[StepAttempt],
         window: SettleWindow,
     ) -> CachedStep | None:
         self.calls.append(
             {
                 "step": step,
                 "error": error,
+                "step_text": step_text,
+                "step_type": step_type,
                 "previous_steps": list(previous_steps),  # snapshot: the live list grows after the call
                 "page": page,
+                "attempt_history": attempt_history,  # live reference: record 0 is asserted through it
                 "window": window,
             }
         )
@@ -153,12 +187,15 @@ class RaisingHealer:
         self.error = error
         self.calls = 0
 
-    def heal(
+    def heal(  # noqa: PLR0913, PLR0917 — the signature is fixed by the engine contract
         self,
         step: CachedStep,
         error: str,
+        step_text: str,
+        step_type: str,
         previous_steps: list[str],
         page: FakePage,
+        attempt_history: list[StepAttempt],
         window: SettleWindow,
     ) -> CachedStep:
         self.calls += 1
@@ -173,19 +210,25 @@ class RecordingSteering:
         self.error = error
         self.calls: list[dict[str, object]] = []
 
-    def steer(
+    def steer(  # noqa: PLR0913, PLR0917 — the signature is fixed by the steering contract
         self,
         failure: IncurableStepError,
         identity: StepIdentity,
+        step_text: str,
+        step_type: str,
         previous_steps: list[str],
         page: FakePage,
+        attempt_history: list[StepAttempt],
     ) -> CachedStep | None:
         self.calls.append(
             {
                 "failure": failure,
                 "identity": identity,
+                "step_text": step_text,
+                "step_type": step_type,
                 "previous_steps": list(previous_steps),  # snapshot: the live list grows after the call
                 "page": page,
+                "attempt_history": list(attempt_history),  # snapshot: the dialog joins the grown history
             }
         )
         if self.error is not None:
@@ -206,16 +249,15 @@ class ScriptedProvider(LLMProvider):
         prompt: str = "",
         user_instructions: str = "",
         step_text: str = "",
+        step_type: str = "",
         previous_steps: list[str] | None = None,
         snapshot: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
         cheat_sheet: str = "",
-        existing_code: str | None = None,
-        error: str | None = None,
+        attempt_history: list[str] | None = None,
         recommendation: str | None = None,
         guidance: str | None = None,
-        guidance_history: list[str] | None = None,
     ) -> str:
         self.generation_calls += 1
         raise AssertionError("provider must not generate: strict mode replays cached code only")
@@ -245,16 +287,15 @@ class UnavailableProvider(LLMProvider):
         prompt: str = "",
         user_instructions: str = "",
         step_text: str = "",
+        step_type: str = "",
         previous_steps: list[str] | None = None,
         snapshot: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
         cheat_sheet: str = "",
-        existing_code: str | None = None,
-        error: str | None = None,
+        attempt_history: list[str] | None = None,
         recommendation: str | None = None,
         guidance: str | None = None,
-        guidance_history: list[str] | None = None,
     ) -> str:
         self.generation_calls += 1
         raise AssertionError("provider must not generate: strict mode replays cached code only")
@@ -284,16 +325,15 @@ class CrashingProvider(LLMProvider):
         prompt: str = "",
         user_instructions: str = "",
         step_text: str = "",
+        step_type: str = "",
         previous_steps: list[str] | None = None,
         snapshot: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
         cheat_sheet: str = "",
-        existing_code: str | None = None,
-        error: str | None = None,
+        attempt_history: list[str] | None = None,
         recommendation: str | None = None,
         guidance: str | None = None,
-        guidance_history: list[str] | None = None,
     ) -> str:
         self.generation_calls += 1
         raise AssertionError("provider must not generate: strict mode replays cached code only")
@@ -513,6 +553,59 @@ class TestStepExecutorContract:
 
         assert not events_named(fixture.recorder, "on_step_verdict")
 
+    def test_executor_delegates_with_the_contract_call_shapes(self, tmp_path: Path) -> None:
+        """generate, heal and steer receive exactly the contract inputs — the raw sentence, the type, the history."""
+        generator = RecordingGenerator()
+        healer = RecordingHealer()
+        fixture = ExecutorFixture(tmp_path, generator, healer)
+
+        # cache miss — generate(identity, step_text, step_type, scenario, page, attempt_history, window)
+        fixture.executor.execute("open the page", "action", FakePage())
+        assert set(generator.calls[0]) == {
+            "identity",
+            "step_text",
+            "step_type",
+            "previous_steps",
+            "page",
+            "attempt_history",
+            "window",
+        }
+
+        # failed cached hit — heal(cached, error_text, step_text, step_type, scenario, page, history, window)
+        seed_cached_step(fixture, "нажать войти")
+        fixture.executor.execute("нажать Войти", "action", FakePage())
+        assert set(healer.calls[0]) == {
+            "step",
+            "error",
+            "step_text",
+            "step_type",
+            "previous_steps",
+            "page",
+            "attempt_history",
+            "window",
+        }
+
+        # terminal failure, interactive — steer(failure, identity, step_text, step_type, scenario, page, history)
+        failure = IncurableStepError("нажать войти", "budget exhausted", "Timeout …", verdict=None)
+        steering = RecordingSteering(healed=None)  # declined — the shape is recorded before the decline
+        interactive = interactive_fixture(
+            tmp_path, RaisingGenerator(failure), RaisingHealer(failure), steering=steering
+        )
+        seed_cached_step(interactive, "нажать войти")
+
+        with pytest.raises(IncurableStepError):
+            interactive.executor.execute("нажать Войти", "action", FakePage())
+
+        assert set(steering.calls[0]) == {
+            "failure",
+            "identity",
+            "step_text",
+            "step_type",
+            "previous_steps",
+            "page",
+            "attempt_history",
+        }
+
 
 class TestStepExecutorLogic:
     """Logic tests: hit and miss paths, scenario context, failures, healing delegation."""
@@ -557,6 +650,57 @@ class TestStepExecutorLogic:
         passed = events_named(fixture.recorder, "on_step_passed")
         assert len(passed) == 2
         assert not events_named(fixture.recorder, "on_step_failed")
+
+    def test_execute_seeds_record_zero_on_failed_cached_hit(self, tmp_path: Path) -> None:
+        """Record 0 — the original cached code, the replay error, the replay URL pair — precedes the heal."""
+        healer = RecordingHealer()
+        fixture = ExecutorFixture(tmp_path, RecordingGenerator(), healer)
+        seed_cached_step(fixture, "click the «Sign in» button")
+        page = FakePage(urls=["https://a.example", "https://b.example"])
+
+        fixture.executor.execute("Click the «Sign in» button", "action", page)
+
+        call = healer.calls[0]
+        history = call["attempt_history"]
+        assert isinstance(history, list)
+        assert len(history) == 1  # exactly one record before the heal runs
+        record = history[0]
+        assert isinstance(record, StepAttempt)
+        assert record.outcome == OUTCOME_ORIGINAL
+        assert record.code.rstrip("\n") == BROKEN_CODE.rstrip("\n")  # the cached code, exactly as stored
+        assert record.error == "element not found"  # the formatted replay error
+        assert record.url_before == "https://a.example"
+        assert record.url_after == "https://b.example"
+        assert call["step_text"] == "Click the «Sign in» button"  # the raw sentence, casing untouched
+        assert call["step_type"] == "action"
+
+    def test_execute_passes_empty_history_and_raw_sentence_to_generate(self, tmp_path: Path) -> None:
+        """A cache miss hands the generator an empty history and the raw sentence — normalization stays addressing."""
+        generator = RecordingGenerator()
+        fixture = ExecutorFixture(tmp_path, generator, RecordingHealer())
+        page = FakePage()
+
+        fixture.executor.execute("Open the LOGIN page", "action", page)
+
+        call = generator.calls[0]
+        assert call["step_text"] == "Open the LOGIN page"  # raw, not casefolded
+        assert call["step_type"] == "action"
+        assert call["attempt_history"] == []
+        assert call["identity"].normalized_text == "open the login page"  # addressing still normalized
+
+    def test_execute_creates_history_per_step_and_never_carries_it_across_steps(self, tmp_path: Path) -> None:
+        """Every execution owns a fresh history — one step's records never leak into the next step's requests."""
+        generator = RecordingGenerator()
+        fixture = ExecutorFixture(tmp_path, generator, RecordingHealer())
+        page = FakePage()
+
+        fixture.executor.execute("open the page", "action", page)
+        fixture.executor.execute("click the button", "action", page)
+
+        first, second = generator.calls[0]["attempt_history"], generator.calls[1]["attempt_history"]
+        assert first == []  # a fresh list, not one grown by the first step
+        assert second == []
+        assert first is not second  # distinct objects — the histories never share identity
 
     def test_executor_reports_verdict_after_failed(self, tmp_path: Path) -> None:
         failure = IncurableStepError("s", "r", "", verdict=FailureVerdict("incurable", "e", "rec"))
