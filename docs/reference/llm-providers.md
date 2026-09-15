@@ -26,7 +26,7 @@ on the first request.
 | `generation_model` | code generation only | `model` |
 | `classification_model` | failure classification only | `model` |
 
-The instruction compliance gate runs on the effective generation model
+The compliance gate runs on the effective generation model
 (`generation_model` or `model`).
 
 `base_url` overrides the provider endpoint when set.
@@ -48,16 +48,19 @@ providers. A parity requirement, not a capability difference: classification
 requests never carry the generation instructions and generation requests never
 carry the classification instructions.
 
-Regeneration block parity: a regeneration request may carry three extra
-inputs after the failed code and its error — `RECOMMENDATION` (the diagnosis
-of the classification that preceded the regeneration, when present),
-`USER GUIDANCE` (the engineer guidance message of the interactive steering,
-when present) and `HISTORY` (the full turn records of the interactive
-steering, when present — each record carries the engineer message, the
-complete generated code and the complete outcome of the turn, verbatim, no
-collapsing) — rendered in this fixed order, identically in both providers.
-An unset input renders no block. Unrecognized classification labels fall back
-to `incurable` in both providers alike.
+Regeneration block parity: every generation request renders a `STEP TYPE`
+line (action or assertion) immediately before the `STEP` line and may carry
+three extra blocks after the `CHEAT SHEET` and the optional `USER
+INSTRUCTIONS` blocks — `HISTORY` (the verbatim per-step attempt records,
+when present: each record carries the attempt outcome, the URL before ->
+after line, the complete candidate code and the complete error, with the
+original cached code anchored as record 0 on a healing path),`
+RECOMMENDATION` (the diagnosis of the classification that preceded the
+regeneration, when present) and `USER GUIDANCE` (the engineer guidance
+message of the interactive steering, when present) — rendered in this fixed
+order, identically in both providers. An unset input renders no block.
+Unrecognized classification labels fall back to `incurable` in both
+providers alike.
 
 Page-URL parity: a generation request may carry the current page URL — a
 non-empty `page_url` renders as its own `PAGE URL` line immediately after
@@ -112,9 +115,10 @@ classification inputs.
 
 ## The compliance operation
 
-`check_instruction_compliance` is the verdict request of the instruction
-compliance gate (see [Configuration](../configuration.md#the-instruction-compliance-gate)):
-the engine calls it once per successfully executed candidate before caching —
+`check_instruction_compliance` is the verdict request of the compliance gate
+(see [Configuration](../configuration.md#the-compliance-gate)): the engine
+calls it once per successfully executed candidate before caching — judging
+both the instruction compliance and the step adequacy in one request —
 never for replayed cached code, never when `generation_approve` is off or
 `generation_prompt` is empty (zero calls).
 
@@ -123,19 +127,28 @@ findings = provider.check_instruction_compliance(
     prompt=system_prompt,           # the gate system prompt text comes from the calling engine
     user_instructions=instructions, # the project's user instructions (the generation_prompt setting)
     step_text="click the «Sign in» button",
+    step_type="action",             # action | assertion — the adequacy dimension judges by it
     code=step_code,
+    attempt_history=[r.render() for r in history],  # the verbatim per-step attempt records, when present
 )
 ```
 
-- full parity between the providers: the user content carries three blocks in
-  the fixed order — `INSTRUCTIONS`, `STEP`, `CODE` — built identically by both
-  through one shared builder; no screenshot input on this operation
+- full parity between the providers: the user content carries four blocks in
+  the fixed order — `INSTRUCTIONS`, `STEP` (with its `STEP TYPE` line),
+  `ATTEMPT HISTORY` (omitted when the step has no attempt records) and
+  `CODE` — built identically by both through one shared builder; no
+  screenshot input on this operation
 - the gate model is the effective generation model (`generation_model` or
   `model`)
-- the answer parses strictly: a JSON list of findings, each with `instruction`,
-  `priority` (`high|medium|low`) and `explanation`; an empty list `[]` means
-  compliant; a malformed verdict raises `ComplianceVerdictError` — never a
-  silent pass. Only a `high` finding blocks the candidate, and that decision
+- the answer parses strictly: a JSON list of findings, each with
+  `instruction`, `priority` (`high|medium|low`), `explanation` and
+  `dimension` (`instruction|adequacy`) — the instruction dimension quotes the
+  violated instruction, the adequacy dimension names the fragment of the step
+  sentence the code fails to accomplish, judged from the step type and the
+  attempt history; an empty list `[]` means compliant; a malformed verdict
+  (an answer of the old shape — a finding without a dimension — included)
+  raises `ComplianceVerdictError` — never a silent pass. Only a `high`
+  finding — in either dimension — blocks the candidate, and that decision
   belongs to the calling engine, not the provider
 - SDK errors map to `LLMUnavailableError` exactly like the other operations —
   `llm unavailable: {provider} request failed`

@@ -374,15 +374,8 @@ class StepGenerator:
             except AssertionError as check_failure:
                 # failed check survived the window — the decision table, never blind retries
                 url_after = _read_url(page)
-                history.append(
-                    StepAttempt(
-                        code=code,
-                        error=str(check_failure),  # full text, no prefix — the type is the semantics
-                        outcome=OUTCOME_FAILED_CHECK,
-                        url_before=url_before,
-                        url_after=url_after,
-                    )
-                )
+                # full text, no prefix — the type is the semantics
+                history.append(_record(code, str(check_failure), OUTCOME_FAILED_CHECK, url_before, url_after))
                 return self._failed_check_outcome(
                     identity, step_text, step_type, previous_steps, page, history, code, str(check_failure),
                     window, attempt,
@@ -390,13 +383,7 @@ class StepGenerator:
             except Exception as candidate_error:  # other candidate failures heal via retry
                 url_after = _read_url(page)
                 history.append(
-                    StepAttempt(
-                        code=code,
-                        error=format_step_error(candidate_error),
-                        outcome=OUTCOME_EXECUTION_FAILED,
-                        url_before=url_before,
-                        url_after=url_after,
-                    )
+                    _record(code, format_step_error(candidate_error), OUTCOME_EXECUTION_FAILED, url_before, url_after)
                 )
                 standing = None  # a real candidate failure replaces the standing violation
             else:
@@ -406,13 +393,7 @@ class StepGenerator:
                 high = _high_finding(findings)
                 if high is not None:  # the attempt failed on the violation — retry targeted at it
                     history.append(
-                        StepAttempt(
-                            code=code,
-                            error=_violation_text(high),
-                            outcome=OUTCOME_COMPLIANCE_BLOCKED,
-                            url_before=url_before,
-                            url_after=url_after,
-                        )
+                        _record(code, _violation_text(high), OUTCOME_COMPLIANCE_BLOCKED, url_before, url_after)
                     )
                     standing = high
                     continue
@@ -485,26 +466,12 @@ class StepGenerator:
                 settle(run_step_code, code, page, window)
             except AssertionError as check_failure:  # failed checks included — the entry classification guards
                 url_after = _read_url(page)
-                history.append(
-                    StepAttempt(
-                        code=code,
-                        error=str(check_failure),
-                        outcome=OUTCOME_FAILED_CHECK,
-                        url_before=url_before,
-                        url_after=url_after,
-                    )
-                )
+                history.append(_record(code, str(check_failure), OUTCOME_FAILED_CHECK, url_before, url_after))
                 continue
             except Exception as candidate_error:
                 url_after = _read_url(page)
                 history.append(
-                    StepAttempt(
-                        code=code,
-                        error=format_step_error(candidate_error),
-                        outcome=OUTCOME_EXECUTION_FAILED,
-                        url_before=url_before,
-                        url_after=url_after,
-                    )
+                    _record(code, format_step_error(candidate_error), OUTCOME_EXECUTION_FAILED, url_before, url_after)
                 )
                 continue
             url_after = _read_url(page)
@@ -513,15 +480,7 @@ class StepGenerator:
             findings = check_step_compliance(self._config, self._provider, step_text, step_type, code, history)
             high = _high_finding(findings)
             if high is not None:  # the attempt failed on the violation — retry targeted at it
-                history.append(
-                    StepAttempt(
-                        code=code,
-                        error=_violation_text(high),
-                        outcome=OUTCOME_COMPLIANCE_BLOCKED,
-                        url_before=url_before,
-                        url_after=url_after,
-                    )
-                )
+                history.append(_record(code, _violation_text(high), OUTCOME_COMPLIANCE_BLOCKED, url_before, url_after))
                 continue
             if findings:
                 _medium_warning(step_text, findings)
@@ -757,27 +716,11 @@ class StepGenerator:
             settle(run_step_code, code, page, window)
         except AssertionError as check_failure:
             url_after = _read_url(page)
-            history.append(
-                StepAttempt(
-                    code=code,
-                    error=str(check_failure),
-                    outcome=OUTCOME_FAILED_CHECK,
-                    url_before=url_before,
-                    url_after=url_after,
-                )
-            )
+            history.append(_record(code, str(check_failure), OUTCOME_FAILED_CHECK, url_before, url_after))
             return None, code, str(check_failure), True
         except Exception as failure:
             url_after = _read_url(page)
-            history.append(
-                StepAttempt(
-                    code=code,
-                    error=format_step_error(failure),
-                    outcome=OUTCOME_EXECUTION_FAILED,
-                    url_before=url_before,
-                    url_after=url_after,
-                )
-            )
+            history.append(_record(code, format_step_error(failure), OUTCOME_EXECUTION_FAILED, url_before, url_after))
             return None, code, format_step_error(failure), False
         url_after = _read_url(page)
 
@@ -785,15 +728,7 @@ class StepGenerator:
         findings = check_step_compliance(self._config, self._provider, step_text, step_type, code, history)
         high = _high_finding(findings)
         if high is not None:  # a compliance block is a candidate failure, not a check
-            history.append(
-                StepAttempt(
-                    code=code,
-                    error=_violation_text(high),
-                    outcome=OUTCOME_COMPLIANCE_BLOCKED,
-                    url_before=url_before,
-                    url_after=url_after,
-                )
-            )
+            history.append(_record(code, _violation_text(high), OUTCOME_COMPLIANCE_BLOCKED, url_before, url_after))
             return None, code, _violation_text(high), False
         if findings:
             _medium_warning(step_text, findings)
@@ -968,6 +903,22 @@ def _medium_warning(step_text: str, findings: list[ComplianceFinding]) -> None:
             ],
         },
     )
+
+
+def _record(code: str, error: str, outcome: str, url_before: str, url_after: str) -> StepAttempt:
+    """Compose one verbatim attempt record — the shape every append site of the loops shares.
+
+    Args:
+        code: the complete candidate code of the attempt.
+        error: the complete failure text of the attempt; empty on no error.
+        outcome: the outcome label constant of the attempt.
+        url_before: the page URL read immediately before the attempt's execution.
+        url_after: the page URL read immediately after the attempt's execution.
+
+    Returns:
+        The immutable record appended to the per-step attempt history.
+    """
+    return StepAttempt(code=code, error=error, outcome=outcome, url_before=url_before, url_after=url_after)
 
 
 def _last_facts(history: list[StepAttempt]) -> tuple[str, str]:

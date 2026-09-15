@@ -56,10 +56,11 @@ Local commands answer without the LLM:
 | `code` | reprint the stored step code text |
 | `quit` | end the dialog — the original terminal failure propagates |
 
-Every other line is guidance: one regeneration request carrying a
-`USER GUIDANCE` block, the fresh page URL and the full turn history (see
-[LLM providers](llm-providers.md#parity)) — the original failure stays the
-CODE/ERROR anchor of every request.
+Every other line is guidance: one regeneration request carrying the step
+type, the raw step sentence, a `USER GUIDANCE` block, the fresh page URL
+and the grown shared attempt history (see
+[LLM providers](llm-providers.md#parity)) — the original failure stays
+anchored as record 0 of the history.
 
 Every turn shows the complete generated code and asks `run? [y/N]` —
 nothing executes unseen:
@@ -68,9 +69,11 @@ nothing executes unseen:
 - any other answer (`n`, Enter, `quit`) aborts the turn without execution
   and the guidance prompt reopens — the rejected candidate enters the
   history with the outcome `rejected by the engineer, not executed`
-- a completed turn — executed or rejected — enters the history in full:
-  the engineer message, the complete code, the complete outcome; nothing
-  is collapsed or truncated, and every later request carries every record
+- a completed turn — executed or rejected — enters the shared per-step
+  attempt history in full: the outcome label, the URL before -> after pair
+  (identical on both sides for a rejected turn), the complete code, the
+  complete outcome; nothing is collapsed or truncated, and every later
+  request carries every record
 - a red turn shows the complete outcome and returns to the guidance prompt
   immediately — no re-execution loop, the settle window never re-arms
   inside the dialog (see [Settle polling](settle-polling.md))
@@ -82,8 +85,10 @@ nothing executes unseen:
 ## Effects
 
 - A green turn writes the healed step back to the cache — only after the
-  successful execution and the instruction compliance gate: `medium` and `low`
-  findings pass with a `WARNING`, a `high` finding never reaches the cache
+  successful execution and the compliance gate (which judges both the user
+  instructions and the step adequacy from the shared attempt history):
+  `medium` and `low` findings pass with a `WARNING`, a `high` finding in
+  either dimension never reaches the cache
   (the violation joins the history and the prompt reopens), and a gate hard
   failure — the provider unavailable or a malformed verdict — ends the dialog
   declined, the original terminal failure propagating. A passed turn reports

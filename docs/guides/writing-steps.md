@@ -137,7 +137,7 @@ On a cache miss the generation engine produces a candidate and executes it
 against the live page:
 
 - The loop: request code → execute against the live page → on failure
-  re-request with the fresh error and snapshot
+  re-request with the grown attempt history and the fresh snapshot
 - Attempts are budgeted per step per test (default 3); exhaustion raises
   `IncurableStepError` carrying the classification verdict of the last
   candidate
@@ -152,11 +152,14 @@ against the live page:
 - Other candidate failures (element not found, timeouts) retry with the fresh
   error and snapshot
 - Only a success is stored in the cache — and only after it passes the
-  instruction compliance gate (`generation_approve`, default on): a `high`
-  finding of the verdict fails the attempt and the retry carries the
-  violation, `medium` and `low` findings pass with a `WARNING`, a malformed
+  compliance gate (`generation_approve`, default on), which judges both the
+  user instructions and the step adequacy — whether the code accomplishes
+  what the step sentence says for its step type: a `high` finding in either
+  dimension fails the attempt and the retry carries the
+  violation with the grown history, `medium` and `low` findings pass with a
+  `WARNING`, a malformed
   verdict is a loud `ComplianceVerdictError`. See
-  [Configuration](../configuration.md#the-instruction-compliance-gate)
+  [Configuration](../configuration.md#the-compliance-gate)
 - Provider unavailability of a generation request raises
   `LLMUnavailableError` immediately — no retry on it
 

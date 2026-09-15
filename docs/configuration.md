@@ -15,7 +15,7 @@ classification_model = ""        # optional: empty -> model
 base_url = ""
 cache_root = ""                  # empty -> <cwd>/.prettyplay/cache/
 generation_prompt = ""           # user instructions for generation; empty -> no instructions block
-generation_approve = true        # the instruction compliance gate before caching; false -> the gate never runs (the old behavior)
+generation_approve = true        # the two-dimension compliance gate (instructions + step adequacy) before caching; false -> the gate never runs (the old behavior)
 classification_prompt = ""       # user instructions for classification; empty -> no instructions block
 strict = false                   # true -> replay-only mode (no generation, no healing)
 interactive = false              # true -> the steering dialog on a terminally stuck step (local sessions)
@@ -142,7 +142,7 @@ fields, which is what makes the layered merge above possible.
 | `base_url` | str | `""` | custom LLM API endpoint |
 | `cache_root` | str | `""` | empty → `<cwd>/.prettyplay/cache/` resolved at load |
 | `generation_prompt` | str | `""` | user instructions for generation requests; empty → no block |
-| `generation_approve` | bool | `True` | run the instruction compliance gate before caching a generated step; `False` — the gate never runs |
+| `generation_approve` | bool | `True` | run the two-dimension compliance gate (instructions + step adequacy) before caching a generated step; `False` — the gate never runs |
 | `classification_prompt` | str | `""` | user instructions for classification requests; empty → no block |
 | `strict` | bool | `False` | replay-only mode: no generation, no healing |
 | `interactive` | bool | `False` | arm the steering dialog for terminally stuck steps (local sessions) |
@@ -255,18 +255,23 @@ requests only — it steers the verdict explanations (e.g. `answer in Russian`),
 never generation.
 
 The generation instructions are binding, not advisory — see
-[The instruction compliance gate](#the-instruction-compliance-gate) below.
+[The compliance gate](#the-compliance-gate) below.
 
 Neither ever invalidates cached steps — a cached step runs unchanged.
 
-## The instruction compliance gate
+## The compliance gate
 
 The user instructions of `generation_prompt` are binding for generated step
 code: every successfully executed candidate passes an independent compliance
-check before it is cached. The gate is the default — the deliberate opt-out
-default keeps loud errors instead of silent ignoring; switch it off
-consciously when the extra LLM call per successful generation matters more
-than the enforcement.
+check before it is cached. The check judges two dimensions in one verdict
+request — instruction compliance (the code against the `generation_prompt`
+instructions) and step adequacy (the code must accomplish what the step
+sentence says for its step type — an action step whose code only checks an
+already-achieved state fails it, judged from the step type and the verbatim
+per-step attempt history of what was already tried). The gate is the
+default — the deliberate opt-out default keeps loud errors instead of
+silent ignoring; switch it off consciously when the extra LLM call per
+successful generation matters more than the enforcement.
 
 ```toml
 [tool.prettyplay]
@@ -294,8 +299,10 @@ While the gate is on:
 
 - every successful generation costs one extra LLM call — the verdict request,
   through the effective generation model
-- a `high` finding fails the attempt and the retry carries the violation text
-  as its error, so the model fixes it targeted
+- a `high` finding in either dimension fails the attempt — the violation
+  text (`instruction violation: …` / `adequacy violation: …`) joins the
+  attempt record's error and the retry carries the grown attempt history,
+  so the model fixes it targeted
 - `medium` and `low` findings pass with a `WARNING` naming the instructions
 - a malformed verdict is a loud hard failure (`ComplianceVerdictError`) — a
   candidate is never cached unchecked

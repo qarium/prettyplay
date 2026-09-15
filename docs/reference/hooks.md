@@ -85,7 +85,7 @@ including the verdict event — are logged at INFO; a skipped cache write, a
 failed hook call and the non-blocking compliance outcomes — WARNING. The
 steering dialog logs its openings, guidance lines and declines at INFO as
 `steering_opened`, `steering_guidance` and `steering_declined`; settle
-re-executions log at INFO as `settle_retry`. The instruction compliance gate
+re-executions log at INFO as `settle_retry`. The compliance gate
 logs its outcomes at WARNING: `compliance findings passed` — the medium and
 low findings a green candidate passed with, on the generation path and in the
 steering dialog alike — and `compliance gate failed` — a gate hard failure

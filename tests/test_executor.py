@@ -674,6 +674,21 @@ class TestStepExecutorLogic:
         assert call["step_text"] == "Click the «Sign in» button"  # the raw sentence, casing untouched
         assert call["step_type"] == "action"
 
+    def test_execute_degrades_a_dead_replay_url_read_to_the_empty_pair(self, tmp_path: Path) -> None:
+        """A dead page URL read brackets record 0 with the truthfully empty pair — the replay still heals."""
+        healer = RecordingHealer()
+        fixture = ExecutorFixture(tmp_path, RecordingGenerator(), healer)
+        seed_cached_step(fixture, "click the «Sign in» button")
+        page = FakePage(url_error=PlaywrightError("page crashed"))
+
+        fixture.executor.execute("Click the «Sign in» button", "action", page)
+
+        record = healer.calls[0]["attempt_history"][0]
+        assert record.outcome == OUTCOME_ORIGINAL
+        assert record.url_before == ""  # both sides degrade honestly — the pair stays visible, truthfully empty
+        assert record.url_after == ""
+        assert record.error == "element not found"  # the replay error itself is untouched by the dead read
+
     def test_execute_passes_empty_history_and_raw_sentence_to_generate(self, tmp_path: Path) -> None:
         """A cache miss hands the generator an empty history and the raw sentence — normalization stays addressing."""
         generator = RecordingGenerator()

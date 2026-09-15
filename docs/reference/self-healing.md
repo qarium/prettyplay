@@ -20,8 +20,11 @@ verdict decides the path.
 healed = healer.heal(
     step=failed_step,
     error="element not found: button «Sign in»",
+    step_text="click the «Sign in» button",  # the raw sentence as written by the engineer
+    step_type="action",                      # action | assertion
     previous_steps=["open the login page"],
     page=page,
+    attempt_history=history,  # the per-step attempt records — record 0 anchors the failed cached code
     window=window,  # the settle window of the current step execution
 )
 ```
@@ -30,20 +33,21 @@ The classification verdict decides the path:
 
 | Category | Path |
 |---|---|
-| `rot`, `fixable` | regenerate from the current page within the healing budget (default 2), execute, pass the instruction compliance gate, save back to the cache, report loudly |
+| `rot`, `fixable` | regenerate from the current page within the healing budget (default 2), execute, pass the compliance gate, save back to the cache, report loudly |
 | `product_defect` | raise `ProductDefectError` carrying the verdict — category, explanation and recommendation all reach the exception message, the `on_step_verdict` hook and the log |
 | `incurable` | raise `IncurableStepError` carrying the verdict; the reason names the incurability cause |
 
 ## Rules
 
-- A healed candidate passes the [instruction compliance gate](../configuration.md#the-instruction-compliance-gate) before the write-back: a `high` violation fails the healing attempt with the violation text as its error, `medium` and `low` findings pass with a `WARNING`, and a malformed verdict (`ComplianceVerdictError`) or provider unavailability (`LLMUnavailableError`) is a hard failure — nothing is cached unchecked
+- A healed candidate passes the [compliance gate](../configuration.md#the-compliance-gate) before the write-back: a `high` finding in either dimension fails the healing attempt — the violation text joins the attempt record's error and the retry carries the grown attempt history — `medium` and `low` findings pass with a `WARNING`, and a malformed verdict (`ComplianceVerdictError`) or provider unavailability (`LLMUnavailableError`) is a hard failure — nothing is cached unchecked
 - Anti-masking: healing never turns a product defect into a green test
 - The healed code replaces the cached code only after a successful execution
 - Generation and healing attempts live in one per-test registry — owned by the
   runtime of the test — with separate per-step limits (default 3 and 2)
-- Every failed attempt inside the regeneration loop retries with the fresh
-  error and snapshot — a failed check included — with no per-attempt
-  classification: the entry classification already guards the anti-masking
+- Every failed attempt inside the regeneration loop retries with the grown
+  attempt history and the fresh snapshot — a failed check included — with no
+  per-attempt classification: the entry classification already guards the
+  anti-masking
 - A regeneration budget exhaustion after `rot` or `fixable` raises
   `IncurableStepError` carrying the verdict of the entry classification — no
   extra LLM request

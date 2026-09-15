@@ -21,6 +21,7 @@ from ..attempts import (
 )
 from ..compliance import check_step_compliance
 from ..execution import run_step_code
+from ..text import format_step_error
 
 logger = logging.getLogger("prettyplay")
 
@@ -326,9 +327,7 @@ class StepSteering:
 
             if not approved:  # the code never runs — one read, the same URL on both sides
                 url = self._guarded_url(page) or ""
-                attempt_history.append(
-                    StepAttempt(code=code, error="", outcome=OUTCOME_REJECTED, url_before=url, url_after=url)
-                )
+                attempt_history.append(_record(code, "", OUTCOME_REJECTED, url, url))
                 continue
 
             url_before = self._guarded_url(page) or ""
@@ -337,15 +336,8 @@ class StepSteering:
             except Exception as outcome:  # a red turn returns to the prompt, never escapes
                 print(f"turn failed: {outcome}")
                 url_after = self._guarded_url(page) or ""
-                attempt_history.append(
-                    StepAttempt(
-                        code=code,
-                        error=str(outcome),
-                        outcome=OUTCOME_FAILED_CHECK if isinstance(outcome, AssertionError) else OUTCOME_EXECUTION_FAILED,
-                        url_before=url_before,
-                        url_after=url_after,
-                    )
-                )
+                label = OUTCOME_FAILED_CHECK if isinstance(outcome, AssertionError) else OUTCOME_EXECUTION_FAILED
+                attempt_history.append(_record(code, format_step_error(outcome), label, url_before, url_after))
                 continue
             url_after = self._guarded_url(page) or ""
 
@@ -368,15 +360,7 @@ class StepSteering:
             if high is not None:  # the violation never reaches the cache — steer the fix
                 violation = f"{high.dimension} violation: {high.instruction} — {high.explanation}"
                 print(f"compliance violation — not written back: {violation}")
-                attempt_history.append(
-                    StepAttempt(
-                        code=code,
-                        error=violation,
-                        outcome=OUTCOME_COMPLIANCE_BLOCKED,
-                        url_before=url_before,
-                        url_after=url_after,
-                    )
-                )
+                attempt_history.append(_record(code, violation, OUTCOME_COMPLIANCE_BLOCKED, url_before, url_after))
                 continue
 
             if findings:  # medium and low findings are visible, never blocking
@@ -692,6 +676,25 @@ class StepSteering:
         except Exception as failure:  # a dead page never kills the dialog
             print(f"screenshot unavailable: {failure}")
             return None
+
+
+def _record(code: str, error: str, outcome: str, url_before: str, url_after: str) -> StepAttempt:
+    """Compose one verbatim attempt record — the shape every turn-append site shares.
+
+    The cell-local twin of the engine helper — the record shape is uniform
+    across the engine loops and the dialog (resolved design decision 2).
+
+    Args:
+        code: the complete candidate code of the turn.
+        error: the complete failure text of the turn; empty on no error.
+        outcome: the outcome label constant of the turn.
+        url_before: the page URL read immediately before the turn's execution.
+        url_after: the page URL read immediately after the turn's execution.
+
+    Returns:
+        The immutable record appended to the shared per-step attempt history.
+    """
+    return StepAttempt(code=code, error=error, outcome=outcome, url_before=url_before, url_after=url_after)
 
 
 def _banner_line(label: str, text: str) -> str:

@@ -26,6 +26,7 @@ from prettyplay.engine.compliance import COMPLIANCE_PROMPT
 from prettyplay.engine.generator import CHEAT_SHEET as ENGINE_CHEAT_SHEET
 from prettyplay.engine.generator import SYSTEM_PROMPT as ENGINE_SYSTEM_PROMPT
 from prettyplay.engine.steering.steering import CHEAT_SHEET, SYSTEM_PROMPT
+from prettyplay.engine.text import format_step_error
 from prettyplay.failures import ComplianceVerdictError, FailureVerdict, IncurableStepError, LLMUnavailableError
 from prettyplay.llm import ComplianceFinding
 from prettyplay.reporting import StepHooks, StepReporter
@@ -683,7 +684,7 @@ class TestStepSteeringLogic:
         assert second["attempt_history"] == [
             StepAttempt(
                 code=GENERATED_CODE,
-                error=str(red_outcome),
+                error=format_step_error(red_outcome),  # the shared-history format — the engine loops' own
                 outcome=outcome_label,  # a failed check for an AssertionError, execution failed otherwise
                 url_before=DEFAULT_PAGE_URL,
                 url_after=DEFAULT_PAGE_URL,
@@ -724,7 +725,7 @@ class TestStepSteeringLogic:
         assert provider.calls[1]["attempt_history"] == [
             StepAttempt(
                 code=GENERATED_CODE,
-                error=str(red_outcome),  # the record's error field equals str(outcome) verbatim — all four lines
+                error=format_step_error(red_outcome),  # a failed check's text is its message verbatim — all four lines
                 outcome=OUTCOME_FAILED_CHECK,
                 url_before=DEFAULT_PAGE_URL,
                 url_after=DEFAULT_PAGE_URL,

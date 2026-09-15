@@ -44,7 +44,7 @@ closes the page and stops the whole browser of that test.
 - **cache hit** — the cached code runs; no LLM is contacted
 - **cache miss** — the step code is generated (a candidate that must actually
   work on the page), then cached; only successes are cached — after the
-  instruction compliance gate
+  compliance gate
 - **cached failure** — the failure is classified:
     - `rot` (the UI changed) — the step is regenerated and the cache rewritten
     - `fixable` (the step code is at fault, the intent stays satisfiable) — regenerated for the same intent

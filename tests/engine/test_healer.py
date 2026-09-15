@@ -151,6 +151,13 @@ class FakeProvider:
             raise verdict
         return verdict
 
+    @staticmethod
+    def _serve(scripted: str | Exception) -> str:
+        """Serve one scripted answer — a scripted exception raises, the convention of the classifications."""
+        if isinstance(scripted, Exception):
+            raise scripted
+        return scripted
+
     def generate_step_code(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
         prompt: str,
@@ -182,7 +189,7 @@ class FakeProvider:
                 "guidance": guidance,
             }
         )
-        return self.answers.pop(0)
+        return self._serve(self.answers.pop(0))
 
 
 class SpyGenerator:
@@ -730,6 +737,32 @@ class TestStepHealerLogic:
         assert provider.classify_failure_call_count == 1
         assert fixture.generator.calls == []
         assert fixture.cache.save_calls == []
+
+    def test_heal_regeneration_request_unavailable_is_infrastructure_failure(self, tmp_path: Path) -> None:
+        """A provider outage of the regeneration request itself escapes the healing loop — never a terminal kind."""
+        provider = FakeProvider(
+            classifications=[
+                FailureClassification(
+                    category="rot",
+                    explanation="the selector rotted",
+                    recommendation="refresh the cache",
+                )
+            ],
+            answers=[LLMUnavailableError("llm unavailable: openai request failed")],
+        )
+        fixture = HealerFixture(provider, tmp_path, real_generator=True)
+        history = anchored_history()
+
+        with pytest.raises(LLMUnavailableError):
+            fixture.healer.heal(
+                fixture.failed_step, "element not found", STEP_SENTENCE, "action", [], FakePage(),
+                history, fixture.window,
+            )
+
+        # the outage is not swallowed into an IncurableStepError budget exhaustion — no steering intercept bait
+        assert provider.generate_step_code_call_count == 1  # the request that died — no retry
+        assert len(history) == 1  # record 0 alone — no candidate ever executed
+        assert fixture.cache.save_calls == []  # nothing cached
 
     def test_heal_failed_check_inside_regeneration_retries_with_fresh_error(self, tmp_path: Path) -> None:
         """A failed check inside the regeneration loop retries — no per-attempt classification."""

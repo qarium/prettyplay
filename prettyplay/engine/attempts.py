@@ -59,17 +59,19 @@ class StepAttempt(BaseModel):
         The pinned four-part format: the outcome label line; the URL pair
         line; the code part — the ``code:`` marker followed by the complete
         code, untouched; a non-empty error renders the error part — the
-        ``error:`` marker followed by the complete error text — appended
-        directly after the code text, which carries its own terminating
-        newline; the two markers separate the two free-text parts. An empty
-        error renders no error part at all. No collapsing, no size limits,
-        no truncation of any field.
+        ``error:`` marker followed by the complete error text — on its own
+        line after the code text, a separating newline inserted when the code
+        text does not end with one; the two markers separate the two
+        free-text parts. An empty error renders no error part at all. No
+        collapsing, no size limits, no truncation of any field.
 
         Returns:
             The multi-line record text.
         """
         record = f"{self.outcome}\nurl: {self.url_before} -> {self.url_after}\ncode:\n{self.code}"
         if self.error:
+            if not record.endswith("\n"):
+                record += "\n"
             record += f"error:\n{self.error}"
         return record
 

@@ -83,10 +83,13 @@ purge the cache directory once when upgrading across that change.
 ### The compliance gate before caching
 
 Every successfully executed candidate — generation, healing, funded
-regeneration and the steering write-back alike — passes the instruction
-compliance check (`check_step_compliance`) against the project's user
-instructions before the cache save: an unchecked candidate is never stored. A
-`high` finding fails the attempt and the retry carries the violation text; a
+regeneration and the steering write-back alike — passes the two-dimension
+compliance check (`check_step_compliance`) before the cache save: the code
+against the project's user instructions and against the step sentence
+itself (step adequacy, judged from the step type and the verbatim per-step
+attempt history) — an unchecked candidate is never stored. A
+`high` finding in either dimension fails the attempt and the retry carries
+the violation text with the grown history; a
 malformed verdict or a provider failure is a loud hard failure — the gate
 never degrades into a silent pass.
 
@@ -95,7 +98,7 @@ instructions, so changing `generation_prompt` does not invalidate cached
 steps — purge the cache manually when the instructions change. The
 `generation_approve` switch (or an empty `generation_prompt`) restores the old
 behavior with zero extra LLM calls. See
-[Configuration](../configuration.md#the-instruction-compliance-gate).
+[Configuration](../configuration.md#the-compliance-gate).
 
 ## Attempt budgets
 

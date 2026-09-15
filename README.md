@@ -95,7 +95,8 @@ crossing with a loud error instead of a deadlock.
 - **cache hit** — the cached code runs; no LLM is contacted
 - **cache miss** — the step code is generated (a candidate that must actually
   work on the page), then cached; only successes are cached — after the
-  instruction compliance gate. A candidate
+  compliance gate (instruction compliance and step adequacy — see
+  [Instructions](#instructions)). A candidate
   assertion that legitimately fails stops the retries at once and is
   classified: a real defect fails as `product_defect`; a `rot` or `fixable`
   verdict grants exactly one healing-funded regeneration carrying the
@@ -153,11 +154,13 @@ of the page. Local commands serve the context without an LLM request:
 `snapshot` (the full accessibility snapshot), `screenshot` (a full PNG
 written to a temporary file, path printed), `error` and `code` (the stored
 texts) and `quit`. A green turn heals the step and writes it back to the
-cache — only after the instruction compliance gate passes (a `high`
-finding never reaches the cache: the violation joins the history and the
-prompt reopens); every completed turn — executed, red or rejected —
-appends its full record (message, complete code, complete outcome) to the
-history of every later request; quit, EOF, SIGINT or an unreadable stdin
+cache — only after the compliance gate passes (a `high` finding in either
+dimension — instruction or adequacy — never reaches the cache: the
+violation joins the history and the prompt reopens); every completed turn
+— executed, red or rejected — appends its full verbatim record (the
+outcome, the URL before → after pair, the complete code, the complete
+outcome) to the shared per-step attempt history of every later request;
+quit, EOF, SIGINT or an unreadable stdin
 raises the original terminal failure. The dialog never opens on
 `product_defect`, in strict mode, or when the provider is down, and
 consumes no budgets. Dialog openings, guidance lines and declines log at
@@ -194,7 +197,7 @@ classification_model = ""        # optional: empty -> model
 base_url = ""
 cache_root = ""                  # empty -> <cwd>/.prettyplay/cache/
 generation_prompt = ""           # user instructions for generation; empty -> no instructions block
-generation_approve = true        # the instruction compliance gate before caching; false -> the gate never runs
+generation_approve = true        # the two-dimension compliance gate (instructions + step adequacy) before caching; false -> the gate never runs
 classification_prompt = ""       # user instructions for classification; empty -> no instructions block
 strict = false                   # true -> replay-only mode (no generation, no healing)
 interactive = false              # true -> the steering dialog on a terminally stuck step (local sessions)
@@ -241,10 +244,14 @@ A non-empty `generation_prompt` is sent verbatim as a `USER INSTRUCTIONS`
 block with every generation and regeneration request — it steers the style of
 the generated code (e.g. `prefer data-test-id attributes`), never the failure
 classification. The instructions are binding, not advisory: while the
-instruction compliance gate is on (`generation_approve`, default `true`),
+compliance gate is on (`generation_approve`, default `true`),
 every successfully generated candidate passes an independent compliance check
-before it is cached — one extra LLM call through the effective generation
-model; a `high` finding fails the attempt and the retry carries the violation,
+of two dimensions before it is cached — instruction compliance with these
+instructions, and step adequacy (the code must accomplish what the step
+sentence says for its step type, judged from the verbatim per-step attempt
+history of what was already tried) — one extra LLM call through the
+effective generation model; a `high` finding in either dimension fails the
+attempt and the retry carries the violation with the grown history,
 `medium` and `low` findings pass with a `WARNING`, and a malformed verdict is
 a loud `ComplianceVerdictError` (the candidate is never cached unchecked).
 `generation_approve = false` (env `PRETTYPLAY_GENERATION_APPROVE`) removes the
@@ -311,7 +318,7 @@ Every library failure derives from `PrettyplayError`:
 | ProductDefectError | real product regression | treat as a bug: this failure is the value of the suite |
 | IncurableStepError | the step cannot be (re)generated — budget exhausted, step text stale, or a strict-mode cache miss | follow `recommendation`: reword the step or refresh the cache |
 | LLMUnavailableError | LLM infrastructure down | restore provider access; cached steps are unaffected |
-| ComplianceVerdictError | the instruction compliance gate could not obtain a usable verdict | rerun the step to retry generation; the candidate was never cached |
+| ComplianceVerdictError | the compliance gate could not obtain a usable verdict | rerun the step to retry generation; the candidate was never cached |
 | ConfigurationError | invalid `[tool.prettyplay]` settings | fix the named setting — the message lists received and allowed values |
 
 `ProductDefectError` and `IncurableStepError` render one structured terminal

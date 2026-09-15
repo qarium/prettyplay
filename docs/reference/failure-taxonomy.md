@@ -99,9 +99,11 @@ def test_reports_only_library_failures():
 
 ## Compliance verdict failure
 
-`ComplianceVerdictError` is raised when the instruction compliance gate cannot
+`ComplianceVerdictError` is raised when the compliance gate cannot
 parse the verdict model's answer into findings: the JSON shape is invalid, a
-priority label is outside `high|medium|low`, or a finding misses its fields.
+priority label is outside `high|medium|low`, a `dimension` is missing or
+outside `instruction|adequacy` (an answer of the old shape included), or a
+finding misses its fields.
 The gate is strict by design — a flaky verdict model surfaces loudly instead
 of waving candidates through.
 
@@ -127,7 +129,7 @@ provider state and the model behind the effective generation model; a
 repeatedly malformed verdict points at a model unable to follow the verdict
 format
 - switching `generation_approve` off removes the gate entirely (the old
-behavior) — see [Configuration](../configuration.md#the-instruction-compliance-gate)
+behavior) — see [Configuration](../configuration.md#the-compliance-gate)
 
 ## Assertion semantics
 

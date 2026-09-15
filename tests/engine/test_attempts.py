@@ -88,6 +88,25 @@ class TestStepAttemptRender:
             "TimeoutError: click timed out"
         )
 
+    def test_render_starts_the_error_marker_on_its_own_line(self) -> None:
+        record = StepAttempt(
+            code="def step(page) -> None:\n    ...",  # no terminating newline
+            error="RuntimeError: boom",
+            outcome=OUTCOME_EXECUTION_FAILED,
+            url_before="https://a.example",
+            url_after="https://b.example",
+        ).render()
+
+        assert record == (
+            "execution failed\n"
+            "url: https://a.example -> https://b.example\n"
+            "code:\n"
+            "def step(page) -> None:\n"
+            "    ...\n"  # the separating newline the code text itself lacks
+            "error:\n"
+            "RuntimeError: boom"
+        )
+
     def test_render_omits_error_part_when_error_empty(self) -> None:
         record = StepAttempt(
             code="def step(page) -> None:\n    ...",
