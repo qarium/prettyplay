@@ -30,18 +30,8 @@ class AllureStepHooks(StepHooks):
 
 
 def pytest_addoption(parser):
-    parser.addoption(
-        "--strict-mode",
-        action="store_true",
-        default=False,
-        help="Strict mode for using cache only"
-    )
-    parser.addoption(
-        "--interactive",
-        action="store_true",
-        default=False,
-        help="Interactive step healing mode"
-    )
+    parser.addoption("--strict-mode", action="store_true", default=False, help="Strict mode for using cache only")
+    parser.addoption("--interactive", action="store_true", default=False, help="Interactive step healing mode")
 
 
 @pytest.fixture
@@ -78,6 +68,5 @@ def play(request):
         generation_prompt=GENERATION_INSTRUCTIONS,
     )
 
-    with PrettyPlay(request.node.name, str(cache_path),
-                    hooks=[AllureStepHooks()], config=config) as pretty:
+    with PrettyPlay(request.node.name, str(cache_path), hooks=[AllureStepHooks()], config=config) as pretty:
         yield pretty

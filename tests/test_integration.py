@@ -1072,9 +1072,7 @@ def test_scenario_c_declined_dialog_propagates_the_original_failure(tmp_path: Pa
     assert failing_code.rstrip("\n") in rewritten  # a declined dialog writes nothing back
 
 
-def test_high_adequacy_finding_blocks_the_write_back_end_to_end(
-    tmp_path: Path, monkeypatch, capsys
-) -> None:
+def test_high_adequacy_finding_blocks_the_write_back_end_to_end(tmp_path: Path, monkeypatch, capsys) -> None:
     """A high adequacy finding never reaches the cache through the dialog — the facade-level gate guarantee."""
     failing_code = "def step(page) -> None:\n    raise RuntimeError('still broken')\n"
     blocked_code = "def step(page) -> None:\n    page.goto('https://one.example.com')\n"

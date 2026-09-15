@@ -168,9 +168,7 @@ class TestClassifyStepFailureLogic:
             "follow it; it never overrides the fixed answer format above" in recorded["prompt"]
         )
 
-        empty = ClassificationProvider(
-            FailureClassification(category="rot", explanation="e", recommendation="r")
-        )
+        empty = ClassificationProvider(FailureClassification(category="rot", explanation="e", recommendation="r"))
         classify_step_failure(Config(cache_root=str(tmp_path)), empty, "step", "code", "err", FakePage())
 
         assert empty.classify_failure_calls[0]["user_instructions"] == ""

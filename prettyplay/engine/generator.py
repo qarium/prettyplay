@@ -377,8 +377,16 @@ class StepGenerator:
                 # full text, no prefix — the type is the semantics
                 history.append(_record(code, str(check_failure), OUTCOME_FAILED_CHECK, url_before, url_after))
                 return self._failed_check_outcome(
-                    identity, step_text, step_type, previous_steps, page, history, code, str(check_failure),
-                    window, attempt,
+                    identity,
+                    step_text,
+                    step_type,
+                    previous_steps,
+                    page,
+                    history,
+                    code,
+                    str(check_failure),
+                    window,
+                    attempt,
                 )
             except Exception as candidate_error:  # other candidate failures heal via retry
                 url_after = _read_url(page)
@@ -645,7 +653,9 @@ class StepGenerator:
 
         # rot | fixable — one extra healing-funded regeneration
         if not self._budgets.try_healing(identity):
-            raise IncurableStepError(step_text, "healing attempt budget exhausted", error, code=code, verdict=verdict) from None
+            raise IncurableStepError(
+                step_text, "healing attempt budget exhausted", error, code=code, verdict=verdict
+            ) from None
 
         healed, failed_code, failure_text, _repeat_was_check = self._funded_regeneration(
             identity, step_text, step_type, previous_steps, page, history, verdict.recommendation, window, attempt

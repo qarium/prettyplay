@@ -1,5 +1,6 @@
 """The error-text policy of the engine: full typed failure text for reports and requests."""
 
+
 def format_step_error(exc: Exception) -> str:
     """Format the full failure text of a step-code exception.
 

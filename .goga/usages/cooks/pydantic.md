@@ -32,19 +32,19 @@ from pydantic import BaseModel, ConfigDict
 class BrowserConfig(BaseModel):
     model_config = ConfigDict(kw_only=True)
 
-    name: str = "chromium"       # chromium | firefox | webkit | chrome | msedge
-    screen: str = ""             # "" | WxH | fullscreen | Playwright device name
-    headless: bool = True        # env PRETTYPLAY_BROWSER_HEADLESS
-    endpoint: str = ""           # remote ws endpoint; empty -> local launch
+    name: str = "chromium"  # chromium | firefox | webkit | chrome | msedge
+    screen: str = ""  # "" | WxH | fullscreen | Playwright device name
+    headless: bool = True  # env PRETTYPLAY_BROWSER_HEADLESS
+    endpoint: str = ""  # remote ws endpoint; empty -> local launch
 
 
 class PrettyplayConfig(BaseModel):
     model_config = ConfigDict(kw_only=True)
 
-    browser: BrowserConfig = BrowserConfig()   # nested [tool.prettyplay.browser] group
+    browser: BrowserConfig = BrowserConfig()  # nested [tool.prettyplay.browser] group
     model: str = ""
-    strict: bool = False                        # replay-only mode (env PRETTYPLAY_STRICT)
-    classification_prompt: str = ""             # classification user instructions (env PRETTYPLAY_CLASSIFICATION_PROMPT)
+    strict: bool = False  # replay-only mode (env PRETTYPLAY_STRICT)
+    classification_prompt: str = ""  # classification user instructions (env PRETTYPLAY_CLASSIFICATION_PROMPT)
     # ... the remaining settings unchanged
 ```
 
@@ -62,14 +62,16 @@ Configuration rules:
 A PrettyConfig passed to the test object is the same full model, not a subset: explicitly set values win, empty/unset fields fall back to the pyproject+env layer:
 
 ```python
-file_config = load_config()                     # pyproject.toml + env overrides, validated
-explicit = user_overrides.model_fields_set      # fields passed at construction
-effective = file_config.model_copy(update={
-    key: value
-    for key, value in user_overrides            # a field participates when passed at
-    if key in explicit                          # construction and non-empty for strings:
-    and (value or not isinstance(value, str))   # an explicit False/0 overrides too
-})
+file_config = load_config()  # pyproject.toml + env overrides, validated
+explicit = user_overrides.model_fields_set  # fields passed at construction
+effective = file_config.model_copy(
+    update={
+        key: value
+        for key, value in user_overrides  # a field participates when passed at
+        if key in explicit  # construction and non-empty for strings:
+        and (value or not isinstance(value, str))  # an explicit False/0 overrides too
+    }
+)
 ```
 
 Rules:

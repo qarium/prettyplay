@@ -504,7 +504,13 @@ class TestStepGeneratorLogic:
         history = make_anchored_history()
 
         generator.regenerate(
-            make_identity(), "click Sign in", "action", [], page, history, "retry with an id locator",
+            make_identity(),
+            "click Sign in",
+            "action",
+            [],
+            page,
+            history,
+            "retry with an id locator",
             SettleWindow(None, 0.5),
         )
 
@@ -1024,9 +1030,7 @@ class TestStepGeneratorLogic:
         assert len(provider.classify_failure_calls) == 2  # entry + final; no third request after the repeat
         assert not [event for event in fixture.recorder.events if event[0] == "on_cache_saved"]
 
-    def test_generate_failed_check_repeat_product_defect_verdict_raises_product_defect(
-        self, tmp_path: Path
-    ) -> None:
+    def test_generate_failed_check_repeat_product_defect_verdict_raises_product_defect(self, tmp_path: Path) -> None:
         """The final classification of a repeat failure may still say product defect — it raises loudly."""
         provider = StubProvider(
             [CHECK_CODE, CHECK_CODE],
@@ -1048,9 +1052,7 @@ class TestStepGeneratorLogic:
         assert len(provider.calls) == 2
         assert len(provider.classify_failure_calls) == 2
 
-    def test_generate_failed_check_repeat_non_check_failure_names_candidate_failure(
-        self, tmp_path: Path
-    ) -> None:
+    def test_generate_failed_check_repeat_non_check_failure_names_candidate_failure(self, tmp_path: Path) -> None:
         """A non-assertion repeat of a funded regeneration names the candidate, not the check."""
         provider = StubProvider(
             [CHECK_CODE, TYPING_BROKEN_CODE],
@@ -1073,9 +1075,7 @@ class TestStepGeneratorLogic:
         assert excinfo.value.code == TYPING_BROKEN_CODE
         assert excinfo.value.error == "TypeError: bad code"
 
-    def test_generate_failed_check_provider_failure_in_funded_regeneration_propagates(
-        self, tmp_path: Path
-    ) -> None:
+    def test_generate_failed_check_provider_failure_in_funded_regeneration_propagates(self, tmp_path: Path) -> None:
         """A provider failure of the funded regeneration propagates immediately — no retry, no final classification."""
         outage = LLMUnavailableError("llm unavailable: openai request failed")
         provider = StubProvider(
@@ -1163,9 +1163,7 @@ class TestStepGeneratorLogic:
         page = FlakyPlaywrightPage(failures=2)
 
         with caplog.at_level(logging.INFO, logger="prettyplay"):
-            step = fixture.generator.generate(
-                identity, "open the page", "action", [], page, [], SettleWindow(10.0, 0)
-            )
+            step = fixture.generator.generate(identity, "open the page", "action", [], page, [], SettleWindow(10.0, 0))
 
         assert step.code == WORKING_CODE
         started = [event for event in fixture.recorder.events if event[0] == "on_generation_started"]
@@ -1285,7 +1283,13 @@ class TestStepGeneratorAttemptHistory:
         history = [StepAttempt(code=cached_code, error="old rot", outcome=OUTCOME_ORIGINAL)]
 
         step = fixture.generator.regenerate(
-            make_identity(), "click the «Sign in» button", "action", [], page, history, "use role locators",
+            make_identity(),
+            "click the «Sign in» button",
+            "action",
+            [],
+            page,
+            history,
+            "use role locators",
             fixture.window,
         )
 
@@ -1307,9 +1311,7 @@ class TestStepGeneratorAttemptHistory:
         assert step.code == WORKING_CODE  # the failed reads never kill the attempt
         assert history == []  # the green attempt records nothing; the failed reads never surface
 
-    def test_generation_exhaustion_with_standing_adequacy_finding_names_the_step_fragment(
-        self, tmp_path: Path
-    ) -> None:
+    def test_generation_exhaustion_with_standing_adequacy_finding_names_the_step_fragment(self, tmp_path: Path) -> None:
         adequacy = ComplianceFinding(
             instruction="click the «Sign in» button",
             priority="high",
@@ -1354,7 +1356,13 @@ class TestStepGeneratorAttemptHistory:
 
         with pytest.raises(IncurableStepError) as excinfo:
             fixture.generator.regenerate(
-                make_identity(), "click the «Sign in» button", "action", [], page, history, "use role locators",
+                make_identity(),
+                "click the «Sign in» button",
+                "action",
+                [],
+                page,
+                history,
+                "use role locators",
                 fixture.window,
             )
 
@@ -1504,9 +1512,7 @@ class TestStepGeneratorComplianceGate:
         assert loaded is not None
         assert loaded.code.rstrip("\n") == WORKING_CODE.rstrip("\n")  # only the compliant heal is written back
 
-    def test_regenerate_high_finding_exhaustion_carries_violation_and_entry_verdict(
-        self, tmp_path: Path
-    ) -> None:
+    def test_regenerate_high_finding_exhaustion_carries_violation_and_entry_verdict(self, tmp_path: Path) -> None:
         provider = StubProvider(
             [WORKING_CODE],
             compliance_verdicts=[[HIGH_FINDING]],
@@ -1654,17 +1660,13 @@ class TestStepGeneratorComplianceGate:
         assert len(provider.classify_failure_calls) == 1  # the exhaustion classified — the standing branch never does
         assert len(provider.compliance_calls) == 1  # only the first green candidate was gated
 
-    def test_generate_standing_high_instruction_with_colon_and_newline_stays_reason_safe(
-        self, tmp_path: Path
-    ) -> None:
+    def test_generate_standing_high_instruction_with_colon_and_newline_stays_reason_safe(self, tmp_path: Path) -> None:
         """A colon-bearing multi-line instruction stays first-line safe in the authored standing reason."""
         instruction = "Use page.locator: prefer ids\nalways narrow positionally"
         finding = ComplianceFinding(
             instruction=instruction, priority="high", explanation="locates by text", dimension="instruction"
         )
-        provider = StubProvider(
-            [WORKING_CODE, WORKING_CODE], compliance_verdicts=[[finding], [finding]]
-        )
+        provider = StubProvider([WORKING_CODE, WORKING_CODE], compliance_verdicts=[[finding], [finding]])
         fixture = GeneratorFixture(tmp_path, provider, limits=(2, 2), generation_prompt="Use page.locator: prefer ids")
         identity = make_identity()
         page = FakePage()
@@ -1672,10 +1674,7 @@ class TestStepGeneratorComplianceGate:
         with pytest.raises(IncurableStepError) as excinfo:
             fixture.generator.generate(identity, "click Sign in", "action", [], page, [], fixture.window)
 
-        assert (
-            excinfo.value.reason
-            == "generation attempt budget exhausted — Use page.locator  prefer ids"
-        )
+        assert excinfo.value.reason == "generation attempt budget exhausted — Use page.locator  prefer ids"
         assert ":" not in excinfo.value.reason.split("\n")[0]  # the first-line contract holds through the colon
         assert "\n" not in excinfo.value.reason  # the newline of the instruction is cut at the first line
         # the error keeps it all

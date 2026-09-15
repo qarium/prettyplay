@@ -178,9 +178,7 @@ class TestBuildClassificationFieldsUserInstructions:
         assert text.index("PAGE SNAPSHOT:") < text.index("USER INSTRUCTIONS:")
 
     def test_build_classification_fields_omits_block_when_instructions_empty(self) -> None:
-        text = build_classification_fields(
-            "", "нажать Войти", STEP_CODE, "AssertionError: boom", "- button 'Войти'"
-        )
+        text = build_classification_fields("", "нажать Войти", STEP_CODE, "AssertionError: boom", "- button 'Войти'")
 
         assert "USER INSTRUCTIONS" not in text
         assert text.endswith("- button 'Войти'")  # the snapshot section stays the closing section

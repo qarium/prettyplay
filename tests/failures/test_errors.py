@@ -304,10 +304,7 @@ class TestRenderTerminalMessageLogic:
         )
 
         assert rendered == (
-            "IncurableStepError: budget exhausted\n"
-            "---\n"
-            "step: click Pay\n"
-            "error: TimeoutError: Timeout 30000ms exceeded"
+            "IncurableStepError: budget exhausted\n---\nstep: click Pay\nerror: TimeoutError: Timeout 30000ms exceeded"
         )
         assert rendered.count("---") == 1  # no second separator — the section is gone entirely
         assert "received:" not in rendered

@@ -429,8 +429,10 @@ class TestLoadConfigLogic:
         with pytest.raises(ConfigurationError) as excinfo:
             load_config(pyproject_path=write_section(tmp_path, '[tool.prettyplay.browser]\nname = "opera"\n'))
 
-        assert str(excinfo.value).splitlines()[0].startswith(
-            "browser.name: received 'opera' — allowed: chromium, firefox, webkit, chrome, msedge"
+        assert (
+            str(excinfo.value)
+            .splitlines()[0]
+            .startswith("browser.name: received 'opera' — allowed: chromium, firefox, webkit, chrome, msedge")
         )
 
         with pytest.raises(ConfigurationError) as excinfo:
@@ -511,7 +513,7 @@ class TestLoadConfigOverlay:
         path = write_section(
             tmp_path,
             '[tool.prettyplay]\nmodel = "gpt-5"\nbase_url = "https://file.example/v1"\n'
-            "\n[tool.prettyplay.browser]\nname = \"chromium\"\n",
+            '\n[tool.prettyplay.browser]\nname = "chromium"\n',
         )
 
         config = load_config(
@@ -707,9 +709,10 @@ class TestLoadConfigNewEnvNames:
         with pytest.raises(ConfigurationError) as excinfo:
             load_config(pyproject_path=path)
 
-        assert "browser.accept_dialogs: received 'yes' — allowed: a boolean (true/false/1/0)" in str(
-            excinfo.value
-        ).splitlines()
+        assert (
+            "browser.accept_dialogs: received 'yes' — allowed: a boolean (true/false/1/0)"
+            in str(excinfo.value).splitlines()
+        )
         assert isinstance(excinfo.value, PrettyplayError)
 
     def test_load_config_env_parses_polling_and_interactive(self, write_pyproject, monkeypatch) -> None:

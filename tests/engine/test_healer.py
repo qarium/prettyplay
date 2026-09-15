@@ -556,8 +556,14 @@ class TestStepHealerLogic:
 
         with pytest.raises(ProductDefectError) as excinfo:
             fixture.healer.heal(
-                fixture.failed_step, "text mismatch", STEP_SENTENCE, "action", ["open the page"], FakePage(),
-                anchored_history(error="text mismatch"), fixture.window,
+                fixture.failed_step,
+                "text mismatch",
+                STEP_SENTENCE,
+                "action",
+                ["open the page"],
+                FakePage(),
+                anchored_history(error="text mismatch"),
+                fixture.window,
             )
 
         rendered = str(excinfo.value)
@@ -586,9 +592,7 @@ class TestStepHealerLogic:
         fixture = HealerFixture(provider, tmp_path)
 
         with pytest.raises(IncurableStepError) as excinfo:
-            fixture.healer.heal(
-                fixture.failed_step, "err", STEP_SENTENCE, "action", [], FakePage(), [], fixture.window
-            )
+            fixture.healer.heal(fixture.failed_step, "err", STEP_SENTENCE, "action", [], FakePage(), [], fixture.window)
 
         rendered = str(excinfo.value)
         assert isinstance(excinfo.value, PrettyplayError)  # a single except at the suite boundary
@@ -617,7 +621,13 @@ class TestStepHealerLogic:
 
         with pytest.raises(IncurableStepError) as excinfo:
             fixture.healer.heal(
-                fixture.failed_step, "element not found", STEP_SENTENCE, "action", [], TimeoutPage(), history,
+                fixture.failed_step,
+                "element not found",
+                STEP_SENTENCE,
+                "action",
+                [],
+                TimeoutPage(),
+                history,
                 fixture.window,
             )
 
@@ -656,8 +666,14 @@ class TestStepHealerLogic:
 
         with pytest.raises(IncurableStepError) as excinfo:
             healer.heal(
-                rotted_step, "element not found", STEP_SENTENCE, "action", [], FakePage(),
-                anchored_history(code="old"), SettleWindow(None, 0.5),
+                rotted_step,
+                "element not found",
+                STEP_SENTENCE,
+                "action",
+                [],
+                FakePage(),
+                anchored_history(code="old"),
+                SettleWindow(None, 0.5),
             )
 
         assert excinfo.value.verdict is not None
@@ -685,8 +701,14 @@ class TestStepHealerLogic:
 
         with pytest.raises(ProductDefectError) as excinfo:
             fixture.healer.heal(
-                fixture.failed_step, "TimeoutError: click timeout", STEP_SENTENCE, "action", [], FakePage(),
-                [], fixture.window,
+                fixture.failed_step,
+                "TimeoutError: click timeout",
+                STEP_SENTENCE,
+                "action",
+                [],
+                FakePage(),
+                [],
+                fixture.window,
             )
 
         assert excinfo.value.error == "TimeoutError: click timeout"  # the full underlying error
@@ -706,8 +728,14 @@ class TestStepHealerLogic:
 
         with pytest.raises(IncurableStepError) as rot:
             rot_fixture.healer.heal(
-                rot_fixture.failed_step, "element not found", STEP_SENTENCE, "action", [], TimeoutPage(),
-                anchored_history(), rot_fixture.window,
+                rot_fixture.failed_step,
+                "element not found",
+                STEP_SENTENCE,
+                "action",
+                [],
+                TimeoutPage(),
+                anchored_history(),
+                rot_fixture.window,
             )
 
         assert rot.value.verdict is not None
@@ -729,9 +757,7 @@ class TestStepHealerLogic:
         fixture = HealerFixture(provider, tmp_path)
 
         with pytest.raises(LLMUnavailableError) as excinfo:
-            fixture.healer.heal(
-                fixture.failed_step, "err", STEP_SENTENCE, "action", [], FakePage(), [], fixture.window
-            )
+            fixture.healer.heal(fixture.failed_step, "err", STEP_SENTENCE, "action", [], FakePage(), [], fixture.window)
 
         assert "anthropic" in str(excinfo.value)
         assert provider.classify_failure_call_count == 1
@@ -755,8 +781,14 @@ class TestStepHealerLogic:
 
         with pytest.raises(LLMUnavailableError):
             fixture.healer.heal(
-                fixture.failed_step, "element not found", STEP_SENTENCE, "action", [], FakePage(),
-                history, fixture.window,
+                fixture.failed_step,
+                "element not found",
+                STEP_SENTENCE,
+                "action",
+                [],
+                FakePage(),
+                history,
+                fixture.window,
             )
 
         # the outage is not swallowed into an IncurableStepError budget exhaustion — no steering intercept bait
@@ -811,8 +843,14 @@ class TestStepHealerLogic:
 
         with pytest.raises(IncurableStepError) as excinfo:
             fixture.healer.heal(
-                fixture.failed_step, "element not found", STEP_SENTENCE, "action", [], CheckFailingPage(),
-                anchored_history(), fixture.window,
+                fixture.failed_step,
+                "element not found",
+                STEP_SENTENCE,
+                "action",
+                [],
+                CheckFailingPage(),
+                anchored_history(),
+                fixture.window,
             )
 
         assert excinfo.value.verdict is not None

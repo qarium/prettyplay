@@ -71,8 +71,8 @@ Screenshots belong to the author — nothing is captured automatically. Both
 methods need a step to have run (the page opens lazily):
 
 ```python
-png = t.get_screenshot()                  # full-page PNG bytes
-t.save_screenshot("artifacts/home.png")   # write full-page PNG to a file
+png = t.get_screenshot()  # full-page PNG bytes
+t.save_screenshot("artifacts/home.png")  # write full-page PNG to a file
 ```
 
 Stateful page actions excluded from generated code — `page.route`,
@@ -177,7 +177,7 @@ configures no handlers — enable logging to see the scenario in the output:
 ```python
 import logging
 
-logging.basicConfig(level=logging.INFO)          # plain unittest runs
+logging.basicConfig(level=logging.INFO)  # plain unittest runs
 ```
 
 ```ini

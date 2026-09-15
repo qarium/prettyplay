@@ -1057,9 +1057,7 @@ class TestStepSteeringLogic:
         steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
         _script_input(monkeypatch, ["quit"])
         sample = (
-            'videos = page.get_by_role("listitem")\n'
-            "expect(videos.first).to_be_visible()\n"
-            "assert videos.count() > 1\n"
+            'videos = page.get_by_role("listitem")\nexpect(videos.first).to_be_visible()\nassert videos.count() > 1\n'
         )
         failure = IncurableStepError(
             "click Pay", "budget exhausted", "Timeout 10000ms exceeded", code=sample, verdict=None

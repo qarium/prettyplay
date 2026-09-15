@@ -363,9 +363,7 @@ class TestNewInputsParity:
         ' "dimension": "instruction"}]'
     )
 
-    def test_providers_render_identical_user_content_for_the_new_inputs(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_providers_render_identical_user_content_for_the_new_inputs(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
 

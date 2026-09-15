@@ -64,7 +64,7 @@ logging to see the scenario in the output:
 ```python
 import logging
 
-logging.basicConfig(level=logging.INFO)          # plain unittest runs
+logging.basicConfig(level=logging.INFO)  # plain unittest runs
 ```
 
 ```ini

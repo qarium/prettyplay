@@ -243,9 +243,7 @@ def _reject_flat_keys(section: dict) -> None:
             key.
     """
     flat_old = [
-        key
-        for key in _FLAT_KEY_HOMES
-        if key in section and not (key == "browser" and isinstance(section[key], dict))
+        key for key in _FLAT_KEY_HOMES if key in section and not (key == "browser" and isinstance(section[key], dict))
     ]
 
     if flat_old:

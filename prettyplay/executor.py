@@ -181,8 +181,14 @@ class StepExecutor:
                         try:
                             # healed = re-executed
                             self._healer.heal(
-                                cached, error_text, step_text, step_type, self._scenario, page,
-                                attempt_history, window,
+                                cached,
+                                error_text,
+                                step_text,
+                                step_type,
+                                self._scenario,
+                                page,
+                                attempt_history,
+                                window,
                             )
                         except IncurableStepError as failure:  # the only kind the steering intercept serves
                             self._steer_or_raise(
@@ -196,9 +202,7 @@ class StepExecutor:
                         identity, step_text, step_type, self._scenario, page, attempt_history, window
                     )
                 except IncurableStepError as failure:  # the only kind the steering intercept serves
-                    self._steer_or_raise(
-                        failure, identity, step_text, step_type, self._scenario, page, attempt_history
-                    )
+                    self._steer_or_raise(failure, identity, step_text, step_type, self._scenario, page, attempt_history)
 
             self._scenario.append(step_text)
             self._reporter.emit("on_step_passed", {"step_text": step_text, "step_type": step_type})
@@ -273,9 +277,7 @@ class StepExecutor:
         if not (self._config.interactive and not self._config.strict):
             raise failure
 
-        healed = self._steering.steer(
-            failure, identity, step_text, step_type, previous_steps, page, attempt_history
-        )
+        healed = self._steering.steer(failure, identity, step_text, step_type, previous_steps, page, attempt_history)
         if healed is None:  # quit, EOF, SIGINT, an unreadable stdin or a dead provider
             raise failure
 
@@ -311,9 +313,7 @@ class StepExecutor:
                 terminal verdict of the failed cached step.
         """
         try:
-            classification = classify_step_failure(
-                self._config, self._provider, step_text, step.code, error_text, page
-            )
+            classification = classify_step_failure(self._config, self._provider, step_text, step.code, error_text, page)
         except LLMUnavailableError:
             logger.warning("verdict skipped: llm unavailable")
 
@@ -330,6 +330,4 @@ class StepExecutor:
 
         if classification.category == "product_defect":
             raise ProductDefectError(step_text, classification.explanation, error_text, verdict)
-        raise IncurableStepError(
-            step_text, classification.explanation, error_text, code=step.code, verdict=verdict
-        )
+        raise IncurableStepError(step_text, classification.explanation, error_text, code=step.code, verdict=verdict)

@@ -117,11 +117,7 @@ class TestStepAttemptRender:
         ).render()
 
         assert record == (
-            "rejected by the engineer, not executed\n"
-            "url: u -> u\n"
-            "code:\n"
-            "def step(page) -> None:\n"
-            "    ..."
+            "rejected by the engineer, not executed\nurl: u -> u\ncode:\ndef step(page) -> None:\n    ..."
         )
         assert "error:" not in record
 
