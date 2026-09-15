@@ -4,6 +4,17 @@ import allure
 import pytest
 from prettyplay import BrowserConfig, PrettyConfig, PrettyPlay, StepHooks
 
+CLASSIFICATION_INSTRUCTIONS = "Write explanations and recommendations in English"
+
+GENERATION_INSTRUCTIONS = """Requirements:
+- Prefer to use `id` or `class` attributes in HTML document to find elements.
+- Make text matching checks case-insensitive.
+
+Constraints:
+- Don't do confirmation checks of the action's completion.
+- Don't use `if` statement in step code.
+"""
+
 
 class AllureStepHooks(StepHooks):
     def __init__(self):
@@ -20,6 +31,12 @@ class AllureStepHooks(StepHooks):
 
 def pytest_addoption(parser):
     parser.addoption(
+        "--strict-mode",
+        action="store_true",
+        default=False,
+        help="Strict mode for using cache only"
+    )
+    parser.addoption(
         "--interactive",
         action="store_true",
         default=False,
@@ -32,6 +49,7 @@ def play(request):
     file_path = Path(request.node.path)
     original_name = request.node.originalname or request.node.name
 
+    strict = request.config.getoption("--strict-mode")
     interactive = request.config.getoption("--interactive")
 
     if request.node.cls:
@@ -47,17 +65,17 @@ def play(request):
             headless=False,
             screen="fullscreen",
         ),
+        strict=strict,
         interactive=interactive,
-        send_screenshots=True,
+        # send_screenshots=True,
         provider="anthropic",
         base_url="https://api.z.ai/api/anthropic",
         generation_model="glm-5.1",
         healing_attempts=3,
         generation_attempts=5,
         classification_model="glm-5.3",
-        classification_prompt="Write explanations and recommendations in English",
-        generation_prompt="Prefer to use id attributes in HTML documents to find elements. "
-                          "Make text matching checks case-insensitive.",
+        classification_prompt=CLASSIFICATION_INSTRUCTIONS,
+        generation_prompt=GENERATION_INSTRUCTIONS,
     )
 
     with PrettyPlay(request.node.name, str(cache_path),
