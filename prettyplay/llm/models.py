@@ -74,8 +74,7 @@ def _malformed(verdict_text: str) -> ComplianceVerdictError:
     """
     return ComplianceVerdictError(
         "compliance verdict unparsable — expected a JSON list of findings with "
-        "instruction, priority high|medium|low and explanation; received fragment: "
-        + _answer_fragment(verdict_text)
+        "instruction, priority high|medium|low and explanation; received fragment: " + _answer_fragment(verdict_text)
     )
 
 

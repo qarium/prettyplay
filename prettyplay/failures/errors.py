@@ -9,13 +9,20 @@ single render feeds the exception text, the log record and the
 ``on_step_failed`` hook payload; consumers never re-compose it.
 """
 
+import re
 from dataclasses import dataclass
+
+from pydantic import BaseModel, ConfigDict
 
 #: The built-in path guidance rendered when a terminal failure carries no verdict.
 _FALLBACK_GUIDANCE = "reword the step or refresh the cache"
 
-#: Length of the longest verdict label — the fixed label column of the verdict block.
-_VERDICT_LABEL_WIDTH = len("recommendation:")
+#: The dotted-identifier class prefix of an error head — ``TimeoutError:``, ``Page.reload:``.
+#: The whitespace-or-end requirement after the colon keeps ``net::ERR_…`` heads unrecognized.
+_CLASS_HEAD = re.compile(r"^([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*):(?:\s+(.*))?$")
+
+#: The fixed shape prefixes recognized in the error tail — by prefix only, never by position.
+_SHAPE_PREFIXES = ("Actual value:", "Caused by:", "Call log:")
 
 
 class PrettyplayError(Exception):
@@ -53,37 +60,188 @@ class FailureVerdict:
     def render(self) -> str:
         """Render the verdict block of the structured terminal message.
 
-        The explanation and recommendation values start at one column, aligned
-        after the longest label; multi-line continuations indent to the same
-        value column. The category is dropped — it travels in the structured
-        fields of the ``on_step_verdict`` event, never in the render. An empty
-        field yields no line.
+        The labels sit at column zero — no alignment padding anywhere in the
+        render; embedded newlines in a value indent two spaces on every
+        continuation line. The category is dropped — it travels in the
+        structured fields of the ``on_step_verdict`` event, never in the
+        render. An empty field yields no line.
 
         Returns:
-            The rendered verdict block — one aligned line per non-empty field,
-            joined with newlines; empty when both fields are empty.
+            The rendered verdict block — one line per non-empty field at
+            column zero, joined with newlines; empty when both fields are
+            empty.
         """
-        width = _VERDICT_LABEL_WIDTH  # fixed regardless of which fields are present
         lines = []
 
         for label, value in (("explanation", self.explanation), ("recommendation", self.recommendation)):
-            if not value:
-                continue
-            continuation = "\n" + " " * (width + 1)
-            lines.append(f"{label}:".ljust(width) + " " + value.replace("\n", continuation))
+            if value:
+                indented = value.replace("\n", "\n  ")
+                lines.append(f"{label}: {indented}")
 
         return "\n".join(lines)
 
 
-def render_terminal_message(reason: str, step_text: str, error: str, verdict: FailureVerdict | None) -> str:
+class ErrorParts(BaseModel):
+    """The decomposed parts of a terminal failure's underlying error.
+
+    The data shape :func:`render_terminal_message` renders: the class prefix
+    and headline of the error text plus the detail parts recognized by their
+    fixed shapes (see the ``playwright`` practice). No behavior beyond the
+    data shape.
+
+    Args:
+        class_name: the exception class prefix of the underlying error; empty —
+            the text carries none.
+        reason: the underlying error headline — the expectation of a failed
+            check or the message head of a typed error.
+        received: the actual-value detail; empty — absent.
+        cause: the error-cause detail; empty — absent.
+        call_log: the Call log block; empty — absent.
+    """
+
+    model_config = ConfigDict(kw_only=True)
+
+    class_name: str = ""
+    reason: str = ""
+    received: str = ""
+    cause: str = ""
+    call_log: str = ""
+
+
+def _consume_actual_value(lines: list[str], start: int) -> tuple[str, int]:
+    """Collect the received detail starting at an ``Actual value:`` line.
+
+    The value is the text after the prefix plus the continuation lines that
+    follow — consumed while they are non-blank and not a recognized shape
+    line, joined verbatim.
+
+    Args:
+        lines: the full text, split into lines.
+        start: the index of the ``Actual value:`` line.
+
+    Returns:
+        The received detail and the index of the first unconsumed line.
+    """
+    collected = [lines[start][len("Actual value:") :].strip()]
+    index = start + 1
+
+    while index < len(lines):
+        follower = lines[index]
+        if follower == "" or follower.startswith(_SHAPE_PREFIXES):
+            break
+        collected.append(follower)
+        index += 1
+
+    return "\n".join(collected), index
+
+
+def _consume_call_log(lines: list[str], start: int) -> tuple[str, int]:
+    """Collect the Call log block starting at a ``Call log:`` line.
+
+    The block is every following line that is blank or indented, kept
+    verbatim with the trailing blanks trimmed; it ends at a non-indented
+    non-blank line or the end of the text.
+
+    Args:
+        lines: the full text, split into lines.
+        start: the index of the ``Call log:`` line.
+
+    Returns:
+        The Call log block and the index of the first unconsumed line.
+    """
+    block = []
+    index = start + 1
+
+    while index < len(lines):
+        follower = lines[index]
+        if follower != "" and not follower[0].isspace():
+            break
+        block.append(follower)
+        index += 1
+
+    while block and block[-1] == "":
+        block.pop()
+
+    return "\n".join(block), index
+
+
+def decompose_error_text(error: str) -> ErrorParts:
+    """Decompose the full underlying error text of a failed step into the render parts.
+
+    Pure recognition of the playwright failure-message anatomy (see the
+    ``playwright`` practice): the dotted-identifier class prefix of the first
+    line, then — in the remainder — the detail shapes by their fixed prefixes
+    only, never by position. An empty text yields all-empty parts;
+    unrecognized shapes leave their parts empty. Never raises on any input.
+
+    Args:
+        error: the full underlying error text as formatted by the engine
+            error-text policy; empty — all parts empty.
+
+    Returns:
+        The decomposed parts.
+    """
+    if error == "":
+        return ErrorParts()
+
+    lines = error.splitlines()
+    class_name = ""
+    reason = ""
+    received = ""
+    cause = ""
+    call_log = ""
+
+    head = _CLASS_HEAD.match(lines[0])
+    if head:
+        class_name = head[1]
+        reason = head[2] or ""
+    else:
+        reason = lines[0]
+
+    index = 1
+
+    while index < len(lines):
+        line = lines[index]
+
+        if line.startswith("Actual value:"):
+            received, index = _consume_actual_value(lines, index)
+            continue
+
+        if line.startswith("Caused by:"):
+            cause = line[len("Caused by:") :].strip()
+            index += 1
+            continue
+
+        if line.startswith("Call log:"):
+            call_log, index = _consume_call_log(lines, index)
+            continue
+
+        index += 1
+
+    return ErrorParts(class_name=class_name, reason=reason, received=received, cause=cause, call_log=call_log)
+
+
+def render_terminal_message(
+    error_class: str,
+    reason: str,
+    step_text: str,
+    error: str,
+    verdict: FailureVerdict | None,
+) -> str:
     """Compose the single structured render of a terminal failure.
 
     The one text used by the exception message, the log record and the
-    ``on_step_failed`` hook payload — consumers never re-compose it.
+    ``on_step_failed`` hook payload — consumers never re-compose it. The
+    ``error`` text is decomposed once (:func:`decompose_error_text`) into the
+    headline and the detail parts; the headline reconstructs the typed-error
+    class prefix (``TimeoutError: …``, ``Page.reload: …``) while a failed
+    check carries no prefix — its headline is the expectation text alone.
 
     Args:
-        reason: the primary reason — the first line of the render; authored
-            without colons.
+        error_class: the short class name of the terminal failure — the first
+            line's prefix; ``type(self).__qualname__`` at the call site.
+        reason: the primary reason — authored without colons; the first line
+            after the class name.
         step_text: the sentence of the failed step; empty — no step line.
         error: the full underlying error text of the failed step code; empty —
             no error line.
@@ -91,23 +249,39 @@ def render_terminal_message(reason: str, step_text: str, error: str, verdict: Fa
             render — no verdict block.
 
     Returns:
-        The rendered message: the reason verbatim, then the ``---`` separated
-        ``step:``/``error:`` block when either field is non-empty, then the
-        ``---`` separated verdict block when the verdict renders non-empty.
+        The rendered message with the fixed block order: the
+        ``error_class: reason`` first line (the class name alone when the
+        reason is empty), then the ``---`` separated ``step:``/``error:`` block
+        when either field is non-empty, then the ``---`` separated details
+        section (``received:``/``cause:``/``Call log:`` — omitted entirely
+        when no detail part is present), then the ``---`` separated verdict
+        block when the verdict renders non-empty. The render never embeds the
+        step code or a page snapshot and ends without a trailing separator.
     """
-    lines = [reason]
+    parts = decompose_error_text(error)
+    lines = [f"{error_class}: {reason}" if reason else error_class]
+    headline = f"{parts.class_name}: {parts.reason}" if parts.class_name else parts.reason
 
-    if step_text or error:
+    if step_text or headline:
         lines.append("---")
         if step_text:
             lines.append(f"step: {step_text}")
-        if error:
-            lines.append(f"error: {error}")
+        if headline:
+            lines.append(f"error: {headline}")
 
-    if verdict is not None:
-        block = verdict.render()
-        if block:
-            lines += ["---", block]
+    if parts.received or parts.cause or parts.call_log:
+        lines.append("---")
+        if parts.received:
+            lines.append(f"received: {parts.received}")
+        if parts.cause:
+            lines.append(f"cause: {parts.cause}")
+        if parts.call_log:
+            lines += ["Call log:", *parts.call_log.splitlines()]
+
+    block = verdict.render() if verdict is not None else ""
+
+    if block:
+        lines += ["---", block]
 
     return "\n".join(lines)
 
@@ -118,6 +292,8 @@ class ProductDefectError(PrettyplayError, AssertionError):
     The signal the test suite exists for: no retry, no healing — propagates to
     the test runner as a failing test. Derives from both :class:`PrettyplayError`
     and ``AssertionError``, so any runner counts it as a failure, never an error.
+    The render's first line carries the raised class name followed by the
+    primary reason.
 
     Args:
         step_text: the sentence of the failed step.
@@ -142,7 +318,9 @@ class ProductDefectError(PrettyplayError, AssertionError):
 
         # Exception.__init__ directly: routing through PrettyplayError.__init__
         # would overwrite the public message attribute with the full render.
-        Exception.__init__(self, render_terminal_message(message, step_text, error, verdict))
+        # The first line carries the SHORT class name of the raised type —
+        # type(self).__qualname__ stays correct under subclassing.
+        Exception.__init__(self, render_terminal_message(type(self).__qualname__, message, step_text, error, verdict))
 
 
 class IncurableStepError(PrettyplayError):
@@ -151,7 +329,10 @@ class IncurableStepError(PrettyplayError):
     Raised when the attempt budget is exhausted, the step text no longer
     matches the application reality, the intent is ambiguous, or strict mode
     forbids generation. An execution failure, not a failed check — derives
-    from :class:`PrettyplayError` only, never from ``AssertionError``.
+    from :class:`PrettyplayError` only, never from ``AssertionError``. The
+    render's first line carries the raised class name followed by the primary
+    reason; without a verdict the render falls back to the built-in path
+    guidance.
 
     Args:
         step_text: the sentence of the failed step.
@@ -187,10 +368,14 @@ class IncurableStepError(PrettyplayError):
 
         # Render-only fallback verdict: keeps the message actionable without a
         # verdict; the verdict attribute stays None — on_step_verdict never
-        # fires for the fallback.
+        # fires for the fallback. The first line carries the SHORT class name
+        # of the raised type — type(self).__qualname__ stays correct under
+        # subclassing.
         render_verdict = verdict if verdict is not None else FailureVerdict("incurable", "", _FALLBACK_GUIDANCE)
 
-        Exception.__init__(self, render_terminal_message(reason, step_text, error, render_verdict))
+        Exception.__init__(
+            self, render_terminal_message(type(self).__qualname__, reason, step_text, error, render_verdict)
+        )
 
     @property
     def recommendation(self) -> str:

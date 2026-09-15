@@ -29,8 +29,9 @@ The category travels in the structured fields of the `on_step_verdict` hook even
 
 ## The structured failure message
 
-ProductDefectError and IncurableStepError render one structured message — the same text reaches the exception message,
-the log record and the `error` field of the `on_step_failed` hook event:
+ProductDefectError and IncurableStepError render one structured message — the same text
+reaches the exception message, the log record and the `error` field of the `on_step_failed`
+hook event:
 
 ```text
 ProductDefectError: the "Sign in" button stayed invisible after submitting the form
@@ -38,22 +39,32 @@ ProductDefectError: the "Sign in" button stayed invisible after submitting the f
 step: Check that the "Sign in" button appears
 error: Locator expected to be visible
 ---
-explanation:    the page has no element with role button and name "Sign in"
+received: <actual value — only when the underlying error carries one>
+cause: <error cause>
+Call log:
+  - waiting for locator("button[name='Sign in']")
+---
+explanation: the page has no element with role button and name "Sign in"
 recommendation: check the selector or the button text in the application
 ```
 
-- The first line is the primary reason only — no kind label, no colons; the exception type prefix (rendered by the
-  runner) supplies the kind
-- The `step:`/`error:` block carries the step sentence and the full underlying error of the failed step code, locator
-  details included; for failed checks the `error:` text never carries an AssertionError prefix — the exception type
-  already carries the assertion semantics; the block is omitted entirely when both are empty
-- The verdict block shows column-aligned `explanation:` and `recommendation:` values — multi-line continuations indent
-  to the same value column; the `category:` line is gone — the category travels in the structured fields of
-  `on_step_verdict`, never in the render
-- Empty blocks are omitted entirely: no underlying error → no `error:` line; ProductDefectError without a verdict
-  renders no verdict block, while IncurableStepError without a verdict always renders a fallback `recommendation:`
-  line with the built-in path guidance — the verdict attribute itself stays None and `on_step_verdict` stays silent
-- The failed step's code is never included — it lives in the cache and the `code` field of IncurableStepError
+- The first line carries the class name of the terminal failure and the authored
+  reason — the render is self-sufficient in log records and hook payloads where no runner
+  prefix exists
+- The `step:`/`error:` section carries the step sentence and the decomposed headline of the
+  underlying error (its expectation or kind); for failed checks the `error:` text never
+  carries an AssertionError prefix; the section is omitted entirely when both are empty
+- The details section — `received:`/`cause:`/`Call log:` — appears only when the underlying
+  error carries those parts (Playwright expect failures do); otherwise the whole section is
+  omitted
+- No label padding anywhere — labels render at column zero; multi-line verdict values
+  indent by two spaces
+- A page snapshot never appears in any terminal error output
+- The `category:` line is gone — the category travels in the structured fields of
+  `on_step_verdict`, never in the render; IncurableStepError without a verdict keeps the
+  fallback `recommendation:` line
+- The failed step's code is never included — it lives in the cache and the `code` field of
+  IncurableStepError
 
 ## Verdicts on terminal failures
 

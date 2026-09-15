@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import types
+from collections.abc import Callable
 from pathlib import Path
 from types import TracebackType
+from typing import TypeVar
+
+from playwright.sync_api import Page
 
 from .cache import StepCache
 from .config import PrettyConfig, load_config
@@ -15,6 +19,8 @@ from .executor import StepExecutor
 from .failures import PrettyplayError
 from .reporting import StepHooks, StepReporter
 from .runtime import PrettyplayRuntime
+
+_T = TypeVar("_T")
 
 
 def _raise_folded(error: PrettyplayError) -> types.NoReturn:
@@ -100,12 +106,14 @@ class PrettyPlay:
         _page: the isolated page of this test; ``None`` until the first step.
     """
 
-    def __init__(self,
-                 cache_key: str,
-                 cache_path: str | None = None,
-                 *,
-                 hooks: list[StepHooks] | None = None,
-                 config: PrettyConfig | None = None) -> None:
+    def __init__(
+        self,
+        cache_key: str,
+        cache_path: str | None = None,
+        *,
+        hooks: list[StepHooks] | None = None,
+        config: PrettyConfig | None = None,
+    ) -> None:
         """Compose the per-test objects over the runtime this test owns.
 
         Args:
@@ -222,6 +230,36 @@ class PrettyPlay:
             self._executor.execute(text, "assertion", self._ensure_page())
         except PrettyplayError as error:
             _raise_folded(error)
+
+    def run_on_page(self, action: Callable[[Page], _T]) -> _T:
+        """Execute the author action wholly inside the driver worker thread.
+
+        The author escape hatch: the action runs against the genuine sync
+        ``Page`` of the test, sequentially with every step — the stateful
+        actions excluded from generated code (``page.route``, ``page.clock``,
+        ``add_init_script``, tracing, HAR, CDP) are the author's explicit
+        tools here. The prompt rules of generated code do not bind the author.
+        The action must use the page API only: calling back into the test
+        object (a step, a screenshot, a nested ``run_on_page``) marshals into
+        the same worker thread the action itself runs on and is rejected with
+        a loud error instead of a deadlock.
+
+        Args:
+            action: the callable to execute; receives the genuine sync Page.
+
+        Returns:
+            The outcome of ``action`` as-is — plain data only; Playwright
+            objects never cross back to the calling thread.
+
+        Raises:
+            PrettyplayError: no test page exists yet — run a step first.
+            Exception: whatever ``action`` raises propagates to the caller
+                as-is — the same object, no wrapping, no folding.
+        """
+        if self._page is None:
+            raise PrettyplayError("no test page yet: run a step first — the page opens lazily on the first step")
+
+        return self._page.run(action)
 
     def get_screenshot(self) -> bytes:
         """Return a full-page PNG screenshot of the current test page.

@@ -41,6 +41,7 @@ class FakePlaywrightFactory:
     def __init__(self) -> None:
         self.start_calls = 0
         self.stop_calls = 0
+        self._loop: asyncio.AbstractEventLoop | None = None
         self.launches: list[str] = []
         self.launch_kwargs: list[dict] = []
         self.engine_starts: list[str] = []  # each engine start: launch or connect
@@ -58,11 +59,19 @@ class FakePlaywrightFactory:
     def start(self) -> "FakePlaywrightFactory":
         self.threads.append(threading.get_ident())
         self.start_calls += 1
+        # the running-loop marker the real sync driver leaves in its starting thread
+        # until the session stops — the marker the IPython bug is made of; there is
+        # no public setter, the getter reads exactly this thread-local slot
+        self._loop = asyncio.new_event_loop()
+        asyncio.events._set_running_loop(self._loop)
         return self
 
     def stop(self) -> None:
         self.threads.append(threading.get_ident())
         self.stop_calls += 1
+        asyncio.events._set_running_loop(None)
+        self._loop.close()
+        self._loop = None
 
 
 class FakeEngine:
@@ -699,7 +708,7 @@ class TestDriverSessionWorkerThread:
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
             session = DriverSession(Config(browser=BrowserConfig(name="chromium")))
             page = session.open_context()
-            page.goto("https://example.com")
+            page.run(lambda raw: raw.goto("https://example.com"))
             session.close()
 
         main_thread = threading.get_ident()
@@ -707,24 +716,24 @@ class TestDriverSessionWorkerThread:
         assert all(ident != main_thread for ident in factory.threads)  # none in the main thread
         assert len(set(factory.threads)) == 1  # all in one dedicated thread
 
-    def test_facade_calls_execute_in_worker_thread(self) -> None:
+    def test_handle_calls_execute_in_worker_thread(self) -> None:
         factory = FakePlaywrightFactory()
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
             session = DriverSession(Config(browser=BrowserConfig(name="chromium")))
             page = session.open_context()
 
-            assert page.url == "about:blank"
-            page.goto("https://example.com")
-            page.get_by_role("button", name="Войти").click()
-            page.get_by_label("Логин").fill("user")
-            page.get_by_text("Добро пожаловать").select_option("one")
+            assert page.run(lambda raw: raw.url) == "about:blank"
+            page.run(lambda raw: raw.goto("https://example.com"))
+            page.run(lambda raw: raw.get_by_role("button", name="Войти").click())
+            page.run(lambda raw: raw.get_by_label("Логин").fill("user"))
+            page.run(lambda raw: raw.get_by_text("Добро пожаловать").select_option("one"))
             assert page.aria_snapshot() == "- heading Пример"
             assert page.screenshot() == b"png"
             session.close()
 
         worker_idents = set(factory.threads)
-        assert threading.get_ident() not in worker_idents  # facade calls — not in the test thread
+        assert threading.get_ident() not in worker_idents  # handle calls — not in the test thread
         assert len(worker_idents) == 1
 
     def test_open_context_leaves_no_running_loop_in_caller_thread(self) -> None:
@@ -733,11 +742,14 @@ class TestDriverSessionWorkerThread:
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
             session = DriverSession(Config(browser=BrowserConfig(name="chromium")))
             session.open_context()
-            session.close()
-
-        # regression guard for the IPython bug: no running loop may remain in the caller thread
-        with pytest.raises(RuntimeError):
-            asyncio.get_running_loop()
+            try:
+                # regression guard for the IPython bug, asserted while the session is live:
+                # the marker the driver leaves in its starting thread sits in the worker
+                # thread, never in the caller's — a session started inline would be caught
+                with pytest.raises(RuntimeError):
+                    asyncio.get_running_loop()
+            finally:
+                session.close()
 
     def test_worker_exception_propagates_with_type_and_message(self) -> None:
         factory = FakePlaywrightFactory()
@@ -749,7 +761,7 @@ class TestDriverSessionWorkerThread:
             page._page.goto_error = AssertionError("элемент не стабилен")  # type: ignore[attr-defined]
 
             with pytest.raises(AssertionError, match="элемент не стабилен"):
-                page.goto("https://example.com")
+                page.run(lambda raw: raw.goto("https://example.com"))
 
             session.close()
 
@@ -785,9 +797,27 @@ class TestDriverSessionWorkerThread:
             page = session.open_context()
             session.close()
 
-            # deadlock guard: once stopped, the facade fails fast instead of waiting
+            # deadlock guard: once stopped, the handle fails fast instead of waiting
             with pytest.raises(Error, match="Event loop is closed"):
-                page.goto("https://example.com")
+                page.run(lambda raw: raw.url)
+
+    def test_reentrant_crossing_from_inside_a_unit_fails_loudly(self) -> None:
+        factory = FakePlaywrightFactory()
+
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(Config(browser=BrowserConfig(name="chromium")))
+            page = session.open_context()
+
+            def call_back_inside_the_unit(raw: object) -> str:
+                # a nested marshaled call — the busy pump could never serve it
+                with pytest.raises(Error, match="re-entrant crossing"):
+                    page.run(lambda inner: inner.url)
+                return "outer-completed"
+
+            # deadlock guard: the crossing rejects loudly instead of hanging both threads
+            assert page.run(call_back_inside_the_unit) == "outer-completed"
+            assert page.run(lambda raw: raw.url) == "about:blank"  # the worker still serves
+            session.close()
 
     def test_reopen_after_close_runs_in_new_worker_thread(self) -> None:
         factory = FakePlaywrightFactory()
@@ -800,7 +830,7 @@ class TestDriverSessionWorkerThread:
 
             page = session.open_context()
             second = session._worker._thread  # this session's thread
-            page.goto("https://example.com")
+            page.run(lambda raw: raw.goto("https://example.com"))
             session.close()
 
         assert not first.is_alive()  # the first worker's thread is finished
@@ -827,7 +857,7 @@ class TestDriverSessionWorkerThread:
             assert threading.active_count() == before  # the failed-launch worker is stopped
 
             page = session.open_context()  # the retry starts from a clean state
-            page.goto("https://example.com")
+            page.run(lambda raw: raw.goto("https://example.com"))
             session.close()
 
         assert factory.start_calls == 1  # exactly one successful start
@@ -838,11 +868,12 @@ class TestDriverSessionDialogWiring:
     """Logic tests: the dialog routing wiring of open_context — contract step 4.
 
     Every page of the context — the open_context page and every later popup —
-    carries exactly one dialog handler registered through the context page
-    event; the uncaptured dialogs route by the ``accept_dialogs`` setting.
+    carries exactly one record-only dialog handler registered through the
+    context page event before ``new_page()``; the resolution itself is
+    deferred to the run-unit tail of the page handle.
     """
 
-    def test_open_context_registers_dialog_routing(self) -> None:
+    def test_open_context_registers_the_recording_handler_per_page(self) -> None:
         factory = FakePlaywrightFactory()
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
@@ -854,27 +885,30 @@ class TestDriverSessionDialogWiring:
         assert [event for event, _ in context.events] == ["page"]  # exactly one page wiring
 
         main_page = context.pages[0]
-        assert [event for event, _ in main_page.events] == ["dialog"]  # one registration, through the event
+        assert [event for event, _ in main_page.events] == ["dialog"]  # the first page carries the listener
+        # the before-new_page ordering is proven by this very assertion: had the wiring run
+        # after new_page(), the first page would carry no dialog listener at all
+
+        router = facade._router
+        assert router is not None
+        assert main_page.dialog_handlers[0] == router.record  # wired to the record-only handler
 
         dialog = FakeDialog()
-        main_page.dialog_handlers[0](dialog)  # an uncaptured dialog fires on the main page
+        main_page.dialog_handlers[0](dialog)  # a dialog fires on the main page
 
-        assert dialog.calls == [("dismiss",)]  # accept_dialogs False → the explicit dismiss
-        assert facade._router is not None  # the router is attached to the returned facade
-        assert facade._router.accept_dialogs is False
+        assert dialog.calls == []  # record-only — no resolution inside event dispatch
+        assert router._pending == [dialog]  # the resolver of last resort holds it for the unit tail
 
-    @pytest.mark.parametrize(
-        ("accept_dialogs", "expected"),
-        [(True, ("accept",)), (False, ("dismiss",))],
-        ids=["accept", "dismiss"],
-    )
-    def test_popup_pages_route_dialogs_through_the_context_wiring(self, accept_dialogs: bool, expected: tuple) -> None:
+    def test_popup_pages_register_the_recording_handler_through_the_context_wiring(self) -> None:
         factory = FakePlaywrightFactory()
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="chromium", accept_dialogs=accept_dialogs)))
-            session.open_context()
+            session = DriverSession(Config(browser=BrowserConfig(name="chromium", accept_dialogs=True)))
+            facade = session.open_context()
             session.close()
+
+        assert facade._router is not None
+        assert facade._router.accept_dialogs is True  # the setting reached the router of the context
 
         context = factory.contexts[0]
         popup = context.new_page()  # a popup joins the context — the page wiring fires for it too
@@ -882,47 +916,9 @@ class TestDriverSessionDialogWiring:
         assert [event for event, _ in popup.events] == ["dialog"]  # exactly one handler
         main_handler = context.pages[0].dialog_handlers[0]
         popup_handler = popup.dialog_handlers[0]
-        assert popup_handler is not main_handler  # a different closure bound to the popup page
+        assert popup_handler == main_handler  # the same bound record — no page binding is needed
 
         dialog = FakeDialog()
-        popup_handler(dialog)  # an uncaptured dialog fires on the popup
+        popup_handler(dialog)  # a dialog fires on the popup
 
-        assert dialog.calls == [expected]  # the setting routes it
-
-    def test_dialog_router_accepts_when_setting_on(self) -> None:
-        factory = FakePlaywrightFactory()
-
-        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="chromium", accept_dialogs=True)))
-            session.open_context()
-            session.close()
-
-        dialog = FakeDialog()
-        factory.contexts[0].pages[0].dialog_handlers[0](dialog)
-
-        assert dialog.calls == [("accept",)]  # accept called, dismiss not
-
-    def test_dialog_router_skips_only_for_a_capture_on_the_same_page(self) -> None:
-        factory = FakePlaywrightFactory()
-
-        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="chromium", accept_dialogs=False)))
-            facade = session.open_context()
-            session.close()
-
-        context = factory.contexts[0]
-        main_page = context.pages[0]
-        popup = context.new_page()
-        handler = main_page.dialog_handlers[0]
-        router = facade._router
-        assert router is not None
-
-        router.capture_page = popup  # a capture armed on the popup — not this handler's page
-        routed = FakeDialog()
-        handler(routed)
-        assert routed.calls == [("dismiss",)]  # the main-page dialog still routes by the setting
-
-        router.capture_page = main_page  # a capture armed on this handler's own page
-        claimed = FakeDialog()
-        handler(claimed)
-        assert claimed.calls == []  # the capture claims it — neither accept nor dismiss
+        assert dialog.calls == []  # recorded, never resolved mid-event

@@ -15,8 +15,9 @@ GENERATE_STEP_CODE_PARAMS = [
     "step_text",
     "previous_steps",
     "snapshot",
+    "page_url",
     "screenshot",
-    "page_api",
+    "cheat_sheet",
     "existing_code",
     "error",
     "recommendation",
@@ -96,6 +97,17 @@ class TestLLMProviderContract:
             for name in ("recommendation", "guidance", "guidance_history"):
                 assert parameters[name].default is inspect.Signature.empty, (owner.__name__, name)
 
+    def test_generate_step_code_signature_carries_cheat_sheet_after_screenshot(self) -> None:
+        for owner in (LLMProvider, OpenAIProvider, AnthropicProvider):
+            parameters = inspect.signature(owner.generate_step_code).parameters
+            names = list(parameters)
+
+            assert "cheat_sheet" in names, owner.__name__
+            assert ("page" + "_api") not in names, owner.__name__  # the dead slot name, assembled — no literal
+            assert names[names.index("screenshot") + 1] == "cheat_sheet", owner.__name__
+            assert names[names.index("cheat_sheet") + 1] == "existing_code", owner.__name__
+            assert parameters["cheat_sheet"].annotation is str, owner.__name__
+
     def test_base_methods_raise_not_implemented(self) -> None:
         port = LLMProvider()
 
@@ -106,8 +118,9 @@ class TestLLMProviderContract:
                 step_text="s",
                 previous_steps=[],
                 snapshot="- snap",
+                page_url=None,
                 screenshot=None,
-                page_api="page.goto(...)",
+                cheat_sheet="expect(locator).to_be_visible()",
                 existing_code=None,
                 error=None,
                 recommendation=None,
@@ -283,7 +296,7 @@ class TestClassificationInstructionsPlacement:
 
             assert "USER INSTRUCTIONS" not in empty_requests[0]["messages"][-1]["content"]
 
-            # generation placement is unchanged: after PAGE API, before CODE/ERROR
+            # generation placement is unchanged: after CHEAT SHEET, before CODE/ERROR
             gen_client, gen_requests = make_client(GENERATION_ANSWER)
 
             with mock.patch.object(provider, "_get_client", return_value=gen_client):
@@ -293,8 +306,9 @@ class TestClassificationInstructionsPlacement:
                     step_text="s",
                     previous_steps=[],
                     snapshot="snap",
+                    page_url=None,
                     screenshot=None,
-                    page_api="page.goto(...)",
+                    cheat_sheet="expect(locator).to_be_visible()",
                     existing_code="def step(page) -> None:\n    pass\n",
                     error="err",
                     recommendation=None,
@@ -303,11 +317,18 @@ class TestClassificationInstructionsPlacement:
                 )
 
             gen_user = gen_requests[0]["messages"][-1]["content"]
-            assert gen_user.index("PAGE API:") < gen_user.index("USER INSTRUCTIONS:") < gen_user.index("CODE:")
+            assert gen_user.index("CHEAT SHEET:") < gen_user.index("USER INSTRUCTIONS:") < gen_user.index("CODE:")
 
 
 class TestSteeringInputsParity:
-    """Logic tests: both providers forward the three steering inputs to one builder output."""
+    """Logic tests: both providers forward the steering inputs to one builder output."""
+
+    PAGE_URL = "https://www.google.com/sorry?continuation=token"
+    HISTORY_RECORD = (
+        "engineer message: hover the menu first\n"
+        'code:\ndef step(page) -> None:\n    page.get_by_role("button").hover()\n'
+        "outcome: AssertionError: Locator expected to be visible"
+    )
 
     def test_providers_render_identical_user_text_from_the_steering_inputs(
         self, monkeypatch: pytest.MonkeyPatch
@@ -330,13 +351,14 @@ class TestSteeringInputsParity:
                     step_text="s",
                     previous_steps=["step one"],
                     snapshot="snap",
+                    page_url=self.PAGE_URL,
                     screenshot=None,
-                    page_api="page.goto(...)",
+                    cheat_sheet="expect(locator).to_be_visible()",
                     existing_code="old code",
                     error="err",
                     recommendation="use a role locator",
                     guidance="dismiss the modal first",
-                    guidance_history=["hover first => Timeout 10000ms exceeded"],
+                    guidance_history=[self.HISTORY_RECORD],
                 )
 
             user_texts.append(requests[0]["messages"][-1]["content"])
@@ -345,4 +367,7 @@ class TestSteeringInputsParity:
         assert user_texts[0] == user_texts[1]
         assert "RECOMMENDATION:\nuse a role locator" in user_texts[0]
         assert "USER GUIDANCE:\ndismiss the modal first" in user_texts[0]
-        assert "HISTORY:\nhover first => Timeout 10000ms exceeded" in user_texts[0]
+        assert f"HISTORY:\n{self.HISTORY_RECORD}" in user_texts[0]
+        assert f"PAGE URL: {self.PAGE_URL}" in user_texts[0]
+        assert user_texts[0].index("PAGE SNAPSHOT:\nsnap") < user_texts[0].index(f"PAGE URL: {self.PAGE_URL}")
+        assert user_texts[0].index(f"PAGE URL: {self.PAGE_URL}") < user_texts[0].index("CHEAT SHEET:")

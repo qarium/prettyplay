@@ -16,8 +16,8 @@ settle(execute=run_step_code, code=cached_step.code, page=page, window=window)
 
 `run_step_code` comes from `prettyplay.engine` — the execution routine the caller threads in.
 
-- The window starts at the first execution of the step code — never at the first failure; the facade's internal
-  waits count inside it, and the first execution may consume the whole window: no repetitions follow
+- The window starts at the first execution of the step code — never at the first failure; the step code's own
+  auto-waits count inside it, and the first execution may consume the whole window: no repetitions follow
 - The window gates repetitions, never kills a running attempt: the remaining-time check happens only before a repeat
 - A failure re-executes the same code after `polling_delay` when its kind is pollable and time remains — until
   success or window end; success continues the step normally

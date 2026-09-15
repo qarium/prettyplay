@@ -2,16 +2,20 @@
 
 import contextlib
 import inspect
+import threading
 import traceback
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from unittest import mock
 
 import prettyplay
 import pytest
+from playwright.sync_api import Error
 from prettyplay import BrowserConfig, PrettyPlay
 from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step_text
 from prettyplay.config import Config, PrettyConfig
+from prettyplay.driver import PageFacade
+from prettyplay.driver.session import PlaywrightWorker
 from prettyplay.engine.steering import StepSteering
 from prettyplay.executor import StepExecutor
 from prettyplay.failures import ComplianceVerdictError, FailureVerdict, IncurableStepError, PrettyplayError
@@ -24,7 +28,13 @@ CACHED_CODE = "def step(page) -> None:\n    page.goto('https://example.com')\n"
 
 
 class FakePage:
-    """Fake page boundary: records navigation, screenshots and how many times it was closed."""
+    """Fake page boundary in the handle shape: ``run``/``aria_snapshot``/``screenshot``/``close``.
+
+    The fake doubles as the handle and the raw page it hands out — the run
+    primitive executes the action against the fake itself, so the cached step
+    code drives the ``goto`` surface directly. Records navigation, snapshots,
+    screenshots and how many times it was closed.
+    """
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, ...]] = []
@@ -33,6 +43,10 @@ class FakePage:
 
     def goto(self, url: str) -> None:
         self.calls.append(("goto", url))
+
+    def run(self, action: Callable[[object], object]) -> object:
+        """The run primitive: executes the action against the fake itself, as a hand-built handle does."""
+        return action(self)
 
     def aria_snapshot(self) -> str:
         self.calls.append(("aria_snapshot",))
@@ -51,6 +65,27 @@ class FakePage:
         return self.close_count > 0
 
 
+class FakeIsolatedContext:
+    """Fake isolated browser context behind a worker-backed handle; records ``close``."""
+
+    def __init__(self) -> None:
+        self.close_calls = 0
+
+    def close(self) -> None:
+        self.close_calls += 1
+
+
+class WorkerRecordingRawPage:
+    """Fake genuine page of a worker-backed handle: ``goto`` records the thread it ran on."""
+
+    def __init__(self) -> None:
+        self.context = FakeIsolatedContext()
+        self.goto_threads: list[int] = []
+
+    def goto(self, url: str) -> None:
+        self.goto_threads.append(threading.get_ident())
+
+
 class RecordingProvider(LLMProvider):
     """Stub LLM boundary recording generation requests; any call fails the acceptance run."""
 
@@ -64,10 +99,14 @@ class RecordingProvider(LLMProvider):
         step_text: str,
         previous_steps: list[str],
         snapshot: str,
+        page_url: str | None,
         screenshot: bytes | None,
-        page_api: str,
+        cheat_sheet: str,
         existing_code: str | None,
         error: str | None,
+        recommendation: str | None,
+        guidance: str | None,
+        guidance_history: list[str] | None,
     ) -> str:
         self.generate_calls += 1
         raise AssertionError("provider must not be called: the cached step runs without a generation request")
@@ -106,8 +145,9 @@ class GateHardFailingProvider(LLMProvider):
         step_text: str,
         previous_steps: list[str],
         snapshot: str,
+        page_url: str | None,
         screenshot: bytes | None,
-        page_api: str,
+        cheat_sheet: str,
         existing_code: str | None,
         error: str | None,
         recommendation: str | None,
@@ -121,8 +161,9 @@ class GateHardFailingProvider(LLMProvider):
                 "step_text": step_text,
                 "previous_steps": previous_steps,
                 "snapshot": snapshot,
+                "page_url": page_url,
                 "screenshot": screenshot,
-                "page_api": page_api,
+                "cheat_sheet": cheat_sheet,
                 "existing_code": existing_code,
                 "error": error,
                 "recommendation": recommendation,
@@ -278,6 +319,7 @@ class TestPrettyPlayContract:
         for name in (
             "step",
             "expect",
+            "run_on_page",
             "get_screenshot",
             "save_screenshot",
             "add_hooks",
@@ -290,6 +332,14 @@ class TestPrettyPlayContract:
     def test_step_method_signatures_match_contract(self) -> None:
         assert list(inspect.signature(PrettyPlay.step).parameters) == ["self", "text"]
         assert list(inspect.signature(PrettyPlay.expect).parameters) == ["self", "text"]
+
+    def test_run_on_page_signature_matches_contract(self) -> None:
+        assert list(inspect.signature(PrettyPlay.run_on_page).parameters) == ["self", "action"]
+
+    def test_run_on_page_sits_between_expect_and_get_screenshot(self) -> None:
+        names = list(PrettyPlay.__dict__)
+
+        assert names.index("expect") < names.index("run_on_page") < names.index("get_screenshot")
 
     def test_add_hooks_and_close_signatures_match_contract(self) -> None:
         assert list(inspect.signature(PrettyPlay.add_hooks).parameters) == ["self", "hooks"]
@@ -540,7 +590,6 @@ class TestPrettyPlayLogic:
 
         assert len(pages) == 1  # page two opens on the first step, not on construction
 
-
     def test_construction_is_lazy_and_returns_cache_key(self, tmp_path: Path) -> None:
         with scenario_on_tmp_cache(tmp_path):
             test = PrettyPlay(CACHE_KEY)
@@ -781,6 +830,119 @@ class TestPrettyPlayLogic:
 
                 with pytest.raises(PrettyplayError):
                     test.get_screenshot()
+
+    def test_run_on_page_delegates_to_the_run_primitive(self, tmp_path: Path) -> None:
+        class FakeRawPage:
+            """The genuine-page stand-in the handle hands to the author action."""
+
+            route_marker = "plain-data"
+
+        class FakeHandle:
+            """Page-handle stand-in: the run primitive executes the action and records the unit."""
+
+            def __init__(self) -> None:
+                self.units: list[Callable[[object], object]] = []
+                self._raw = FakeRawPage()
+
+            def run(self, action: Callable[[object], object]) -> object:
+                self.units.append(action)
+                return action(self._raw)
+
+        handle = FakeHandle()
+        seen: list[object] = []
+
+        def read_marker(page: FakeRawPage) -> str:
+            seen.append(page)
+            return page.route_marker
+
+        with scenario_on_tmp_cache(tmp_path):
+            test = PrettyPlay(CACHE_KEY)
+            test._page = handle  # type: ignore[assignment] — the handle stand-in plays the opened page
+
+            assert test.run_on_page(read_marker) == "plain-data"
+
+        assert handle.units == [read_marker]  # exactly one run unit — the author callable itself
+        assert seen == [handle._raw]  # the action received the raw fake page
+
+    def test_run_on_page_requires_an_opened_page(self, tmp_path: Path) -> None:
+        with scenario_on_tmp_cache(tmp_path):
+            test = PrettyPlay(CACHE_KEY)
+
+            with mock.patch.object(test._runtime, "open_page") as open_page_mock:
+                with pytest.raises(PrettyplayError, match="no test page yet") as excinfo:
+                    test.run_on_page(lambda _page: None)
+                assert "run a step first" in str(excinfo.value)
+
+        open_page_mock.assert_not_called()  # the loud failure precedes any page opening
+
+    def test_run_on_page_propagates_action_exceptions_as_is(self, tmp_path: Path) -> None:
+        class ReRaisingHandle:
+            """Page-handle stand-in: the run primitive re-raises the action failure as-is."""
+
+            def run(self, action: Callable[[object], object]) -> object:
+                return action(object())
+
+        failure = Error("route failed")
+
+        def failing_action(page: object) -> object:
+            raise failure
+
+        with scenario_on_tmp_cache(tmp_path):
+            test = PrettyPlay(CACHE_KEY)
+            test._page = ReRaisingHandle()  # type: ignore[assignment] — the handle stand-in plays the opened page
+
+            with pytest.raises(Error) as excinfo:
+                test.run_on_page(failing_action)
+
+        assert excinfo.value is failure  # the same object — no copy
+        assert not isinstance(excinfo.value, PrettyplayError)  # no library wrapping
+        assert str(excinfo.value) == "route failed"  # the actionable cause stays readable
+
+    def test_run_on_page_rejects_a_callback_into_the_test_object(self, tmp_path: Path) -> None:
+        worker = PlaywrightWorker()
+        worker.start()
+        handle = PageFacade(object(), FakeIsolatedContext())  # the raw page is never touched on this path
+        handle._worker = worker
+        try:
+            with scenario_on_tmp_cache(tmp_path):
+                test = PrettyPlay(CACHE_KEY)
+                test._page = handle  # the worker-backed handle plays the opened page
+
+                # the documented page-API-only rule: get_screenshot from inside the action
+                # marshals into the same worker the action runs on — rejected, not deadlocked
+                with pytest.raises(Error, match="re-entrant crossing"):
+                    test.run_on_page(lambda _page: test.get_screenshot())
+
+            assert handle.run(lambda _page: "ok") == "ok"  # the worker keeps serving after the rejection
+        finally:
+            worker.close()
+
+    def test_run_on_page_action_serializes_with_steps_on_the_worker(self, tmp_path: Path) -> None:
+        worker = PlaywrightWorker()
+        worker.start()
+        raw = WorkerRecordingRawPage()
+        handle = PageFacade(raw, raw.context)
+        handle._worker = worker
+        action_threads: list[int] = []
+
+        def author_action(page: object) -> str:
+            action_threads.append(threading.get_ident())
+            return "done"
+
+        try:
+            seed_cache(tmp_path)
+            with scenario_on_tmp_cache(tmp_path):
+                test = PrettyPlay(CACHE_KEY)
+                test._page = handle  # the worker-backed handle plays the opened page
+
+                test.step(STEP_TEXT)  # the cached step code runs as one worker unit
+                assert test.run_on_page(author_action) == "done"
+        finally:
+            worker.close()
+
+        assert len(raw.goto_threads) == 1  # the step ran once, through the worker
+        assert action_threads == raw.goto_threads  # the action serialized with the step — the same pump thread
+        assert action_threads[0] != threading.get_ident()  # never the calling thread
 
 
 class TestInstructionsIndependentCacheAddress:

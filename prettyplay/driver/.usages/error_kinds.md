@@ -9,7 +9,7 @@ The driver ships a fixed map: `is_pollable_failure(exc)` returns True when the e
 | timeout | `Timeout NNNms exceeded` — locator, action, expectation or navigation wait | yes |
 | element state | `element is not visible`, `element is not enabled`, `element is outside of the viewport`, detached/stale element | yes |
 | navigation / context | `Execution context was destroyed`, `Target closed`, navigation interrupted mid-flight | yes |
-| failed expectation | plain `AssertionError` from an expect_* call — the check executed and did not hold | yes |
+| failed expectation | plain `AssertionError` from a failed expect(...) chain or a plain Python assert on an immediate read — the check executed and did not hold | yes |
 | locator ambiguity | `strict mode violation: locator resolved to N elements` | no — the elements are there; waiting will not collapse them to one |
 | Python-level error | syntax, name and type errors of the step code itself | no — not a driver error at all |
 | unrecognized | anything else | no — conservative default, straight to classification |

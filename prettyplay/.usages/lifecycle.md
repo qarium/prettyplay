@@ -50,9 +50,10 @@ budget is consumed. Locator ambiguity and Python-level errors of the step code n
 ## Interactive steering
 
 `interactive = true` (env PRETTYPLAY_INTERACTIVE, per-test override) arms the steering REPL for local generation
-sessions: when a step terminally fails with IncurableStepError, a terminal dialog opens — step, failed code, error,
-verdict, snapshot fragment, screenshot path — and every engineer message drives one regeneration executed against the
-live page. A green turn heals the step and writes it back to the cache — only after the instruction compliance gate
+sessions: when a step terminally fails with IncurableStepError, a terminal dialog opens — step, failed code, the
+terminal error render, the current page URL, a screenshot path, the commands — and every engineer message drives one
+regeneration whose complete code is shown for approval with run? [y/N] before it executes against the live page. A
+green turn heals the step and writes it back to the cache — only after the instruction compliance gate
 passes (a high finding never reaches the cache: the violation joins the history and the prompt reopens);
 quit/EOF/SIGINT/unreadable stdin raises the
 original terminal failure. The dialog opens only on IncurableStepError of a non-strict run — an LLMUnavailableError
@@ -76,11 +77,16 @@ Five kinds reach the runner:
 | ComplianceVerdictError | the instruction compliance gate could not obtain a usable verdict — the executed candidate is never cached unchecked | rerun the step to retry generation; a repeatedly malformed verdict points at the verdict model |
 | ConfigurationError | the settings are invalid | fix the named setting — the message lists the allowed values |
 
-ProductDefectError and IncurableStepError render one structured message — the primary reason line, the `---` separated step/error block with the full underlying error, the column-aligned verdict block — and the same text reaches the exception message, the on_step_failed hook event and the log. When the LLM is unavailable the verdict is skipped quietly; the failure itself never waits for it.
+ProductDefectError and IncurableStepError render one structured message — the first line
+with the class name of the terminal failure and the authored reason, the `---` separated step/error section, the
+conditional received/cause/Call log details section and the unpadded verdict block — and the same text reaches the
+exception message, the on_step_failed hook event and the log. When the LLM is unavailable the verdict is skipped quietly; the failure itself never waits for it.
 
 ## Interactive sessions (IPython, Jupyter)
 
 The Playwright session lives in a background driver thread owned by the library: the thread that executes the steps never holds a running asyncio loop, so interactive hosts that drive their own prompt through asyncio (IPython, Jupyter) keep working after every step — passed or failed.
+
+The author escape hatch run_on_page crosses the same worker boundary the same way: the author callable executes wholly inside the worker thread with the genuine Page — the host thread keeps driving its own prompt loop.
 
 Each test owns its browser process: it starts on the first step of the test and stops when the test closes. In scripts every runtime stops automatically at process exit through its atexit hook. In an interactive session the process keeps living between cells, so close the test object explicitly when the interactive exploration is over:
 

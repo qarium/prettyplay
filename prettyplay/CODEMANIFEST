@@ -69,6 +69,7 @@ Annotations: |
   `StepHooks` — the callback contract the facade accepts — is re-exported by this facade (see the embedding), uniform with `PrettyConfig` and `BrowserConfig`.
   Strict mode — the strict field of the effective config — makes the step cycle replay-only: cached code executes honestly, nothing is ever (re)generated. A cache miss is the incurable failure stating that strict forbids generation; a failed cached step is at most classified — never regenerated; without LLM access the failure raises immediately by step type. Classifications are the only LLM calls of a strict run; the generation and healing budgets are never consumed.
   The interactive gate lives in the executor: the steering dialog opens exactly at a caught IncurableStepError on a non-strict interactive run — never on product_defect, never in replay-strict, never when the LLM is unavailable.
+  The author escape hatch: run_on_page executes an author callable wholly inside the driver worker thread with the genuine sync Page — the stateful actions excluded from generated code (page.route, page.clock, add_init_script, tracing, HAR, CDP) are performed by the author explicitly; Playwright objects never cross back to the calling thread — the callable returns plain data.
 
 ---
 
@@ -116,6 +117,24 @@ Annotations: |
 
       Delegates to the executor execute with the step type assertion; failures propagate by kind — `ProductDefectError`, `IncurableStepError`, `LLMUnavailableError`, `ComplianceVerdictError` (see `taxonomy`).
       A `PrettyplayError` leaving this method carries its traceback folded to the library boundary: internal library frames — engine, healing, provider — do not appear in what the runner shows.
+    "run_on_page(action: Callable[[Page], T]) -> result: T": |
+      Execute the author action wholly inside the driver worker thread against the genuine sync Page of the test — the author escape hatch.
+
+      `action`: the callable to execute; receives the genuine sync Page — the stateful actions excluded from generated code (page.route, page.clock, add_init_script, tracing, HAR, CDP) are the author's explicit tools here.
+      `result`: the outcome of `action` as-is — plain data only.
+
+      Algorithm:
+      1. Resolve the opened test page of this test — a missing page raises a loud actionable `PrettyplayError` telling to run a step first
+      2. Delegate to the run primitive of the page handle: `action` executes wholly inside the driver worker thread, sequentially with every step
+      3. Return the outcome as-is; an exception raised inside `action` propagates to the caller as-is
+
+      Requirements:
+      - Requires an opened test page: calling before the first step raises the loud actionable error
+      - The callable runs sequentially with the steps of the test — the shared worker takes one unit at a time
+
+      Constraints:
+      - Playwright objects (locators, handles, pages, contexts) never cross back to the calling thread through `result` — the callable returns plain data
+      - The prompt rules of generated code do not bind the author
     "get_screenshot() -> image: bytes": |
       Return a full-page PNG image of the current state of the test page — uniform with the facade screenshot.
 
@@ -141,6 +160,7 @@ Annotations: |
   location: executor.py
   annotations: |
     The owner of the step cycle: cache hit — execute; cache miss — generate and store; cached failure — heal. In strict mode the cycle is replay-only: nothing is ever (re)generated.
+    Every execution of step code — cached code and candidates alike — goes through settle with run_step_code: the worker-thread boundary is encapsulated inside run_step_code, the executor never sees it.
 
     `cache_key`: the context key of the owning test object.
     `cache`: the step cache of the test.
@@ -199,7 +219,7 @@ Annotations: |
       - Constructing the runtime never requires LLM credentials: a missing key surfaces as the infrastructure failure on the first generation or classification request
   methods:
     "open_page() -> page: PageFacade": |
-      Open a fresh isolated browser context and return its page facade — one per test.
+      Open a fresh isolated browser context and return its page handle — the internal runtime plumbing handle of the test page; one per test. The run_on_page escape hatch of the facade delegates to its run primitive.
     "close()": |
       Stop the browser, the Playwright driver and the driver thread of this test; safe when nothing was started.
 
@@ -211,4 +231,4 @@ Annotations: |
 Author: Goga
 CreatedAt: 10/09/26
 Description: |
-  The facade of prettyplay: the per-test scenario object with screenshot abilities, the step cycle executor with the strict replay-only path and verdict reporting, the per-test composition root, and the re-exported settings models — PrettyConfig and BrowserConfig.
+  The facade of prettyplay: the per-test scenario object with screenshot abilities and the author escape hatch onto the genuine page, the step cycle executor with the strict replay-only path and verdict reporting, the per-test composition root, and the re-exported settings models — PrettyConfig and BrowserConfig.

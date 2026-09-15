@@ -223,6 +223,7 @@ docs/superpowers/
 
 # examole
 example.py
+example/.prettyplay/
 
 # Agents
 .claude/

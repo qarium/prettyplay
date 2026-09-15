@@ -1,6 +1,7 @@
 """Tests for the StepHealer of the prettyplay.engine cell."""
 
 import inspect
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,10 @@ CHECK_CODE = "def step(page) -> None:\n    page.get_by_text('Welcome back').expe
 
 class FakePage:
     """Fake page facade boundary: snapshot for the classification request."""
+
+    def run(self, action: Callable[[object], object]) -> object:
+        """Minimal page-handle shim: the run primitive executes the action against the fake itself."""
+        return action(self)
 
     def aria_snapshot(self) -> str:
         return "- snapshot"
@@ -133,8 +138,9 @@ class FakeProvider:
         step_text: str = "",
         previous_steps: list[str] | None = None,
         snapshot: str = "",
+        page_url: str | None = None,
         screenshot: bytes | None = None,
-        page_api: str = "",
+        cheat_sheet: str = "",
         existing_code: str | None = None,
         error: str | None = None,
         recommendation: str | None = None,
@@ -148,8 +154,9 @@ class FakeProvider:
                 "step_text": step_text,
                 "previous_steps": previous_steps,
                 "snapshot": snapshot,
+                "page_url": page_url,
                 "screenshot": screenshot,
-                "page_api": page_api,
+                "cheat_sheet": cheat_sheet,
                 "existing_code": existing_code,
                 "error": error,
                 "recommendation": recommendation,
@@ -436,7 +443,7 @@ class TestStepHealerLogic:
         rendered = str(excinfo.value)
         assert isinstance(excinfo.value.verdict, FailureVerdict)
         assert excinfo.value.verdict.recommendation == "file a bug"
-        assert rendered.startswith("expected the total 100, observed 90")
+        assert rendered.startswith("ProductDefectError: expected the total 100, observed 90")
         assert rendered.count("expected the total 100, observed 90") == 2  # message + verdict-render explanation
         assert "recommendation: file a bug" in rendered
         assert fixture.recorder.events == [
@@ -613,6 +620,7 @@ class TestStepHealerLogic:
         assert provider.classify_failure_call_count == 1  # the entry classification only
         retry_request = provider.generate_step_code_calls[1]
         assert retry_request["error"] == "banner missing"  # the fresh failure description of the check
+        assert retry_request["page_url"] is None  # the engine-driven request carries no URL — steering-only
         assert retry_request["recommendation"] == "refresh the cache"  # the entry diagnosis carries on
         assert page.clicks == ["click"]  # the healed candidate actually ran
         assert len(fixture.cache.save_calls) == 1  # only the proven healed code is stored

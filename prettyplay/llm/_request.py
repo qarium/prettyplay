@@ -71,7 +71,8 @@ def build_fields_text(  # noqa: PLR0913, PLR0917 — the parameters mirror the f
     step_text: str,
     previous_steps: list[str],
     snapshot: str,
-    page_api: str,
+    page_url: str | None,
+    cheat_sheet: str,
     existing_code: str | None,
     error: str | None,
     recommendation: str | None,
@@ -84,12 +85,16 @@ def build_fields_text(  # noqa: PLR0913, PLR0917 — the parameters mirror the f
         user_instructions: the project's code style instructions from the
             generation_prompt setting; empty — the request carries no
             instructions block, non-empty — rendered verbatim as a separate
-            USER INSTRUCTIONS block after the page API block.
+            USER INSTRUCTIONS block after the CHEAT SHEET block.
         step_text: the sentence of the step to generate.
         previous_steps: the sentences of the previous steps of the test, in
             execution order — scenario context.
         snapshot: the accessibility snapshot of the current page.
-        page_api: the exact page facade surface listing.
+        page_url: the current URL of the page; non-empty — rendered as its
+            own PAGE URL line immediately after the PAGE SNAPSHOT section;
+            None or empty — no line.
+        cheat_sheet: the compact standard Playwright sync API reference
+            supplied by the calling engine — guidance, not an allowlist.
         existing_code: the existing step code that failed; non-empty only on
             regeneration requests.
         error: the failure description of the existing code; non-empty only on
@@ -100,23 +105,28 @@ def build_fields_text(  # noqa: PLR0913, PLR0917 — the parameters mirror the f
         guidance: the engineer guidance message of the interactive steering;
             non-empty — rendered as a separate USER GUIDANCE block, None — no
             block.
-        guidance_history: the accumulated steering turns — each a rendered
-            guidance-and-outcome line; non-empty — rendered as a separate
-            HISTORY block after the USER GUIDANCE block with the entries
-            joined by newlines, empty — no block.
+        guidance_history: the accumulated steering turns — each a complete
+            multi-line turn record: the engineer message, the complete
+            generated code, the complete outcome; composed by the calling
+            steering; non-empty — rendered as a separate HISTORY block after
+            the USER GUIDANCE block with the records joined by newlines,
+            every record verbatim, no collapsing, no size limits; empty — no
+            block.
 
     Returns:
         The request fields as one text with STEP / PREVIOUS STEPS /
-        PAGE SNAPSHOT / PAGE API sections, the optional USER INSTRUCTIONS
-        section and, on regeneration and steering requests, CODE / ERROR /
-        RECOMMENDATION / USER GUIDANCE / HISTORY sections — a non-empty input
-        renders its named block.
+        PAGE SNAPSHOT sections, the optional PAGE URL line, the CHEAT SHEET
+        section, the optional USER INSTRUCTIONS section and, on regeneration
+        and steering requests, CODE / ERROR / RECOMMENDATION /
+        USER GUIDANCE / HISTORY sections — a non-empty input renders its
+        named block.
     """
     sections = [
         f"STEP:\n{step_text}",
         _format_previous_steps(previous_steps),
         f"PAGE SNAPSHOT:\n{snapshot}",
-        f"PAGE API:\n{page_api}",
+        *([f"PAGE URL: {page_url}"] if page_url else []),
+        f"CHEAT SHEET:\n{cheat_sheet}",
     ]
 
     if user_instructions:

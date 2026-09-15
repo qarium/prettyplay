@@ -35,4 +35,8 @@ The classification verdict decides the path — the uniform decision table:
 
 ## Verdicts
 
-Every terminal failure carries its verdict in full and the full underlying error in the error field: the exception message is the structured render — the primary reason, the `---` separated step/error block, the column-aligned verdict block; the same text reaches on_step_verdict (structured fields) and the log record. IncurableStepError also carries the failed step code in the code field — a programmatic field, never rendered.
+Every terminal failure carries its verdict in full and the full underlying error in the error field: the exception
+message is the structured render — the first line carries the class name of the terminal failure and the authored
+reason, then the `---` separated step/error section, the conditional received/cause/Call log details section and the
+unpadded verdict block; the same text reaches on_step_verdict (structured fields) and the log record. IncurableStepError
+also carries the failed step code in the code field — a programmatic field, never rendered.

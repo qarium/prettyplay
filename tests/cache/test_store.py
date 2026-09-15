@@ -67,6 +67,16 @@ def make_cache(tmp_path: Path, path: str | None = "checkout") -> tuple[StepCache
 
 STEP_CODE = "def step(page) -> None:\n    page.goto('https://x')\n"
 
+#: The generated shape since the import-policy change: imports live at the top
+#: level before ``def step`` — the round-trip must keep them, a replay needs them.
+IMPORTING_STEP_CODE = (
+    "from playwright.sync_api import expect\n"
+    "\n"
+    "\n"
+    "def step(page) -> None:\n"
+    "    expect(page.locator('form')).to_have_count(2)\n"
+)
+
 
 class TestStepCacheLogic:
     """Logic tests: roundtrip via the file, protective load, loud skips."""
@@ -76,9 +86,10 @@ class TestStepCacheLogic:
         identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="открыть страницу логина")
 
         with caplog.at_level(logging.INFO, logger="prettyplay"):
-            cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
+            stored = cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
         loaded = cache.load(identity)
 
+        assert stored is True  # the atomic replace landed
         assert loaded is not None
         assert loaded.identity == identity
         assert loaded.code.startswith("def step(")
@@ -101,6 +112,44 @@ class TestStepCacheLogic:
         saved_record = next(record for record in info_records if record.msg == "on_cache_saved")
         assert saved_record.ctx_filename == identity.filename  # type: ignore[attr-defined]
 
+    def test_roundtrip_keeps_top_level_imports(self, tmp_path: Path) -> None:
+        """Regression: the code tail boundary is the sentinel line, not `def step(` —
+        top-level imports written before the function survive the round-trip, so a
+        replayed cached step does not die on `NameError: name 'expect' is not defined`."""
+        cache, _ = make_cache(tmp_path)
+        identity = StepIdentity(cache_key="videos", step_type="assertion", normalized_text="видео больше одного")
+
+        cache.save(CachedStep(identity=identity, code=IMPORTING_STEP_CODE, created_at="2026-09-14"))
+        loaded = cache.load(identity)
+
+        assert loaded is not None
+        assert loaded.code.startswith("from playwright.sync_api import expect")
+        assert "def step(page) -> None:" in loaded.code
+
+    def test_legacy_file_without_sentinel_still_loads(self, tmp_path: Path) -> None:
+        """Files written before the sentinel carry the code starting at `def step(`
+        (the old prompt forbade top-level imports) — they keep loading as before."""
+        cache, _ = make_cache(tmp_path)
+        identity = StepIdentity(cache_key="k", step_type="action", normalized_text="старый файл")
+        target_dir = tmp_path / "checkout"
+        target_dir.mkdir(parents=True)
+        (target_dir / identity.filename).write_text(
+            "STEP_TEXT = 'старый файл'\n"
+            "CACHE_KEY = 'k'\n"
+            "STEP_TYPE = 'action'\n"
+            "CREATED_AT = '2026-01-01'\n"
+            "\n"
+            "def step(page) -> None:\n"
+            "    page.goto('https://legacy')\n",
+            encoding="utf-8",
+        )
+
+        loaded = cache.load(identity)
+
+        assert loaded is not None
+        assert loaded.created_at == "2026-01-01"
+        assert loaded.code.startswith("def step(")
+
     @pytest.mark.skipif(os.geteuid() == 0, reason="root игнорирует режимы файлов")
     def test_save_readonly_cache_skips_loudly(self, tmp_path: Path) -> None:
         root = tmp_path / "readonly"
@@ -113,8 +162,9 @@ class TestStepCacheLogic:
             cache = StepCache(Config(cache_root=str(root)), "checkout", reporter)
             identity = StepIdentity(cache_key="k", step_type="action", normalized_text="шаг")
 
-            cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
+            stored = cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
 
+            assert stored is False  # the skipped write reports itself
             assert not (root / "checkout").exists()  # no file created
             skipped_events = [call for call in recorder.calls if call[0] == "on_cache_skipped"]
             assert skipped_events == [("on_cache_skipped", {"step_text": "шаг", "reason": "read-only cache"})]

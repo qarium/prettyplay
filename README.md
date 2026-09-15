@@ -75,6 +75,21 @@ png = t.get_screenshot()                  # full-page PNG bytes
 t.save_screenshot("artifacts/home.png")   # write full-page PNG to a file
 ```
 
+Stateful page actions excluded from generated code — `page.route`,
+`page.clock`, `add_init_script`, tracing, HAR, CDP — are the author's
+explicit tools through the escape hatch, which runs inside the driver
+worker thread against the genuine page (a step must have run first):
+
+```python
+t.run_on_page(lambda page: page.route("**/api/config", lambda r: r.fulfill(json={"mode": "demo"})))
+title = t.run_on_page(lambda page: page.title())
+```
+
+The action must use the page API only: calling back into the test object
+(`t.step`, screenshots, a nested `t.run_on_page`) marshals into the same
+worker thread the action runs on — the worker rejects the re-entrant
+crossing with a loud error instead of a deadlock.
+
 ## What happens on a step
 
 - **cache hit** — the cached code runs; no LLM is contacted
@@ -116,32 +131,37 @@ locally, run strict in the pipeline.
 `polling_timeout` (default `None` — off; `0` — explicit disable) opens one
 settle window per step execution, measured from the first execution of the
 step's code: a transient failure of a pollable kind — timeouts, element-state
-races, navigation races, failed expectations — re-executes the same code after
-`polling_delay` (default 0.5 s) until success or window end. Attempts appear
-as `settle_retry` log records; no LLM budget is consumed. Locator ambiguity
-and Python-level errors of the step code never poll. Size the window above
-the longest facade wait it must absorb (6.0 covers one exhausted 5 s
-expectation plus one re-execution).
+races, navigation races, failed checks (a failed `expect(...)` chain or a
+plain assert on an immediate read, like `assert videos.count() > 1`) —
+re-executes the same code after `polling_delay` (default 0.5 s) until
+success or window end. Attempts appear as `settle_retry` log records; no LLM
+budget is consumed. Locator ambiguity and Python-level errors of the step
+code (syntax, names, types) never poll. Size the window above the longest
+auto-wait it must absorb (6.0 covers one exhausted 5 s expectation plus one
+re-execution).
 
 ## Interactive steering
 
 `interactive = true` (default `false`) arms the steering REPL for local
 generation sessions: when a step terminally fails with
-`IncurableStepError`, a terminal dialog opens — step, failed code, error,
-verdict, snapshot fragment, screenshot path — and every engineer message
-drives one regeneration executed against the live page. Local commands
-serve the context without an LLM request: `snapshot` (the full
-accessibility snapshot), `screenshot` (a full PNG written to a temporary
-file, path printed), `error` and `code` (the stored texts) and `quit`. A
-green turn heals the step and writes it back to the cache — only after the
-instruction compliance gate passes (a `high` finding never reaches the cache:
-the violation joins the history and the prompt reopens); a red turn is
-one bare execution — the settle window never re-arms inside the dialog —
-and its outcome joins the history of the next request; quit, EOF, SIGINT
-or an unreadable stdin raises the original terminal failure. The dialog
-never opens on `product_defect`, in strict mode, or when the provider is
-down, and consumes no budgets. Dialog openings, guidance lines and
-declines log at info level as `steering_opened`, `steering_guidance` and
+`IncurableStepError`, a terminal dialog opens — step, failed code, the
+terminal error render, the current page URL, screenshot path, commands —
+and every engineer message drives one regeneration whose complete code is
+shown for approval with `run? [y/N]` before it executes against the live
+page: nothing runs unseen, and a rejected turn enters the history instead
+of the page. Local commands serve the context without an LLM request:
+`snapshot` (the full accessibility snapshot), `screenshot` (a full PNG
+written to a temporary file, path printed), `error` and `code` (the stored
+texts) and `quit`. A green turn heals the step and writes it back to the
+cache — only after the instruction compliance gate passes (a `high`
+finding never reaches the cache: the violation joins the history and the
+prompt reopens); every completed turn — executed, red or rejected —
+appends its full record (message, complete code, complete outcome) to the
+history of every later request; quit, EOF, SIGINT or an unreadable stdin
+raises the original terminal failure. The dialog never opens on
+`product_defect`, in strict mode, or when the provider is down, and
+consumes no budgets. Dialog openings, guidance lines and declines log at
+info level as `steering_opened`, `steering_guidance` and
 `steering_declined`. Keep it off in CI — an accidentally opened dialog
 would hang the run. This is the steering dialog of a stuck step, not an
 interactive host mode (IPython and Jupyter keep working as before).
@@ -189,7 +209,7 @@ name = "chromium"                # chromium | firefox | webkit | chrome | msedge
 screen = ""                      # "" | WxH | fullscreen | Playwright device name
 headless = true                  # false -> run with a visible browser window
 endpoint = ""                    # ws:// endpoint of a remote browser; empty -> local launch
-accept_dialogs = false           # true -> automatically accept dialogs outside step-captured expect_dialog blocks
+accept_dialogs = false           # true -> accept (else dismiss) dialogs no in-step capture claims
 ```
 
 The old flat keys `browser`, `headless` and `browser_endpoint` at the
@@ -269,14 +289,17 @@ and are read lazily on the first request.
 
 ### Dialogs
 
-`accept_dialogs` of the browser group controls the automatic dialog handling
-of the driver:
+`accept_dialogs` of the browser group controls how the resolver of last
+resort settles unclaimed dialogs:
 
-- `true` — every dialog that no step-captured `expect_dialog` block claims is
-  accepted automatically
+- `true` — every dialog that no in-step stock dialog capture claims is
+  accepted
 - `false` (default) — unclaimed dialogs are dismissed (the Playwright
-  default; nothing blocks)
-- a dialog captured by a step's `expect_dialog` block is accepted or dismissed
+  default outcome)
+- the resolution runs at the tail of the driver-thread run unit, not at
+  the moment the dialog fires: a dialog unclaimed by the step blocks the
+  page until the unit ends, which can fail the remainder of the step
+- a dialog claimed by a step's in-step stock capture is accepted or dismissed
   by the step itself — the setting does not apply to captured dialogs
 
 ## Failure taxonomy
@@ -292,10 +315,13 @@ Every library failure derives from `PrettyplayError`:
 | ConfigurationError | invalid `[tool.prettyplay]` settings | fix the named setting — the message lists received and allowed values |
 
 `ProductDefectError` and `IncurableStepError` render one structured terminal
-message — the reason line, a `---` separated `step:`/`error:` block (the
-`error:` line carries the full underlying error text), and a `---` separated
-verdict block with column-aligned `explanation:` and `recommendation:` lines
-(the `category` travels in the structured fields, never in the render). The
+message — the first line `ClassName: reason`, a `---` separated
+`step:`/`error:` block (the `error:` line carries the decomposed headline
+of the underlying error), a conditional `---` separated details section
+(`received:`, `cause:`, `Call log:` — present only when the underlying
+error carries them), and a `---` separated verdict block with
+`explanation:` and `recommendation:` labels at column zero (the `category`
+travels in the structured fields, never in the render). The
 same single text feeds the exception message, the log record and the
 `on_step_failed` hook payload — consumers never re-compose it. The verdict
 fields also arrive through the `on_step_verdict` hook. `IncurableStepError`
@@ -348,7 +374,11 @@ recommendation of a verdict-less `IncurableStepError`).
 
 The cache lives under `.prettyplay/cache/` as plain Python files — one per
 step, carrying its metadata (step sentence, cache key, step type, creation
-date) and the step code.
+date) and the step code. The code targets the standard Playwright sync API,
+so cached steps keep replaying across library upgrades — the one recorded
+break is the switch to the genuine page: caches written against the retired
+page facade call methods that no longer exist and fail at replay; purge the
+cache directory once and regenerate when upgrading across that change.
 
 Generate locally where the LLM is reachable → commit the cache directory →
 CI runs the whole suite from the cache with no LLM keys at all — `strict = true`

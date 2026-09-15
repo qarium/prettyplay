@@ -14,7 +14,13 @@ from .models import CachedStep, StepIdentity
 #: Header constants of a cache file: metadata first, then the step code.
 _HEADER_FIELDS = ("STEP_TEXT", "CACHE_KEY", "STEP_TYPE", "CREATED_AT")
 
-#: Marker of the step code tail; the leading newline stays out of the loaded code.
+#: Line marking the start of the step code tail; the surrounding newlines keep
+#: the match out of the header (repr escapes newlines, so a raw newline inside
+#: the header literals is impossible) and out of the loaded code.
+_CODE_SENTINEL = "\n# --- step code ---\n"
+
+#: Legacy marker of the step code tail: files written before the sentinel carry
+#: the code starting at ``def step(`` (the old prompt forbade top-level imports).
 _STEP_MARKER = "\ndef step("
 
 #: Replace attempts and backoff for a busy target (Windows keeps the file open).
@@ -101,10 +107,14 @@ class StepCache:
             text = target.read_text(encoding="utf-8")
             fields = _parse_header(text)
 
-            marker = text.find(_STEP_MARKER)
-            if marker == -1:
-                raise KeyError("def step(")
-            code = text[marker + 1 :]
+            sentinel = text.find(_CODE_SENTINEL)
+            if sentinel != -1:
+                code = text[sentinel + len(_CODE_SENTINEL) :]
+            else:
+                marker = text.find(_STEP_MARKER)  # a file written before the sentinel
+                if marker == -1:
+                    raise KeyError("def step(")
+                code = text[marker + 1 :]
 
             if fields["CACHE_KEY"] != identity.cache_key or fields["STEP_TYPE"] != identity.step_type:
                 return None
@@ -115,22 +125,28 @@ class StepCache:
         except (ValueError, SyntaxError, KeyError, IndexError, OSError):
             return None  # cache corruption never cripples the run
 
-    def save(self, step: CachedStep) -> None:
+    def save(self, step: CachedStep) -> bool:
         """Store the step atomically, best-effort: no write error ever fails the run.
 
         Args:
             step: the working step to store.
+
+        Returns:
+            Whether the step was stored: ``True`` — the atomic replace
+            landed; ``False`` — the write was skipped (a read-only cache or
+            a busy target; the ``on_cache_skipped`` event carries the
+            reason).
         """
         if not self.writable:
             self._emit_skipped(step, "read-only cache")
-            return
+            return False
 
         body = _serialize(step)
         try:
             handle, tmp_name = tempfile.mkstemp(dir=self._target_dir(), prefix=".tmp-", suffix=".py")
         except OSError:
             self._emit_skipped(step, "cache target busy")
-            return
+            return False
 
         try:
             with os.fdopen(handle, "w", encoding="utf-8") as tmp_file:
@@ -140,7 +156,7 @@ class StepCache:
         except (OSError, ValueError):  # ValueError: unencodable text (e.g. surrogates)
             _remove_quietly(tmp_name)
             self._emit_skipped(step, "cache target busy")
-            return
+            return False
 
         for _ in range(_REPLACE_ATTEMPTS):
             try:
@@ -151,16 +167,17 @@ class StepCache:
             except (OSError, ValueError):  # ValueError: unencodable address (e.g. surrogates)
                 _remove_quietly(tmp_name)
                 self._emit_skipped(step, "cache target busy")
-                return
+                return False
         else:
             _remove_quietly(tmp_name)
             self._emit_skipped(step, "cache target busy")
-            return
+            return False
 
         self._reporter.emit(
             "on_cache_saved",
             {"step_text": step.identity.normalized_text, "filename": step.identity.filename},
         )
+        return True
 
     def _target_dir(self) -> Path:
         """Return the directory holding the steps of this address."""
@@ -234,13 +251,15 @@ def _parse_header(text: str) -> dict[str, str]:
 
 
 def _serialize(step: CachedStep) -> str:
-    """Serialize a step into the module text: metadata literals first, then the code.
+    """Serialize a step into the module text: metadata literals, the sentinel line, the code.
 
     Args:
         step: the step to serialize.
 
     Returns:
-        The text of a valid Python module carrying the step.
+        The text of a valid Python module carrying the step: the sentinel
+        line marks where the code tail starts, so ``load`` restores the code
+        verbatim — top-level imports included.
     """
     header = "".join(
         f"{name} = {value!r}\n"
@@ -251,7 +270,7 @@ def _serialize(step: CachedStep) -> str:
             ("CREATED_AT", step.created_at),
         )
     )
-    return header + "\n" + step.code + "\n"
+    return header + _CODE_SENTINEL + step.code + "\n"
 
 
 def _remove_quietly(path: str) -> None:

@@ -1,15 +1,20 @@
 """Integration tests of the full step cycle through the public ``PrettyPlay`` facade."""
 
+import asyncio
+import builtins
 import contextlib
 import logging
 import os
+import tempfile
 import traceback
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from unittest import mock
 
+import greenlet
 import prettyplay
 import pytest
+from playwright.sync_api import Locator
 from prettyplay import BrowserConfig, PrettyPlay
 from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step_text
 from prettyplay.config import Config, load_config
@@ -22,7 +27,7 @@ WORKING_CODE = "def step(page) -> None:\n    page.goto('https://app.example.com'
 
 
 class FakeLocator:
-    """Fake element boundary recording facade calls into the log of the owning page."""
+    """Fake locator boundary recording element calls into the log of the owning page."""
 
     def __init__(self, calls: list[tuple[str, ...]]) -> None:
         self._calls = calls
@@ -47,7 +52,13 @@ class FakeLocator:
 
 
 class FakePage:
-    """Fake page boundary recording facade calls; broken lookups simulate a rotted UI."""
+    """Fake page handle in the hand-built shape: ``run``/``aria_snapshot``/``screenshot``.
+
+    The fake doubles as the handle and the raw page it hands out — the run
+    primitive executes the action against the fake itself, so the step code
+    drives the locator-factory surface directly. Records calls; broken
+    lookups simulate a rotted UI.
+    """
 
     def __init__(self, broken_lookups: frozenset[str] | None = None) -> None:
         self.calls: list[tuple[str, ...]] = []
@@ -65,6 +76,10 @@ class FakePage:
 
     def get_by_text(self, text: str) -> FakeLocator:
         return self._lookup("get_by_text", (text,))
+
+    def run(self, action: Callable[[object], object]) -> object:
+        """The run primitive: executes the action against the fake itself, as a hand-built handle does."""
+        return action(self)
 
     def aria_snapshot(self) -> str:
         return "- button 'Войти'"
@@ -112,8 +127,9 @@ class StubProvider(LLMProvider):
         step_text: str = "",
         previous_steps: list[str] | None = None,
         snapshot: str = "",
+        page_url: str | None = None,
         screenshot: bytes | None = None,
-        page_api: str = "",
+        cheat_sheet: str = "",
         existing_code: str | None = None,
         error: str | None = None,
         recommendation: str | None = None,
@@ -127,8 +143,9 @@ class StubProvider(LLMProvider):
                 "step_text": step_text,
                 "previous_steps": list(previous_steps),  # copy: the scenario context lives on
                 "snapshot": snapshot,
+                "page_url": page_url,
                 "screenshot": screenshot,
-                "page_api": page_api,
+                "cheat_sheet": cheat_sheet,
                 "existing_code": existing_code,
                 "error": error,
                 "recommendation": recommendation,
@@ -194,8 +211,9 @@ class ForbiddenProvider(LLMProvider):
         step_text: str = "",
         previous_steps: list[str] | None = None,
         snapshot: str = "",
+        page_url: str | None = None,
         screenshot: bytes | None = None,
-        page_api: str = "",
+        cheat_sheet: str = "",
         existing_code: str | None = None,
         error: str | None = None,
         recommendation: str | None = None,
@@ -798,6 +816,57 @@ def test_nonstrict_unhealable_failure_carries_full_error_text(tmp_path: Path) ->
     assert f"error: RuntimeError: {long_error}" in failed["error"]  # the full error line of the template
 
 
+def test_interactive_steering_heals_a_stuck_step_end_to_end(tmp_path: Path, monkeypatch, capsys) -> None:
+    """The interactive loop through the public facade: dialog, strict approval gate, heal, write-back, pass."""
+    failing_code = "def step(page) -> None:\n    raise RuntimeError('element not found')\n"
+    seed_step(tmp_path, "нажать Войти", failing_code, cache_key="login-flow")
+    provider = StubProvider(
+        answers=[WORKING_CODE],
+        verdict=FailureClassification(
+            category="incurable", explanation="шаг не соответствует реальности", recommendation="переформулируйте шаг"
+        ),
+    )
+    page = FakePage()
+    hook = RecorderHook()
+    answers = iter(["кнопка переехала в модалку", "y"])
+
+    def scripted_input(prompt: str = "") -> str:
+        print(prompt, end="")  # the real input echoes its prompt — captured stdout keeps the dialog shape
+        return next(answers)
+
+    monkeypatch.setattr(builtins, "input", scripted_input)
+    existing_pngs = set(Path(tempfile.gettempdir()).glob("prettyplay-steering-*.png"))
+
+    with configured_test(Config(cache_root=str(tmp_path), interactive=True), provider, page) as test:
+        test.add_hooks(hook)
+        test.step("нажать Войти")  # the incurable verdict opens the dialog instead of failing the step
+        test.close()
+
+    for png in set(Path(tempfile.gettempdir()).glob("prettyplay-steering-*.png")) - existing_pngs:
+        png.unlink(missing_ok=True)  # the dialog's one temporary screenshot never outlives the test
+
+    assert ("goto", "https://app.example.com") in page.calls  # the approved turn executed against the page
+    events = [event for event, _payload in hook.events]
+    assert "on_step_failed" not in events  # the heal never let the terminal failure surface
+    assert "on_healed" in events
+    assert "on_cache_saved" in events
+    assert events[-1] == "on_step_finished"
+    assert hook.events[-1][1]["outcome"] == "passed"
+
+    request = provider.generation_requests[0]  # the one guided regeneration request of the dialog
+    assert request["guidance"] == "кнопка переехала в модалку"
+    assert request["page_url"] == "https://app.example.com"  # the fresh URL rode the guided request
+    assert request["existing_code"].rstrip("\n") == failing_code.rstrip("\n")  # CODE anchored to the original failure
+    assert "element not found" in request["error"]
+    assert provider.compliance_requests == []  # the gate is off without configured instructions
+
+    out = capsys.readouterr().out
+    assert "run? [y/N]" in out  # the approval gate asked before anything executed
+    assert "IncurableStepError" in out  # the banner showed the terminal render
+    assert "https://app.example.com" in out  # and the page URL
+    assert "healed step written to the cache" in out
+
+
 def test_classification_instructions_reach_only_classification_requests(tmp_path: Path) -> None:
     """The configured prompts reach their own request kinds only — generation and classification stay separate."""
     provider = StubProvider(
@@ -1024,3 +1093,130 @@ def test_incurable_failure_shape_end_to_end(tmp_path: Path) -> None:
     ]
     assert hook.events[-1][1] == {"step_text": step_text, "step_type": "assertion", "outcome": "failed"}
     assert hook.events[2][1]["error"] == str(excinfo.value)  # the render — never re-composed
+
+
+COUNT_FORMS_CODE = (
+    "from playwright.sync_api import expect\n"
+    "\n"
+    "\n"
+    "def step(page):\n"
+    '    videos = page.get_by_role("listitem")\n'
+    "    expect(videos.first).to_be_visible()\n"
+    "    assert videos.count() > 1\n"
+)
+
+
+class VideosLocatorImpl:
+    """Impl-side stand-in of the videos locator: the real expect machinery sees a matched check."""
+
+    def __init__(self, loop: asyncio.AbstractEventLoop, fiber: greenlet.greenlet) -> None:
+        self._loop = loop
+        self._dispatcher_fiber = fiber
+
+    async def _expect(
+        self, expression: str, expect_options: dict[str, object], title: str | None = None
+    ) -> dict[str, object]:
+        return {"matches": True, "received": {}}
+
+
+class VideosLocator(Locator):
+    """Fake sync locator of the videos list: ``first`` is visible, ``count()`` is the list length."""
+
+    def __init__(self, loop: asyncio.AbstractEventLoop, fiber: greenlet.greenlet, count: int) -> None:
+        super().__init__(VideosLocatorImpl(loop, fiber))
+        self._count = count
+
+    @property
+    def first(self) -> "VideosLocator":
+        return VideosLocator(self._loop, self._dispatcher_fiber, self._count)
+
+    def count(self) -> int:
+        return self._count
+
+
+class VideosRawPage:
+    """Fake raw sync page: the role lookup of the videos list answers the standard API."""
+
+    def __init__(self, loop: asyncio.AbstractEventLoop, fiber: greenlet.greenlet, video_count: int) -> None:
+        self.calls: list[tuple[str, ...]] = []
+        self._loop = loop
+        self._fiber = fiber
+        self._video_count = video_count
+
+    def get_by_role(self, role: str, name: str | None = None) -> VideosLocator:
+        self.calls.append(("get_by_role", role))
+        return VideosLocator(self._loop, self._fiber, self._video_count)
+
+
+class RecordingHandle:
+    """Fake page handle: the run unit executes the action against the raw page and is counted."""
+
+    def __init__(self, raw: VideosRawPage) -> None:
+        self._raw = raw
+        self.run_units = 0
+        self.close_count = 0
+
+    def run(self, action: Callable[[object], object]) -> object:
+        """The run primitive: the action receives the raw page, the outcome returns as-is."""
+        self.run_units += 1
+        return action(self._raw)
+
+    def aria_snapshot(self) -> str:
+        return "- listitem 'first video'"
+
+    def screenshot(self) -> bytes:
+        return b"png"
+
+    def close(self) -> None:
+        self.close_count += 1
+
+
+def test_count_forms_step_runs_green_through_the_full_cycle(tmp_path: Path) -> None:
+    """The motivating step — count forms through the standard Playwright sync API — runs green end to end.
+
+    The exact step that used to die on the facade as a non-pollable
+    ``AttributeError`` (``count`` was no mirror member) passes the whole
+    cycle: cache miss → generation carrying the cheat sheet → settle →
+    ``run_step_code`` → the handle run unit against the raw page → cache
+    write.
+    """
+    loop = asyncio.new_event_loop()
+
+    def dispatch() -> None:
+        while True:  # the parked dispatcher: the loop runs from inside its greenlet, as the driver does
+            loop.run_forever()
+            asyncio._set_running_loop(None)
+            greenlet.getcurrent().parent.switch()
+
+    fiber = greenlet.greenlet(dispatch)
+    raw = VideosRawPage(loop, fiber, video_count=3)
+    handle = RecordingHandle(raw)
+    provider = StubProvider(answers=[COUNT_FORMS_CODE])
+    step_text = "the page shows a list of videos"
+
+    try:
+        with installed_test(tmp_path, provider, handle, "videos") as test:
+            test.expect(step_text)
+            test.close()
+    finally:
+        # orderly teardown: the parked dispatcher stops the loop from inside itself (the sync
+        # expect machinery adopted the loop into the thread — dispatch gives the thread back)
+        # and parks clean at its loop top, so a later collection of the greenlet never re-enters
+        # run_forever; the closed loop disposes with no parked select to block the interpreter
+        loop.call_soon(loop.stop)
+        fiber.switch()
+        loop.close()
+
+    assert raw.calls == [("get_by_role", "listitem")]  # the standard-API role lookup ran on the raw page
+    assert handle.run_units == 1  # one run unit: the green candidate executed exactly once
+    assert handle.close_count == 1
+    assert provider.generation_requests[0]["cheat_sheet"]  # the request carried the cheat-sheet reference
+    identity = StepIdentity(cache_key="videos", step_type="assertion", normalized_text=normalize_step_text(step_text))
+    cached = (tmp_path / identity.filename).read_text(encoding="utf-8")
+    assert "expect(videos.first).to_be_visible()" in cached
+    assert "videos.count() > 1" in cached
+    # the write loads back verbatim — a replayed run receives the import line too,
+    # not a code tail amputated at `def step(`
+    loaded = StepCache(Config(cache_root=str(tmp_path)), None, StepReporter(hooks=[])).load(identity)
+    assert loaded is not None
+    assert loaded.code.startswith("from playwright.sync_api import expect")

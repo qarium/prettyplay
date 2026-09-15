@@ -19,11 +19,11 @@ if step is None:
 
 ## File format
 
-Each file carries the metadata fields (step sentence, cache key, step type, creation date) followed by the generated step code of the fixed form. Files carry no library version and are never invalidated by a library upgrade.
+Each file carries the metadata fields (step sentence, cache key, step type, creation date), then the `# --- step code ---` sentinel line, then the generated step code — top-level imports when present, then the fixed-form `def step` function, restored verbatim on load. Files carry no library version and are never invalidated by a library upgrade.
 
 ## Write behavior
 
-- save never fails the run: a read-only cache or a busy Windows target skips the write loudly
+- save never fails the run: a read-only cache or a busy Windows target skips the write loudly — save returns whether the step was stored (False on a skip; the on_cache_skipped hook carries the reason)
 - writes are atomic: a unique temporary file in the target directory, then an atomic replace; the last writer wins, a partial file never becomes visible
 - load always works, in every environment
 

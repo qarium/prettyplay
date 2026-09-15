@@ -56,7 +56,7 @@ def _matches_pollable(text: str) -> bool:
 def is_pollable_failure(exc: Exception) -> bool:
     """Decide whether a failed step-code exception is transient page state.
 
-    The fixed pollable map of the facade error surface — recognition only.
+    The fixed pollable map of the step-code error surface — recognition only.
     True means the settle window may re-execute the same code; False means
     the failure is deterministic or unknown and goes straight to
     classification.
@@ -65,11 +65,13 @@ def is_pollable_failure(exc: Exception) -> bool:
         exc: the exception raised by the failed step code.
 
     Returns:
-        True when the kind is transient — a failed expectation (an
-        AssertionError that is not the locator-ambiguity violation) or a
-        Playwright driver error of the timeout, element-state or
-        navigation/context family; False for locator ambiguity, Python-level
-        errors of the step code and unrecognized kinds.
+        True when the kind is transient — a failed check (a failed
+        ``expect(...)`` chain or a plain Python assert on an immediate read
+        alike — an AssertionError that is not the locator-ambiguity
+        violation) or a Playwright driver error of the timeout,
+        element-state or navigation/context family; False for locator
+        ambiguity, Python-level errors of the step code and unrecognized
+        kinds.
     """
     text = str(exc)
 

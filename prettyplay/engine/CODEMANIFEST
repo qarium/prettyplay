@@ -13,8 +13,6 @@ Imports:
     From: prettyplay/failures
   - Types:
       - PageFacade
-    Usages:
-      - facade
     From: prettyplay/driver
   - Types:
       - StepCache
@@ -37,6 +35,7 @@ Imports:
 Usages:
   conventions: .goga/usages/conventions.md
   system_prompt: .goga/usages/prompts/generation.md
+  cheat_sheet: .goga/usages/prompts/cheatsheet.md
   classification_prompt: |
     You classify a failure of a web UI test step.
 
@@ -94,24 +93,23 @@ Usages:
 
 Annotations: |
   Use `conventions` for code writing rules and testing.
-  Use `facade` from Imports for the page API the generated code works through.
+  Use `cheat_sheet` from Usages as the single source of the standard Playwright API reference for generation requests — the listing and the practice change together; guidance, never an allowlist — everything standard stays allowed.
   Use `classification` from Imports for the healing decision categories.
   Use `system_prompt` as the system prompt of every code generation request.
   Use `classification_prompt` as the system prompt of every failure classification request.
   Use `compliance_prompt` as the system prompt of every compliance verdict request.
-  Use `facade` from Imports as the single source of the page API surface for generation requests.
 
-  The fixed form of step code: one function receiving exactly one argument — the `PageFacade` of the test; the function body works only through `PageFacade` and the LocatorFacade element API.
+  The fixed form of step code: one function receiving exactly one argument — the genuine sync Page of the test; the function body works through the standard Playwright sync API; imports allowed from playwright.sync_api and the Python standard library only — third-party libraries are forbidden; imports are global only: at the top level of the code block, before def step, never inside the function body — a prompt rule carried by `system_prompt`, no runtime enforcement; the whole step executes inside the driver worker thread through the run primitive of `PageFacade` — the calling thread never touches Playwright.
   Every attempt — generation or healing — consumes the shared per-step budget of the test; exhaustion is the incurable failure, never an infinite loop.
   Healing never masks a product defect: a classified product_defect fails the test loudly; a healed step is reported loudly and written back to the cache.
   Every terminal failure carries a verdict — a `FailureVerdict` of category, explanation, recommendation — fully present in the exception message, the verdict hook event and the log; an unavailable LLM skips the verdict quietly with a WARNING, the failure itself is never delayed or distorted — the quiet skip applies to verdicts enriching an already-decided failure; the classification driving the healing decision surfaces as the infrastructure failure.
   A failed check of a candidate stops the generation-budget retries: a check that executed and did not hold is classified first; a rot or fixable verdict grants exactly one healing-funded regeneration, a repeat failure gets the final terminal-kind classification — the attempt budget is never spent on a legitimately failing assertion beyond it.
-  The page API surface listing sent to the provider mirrors `facade` from Imports exactly — the listing and the practice change together.
+  The cheat-sheet sent to the provider mirrors `cheat_sheet` from Usages exactly — the listing and the practice change together.
   The system prompt sent to the provider is the frozen local mirror of `system_prompt` — the mirror and the practice change together.
   The user instructions of the project settings reach their own requests only: the generation_prompt field of `Config` reaches generation and regeneration requests and the compliance verdict request — there as the checked INSTRUCTIONS block, never as guidance; the classification_prompt field reaches classification requests; neither crosses to the other kind; the instructions take no part in the step address: a cached step never regenerates because the instructions changed.
   The instruction compliance gate runs inside the engines: every successfully executed candidate — generation, healing and steering alike — passes `check_step_compliance` before it is cached; the gate never runs on replayed cached code.
   An unfollowed instruction surfaces as a generation error, never as silent ignoring: a high finding fails the attempt and the retry carries the violation text.
-  The terminal failures raised by the engines carry the full underlying error of the failed code in the error field; reason and message texts are authored without colons — the first line of the rendered message is the primary reason alone.
+  The terminal failures raised by the engines carry the full underlying error of the failed code in the error field; reason and message texts are authored without colons — the first line of the rendered message carries the terminal failure's class name and the authored reason.
   The uniform decision table on every classification point: product_defect raises ProductDefectError — never healed; rot and fixable regenerate carrying the classification recommendation; incurable raises IncurableStepError carrying the verdict. The category decides, the path only delivers.
   Polling runs before every costly move: every execution of step code — cached code and candidates alike — runs under the settle window threaded through the calling paths; per-attempt classification inside the loops is rejected (LLM cost): an attempt failure retries with the fresh error and snapshot while budget remains.
   on_generation_started fires once per LLM attempt regardless of the settle re-executions inside it; the raised IncurableStepError carries the failed step code in the code field.
@@ -134,8 +132,8 @@ Annotations: |
 
       Algorithm:
       1. Ask the budgets registry try_generation for the step identity; a refused attempt is the incurable failure
-      2. Collect the request inputs: the page accessibility snapshot, the step sentence, `previous_steps`, and the page API surface from `facade`; add the page screenshot when the project settings enable screenshots
-      3. Request step code from the provider port generate_step_code passing `system_prompt` as the system prompt, the page API surface listing taken from `facade`, and the user instructions — the effective config generation_prompt — when non-empty
+      2. Collect the request inputs: the page accessibility snapshot, the step sentence, `previous_steps`, and the cheat-sheet from `cheat_sheet`; add the page screenshot when the project settings enable screenshots
+      3. Request step code from the provider port generate_step_code passing `system_prompt` as the system prompt, the cheat-sheet taken from `cheat_sheet`, the user instructions — the effective config generation_prompt — when non-empty, and page_url None — the URL input is steering-only, uniform with guidance None
       4. Execute the candidate under the settle window: `settle` with run_step_code, the candidate code, `page` and `window` — transient failures re-execute inside the window, no LLM budget consumed
       5. On success: gate the candidate through `check_step_compliance`. An empty findings
       list — build `CachedStep`, save it to the cache, return it. A high finding — the
@@ -157,7 +155,7 @@ Annotations: |
       9. Report on_generation_started for every LLM attempt
 
       Requirements:
-      - Every generation request carries the exact page API surface taken from `facade` from Imports: the model always sees the precise list of calls it may use
+      - Every generation request carries the cheat-sheet taken from `cheat_sheet` from Usages: the model always sees the standard-API reference — guidance, never an allowlist
       - Provider unavailability of a generation request surfaces as `LLMUnavailableError` immediately — no retry on it
       - Provider unavailability of a classification is skipped quietly with a WARNING: the failure raises without a verdict — the failed check itself is the primary signal
       - Exactly one failed check drives the bounded healing rule; the attempt budget is never spent on a legitimately failing assertion beyond it
@@ -205,19 +203,22 @@ Annotations: |
 "run_step_code(code: str, page: PageFacade)":
   location: execution.py
   annotations: |
-    Execute step code of the fixed form against the page facade of the test.
+    Execute step code of the fixed form: compile and resolve on the calling thread, run the
+    whole step inside the driver worker thread against the genuine sync Page.
 
     `code`: the step code text.
-    `page`: the page facade of the current test.
+    `page`: the page handle of the current test — the carrier of the worker boundary.
 
     Algorithm:
-    1. Compile and load `code` as a module in an isolated namespace
-    2. Resolve the step function of the fixed form — the single callable receiving the page facade
-    3. Call it with `page`
+    1. Compile and load `code` as a module in an isolated namespace — on the calling thread, Playwright untouched
+    2. Resolve the step function of the fixed form — the single callable receiving the page
+    3. Execute the whole step-function call inside the driver worker thread as one unit through the run primitive of `page` — the step function receives the genuine sync Page and works through the standard Playwright sync API
+    4. An exception raised by the step code propagates to the caller as-is
 
     Requirements:
-    - A failure inside the step code propagates to the caller as-is: the engine classifies it, this routine never swallows or retries
+    - A failure inside the step code reaches the caller untouched: the engine classifies it, this routine never swallows, translates or retries
     - Executing step code loads no LLM provider and touches no network beyond the page itself
+    - The calling thread never touches Playwright: the worker boundary is crossed only by the run primitive
 
     Constraints:
     - Execute only step code produced by generation or loaded from the cache — never arbitrary file content
@@ -308,4 +309,4 @@ Annotations: |
 Author: Goga
 CreatedAt: 10/09/26
 Description: |
-  The agent engine of prettyplay: step code generation with execution in the loop and failed-check classification, the instruction compliance gate before caching, the fixed-form execution routine, the shared classification call carrying the classification user instructions, the error-text policy shared with the executor, and healing with anti-masking and verdicts on terminal failures.
+  The agent engine of prettyplay: step code generation against the standard Playwright API with execution in the loop and failed-check classification, the fixed-form execution routine running the whole step inside the driver worker thread, the instruction compliance gate before caching, the shared classification call carrying the classification user instructions, the error-text policy shared with the executor, and healing with anti-masking and verdicts on terminal failures.

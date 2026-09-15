@@ -50,7 +50,7 @@ Annotations: |
     `screen`: the single size setting; empty — Playwright default; WxH — fixed viewport; fullscreen — maximized window on a local headed launch, fixed 1920x1080 under headless and remote connects; any other value — a Playwright device name applied as the full descriptor (see `pydantic`).
     `headless`: run the browser without a visible window of a local launch; default True.
     `endpoint`: ws endpoint of a remote browser; empty — local launch; default empty.
-    `accept_dialogs`: automatically accept dialogs that no step-captured expect_dialog block claims; False — the Playwright dismiss default stands; default False (neutral — the pre-setting behavior).
+    `accept_dialogs`: how the resolver of last resort settles a dialog no in-step stock dialog capture claims — True accepts it, False dismisses it (the Playwright default outcome); default False; the resolution runs at the tail of the driver-thread unit, not at the moment the dialog fires — a dialog unclaimed by the step blocks the page until the unit ends.
 
     Requirements:
     - kw_only construction; every field has an empty or neutral default
@@ -70,7 +70,7 @@ Annotations: |
     "endpoint -> str": |
       The ws endpoint of a remote browser; empty means the local launch.
     "accept_dialogs -> bool": |
-      Whether dialogs outside a captured expect_dialog block are accepted automatically; False keeps the dismiss default.
+      Whether dialogs outside in-step stock captures are accepted automatically; False keeps the dismiss default.
 
 "Config(provider: str, browser: BrowserConfig, model: str, generation_model: str, classification_model: str, base_url: str, cache_root: str, generation_prompt: str, classification_prompt: str, strict: bool, polling_timeout: float | None, polling_delay: float, interactive: bool, generation_attempts: int, healing_attempts: int, send_screenshots: bool, generation_approve: bool)":
   location: models.py
@@ -87,7 +87,7 @@ Annotations: |
     `generation_prompt`: user instructions for generation requests; non-empty — a separate USER INSTRUCTIONS block in generation and regeneration requests; classification requests never see it; empty — no block; default empty.
     `classification_prompt`: user instructions for classification requests; non-empty — a separate USER INSTRUCTIONS block in classification requests only; generation requests never see it; takes no part in the step address; empty — no block; default empty.
     `strict`: replay-only mode; True — cached code executes honestly and nothing is ever (re)generated: a cache miss fails as incurable, a failed cached step is at most classified; default False.
-    `polling_timeout`: the total settle horizon of one step execution in seconds, measured from the first execution of the step code — the facade's internal waits count inside; None — polling disabled (default); 0 — an explicit disable, equivalent to None; positive — the settle window.
+    `polling_timeout`: the total settle horizon of one step execution in seconds, measured from the first execution of the step code — the auto-waits of the step code count inside; None — polling disabled (default); 0 — an explicit disable, equivalent to None; positive — the settle window.
     `polling_delay`: the pause between re-executions of the same step code in seconds; default 0.5; 0 — re-execute without a pause.
     `interactive`: the opt-in interactive steering switch; True — the terminal REPL opens at a terminally stuck step; default False — an accidentally enabled REPL must never hang CI.
     `generation_attempts`: generation attempt budget per step per test; default 3.

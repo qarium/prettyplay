@@ -49,7 +49,9 @@ class PlaywrightWorker:
     marker until the session stops — which breaks any asyncio-driven host
     (IPython, Jupyter) that executed a step in its own thread. The worker
     keeps the fiber and the marker inside its own background thread instead;
-    calls still happen strictly sequentially through :meth:`run`.
+    calls still happen strictly sequentially through :meth:`run`, which
+    rejects a call made from the pump thread itself — a re-entrant unit could
+    never be served and would deadlock both threads.
 
     Attributes:
         _tasks: the queue feeding the pump thread; ``None`` is the stop sentinel.
@@ -79,10 +81,24 @@ class PlaywrightWorker:
 
         Raises:
             Error: the worker is not running (stopped or never started) — the
-                same message Playwright itself raises on a stopped driver.
+                same message Playwright itself raises on a stopped driver; or
+                the call arrives from the worker's own pump thread — code
+                running inside a driver-thread unit (a ``run_on_page``
+                action, step code) crossed the boundary again, a unit the
+                busy pump could never serve; the loud error replaces the
+                silent deadlock of both threads.
         """
         if self._thread is None:
             raise Error("Event loop is closed! Is Playwright already stopped?")
+
+        if threading.current_thread() is self._thread:
+            raise Error(
+                "re-entrant crossing of the driver thread: code running inside a "
+                "driver-thread unit called back into the worker — an action inside "
+                "run_on_page (or step code) must use the genuine Page directly, "
+                "never the prettyplay test object, whose every call marshals into "
+                "the same worker and could never be served"
+            )
 
         task = _Task(fn)
         self._tasks.put(task)
@@ -154,7 +170,7 @@ class DriverSession:
         self._worker: PlaywrightWorker | None = None
 
     def open_context(self) -> PageFacade:
-        """Open a fresh isolated context with one page wrapped into the facade.
+        """Open a fresh isolated context with one page wrapped into the handle.
 
         The driver and the browser start lazily on the first call exactly once
         per test; each subsequent call only creates a new isolated context.
@@ -167,12 +183,15 @@ class DriverSession:
         context is registered through the context page event: the wiring goes
         up before ``new_page()``, so the open_context page itself and every
         later popup or new tab registers exactly one handler — never two.
-        Registering a ``dialog`` listener disables Playwright's implicit
-        auto-dismiss, so the handler itself resolves every uncaptured dialog
-        by the ``accept_dialogs`` setting of the browser group.
+        The handler is record-only; registering a ``dialog`` listener disables
+        Playwright's implicit auto-dismiss, so the routing handler subsystem
+        resolves every unclaimed dialog at the tail of every driver-thread
+        unit of the page handle — accept by the ``accept_dialogs`` setting of
+        the browser group, else an explicit dismiss (the same observable
+        default).
 
         Returns:
-            The facade of the new page of a fresh isolated context.
+            The page handle of a fresh isolated context.
 
         Raises:
             Error: the ``screen`` value names a device absent from the
@@ -189,15 +208,15 @@ class DriverSession:
             context: BrowserContext = browser.new_context(**params)
             router = _DialogRouter(self._config.browser.accept_dialogs)
             # registered before new_page: the first page fires the event and registers once
-            context.on("page", lambda opened: opened.on("dialog", router.handle_for(opened)))
+            context.on("page", lambda opened: opened.on("dialog", router.record))
             page = context.new_page()
             return page, context, router
 
         page, context, router = worker.run(open_isolated)
 
         facade = PageFacade(page, context)
-        facade._worker = worker  # facade calls go to the driver thread
-        facade._router = router  # the captures of every page claim through the shared router
+        facade._worker = worker  # handle calls marshal into the driver thread
+        facade._router = router  # the shared router records every dialog of every page of the context
         return facade
 
     def _screen_context_params(self) -> dict[str, object]:

@@ -1,7 +1,7 @@
 from prettyplay import PrettyPlay
 
 
-def test_example(play: PrettyPlay):
+def test_yandex_search(play: PrettyPlay):
     play.step('Open https://ya.ru')
     play.step('Find results for "автоматизация UI тестирования"')
 

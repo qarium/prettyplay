@@ -85,15 +85,16 @@ class OpenAIProvider(LLMProvider):
         step_text: str,
         previous_steps: list[str],
         snapshot: str,
+        page_url: str | None,
         screenshot: bytes | None,
-        page_api: str,
+        cheat_sheet: str,
         existing_code: str | None,
         error: str | None,
         recommendation: str | None,
         guidance: str | None,
         guidance_history: list[str],
     ) -> str:
-        """Generate step code of the fixed form working only through the driver facade.
+        """Generate step code of the fixed form working through the standard Playwright sync API.
 
         Args:
             prompt: the system prompt text supplied by the calling engine;
@@ -107,10 +108,18 @@ class OpenAIProvider(LLMProvider):
             previous_steps: the sentences of the previous steps of the test,
                 in execution order — scenario context.
             snapshot: the accessibility snapshot of the current page.
+            page_url: the current URL of the page; non-empty — rendered as
+                its own PAGE URL line immediately after the PAGE SNAPSHOT
+                block of the user content, identically to the anthropic
+                implementation; None — no line; supplied by the interactive
+                steering only.
             screenshot: an optional PNG image of the page; passed only when
                 the project enables screenshots.
-            page_api: the exact page facade surface listing — the calls the
-                model may use.
+            cheat_sheet: the compact standard Playwright sync API reference
+                supplied by the calling engine — rendered as the CHEAT SHEET
+                block after the scenario inputs of the user content,
+                identically to the anthropic implementation; guidance, not
+                an allowlist — everything standard stays allowed.
             existing_code: the existing step code that failed; non-empty only
                 on regeneration requests.
             error: the failure description of the existing code; non-empty
@@ -122,28 +131,35 @@ class OpenAIProvider(LLMProvider):
             guidance: the engineer guidance message of the interactive
                 steering; non-empty — rendered as a separate USER GUIDANCE
                 block, None — no block.
-            guidance_history: the accumulated steering turns — each a rendered
-                guidance-and-outcome line; non-empty — rendered as a separate
-                HISTORY block after the USER GUIDANCE block, empty — no block.
+            guidance_history: the accumulated steering turns — each a
+                complete multi-line turn record: the engineer message, the
+                complete generated code, the complete outcome; composed by
+                the calling steering; non-empty — rendered as a separate
+                HISTORY block after the USER GUIDANCE block, every record
+                verbatim, no collapsing, no size limits; empty — no block.
 
         Returns:
-            The generated step code of the fixed form.
+            The generated step code of the fixed form, working through the
+            standard Playwright sync API — imports from playwright.sync_api
+            and the Python standard library only, global at the top level of
+            the code block.
 
         Raises:
             LLMUnavailableError: the SDK client is unavailable or the
                 service request failed.
         """
         text = build_fields_text(
-            user_instructions,
-            step_text,
-            previous_steps,
-            snapshot,
-            page_api,
-            existing_code,
-            error,
-            recommendation,
-            guidance,
-            guidance_history,
+            user_instructions=user_instructions,
+            step_text=step_text,
+            previous_steps=previous_steps,
+            snapshot=snapshot,
+            page_url=page_url,
+            cheat_sheet=cheat_sheet,
+            existing_code=existing_code,
+            error=error,
+            recommendation=recommendation,
+            guidance=guidance,
+            guidance_history=guidance_history,
         )
         messages = [
             {"role": "system", "content": prompt},
