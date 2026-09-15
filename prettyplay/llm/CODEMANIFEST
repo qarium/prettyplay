@@ -11,10 +11,12 @@ Usages:
   conventions: .goga/usages/conventions.md
   openai: .goga/usages/cooks/openai.md
   anthropic: .goga/usages/cooks/anthropic.md
+  json_repair: .goga/usages/cooks/json_repair.md
 
 Annotations: |
   Use `conventions` for code writing rules and testing.
   Use `openai` and `anthropic` for the SDK call patterns and the error mapping of the two providers.
+  Use `json_repair` for the syntax salvage of a malformed JSON verdict answer.
 
   Provider parity is absolute: both providers expose the same operations, accept the same inputs, return the same output shapes and map failures to the same taxonomy; the provider choice is a configuration decision, never a capability difference.
   The one SDK-forced asymmetry: the anthropic Messages API requires max_tokens on every request, so the anthropic implementation carries a fixed completion cap (4096 tokens — sized so a full multi-step step-code response never truncates) the openai side has no analogue of; the openai SDK sends no cap and defaults to the model maximum. A transport requirement of the SDK, not a capability difference of the port.
@@ -104,7 +106,7 @@ Annotations: |
     3. Extract the text answer; a generation answer unwraps its first markdown-fenced block — an unfenced answer passes through verbatim
     4. An SDK error maps to `LLMUnavailableError` (see `openai`)
 
-    The compliance operation: the prompt as the system message, the user content carrying the INSTRUCTIONS, STEP (with its STEP TYPE line), ATTEMPT HISTORY and CODE blocks in this fixed order; sent as one request through the effective generation model; the text answer parses strictly through `parse_compliance_verdict` — no fence unwrapping, a malformed verdict (an answer of the old shape included) raises `ComplianceVerdictError`; an SDK error maps to `LLMUnavailableError` (see `openai`)
+    The compliance operation: the prompt as the system message, the user content carrying the INSTRUCTIONS, STEP (with its STEP TYPE line), ATTEMPT HISTORY and CODE blocks in this fixed order; sent as one request through the effective generation model; the text answer parses strictly through `parse_compliance_verdict` — a malformed verdict (an answer of the old shape included) raises `ComplianceVerdictError`; an SDK error maps to `LLMUnavailableError` (see `openai`)
 
 "LLMProvider::AnthropicProvider(config: Config)":
   location: anthropic_provider.py
@@ -119,7 +121,7 @@ Annotations: |
     3. Extract the text answer; a generation answer unwraps its first markdown-fenced block — an unfenced answer passes through verbatim
     4. An SDK error maps to `LLMUnavailableError` (see `anthropic`)
 
-    The compliance operation: the prompt as the system message, the user content carrying the INSTRUCTIONS, STEP (with its STEP TYPE line), ATTEMPT HISTORY and CODE blocks in this fixed order; sent as one request through the effective generation model; the text answer parses strictly through `parse_compliance_verdict` — no fence unwrapping, a malformed verdict (an answer of the old shape included) raises `ComplianceVerdictError`; an SDK error maps to `LLMUnavailableError` (see `anthropic`)
+    The compliance operation: the prompt as the system message, the user content carrying the INSTRUCTIONS, STEP (with its STEP TYPE line), ATTEMPT HISTORY and CODE blocks in this fixed order; sent as one request through the effective generation model; the text answer parses strictly through `parse_compliance_verdict` — a malformed verdict (an answer of the old shape included) raises `ComplianceVerdictError`; an SDK error maps to `LLMUnavailableError` (see `anthropic`)
 
 "create_provider(config: Config) -> provider: LLMProvider":
   location: provider.py
@@ -189,14 +191,16 @@ Annotations: |
     `findings`: the parsed findings; empty — compliant and adequate.
 
     Algorithm:
-    1. Parse the trimmed text as a JSON list of objects; anything else — not valid JSON, not a list, a non-object item — is a malformed verdict
-    2. Validate every item: instruction, priority of the {high, medium, low} set, explanation, dimension of the {instruction, adequacy} set — a missing field, an unknown priority label or an unknown dimension is a malformed verdict; an answer of the old shape — a finding without a dimension — is malformed, never a silent pass
-    3. A malformed verdict raises `ComplianceVerdictError` carrying a fragment of the raw answer — a flaky verdict model surfaces loudly, never a silent pass
-    4. Return the findings; an empty list means compliant and adequate
+    1. Parse the trimmed text as a JSON list of objects; a JSON syntax failure is salvaged once through the `json_repair` library (see `json_repair`) — the repaired object takes the place of the parse result; anything that still is not a list of objects is a malformed verdict
+    2. Validate every item: instruction, priority of the {high, medium, low} set, explanation, dimension of the {instruction, adequacy} set — a missing field, an unknown priority label or an unknown dimension is a malformed verdict; an answer of the old shape — a finding without a dimension — is malformed, never a silent pass; the validation applies to a salvaged answer identically
+    3. An empty findings list passes only from an explicitly valid JSON empty-list answer — an emptiness synthesized by the salvage (a truncated bracket, a fenced empty list) is a malformed verdict
+    4. A malformed verdict raises `ComplianceVerdictError` carrying a fragment of the raw answer — a flaky verdict model surfaces loudly, never a silent pass
+    5. Return the findings; an empty list means compliant and adequate
 
     Requirements:
     - Pure function: no state, no I/O, deterministic on the input text
-    - No fence unwrapping and no protective fallback: the verdict answer parses as received (see `openai` and `anthropic`)
+    - The salvage repairs syntax only — semantics stay strict: no field, type or label requirement is relaxed for a salvaged answer
+    - A failure of the salvage library itself is a malformed verdict: a third-party exception never crosses the parse (see `json_repair`)
 
 ---
 

@@ -124,10 +124,10 @@ never for replayed cached code, never when `generation_approve` is off or
 
 ```python
 findings = provider.check_instruction_compliance(
-    prompt=system_prompt,           # the gate system prompt text comes from the calling engine
-    user_instructions=instructions, # the project's user instructions (the generation_prompt setting)
+    prompt=system_prompt,  # the gate system prompt text comes from the calling engine
+    user_instructions=instructions,  # the project's user instructions (the generation_prompt setting)
     step_text="click the «Sign in» button",
-    step_type="action",             # action | assertion — the adequacy dimension judges by it
+    step_type="action",  # action | assertion — the adequacy dimension judges by it
     code=step_code,
     attempt_history=[r.render() for r in history],  # the verbatim per-step attempt records, when present
 )
@@ -145,9 +145,12 @@ findings = provider.check_instruction_compliance(
   `dimension` (`instruction|adequacy`) — the instruction dimension quotes the
   violated instruction, the adequacy dimension names the fragment of the step
   sentence the code fails to accomplish, judged from the step type and the
-  attempt history; an empty list `[]` means compliant; a malformed verdict
-  (an answer of the old shape — a finding without a dimension — included)
-  raises `ComplianceVerdictError` — never a silent pass. Only a `high`
+  attempt history; an empty list `[]` means compliant; a JSON syntax glitch
+  of the answer is salvaged once (the `json-repair` library) before the
+  validation — a model dropping a quote, a comma or a bracket does not fail
+  the run — and a malformed verdict (an answer of the old shape — a finding
+  without a dimension — included) raises `ComplianceVerdictError` — never a
+  silent pass. Only a `high`
   finding — in either dimension — blocks the candidate, and that decision
   belongs to the calling engine, not the provider
 - SDK errors map to `LLMUnavailableError` exactly like the other operations —

@@ -24,6 +24,7 @@ dependencies = [
     "playwright>=1.49",
     "openai>=1.30",
     "anthropic>=0.28",
+    "json-repair>=0.63",
     "tomli>=2.0; python_version < '3.11'",
 ]
 

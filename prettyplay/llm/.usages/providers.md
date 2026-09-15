@@ -61,7 +61,10 @@ STEP TYPE line), ATTEMPT HISTORY, CODE; the answer is a JSON list of findings:
 - the priority is high, medium or low; only high blocks the candidate, in either dimension —
   the calling engine owns that decision
 - the model behind the call is the effective generation model (generation_model or model)
-- a malformed answer — including an old-shaped finding without a dimension — raises
+- a JSON syntax glitch of the answer is salvaged once (the json-repair library) before the
+  strict validation — a model dropping a quote, a comma or a bracket does not fail the run; an
+  answer that still is not the required shape — including an old-shaped finding without a
+  dimension, or an emptiness reached only through the salvage — raises
   ComplianceVerdictError and a provider failure raises LLMUnavailableError — both hard: the
   candidate is not cached unchecked
 

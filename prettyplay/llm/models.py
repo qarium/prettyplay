@@ -2,6 +2,7 @@
 
 import json
 
+from json_repair import loads as repair_loads
 from pydantic import BaseModel, ConfigDict
 
 from ..failures import ComplianceVerdictError
@@ -89,14 +90,19 @@ def _malformed(verdict_text: str) -> ComplianceVerdictError:
 def parse_compliance_verdict(verdict_text: str) -> list[ComplianceFinding]:
     """Parse the raw answer of the compliance verdict request into findings.
 
-    The strict single parsing point of the gate: anything but a JSON list of
-    objects carrying a str instruction, a high|medium|low priority, a str
-    explanation and an instruction|adequacy dimension is a malformed
-    verdict — raised loudly, never waved through. An answer of the old
-    shape, a finding without a dimension, is malformed too — never a
-    silent pass. No fence unwrapping and no protective fallback (contrast
-    :func:`~prettyplay.llm._request.parse_classification_line`): an
-    unparsable verdict answer is a hard failure of the gate.
+    The strict single parsing point of the gate: the answer must resolve to
+    a JSON list of objects carrying a str instruction, a high|medium|low
+    priority, a str explanation and an instruction|adequacy dimension. A
+    JSON syntax failure is salvaged once through the ``json_repair``
+    library — a verdict model glitching a quote, a comma or a bracket does
+    not kill the run (see ``.goga/usages/cooks/json_repair.md``). Anything
+    the salvage still cannot shape into the required list of objects, and
+    any semantically invalid finding — a missing field, a non-string field,
+    an unknown priority or dimension label, an answer of the old shape —
+    is a malformed verdict raised loudly, never waved through. An empty
+    findings list passes only from an explicitly valid JSON ``[]`` answer:
+    an emptiness synthesized by the salvage is malformed too, so no
+    unchecked candidate ever rides a repaired-to-empty verdict.
 
     Args:
         verdict_text: the raw text answer of the verdict model;
@@ -106,15 +112,23 @@ def parse_compliance_verdict(verdict_text: str) -> list[ComplianceFinding]:
         The parsed findings; an empty list means compliant.
 
     Raises:
-        ComplianceVerdictError: the answer is not valid JSON, not a list,
-            or an item misses a field, carries a non-string field or names
-            an unknown priority or dimension — the candidate stays
-            unchecked and is never cached.
+        ComplianceVerdictError: the answer resolves to neither the required
+            shape nor a repairable equivalent — not a list, an item misses a
+            field, carries a non-string field or names an unknown priority
+            or dimension — the candidate stays unchecked and is never
+            cached.
     """
+    text = verdict_text.strip()
     try:
-        data = json.loads(verdict_text.strip())
+        data = json.loads(text)
     except ValueError:
-        raise _malformed(verdict_text) from None
+        try:
+            data = repair_loads(text)
+        except Exception:  # a salvage failure is a malformed verdict — a third-party error never crosses the parse
+            raise _malformed(verdict_text) from None
+
+        if data == []:  # an emptiness synthesized by the salvage — only an explicitly valid [] passes
+            raise _malformed(verdict_text) from None
 
     if not isinstance(data, list):
         raise _malformed(verdict_text)
@@ -145,9 +159,7 @@ def parse_compliance_verdict(verdict_text: str) -> list[ComplianceFinding]:
             raise _malformed(verdict_text)
 
         findings.append(
-            ComplianceFinding(
-                instruction=instruction, priority=priority, explanation=explanation, dimension=dimension
-            )
+            ComplianceFinding(instruction=instruction, priority=priority, explanation=explanation, dimension=dimension)
         )
 
     return findings

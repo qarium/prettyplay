@@ -138,9 +138,15 @@ class TestParseComplianceVerdict:
             # a valid dimension and an unknown priority — the priority check itself fires
             '[{"instruction": "i", "priority": "critical", "explanation": "e", "dimension": "instruction"}]',
             '[{"instruction": 7, "priority": "high", "explanation": "e"}]',
-            # a fenced answer is malformed too — the strict parse does no fence unwrapping
+            # a fenced empty list is malformed — an emptiness reached only through the salvage never passes
             "```json\n[]\n```",
+            # a fenced finding without a dimension is malformed — the salvage repairs syntax, never semantics
             '```json\n[{"instruction": "i", "priority": "high", "explanation": "e"}]\n```',
+            # a salvaged-to-empty answer is malformed — only an explicitly valid [] passes
+            "[",
+            "[] trailing prose",
+            # a truncated answer loses its dimension to the salvage — malformed
+            '[{"instruction": "Prefer id attributes", "priority": "high", "explanation": "locates by text"',
         ],
     )
     def test_parse_compliance_verdict_malformed_variants(self, verdict_text: str) -> None:
@@ -149,6 +155,67 @@ class TestParseComplianceVerdict:
 
         assert "compliance verdict unparsable" in str(excinfo.value)
         assert isinstance(excinfo.value, PrettyplayError)
+
+    def test_parse_compliance_verdict_salvages_the_dropped_quote_glitch(self) -> None:
+        verdict = (
+            '[{"instruction": "Accept all the terms", priority": "medium", '
+            '"explanation": "The code clicks a button consenting only to cookie/data use '
+            "for the described purposes, which may not be the 'accept all' terms.\", "
+            '"dimension": "instruction"}]'
+        )
+
+        findings = parse_compliance_verdict(verdict)
+
+        assert len(findings) == 1
+        assert findings[0].instruction == "Accept all the terms"
+        assert findings[0].priority == "medium"
+        assert findings[0].explanation.startswith("The code clicks a button")
+        assert findings[0].dimension == "instruction"
+
+    def test_parse_compliance_verdict_salvages_single_quotes_and_trailing_comma(self) -> None:
+        verdict = (
+            "[{'instruction': 'Prefer id attributes', 'priority': 'high', "
+            "'explanation': 'locates by text', 'dimension': 'instruction'},]"
+        )
+
+        findings = parse_compliance_verdict(verdict)
+
+        assert len(findings) == 1
+        assert findings[0].instruction == "Prefer id attributes"
+        assert findings[0].priority == "high"
+        assert findings[0].explanation == "locates by text"
+        assert findings[0].dimension == "instruction"
+
+    def test_parse_compliance_verdict_salvages_a_fenced_findings_list(self) -> None:
+        verdict = (
+            '```json\n[{"instruction": "Prefer id attributes", "priority": "low", '
+            '"explanation": "chatty", "dimension": "instruction"}]\n```'
+        )
+
+        findings = parse_compliance_verdict(verdict)
+
+        assert len(findings) == 1
+        assert findings[0].priority == "low"
+        assert findings[0].dimension == "instruction"
+
+    def test_salvage_keeps_the_semantic_gates_strict(self) -> None:
+        # a salvageable syntax shape carrying an unknown priority — still a hard failure
+        verdict = (
+            "[{'instruction': 'Prefer id attributes', 'priority': 'critical', "
+            "'explanation': 'locates by text', 'dimension': 'instruction'},]"
+        )
+
+        with pytest.raises(ComplianceVerdictError):
+            parse_compliance_verdict(verdict)
+
+    def test_a_salvage_library_failure_is_a_malformed_verdict(self, monkeypatch) -> None:
+        def broken_salvage(text: str) -> object:
+            raise RuntimeError("salvage exploded")
+
+        monkeypatch.setattr("prettyplay.llm.models.repair_loads", broken_salvage)
+
+        with pytest.raises(ComplianceVerdictError):
+            parse_compliance_verdict("[{'instruction': 'i'}")
 
     def test_malformed_message_carries_the_raw_fragment(self) -> None:
         with pytest.raises(ComplianceVerdictError) as excinfo:

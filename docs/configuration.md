@@ -155,7 +155,7 @@ fields, which is what makes the layered merge above possible.
 Read-only effective-model properties resolve the per-operation fallback:
 
 ```python
-config.effective_generation_model      # generation_model when non-empty, otherwise model
+config.effective_generation_model  # generation_model when non-empty, otherwise model
 config.effective_classification_model  # classification_model when non-empty, otherwise model
 ```
 
@@ -219,7 +219,7 @@ t3 = PrettyPlay("login-flow", config=PrettyConfig(browser=BrowserConfig(name="fi
 # dedicated models per operation, one main fallback
 cfg = PrettyConfig(
     model="claude-sonnet-4-5",
-    generation_model="claude-opus-4-7",               # generation requests only
+    generation_model="claude-opus-4-7",  # generation requests only
     classification_model="claude-haiku-4-5-20251001",  # classification requests only
 )
 ```
@@ -304,7 +304,10 @@ While the gate is on:
   attempt record's error and the retry carries the grown attempt history,
   so the model fixes it targeted
 - `medium` and `low` findings pass with a `WARNING` naming the instructions
-- a malformed verdict is a loud hard failure (`ComplianceVerdictError`) — a
+- a JSON syntax glitch of the verdict answer is salvaged once before the
+  validation — a model dropping a quote, a comma or a bracket does not fail
+  the run; a malformed verdict — what the salvage cannot shape into the
+  required findings — is a loud hard failure (`ComplianceVerdictError`) — a
   candidate is never cached unchecked
 - the gate never runs on replayed cached code: the instructions take no part
   in the step address, so changing them requires a manual cache purge
