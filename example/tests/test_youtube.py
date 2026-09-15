@@ -1,7 +1,7 @@
 from prettyplay import PrettyPlay
 
 
-def test_example(play: PrettyPlay):
+def test_youtube_search(play: PrettyPlay):
     play.step('Open https://youtube.com')
     play.step('Accept all the terms of the agreement')
 
