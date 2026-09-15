@@ -123,11 +123,11 @@ this reference alone.
 
 ## Count forms — "the page shows a list of X"
 
-    videos = page.get_by_role("listitem")
-    expect(videos.first).to_be_visible()
-    assert videos.count() > 1
+    items = page.get_by_role("listitem")
+    expect(items.first).to_be_visible()
+    assert items.count() > 1
 
-An exact count is the rarer need: `expect(videos).to_have_count(3)`.
+An exact count is the rarer need: `expect(items).to_have_count(3)`.
 
 ## Immediate reads with plain asserts
 
@@ -363,12 +363,17 @@ class StepSteering:
         print(f'── step "{failure.step_text}" — about to raise IncurableStepError ──')
         print(_banner_line("code:", failure.code))
         print(_banner_line("error:", str(failure)))
+
         url = self._guarded_url(page)
+
         if url is not None:
             print(_banner_line("url:", url))
+
         path = self._screenshot_file(page)
+
         if path is not None:
             print(_banner_line("shot:", path))
+
         print(_banner_line("commands:", "snapshot | screenshot | error | code | quit"))
 
     def _confirm_run(self, code: str) -> bool:
@@ -392,6 +397,7 @@ class StepSteering:
         """
         print("generated code:")
         print(code)
+
         return input("run? [y/N] ").strip() == "y"
 
     def _guarded_url(self, page: PageFacade) -> str | None:
@@ -483,6 +489,7 @@ class StepSteering:
         if command == "error":
             print(f"error:    {failure.error}")
             return
+
         print("code:")  # the code command — the last of the fixed set
         print(failure.code)
 
@@ -552,11 +559,14 @@ class StepSteering:
             created_at=date.today().isoformat(),  # noqa: DTZ011 — calendar date of the healed step
         )
         stored = self._cache.save(step)
+
         self._reporter.emit("on_healed", {"step_text": failure.step_text, "explanation": _HEALED_EXPLANATION})
+
         if stored:
             print("step green — healed step written to the cache")
         else:  # the skip reason rides the on_cache_skipped event — the console line never claims a write that failed
             print("step green — cache write skipped (best-effort cache)")
+
         return step
 
     def _guarded_snapshot(self, page: PageFacade) -> str:
@@ -590,8 +600,10 @@ class StepSteering:
         """
         path = self._screenshot_path
         fresh = path is None  # the first screenshot of the dialog allocates the one file
+
         try:
             png = page.screenshot()
+
             if fresh:
                 with tempfile.NamedTemporaryFile(prefix=_SCREENSHOT_PREFIX, suffix=".png", delete=False) as target:
                     path = target.name
