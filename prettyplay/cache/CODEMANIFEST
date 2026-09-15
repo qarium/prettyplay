@@ -72,7 +72,7 @@ Annotations: |
     One cached step in memory: the metadata and the generated code of the step, as stored in its cache file.
 
     `identity`: the step address.
-    `code`: the generated step code — top-level imports when present, then the fixed-form `def step` function.
+    `code`: the generated step code — top-level imports when present, then the fixed-form def step function.
     `created_at`: the creation date.
 
     Requirements:
@@ -82,7 +82,7 @@ Annotations: |
     "identity -> StepIdentity": |
       The step address.
     "code -> str": |
-      The generated step code — top-level imports when present, then the fixed-form `def step` function; stored and restored verbatim.
+      The generated step code — top-level imports when present, then the fixed-form def step function; stored and restored verbatim.
     "created_at -> str": |
       The creation date.
 
@@ -106,9 +106,11 @@ Annotations: |
       Algorithm:
       1. Resolve the target file by the effective root, the subdirectory and the identity file name
       2. A missing file returns None
-      3. Read the module, validate the metadata fields, reconstruct `CachedStep`: the code tail starts at the sentinel line — legacy files without it carry the code starting at `def step(`
-    "save(step: CachedStep)": |
+      3. Read the module, validate the metadata fields, reconstruct `CachedStep`: the code tail starts at the sentinel line — legacy files without it carry the code starting at def step(
+    "save(step: CachedStep) -> stored: bool": |
       Store the step atomically, best-effort.
+
+      `stored`: whether the step was stored — True — the atomic replace landed; False — the write was skipped (a read-only cache or a busy target; on_cache_skipped carries the reason).
 
       Algorithm:
       1. Check writability: a read-only cache skips the write and reports on_cache_skipped with the reason read-only cache

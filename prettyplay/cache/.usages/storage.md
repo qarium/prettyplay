@@ -23,7 +23,7 @@ Each file carries the metadata fields (step sentence, cache key, step type, crea
 
 ## Write behavior
 
-- save never fails the run: a read-only cache or a busy Windows target skips the write loudly
+- save never fails the run: a read-only cache or a busy Windows target skips the write loudly — save returns whether the step was stored (False on a skip; the on_cache_skipped hook carries the reason)
 - writes are atomic: a unique temporary file in the target directory, then an atomic replace; the last writer wins, a partial file never becomes visible
 - load always works, in every environment
 

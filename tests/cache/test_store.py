@@ -86,9 +86,10 @@ class TestStepCacheLogic:
         identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="открыть страницу логина")
 
         with caplog.at_level(logging.INFO, logger="prettyplay"):
-            cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
+            stored = cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
         loaded = cache.load(identity)
 
+        assert stored is True  # the atomic replace landed
         assert loaded is not None
         assert loaded.identity == identity
         assert loaded.code.startswith("def step(")
@@ -161,8 +162,9 @@ class TestStepCacheLogic:
             cache = StepCache(Config(cache_root=str(root)), "checkout", reporter)
             identity = StepIdentity(cache_key="k", step_type="action", normalized_text="шаг")
 
-            cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
+            stored = cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
 
+            assert stored is False  # the skipped write reports itself
             assert not (root / "checkout").exists()  # no file created
             skipped_events = [call for call in recorder.calls if call[0] == "on_cache_skipped"]
             assert skipped_events == [("on_cache_skipped", {"step_text": "шаг", "reason": "read-only cache"})]
