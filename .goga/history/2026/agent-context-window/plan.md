@@ -328,16 +328,16 @@ Errors: `LLMUnavailableError`/`ComplianceVerdictError` propagate — never swall
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (in `tests/engine/test_compliance.py`, expected to fail at this stage): `check_step_compliance` accepts `step_type` and `attempt_history` (keyword-callable); `COMPLIANCE_PROMPT` equals the `compliance_prompt` block-scalar of the engine CODEMANIFEST byte-for-byte
-- [ ] **Code**: update `check_step_compliance` — new parameters threaded into the provider call with the rendered history
-- [ ] **Code**: re-sync `COMPLIANCE_PROMPT` to the rewritten two-dimension practice text
-- [ ] **Code**: extend the frozen-mirror tests to the new text anchors; update existing call sites in the test file
-- [ ] **Interface verification**: `.venv/bin/python -m pytest tests/engine/test_compliance.py -x` — contract tests pass
-- [ ] **Logic tests** (add to `tests/engine/test_compliance.py`; scenario verbatim from the design):
-  - [ ] `test_check_step_compliance_passes_step_type_and_rendered_history` — **Setup**: `ComplianceStubProvider` recording kwargs; `Config(generation_prompt="Prefer id attributes")`; two `StepAttempt` records (record 0 original + one failed check). **Input**: `check_step_compliance(config, provider, "click the «Sign in» button", "action", code, [record0, record1])`. **Trace**: switch on, instructions non-empty → `provider.check_instruction_compliance(prompt=COMPLIANCE_PROMPT, user_instructions="Prefer id attributes", step_text="click the «Sign in» button", step_type="action", code=code, attempt_history=[record0.render(), record1.render()])`. **Assertions**: `call["step_type"] == "action"`; `call["attempt_history"] == [record0.render(), record1.render()]`; `call["prompt"] == COMPLIANCE_PROMPT`
-- [ ] **Debugging**: `.venv/bin/python -m pytest tests/engine/test_compliance.py -x` — fix implementation code until all tests pass (do NOT fix test code)
-- [ ] **Contract re-verification**: gate off → zero provider calls; hard failures propagate; never called for replayed cached code (callers' responsibility, verified in Tasks 6/8/9)
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/engine/compliance.py tests/engine/test_compliance.py` — fix formatting if necessary
+- [x] **Contract tests** (in `tests/engine/test_compliance.py`, expected to fail at this stage): `check_step_compliance` accepts `step_type` and `attempt_history` (keyword-callable); `COMPLIANCE_PROMPT` equals the `compliance_prompt` block-scalar of the engine CODEMANIFEST byte-for-byte
+- [x] **Code**: update `check_step_compliance` — new parameters threaded into the provider call with the rendered history
+- [x] **Code**: re-sync `COMPLIANCE_PROMPT` to the rewritten two-dimension practice text
+- [x] **Code**: extend the frozen-mirror tests to the new text anchors; update existing call sites in the test file
+- [x] **Interface verification**: `.venv/bin/python -m pytest tests/engine/test_compliance.py -x` — contract tests pass
+- [x] **Logic tests** (add to `tests/engine/test_compliance.py`; scenario verbatim from the design):
+  - [x] `test_check_step_compliance_passes_step_type_and_rendered_history` — **Setup**: `ComplianceStubProvider` recording kwargs; `Config(generation_prompt="Prefer id attributes")`; two `StepAttempt` records (record 0 original + one failed check). **Input**: `check_step_compliance(config, provider, "click the «Sign in» button", "action", code, [record0, record1])`. **Trace**: switch on, instructions non-empty → `provider.check_instruction_compliance(prompt=COMPLIANCE_PROMPT, user_instructions="Prefer id attributes", step_text="click the «Sign in» button", step_type="action", code=code, attempt_history=[record0.render(), record1.render()])`. **Assertions**: `call["step_type"] == "action"`; `call["attempt_history"] == [record0.render(), record1.render()]`; `call["prompt"] == COMPLIANCE_PROMPT`
+- [x] **Debugging**: `.venv/bin/python -m pytest tests/engine/test_compliance.py -x` — fix implementation code until all tests pass (do NOT fix test code)
+- [x] **Contract re-verification**: gate off → zero provider calls; hard failures propagate; never called for replayed cached code (callers' responsibility, verified in Tasks 6/8/9)
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/engine/compliance.py tests/engine/test_compliance.py` — fix formatting if necessary
 
 ### Task 6: `StepGenerator.generate`/`regenerate` — history growth, URL brackets, two-dimension gate, exhaustion wording, `SYSTEM_PROMPT` re-sync (prettyplay/engine — generator)
 

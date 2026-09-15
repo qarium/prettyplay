@@ -1,16 +1,19 @@
-"""Tests for the instruction compliance gate of the prettyplay.engine cell."""
+"""Tests for the two-dimension compliance gate of the prettyplay.engine cell."""
 
 import re
 import textwrap
 from pathlib import Path
 
 from prettyplay.config import Config
+from prettyplay.engine.attempts import OUTCOME_FAILED_CHECK, OUTCOME_ORIGINAL, StepAttempt
 from prettyplay.engine.compliance import COMPLIANCE_PROMPT, check_step_compliance
 from prettyplay.llm import ComplianceFinding
 
 ENGINE_CODEMANIFEST = Path(__file__).resolve().parents[2] / "prettyplay" / "engine" / "CODEMANIFEST"
 
 GATE_CONFIG = Config(generation_prompt="Prefer id attributes")
+
+STEP_CODE = "def step(page) -> None:\n    page.goto('https://example.com')\n"
 
 
 class ComplianceStubProvider:
@@ -36,8 +39,26 @@ class TestComplianceGateContract:
 
         assert facade_routine is check_step_compliance
 
+    def test_check_step_compliance_accepts_step_type_and_attempt_history(self) -> None:
+        provider = ComplianceStubProvider()
+
+        findings = check_step_compliance(
+            GATE_CONFIG,
+            provider,
+            step_text="open the page",
+            step_type="action",
+            code=STEP_CODE,
+            attempt_history=[],
+        )
+
+        assert findings == []
+        assert len(provider.compliance_calls) == 1  # keyword-callable with the new inputs
+
     def test_compliance_prompt_is_a_frozen_constant(self) -> None:
-        assert COMPLIANCE_PROMPT.startswith("You verify that generated step code")
+        assert COMPLIANCE_PROMPT.startswith("You verify generated step code on two dimensions")
+        assert "- STEP TYPE: action or assertion" in COMPLIANCE_PROMPT
+        assert "- ATTEMPT HISTORY: the verbatim record of every attempt of this step so far" in COMPLIANCE_PROMPT
+        assert '"dimension": "instruction|adequacy"' in COMPLIANCE_PROMPT
         assert "Output only the JSON list, no other text" in COMPLIANCE_PROMPT
 
 
@@ -48,7 +69,7 @@ class TestCheckStepComplianceLogic:
         provider = ComplianceStubProvider()
         config = Config(generation_approve=False, generation_prompt="Prefer id attributes")
 
-        findings = check_step_compliance(config, provider, "open the page", "def step(page) -> None:\n    ...")
+        findings = check_step_compliance(config, provider, "open the page", "action", STEP_CODE, [])
 
         assert findings == []
         assert provider.compliance_calls == []  # the off switch makes zero provider calls
@@ -57,16 +78,15 @@ class TestCheckStepComplianceLogic:
         provider = ComplianceStubProvider()
         config = Config(generation_approve=True, generation_prompt="")
 
-        findings = check_step_compliance(config, provider, "open the page", "def step(page) -> None:\n    ...")
+        findings = check_step_compliance(config, provider, "open the page", "action", STEP_CODE, [])
 
         assert findings == []
         assert provider.compliance_calls == []  # empty instructions — the gate never runs
 
     def test_check_step_compliance_passes_practice_prompt_and_instructions(self) -> None:
         provider = ComplianceStubProvider()
-        code = "def step(page) -> None:\n    page.goto('https://example.com')\n"
 
-        findings = check_step_compliance(GATE_CONFIG, provider, "open the page", code)
+        findings = check_step_compliance(GATE_CONFIG, provider, "open the page", "action", STEP_CODE, [])
 
         assert findings == []
         assert len(provider.compliance_calls) == 1
@@ -74,13 +94,45 @@ class TestCheckStepComplianceLogic:
         assert call["prompt"] == COMPLIANCE_PROMPT  # the practice prompt, byte-equal
         assert call["user_instructions"] == "Prefer id attributes"
         assert call["step_text"] == "open the page"
-        assert call["code"] == code
+        assert call["code"] == STEP_CODE
+
+    def test_check_step_compliance_passes_step_type_and_rendered_history(self) -> None:
+        provider = ComplianceStubProvider()
+        record0 = StepAttempt(
+            code="def step(page) -> None:\n    page.click('#sign-in-old')\n",
+            error="old rot — the selector no longer resolves",
+            outcome=OUTCOME_ORIGINAL,
+            url_before="https://a.example",
+            url_after="https://b.example",
+        )
+        record1 = StepAttempt(
+            code="def step(page) -> None:\n    page.click('#sign-in-old')\n    page.wait_for_selector('#x')\n",
+            error="AssertionError: #x not visible",
+            outcome=OUTCOME_FAILED_CHECK,
+            url_before="https://b.example",
+            url_after="https://b.example",
+        )
+
+        findings = check_step_compliance(
+            GATE_CONFIG, provider, "click the «Sign in» button", "action", STEP_CODE, [record0, record1]
+        )
+
+        assert findings == []
+        call = provider.compliance_calls[0]
+        assert call["step_type"] == "action"
+        assert call["attempt_history"] == [record0.render(), record1.render()]  # rendered, verbatim records
+        assert call["prompt"] == COMPLIANCE_PROMPT
 
     def test_check_step_compliance_returns_the_providers_findings(self) -> None:
-        finding = ComplianceFinding(instruction="Prefer id attributes", priority="high", explanation="locates by text")
+        finding = ComplianceFinding(
+            instruction="Prefer id attributes",
+            priority="high",
+            explanation="locates by text",
+            dimension="instruction",
+        )
         provider = ComplianceStubProvider(verdicts=[[finding]])
 
-        findings = check_step_compliance(GATE_CONFIG, provider, "open the page", "code")
+        findings = check_step_compliance(GATE_CONFIG, provider, "open the page", "action", "code", [])
 
         assert findings == [finding]
 
