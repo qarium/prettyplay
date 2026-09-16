@@ -72,3 +72,46 @@ def test_window_start_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> None:
     window.start()
 
     assert window._started_at == 1.0
+
+
+def test_settle_window_accepts_the_declared_tries_count() -> None:
+    """The third contract parameter declares the count-bounded mode and stays exposed."""
+    window = SettleWindow(None, 0.5, tries=3)
+
+    assert window.tries == 3
+    assert window.count_bounded is True
+
+
+def test_settle_window_without_a_count_stays_time_bounded() -> None:
+    """No declared count — the time-bounded mode of today, positionally and by default."""
+    defaulted = SettleWindow(5.0, 0.5)
+    explicit = SettleWindow(5.0, 0.5, None)
+
+    assert defaulted.tries is None
+    assert defaulted.count_bounded is False
+    assert explicit.tries is None
+    assert explicit.count_bounded is False
+
+
+@pytest.mark.parametrize(
+    ("timeout", "tries", "expected_enabled", "expected_count_bounded"),
+    [
+        pytest.param(None, 2, True, True, id="count-only-alive-on-default-configs"),
+        pytest.param(0, 2, True, True, id="count-alive-despite-explicit-disable"),
+        pytest.param(5.0, None, True, False, id="time-window"),
+        pytest.param(5.0, 2, True, True, id="both-bounds-declared"),
+        pytest.param(None, None, False, False, id="fully-disabled"),
+        pytest.param(0, None, False, False, id="explicit-disable"),
+    ],
+)
+def test_window_two_mode_state_table(
+    timeout: float | None,
+    tries: int | None,
+    expected_enabled: bool,
+    expected_count_bounded: bool,
+) -> None:
+    """The two-mode state table: a declared count enables the window even with polling disabled."""
+    window = SettleWindow(timeout, 0.5, tries)
+
+    assert window.enabled is expected_enabled
+    assert window.count_bounded is expected_count_bounded

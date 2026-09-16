@@ -195,3 +195,89 @@ def test_settle_first_execution_consuming_the_window_gets_no_repetition(
     assert excinfo.value is original
     assert execute.call_count == 1  # the window ended with the first execution — never a second one
     assert _retries(caplog) == []
+
+
+def test_settle_honors_a_count_bounded_window(caplog: pytest.LogCaptureFixture) -> None:
+    """A declared tries count bounds the loop by executions — no clock involved."""
+    page = _fake_page()
+    execute = mock.Mock(side_effect=[PlaywrightError("Timeout 10000ms exceeded"), None])
+    window = SettleWindow(None, 0, tries=2)
+
+    with caplog.at_level(logging.INFO, logger="prettyplay"):
+        settle(execute, "CODE", page, window)
+
+    assert execute.call_count == 2
+
+
+def test_settle_count_bounded_reexecutes_and_exhausts(caplog: pytest.LogCaptureFixture) -> None:
+    """The count bound in action: re-execution until success inside the count, the original failure on exhaustion."""
+    page = _fake_page()
+    failure = PlaywrightError("Timeout 1000ms exceeded")
+
+    # case A — the third execution succeeds inside the declared count
+    recover = mock.Mock(side_effect=[failure, failure, None])
+    window = SettleWindow(None, 0, tries=3)
+
+    with caplog.at_level(logging.INFO, logger="prettyplay"):
+        settle(recover, "CODE", page, window)
+
+    assert recover.call_count == 3
+    retries = _retries(caplog)
+
+    assert [record.attempt for record in retries] == [1, 2]
+    assert [record.error for record in retries] == ["Timeout 1000ms exceeded"] * 2
+    assert all(record.levelno == logging.INFO for record in retries)
+
+    # case B — the third execution fails: executed(3) == tries(3), the original failure propagates
+    caplog.clear()
+    exhaust = mock.Mock(side_effect=failure)
+
+    with (
+        caplog.at_level(logging.INFO, logger="prettyplay"),
+        pytest.raises(PlaywrightError) as excinfo,
+    ):
+        settle(exhaust, "CODE", page, SettleWindow(None, 0, tries=3))
+
+    assert excinfo.value is failure
+    assert exhaust.call_count == 3
+    assert [record.attempt for record in _retries(caplog)] == [1, 2]
+
+    # a fresh settle call with a new window counts from zero again
+    fresh = mock.Mock(side_effect=[failure, None])
+
+    settle(fresh, "CODE", page, SettleWindow(None, 0, tries=2))
+
+    assert fresh.call_count == 2
+
+
+def test_settle_count_mode_never_consults_the_time_horizon(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The count branch checks its own counter alone — has_remaining stays time-mode-only."""
+    page = _fake_page()
+    failure = PlaywrightError("Timeout 1000ms exceeded")
+    execute = mock.Mock(side_effect=[failure, None])
+    window = SettleWindow(None, 0, tries=2)
+    window.has_remaining = mock.Mock(return_value=True)
+
+    with caplog.at_level(logging.INFO, logger="prettyplay"):
+        settle(execute, "CODE", page, window)
+
+    window.has_remaining.assert_not_called()
+    assert execute.call_count == 2
+
+
+def test_settle_count_mode_sleeps_the_window_delay_per_repetition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Count-mode repetitions pause the configured delay, uniform with the time mode."""
+    fake_time = mock.Mock()
+    monkeypatch.setattr(SETTLE_MODULE, "time", fake_time)
+    page = _fake_page()
+    failure = PlaywrightError("Timeout 1000ms exceeded")
+    execute = mock.Mock(side_effect=[failure, failure, None])
+    window = SettleWindow(5.0, 0.25, tries=3)
+
+    settle(execute, "CODE", page, window)
+
+    assert fake_time.sleep.call_args_list == [mock.call(0.25), mock.call(0.25)]

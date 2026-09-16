@@ -563,17 +563,17 @@ as-is; no LLM budget is ever consumed by re-execution.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: in `tests/engine/polling/test_window.py` — `SettleWindow` accepts the
+- [x] **Contract tests**: in `tests/engine/polling/test_window.py` — `SettleWindow` accepts the
   third parameter (`tries`), exposes `count_bounded` and `tries`; in
   `tests/engine/polling/test_settle.py` — `settle` honors a count-bounded window (expected to
   fail at this stage)
-- [ ] **Code**: `prettyplay/engine/polling/window.py` — `__init__(self, timeout, delay,
+- [x] **Code**: `prettyplay/engine/polling/window.py` — `__init__(self, timeout, delay,
   tries: int | None = None)`, the `count_bounded` property, the two-mode `enabled`, docstrings
   (`has_remaining` documented as time-bounded-mode-only); `prettyplay/engine/polling/settle.py`
   — the count branch per the algorithm above (local `executed` counter, `executed <
   window.tries` bound, `settle_retry` records uniform with the time mode)
-- [ ] **Interface verification**: `pytest tests/engine/polling/ -q` — all pass
-- [ ] **Logic tests** — the design scenario, verbatim, plus the window pins:
+- [x] **Interface verification**: `pytest tests/engine/polling/ -q` — all pass
+- [x] **Logic tests** — the design scenario, verbatim, plus the window pins:
   - `test_settle_count_bounded_reexecutes_and_exhausts`: Setup —
     `SettleWindow(timeout=None, delay=0, tries=3)`; an `execute` stub failing twice with a
     pollable error, then succeeding (case A) and always failing (case B);
@@ -591,11 +591,11 @@ as-is; no LLM budget is ever consumed by re-execution.
     `timeout=None, tries=2` (count mode alive on default configs) and with `timeout=5.0,
     tries=None`; `has_remaining` never called by the count branch (time-mode-only semantics).
   - Time-mode byte-identity (C13 pin): the existing time-mode settle tests stay green unchanged.
-- [ ] **Debugging**: `pytest tests/engine/polling/ -q` — fix implementation code until all tests pass (do NOT fix test code)
-- [ ] **Contract re-verification**: `from prettyplay.engine.polling import SettleWindow, settle`
+- [x] **Debugging**: `pytest tests/engine/polling/ -q` — fix implementation code until all tests pass (do NOT fix test code)
+- [x] **Contract re-verification**: `from prettyplay.engine.polling import SettleWindow, settle`
   facade importable; existing two-argument `SettleWindow(...)` constructions still valid
   (default `tries=None`)
-- [ ] **Lint**: `ruff check prettyplay/engine/polling tests/engine/polling && ruff format --check prettyplay/engine/polling tests/engine/polling`
+- [x] **Lint**: `ruff check prettyplay/engine/polling tests/engine/polling && ruff format --check prettyplay/engine/polling tests/engine/polling`
 
 ### Task 5: `ScenarioStep`, `GroupFailureClassification`, `parse_group_failure_classification` (llm)
 
