@@ -49,6 +49,19 @@ settle(execute=run_step_code, code=cached_step.code, page=page, window=window)
 `run_step_code` comes from `prettyplay.engine` — the execution routine the
 caller threads in.
 
+## Count-bounded re-execution (`tries`)
+
+A step declared with a retry count replaces the time bound for that step's
+loop with a count bound — `t.step("open the cart", tries=3)` builds a
+`SettleWindow(timeout=..., delay=..., tries=3)`: the step's code executes at
+most 3 times in total, the first execution included (`tries=1` — no
+re-execution). The pollable filter and the `polling_delay` pause keep applying
+between executions; retries appear as the same `settle_retry` records; count
+exhaustion propagates the failure to the ordinary path — the step never stays
+green on retries alone. Each `settle` call counts from zero: the cached code
+and every generated candidate each get their own full count, and no LLM
+budget is consumed. See [Writing steps](../guides/writing-steps.md#step-parameters).
+
 ## Which failures poll
 
 The driver ships a fixed pollable map, exported as `is_pollable_failure(exc)`
@@ -80,7 +93,8 @@ execution, not generation.
 ## Rules
 
 - `polling_timeout` `None` (default) and `0` keep polling off — the settle
-  call degenerates to a single execution
+  call degenerates to a single execution — unless the step declares `tries`:
+  a count-bounded window stays alive with the time window disabled
 - `polling_delay` `0` re-executes without a pause
 - The window never re-arms: one window per step execution, shared by every
   execution inside it — the steering dialog included

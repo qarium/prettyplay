@@ -51,6 +51,10 @@ closes the page and stops the whole browser of that test.
     - `product_defect` — the test fails loudly; nothing is regenerated
     - `incurable` — the step fails with an explanation and a recommendation
 
+  A step inside a group block routes to the group recovery instead — one
+  diagnosis of the whole group drives a group-scoped regeneration row (see
+  [Groups](reference/groups.md)).
+
 **Strict replay-only mode** (`strict = true`) never contacts the LLM for code:
 a cache miss fails immediately, a failed cached step is at most classified, and
 nothing is regenerated or healed. This is the natural CI posture: generate
@@ -68,6 +72,7 @@ and [Step cache](reference/step-cache.md).
 - [Step cache](reference/step-cache.md) — addressing, storage, attempt budgets, CI workflow
 - [LLM providers](reference/llm-providers.md) — openai and anthropic parity, model settings
 - [Self-healing](reference/self-healing.md) — classification categories and healing paths
+- [Groups](reference/groups.md) — authoring blocks that heal as a unit
 - [Driver facade](reference/driver-facade.md) — the internal page handle, the worker boundary and the generated-code contour
 
 !!! warning

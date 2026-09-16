@@ -115,3 +115,16 @@ def test_window_two_mode_state_table(
 
     assert window.enabled is expected_enabled
     assert window.count_bounded is expected_count_bounded
+
+
+@pytest.mark.parametrize("timeout", [None, 0], ids=["none", "explicit-zero"])
+def test_count_bounded_window_with_polling_disabled_has_no_time_horizon(timeout: float | None) -> None:
+    """A count-bounded window stays enabled yet has_remaining is False — no time horizon to consult."""
+    window = SettleWindow(timeout, 0.5, tries=2)
+
+    assert window.enabled is True  # the count keeps the window alive
+    assert window.has_remaining() is False  # not started yet
+
+    window.start()
+
+    assert window.has_remaining() is False  # the count loop checks its own counter, never the clock

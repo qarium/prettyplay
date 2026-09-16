@@ -7,7 +7,8 @@ engineers running local generation sessions.
 
 The step executor opens the dialog at the exact moment an
 `IncurableStepError` would propagate — budget exhausted, incurable verdict,
-failed-check final classification — when `interactive` is on (default
+failed-check final classification, or a still-terminal group recovery (see
+[Groups](groups.md)) — when `interactive` is on (default
 `false`; env `PRETTYPLAY_INTERACTIVE`, per-test override) and the run is not
 strict. It never opens on `product_defect` (a dialog must never repaint a red
 test green), never in replay-strict, and never when the LLM is unavailable.
@@ -59,7 +60,10 @@ Every other line is guidance: one regeneration request carrying the step
 type, the raw step sentence, a `USER GUIDANCE` block, the fresh page URL
 and the grown shared attempt history (see
 [LLM providers](llm-providers.md#parity)) — the original failure stays
-anchored as record 0 of the history.
+anchored as record 0 of the history. A group step's dialog carries the group
+prompt as its framing — every guided request renders the `GROUP PROMPT`
+block and the marked scenario entries exactly like the engine's own requests
+of that step; the dialog mechanics themselves are unchanged.
 
 Every turn shows the complete generated code and asks `run? [y/N]` —
 nothing executes unseen:

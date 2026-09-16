@@ -77,6 +77,15 @@ instead of launching locally:
 - The endpoint is an address, not a secret: it is valid in the config file;
   CI rotation goes through the `PRETTYPLAY_BROWSER_ENDPOINT` env override
 
+## Pace
+
+`speed` (default `100` — full speed; an integer 0–100, env
+`PRETTYPLAY_BROWSER_SPEED`) slows the whole run in every launch mode — local
+launches and remote connects alike — mapped to Playwright's native
+`slow_mo` (`int((100 − speed) × 30)` ms per operation). One value per run:
+the pace is fixed at browser start. See
+[Configuration → Pace](../configuration.md#pace).
+
 ## Per-test overrides
 
 Browser settings can be overridden per test through the nested `BrowserConfig`

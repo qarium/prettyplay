@@ -437,6 +437,67 @@ class TestGroupRecoveryTerminalFailures:
         assert outside_fixture.generator.calls == []  # type: ignore[attr-defined] — no regeneration happened
         assert len(outside_provider.diagnosis_calls) == 1
 
+    def test_recoverable_quote_matching_an_outside_step_is_terminal(self, tmp_path: Path) -> None:
+        """A recoverable verdict quoting a step outside the group ends the run — no doomed cycle is spent."""
+        provider = RecoveryProvider(verdicts=[_verdict(earliest_step="open the shop")])
+        fixture = RecoveryFixture(tmp_path, provider, FakeGenerator())
+
+        with pytest.raises(IncurableStepError) as excinfo:
+            fixture.recovery.recover(
+                GROUP_PROMPT,
+                _group_traces(),
+                STATUS,
+                "assertion",
+                _group_scenario(),
+                _identity(STATUS, "assertion"),
+                [_attempt()],
+                FakePage(),
+                SettleWindow(None, 0),
+            )
+
+        verdict = excinfo.value.verdict
+        assert verdict is not None
+        assert verdict.category == "incurable"
+        assert verdict.explanation == "the root lives outside the group — open the shop"
+        assert fixture.generator.calls == []  # type: ignore[attr-defined] — no regeneration happened
+        assert len(provider.diagnosis_calls) == 1
+
+    def test_a_group_step_quote_wins_over_the_outside_duplicate(self, tmp_path: Path) -> None:
+        """A quote naming a group step opens the row there — even when the same sentence exists outside."""
+        # the cookie sentence ran earlier as an ordinary step AND is the group's own first trace
+        scenario = [*_group_scenario(), ScenarioStep(sentence=COOKIE, group_prompt="")]
+        traces = [
+            _trace(COOKIE),
+            _trace(FILL),
+            _trace(SUBMIT),
+            _trace(STATUS, outcome="failed", step_type="assertion"),
+        ]
+        provider = RecoveryProvider(verdicts=[_verdict(earliest_step=COOKIE)])
+        fixture = RecoveryFixture(
+            tmp_path,
+            provider,
+            FakeGenerator([_cached(COOKIE), _cached(FILL), _cached(SUBMIT), _cached(STATUS, "assertion")]),
+        )
+
+        healed = fixture.recovery.recover(
+            GROUP_PROMPT,
+            traces,
+            STATUS,
+            "assertion",
+            scenario,
+            _identity(STATUS, "assertion"),
+            [_attempt()],
+            FakePage(),
+            SettleWindow(None, 0),
+        )
+
+        # the row starts at the group's own trace — never at the outside duplicate
+        identities = [call["identity"] for call in fixture.generator.calls]  # type: ignore[attr-defined]
+        assert identities == [_identity(COOKIE), _identity(FILL), _identity(SUBMIT), _identity(STATUS, "assertion")]
+        assert healed.identity == _identity(STATUS, "assertion")
+        assert fixture.budgets.refresh_calls == identities
+        assert fixture.budgets.cycle_calls == [GROUP_PROMPT]  # one cycle, no terminal raise
+
     def test_repeat_failure_reenters_new_cycle_until_cap(self, tmp_path: Path) -> None:
         provider = RecoveryProvider(verdicts=[_verdict(earliest_step="")] * 2, answers=[FAILING_CODE] * 4)
         fixture = RecoveryFixture(tmp_path, provider)
@@ -628,6 +689,60 @@ class TestGroupRecoveryEdgePins:
         assert excinfo.value.code == "the failed code"  # the code of the last record
         assert excinfo.value.error == "the underlying failure"
         assert fixture.generator.calls == []  # type: ignore[attr-defined]
+
+    def test_incurable_diagnosis_quoting_a_group_step_appends_the_parenthetical(self, tmp_path: Path) -> None:
+        """An incurable verdict that still quotes a group step carries the parenthetical quote."""
+        verdict = _verdict(category="incurable", root_cause="regeneration cannot help", earliest_step=FILL)
+        provider = RecoveryProvider(verdicts=[verdict])
+        fixture = RecoveryFixture(tmp_path, provider, FakeGenerator())
+
+        with pytest.raises(IncurableStepError) as excinfo:
+            fixture.recovery.recover(
+                GROUP_PROMPT,
+                _group_traces(),
+                STATUS,
+                "assertion",
+                _group_scenario(),
+                _identity(STATUS, "assertion"),
+                [_attempt()],
+                FakePage(),
+                SettleWindow(None, 0),
+            )
+
+        assert excinfo.value.verdict is not None
+        assert (
+            excinfo.value.verdict.explanation == f"{verdict.root_cause} (earliest affected step: {FILL})"
+        )  # the quote named a group step — it rides the explanation
+        assert fixture.generator.calls == []  # type: ignore[attr-defined]
+
+    def test_empty_traces_degenerate_row_pins_the_honest_no_op(self, tmp_path: Path) -> None:
+        """Empty traces with a recoverable verdict: no row, no regeneration — the deliberate pin.
+
+        The executor always appends the failed trace record before delegating,
+        so the empty input never reaches the engine through the wiring; the
+        pin holds the degenerate row honest — nothing regenerated, one cycle
+        consumed, a ``None`` return that is never a healed step.
+        """
+        provider = RecoveryProvider(verdicts=[_verdict(earliest_step="")])
+        fixture = RecoveryFixture(tmp_path, provider, FakeGenerator())
+
+        result = fixture.recovery.recover(
+            GROUP_PROMPT,
+            [],
+            STATUS,
+            "assertion",
+            _group_scenario(),
+            _identity(STATUS, "assertion"),
+            [_attempt()],
+            FakePage(),
+            SettleWindow(None, 0),
+        )
+
+        assert result is None  # never a healed step — the caller treats no row as no recovery
+        assert len(provider.diagnosis_calls) == 1
+        assert fixture.generator.calls == []  # type: ignore[attr-defined]
+        assert fixture.budgets.cycle_calls == [GROUP_PROMPT]  # the degenerate cycle was still opened
+        assert fixture.budgets.refresh_calls == []
 
     def test_degraded_diagnosis_maps_to_the_conservative_incurable(self, tmp_path: Path) -> None:
         verdict = _verdict(category="incurable", root_cause="the raw model answer", earliest_step="", degraded=True)

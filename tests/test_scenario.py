@@ -18,6 +18,7 @@ from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step
 from prettyplay.config import Config, PrettyConfig
 from prettyplay.driver import PageFacade
 from prettyplay.driver.session import PlaywrightWorker
+from prettyplay.engine.groups import GroupRecovery
 from prettyplay.engine.steering import StepSteering
 from prettyplay.executor import StepExecutor
 from prettyplay.failures import ComplianceVerdictError, FailureVerdict, IncurableStepError, PrettyplayError
@@ -557,6 +558,28 @@ class TestPrettyPlayLogic:
         assert steering._provider is test._runtime.provider  # one provider object per test
         assert steering._cache is test._cache  # one write-back store per test
         assert steering._reporter is test._healer._reporter  # one visibility point per test
+        assert test._runtime._driver is None  # construction stays browser-free
+
+    def test_prettyplay_composes_recovery_and_threads_it_into_the_executor(self, tmp_path: Path) -> None:
+        """GroupRecovery is composed from the runtime collaborators, then threaded into the executor."""
+        config = PrettyConfig(cache_root=str(tmp_path))
+
+        with (
+            mock.patch("prettyplay.scenario.load_config", return_value=config),
+            mock.patch("prettyplay.scenario.StepExecutor", wraps=StepExecutor) as executor_spy,
+        ):
+            test = PrettyPlay(CACHE_KEY, config=config)
+
+        recovery = test._executor._recovery
+        assert isinstance(recovery, GroupRecovery)
+        assert isinstance(test._executor, StepExecutor)  # the spy delegates to the real constructor
+        assert executor_spy.call_args.args[5] is recovery  # contract position: after steering, before the budgets
+        assert recovery._config is test._runtime.config  # the same runtime settings the engines read
+        assert recovery._provider is test._runtime.provider  # one provider object per test
+        assert recovery._generator is test._generator  # the row regenerates through the test's own engine
+        assert recovery._cache is test._cache  # one write-back store per test
+        assert recovery._budgets is test._runtime.budgets  # the cycle cap and the per-cycle refresh
+        assert recovery._reporter is test._reporter  # one visibility point per test
         assert test._runtime._driver is None  # construction stays browser-free
 
     def test_scenario_close_stops_page_and_runtime(self, tmp_path: Path) -> None:
@@ -1274,6 +1297,42 @@ class TestGroupAuthoringBlock:
         assert sleeps == []  # speed=None/delay=None — no pauses at all
         assert len(executor.calls) == 2
         assert len(group.traces) == 2
+
+    @pytest.mark.parametrize(
+        ("speed", "expected_pace"),
+        [(100, 0.0), (0, 3.0)],
+    )
+    def test_group_speed_only_paces_between_steps_never_before_the_first(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, speed: int, expected_pace: float
+    ) -> None:
+        """A speed-only group: no entry pause, the mapped pace before every following step."""
+        executor = RecordingGroupExecutor()
+        sleeps: list[float] = []
+        monkeypatch.setattr("prettyplay.groups.time", SimpleNamespace(sleep=sleeps.append))
+
+        with scenario_on_tmp_cache(tmp_path):
+            test = PrettyPlay(CACHE_KEY)
+            test._executor = executor
+
+            with (
+                mock.patch.object(test._runtime, "open_page", return_value=FakePage()),
+                test.group("the paced block", speed=speed) as group,
+            ):
+                group.step("one")
+                group.step("two")
+                group.step("three")
+
+        assert sleeps == [expected_pace, expected_pace]  # the boundary speeds, never before the first step
+        assert len(executor.calls) == 3
+        assert len(group.traces) == 3
+
+    def test_group_rejects_a_bool_speed_loudly(self, tmp_path: Path) -> None:
+        """A bool speed is never coerced to 0/1 — the loud validation names the received value."""
+        with scenario_on_tmp_cache(tmp_path):
+            test = PrettyPlay(CACHE_KEY)
+
+            with pytest.raises(PrettyplayError, match="invalid speed True"):
+                test.group("the paced block", speed=True)
 
     def test_group_exit_logs_finished_on_the_exception_path(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture

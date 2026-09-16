@@ -281,3 +281,41 @@ def test_settle_count_mode_sleeps_the_window_delay_per_repetition(
     settle(execute, "CODE", page, window)
 
     assert fake_time.sleep.call_args_list == [mock.call(0.25), mock.call(0.25)]
+
+
+def test_settle_count_mode_propagates_non_pollable_failure_immediately(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A non-pollable failure in the count mode propagates as the identical object — one execution."""
+    page = _fake_page()
+    original = PlaywrightError("strict mode violation: locator resolved to 2 elements")
+    execute = mock.Mock(side_effect=original)
+    window = SettleWindow(None, 0, tries=3)
+
+    with (
+        caplog.at_level(logging.INFO, logger="prettyplay"),
+        pytest.raises(PlaywrightError) as excinfo,
+    ):
+        settle(execute, "CODE", page, window)
+
+    assert excinfo.value is original
+    assert execute.call_count == 1  # the pollable filter applies in the count mode too
+    assert _retries(caplog) == []
+
+
+def test_settle_count_mode_tries_one_is_a_single_execution(caplog: pytest.LogCaptureFixture) -> None:
+    """tries=1 — the count includes the first execution, so even a pollable failure never repeats."""
+    page = _fake_page()
+    original = PlaywrightError("Timeout 1000ms exceeded")
+    execute = mock.Mock(side_effect=original)
+    window = SettleWindow(None, 0, tries=1)
+
+    with (
+        caplog.at_level(logging.INFO, logger="prettyplay"),
+        pytest.raises(PlaywrightError) as excinfo,
+    ):
+        settle(execute, "CODE", page, window)
+
+    assert excinfo.value is original
+    assert execute.call_count == 1  # executed(1) == tries(1) — no re-execution at the boundary
+    assert _retries(caplog) == []

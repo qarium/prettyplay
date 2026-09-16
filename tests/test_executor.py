@@ -1586,6 +1586,43 @@ class TestStepExecutorGroupCycle:
         assert steering.calls[0]["group_prompt"] == "the flow"  # the dialog receives the group context
         assert not events_named(fixture.recorder, "on_step_failed")  # healed — the step passed
 
+    @pytest.mark.parametrize("case", ["product-defect", "llm-unavailable"])
+    def test_group_routing_never_steers_on_product_defect_or_llm_unavailable(self, tmp_path: Path, case: str) -> None:
+        """A diagnosed product defect and a provider outage skip the dialog — the group twin of the gate rule."""
+        healed = CachedStep(
+            identity=StepIdentity(
+                cache_key="login-flow",
+                step_type="assertion",
+                normalized_text=normalize_step_text("the status shows order confirmed"),
+            ),
+            code=CACHED_CODE,
+            created_at="2026-09-08",
+        )
+        steering = RecordingSteering(healed=healed)  # the dialog would heal — the gate must refuse first
+
+        if case == "product-defect":
+            failure = ProductDefectError("s", "the banner is gone", "", FailureVerdict("product_defect", "e", "r"))
+            expected = ProductDefectError
+        else:  # llm-unavailable
+            failure = LLMUnavailableError("llm unavailable: openai request failed")
+            expected = LLMUnavailableError
+
+        recovery = RecordingRecovery(error=failure)
+        fixture = interactive_fixture(
+            tmp_path, RecordingGenerator(), RecordingHealer(), steering=steering, recovery=recovery
+        )
+        seed_cached_step(fixture, "the status shows order confirmed", code=BROKEN_CODE, step_type="assertion")
+        group = FakeGroup(prompt="the flow")
+
+        with pytest.raises(expected):
+            fixture.executor.execute(
+                "the status shows order confirmed", "assertion", FakePage(), group=group, tries=None, delay=None
+            )
+
+        assert steering.calls == []  # the intercept wraps exactly IncurableStepError — the kinds propagate raw
+        assert len(recovery.calls) == 1  # the recovery decided; its failure reached the runner untouched
+        assert events_named(fixture.recorder, "on_step_finished")[-1]["outcome"] == "failed"
+
     def test_strict_group_step_takes_the_classification_path_not_the_recovery(self, tmp_path: Path) -> None:
         """Strict mode wins over the group routing — the classification-only path as today (SC7's strict half)."""
         healed = CachedStep(

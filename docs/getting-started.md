@@ -140,7 +140,10 @@ test = PrettyPlay("login-flow", config=PrettyConfig(polling_timeout=8.0))
 ```
 
 Window semantics — which kinds poll, sizing, visibility and budgets:
-see [Settle polling](reference/settle-polling.md).
+see [Settle polling](reference/settle-polling.md). A single step can also
+swap the time bound for a count bound with the keyword-only `tries`
+parameter — `test.step("open the cart", tries=3)` — see
+[Writing steps](guides/writing-steps.md#step-parameters).
 
 ## Interactive steering
 

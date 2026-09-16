@@ -123,6 +123,11 @@ if budgets.try_generation(identity):
 - Defaults: 3 generation attempts, 2 healing attempts — configurable via
   `generation_attempts` / `healing_attempts` in the project settings
 - An exhausted budget is the incurable failure, never an infinite loop
+- Step groups add a per-group recovery-cycle cap — capped by
+  `healing_attempts`, keyed by the group prompt — and grant each row step a
+  fresh full healing pool per cycle; the ordinary per-step pools of non-group
+  steps are never consumed by a group recovery (see
+  [Groups](groups.md#budgets))
 - Budgets exist only in the memory of the running process — nothing is
   persisted
 

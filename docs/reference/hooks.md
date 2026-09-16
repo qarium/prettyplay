@@ -44,8 +44,8 @@ root, so `from prettyplay import StepHooks` works too.
 | `on_step_verdict` | the terminal failure carried a verdict (fires after on_step_failed) | step_text, category (rot, product_defect, fixable, incurable), explanation, recommendation |
 | `on_step_finished` | the step ended — the closing event of every step, fired exactly once regardless of outcome, after every other event | step_text, step_type, outcome (passed or failed) |
 | `on_generation_started` | a generation attempt started | step_text, attempt (1-based) |
-| `on_healing_started` | healing of a failed cached step started | step_text, category (rot, product_defect, fixable, incurable) |
-| `on_healed` | the step healed, cache updated | step_text, explanation (why the heal happened — the rot/fixable verdict, or the interactive engineer guidance) |
+| `on_healing_started` | healing of a failed cached step started | step_text, category (rot, product_defect, fixable, incurable, recoverable — a group recovery row, see [Groups](groups.md)) |
+| `on_healed` | the step healed, cache updated | step_text, explanation (why the heal happened — the rot/fixable verdict, the interactive engineer guidance, or the group diagnosis root cause) |
 | `on_cache_saved` | step code written to the cache | step_text, filename |
 | `on_cache_skipped` | cache write skipped | step_text, reason (e.g. read-only cache) |
 
@@ -85,7 +85,12 @@ including the verdict event — are logged at INFO; a skipped cache write, a
 failed hook call and the non-blocking compliance outcomes — WARNING. The
 steering dialog logs its openings, guidance lines and declines at INFO as
 `steering_opened`, `steering_guidance` and `steering_declined`; settle
-re-executions log at INFO as `settle_retry`. The compliance gate
+re-executions log at INFO as `settle_retry`. A group block frames itself
+with `group_started`/`group_finished` at INFO (the group prompt verbatim),
+its recovery logs the landed diagnosis as `group_diagnosed` at INFO and each
+recovered row step as `group_row_recovered` at INFO; a degraded diagnosis
+answer logs `group_diagnosis_degraded` at WARNING (see
+[Groups](groups.md)). The compliance gate
 logs its outcomes at WARNING: `compliance findings passed` — the medium and
 low findings a green candidate passed with, on the generation path and in the
 steering dialog alike — and `compliance gate failed` — a gate hard failure

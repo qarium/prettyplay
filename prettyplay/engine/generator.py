@@ -628,7 +628,6 @@ class StepGenerator:
             step_text,
             step_type,
             previous_steps,
-            group_prompt,
             page,
             history,
             verdict.recommendation,
@@ -761,7 +760,6 @@ class StepGenerator:
             step_text,
             step_type,
             previous_steps,
-            group_prompt,
             page,
             history,
             verdict.recommendation,
@@ -780,7 +778,6 @@ class StepGenerator:
         step_text: str,
         step_type: str,
         previous_steps: list[ScenarioStep],
-        group_prompt: str | None,
         page: PageFacade,
         history: list[StepAttempt],
         recommendation: str,
@@ -808,9 +805,6 @@ class StepGenerator:
             step_type: action or assertion — carried into the request.
             previous_steps: the typed scenario records of the previous steps
                 of the test, in execution order.
-            group_prompt: the group prompt of the current step's group;
-                threaded into the request — the funded path only runs for an
-                ordinary step (None), the group branches raise before it.
             page: the live page facade the candidate runs against.
             history: the per-step attempt history — the request carries it
                 grown; the funded attempt's own failure appends its record.
@@ -833,7 +827,8 @@ class StepGenerator:
         attempt += 1
         self._emit_generation_started(step_text, attempt)
 
-        code = self._request(step_text, step_type, previous_steps, group_prompt, page, history, recommendation)
+        # the funded path only runs for an ordinary step — the group branches raise before it
+        code = self._request(step_text, step_type, previous_steps, None, page, history, recommendation)
         url_before = _read_url(page)
         try:
             settle(run_step_code, code, page, window)

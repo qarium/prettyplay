@@ -186,8 +186,9 @@ class GroupRecovery:
                     FailureVerdict(verdict.category, explanation, verdict.recommendation),
                 )
 
-            if outside is not None:
-                # the quoted root lives outside the group — recovery is out of mandate
+            if outside is not None and quoted_index is None:
+                # the quoted root lives outside the group — recovery is out of mandate; a quote
+                # that matched a group step names the row start first, never the outside raise
                 explanation = f"{_OUTSIDE_ROOT} — {outside}"
                 raise IncurableStepError(
                     step_text,

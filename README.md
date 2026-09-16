@@ -109,6 +109,11 @@ crossing with a loud error instead of a deadlock.
   - `product_defect` — the test fails loudly; nothing is regenerated
   - `incurable` — the step fails with an explanation and a recommendation
 
+A step authored inside a **group block** never takes this per-step path on a
+non-strict run: its failure routes to the group recovery — one diagnosis of
+the whole group drives a group-scoped regeneration row (see
+[Step groups](#step-groups)).
+
 Every execution of step code in the step cycle — cached code and
 generation/healing candidates alike — runs under the **settle window** (see
 [Settle polling](#settle-polling)): a transient page-state failure re-executes
@@ -140,6 +145,46 @@ budget is consumed. Locator ambiguity and Python-level errors of the step
 code (syntax, names, types) never poll. Size the window above the longest
 auto-wait it must absorb (6.0 covers one exhausted 5 s expectation plus one
 re-execution).
+
+Every step also takes two keyword-only parameters: `tries` replaces the time
+bound with a count bound for that step (`t.step("open the cart", tries=3)` —
+at most 3 executions in total, the first included; exhaustion propagates the
+failure, the step never stays green on retries alone), and `delay` is a
+quiet pause in seconds before the step's code runs
+(`t.expect("the total updates", delay=1.5)` — the step's `on_step_started`
+event fires, then the pause, then the code). Invalid values fail loudly at
+the call, before any page or LLM involvement.
+
+## Step groups
+
+Steps that form one coherent mini-scenario can be authored as a group with a
+shared goal — the group prompt:
+
+```python
+with t.group("the checkout flow", speed=50, delay=2) as g:
+    g.step("accept the cookie banner")
+    g.step("fill the email field")
+    g.expect("the order confirmation appears")
+```
+
+Inside the block the surface is the ordinary one — `g.step`/`g.expect` with
+the `tries`/`delay` parameters — and group membership changes nothing about
+addressing: a group step lands at the same cache address it would outside
+the block, replays LLM-free, and steps outside the block are ordinary steps
+(no ambient rerouting). What changes is failure handling on a non-strict run:
+a failed group step is diagnosed once against the whole interaction — the
+group prompt, every step trace and the failed step's attempt history — and
+the verdict drives a group-scoped recovery row that regenerates the affected
+steps forward on the current page, through the same compliance gate and
+per-step cache write-back as every caching path. A diagnosed product defect
+still fails the test loudly; a root outside the group ends the run honestly;
+recovery cycles per group per test are capped (never an infinite loop). The
+`speed`/`delay` group parameters pace the block — `delay` pauses quietly
+before the first step, `speed` (0–100) inserts
+`int((100 − speed) × 30)` ms between steps as a plain library wait.
+
+See the [Groups reference](https://qarium.github.io/prettyplay/reference/groups/)
+for the recovery cycle, the budgets and the log records.
 
 ## Interactive steering
 
@@ -213,6 +258,7 @@ screen = ""                      # "" | WxH | fullscreen | Playwright device nam
 headless = true                  # false -> run with a visible browser window
 endpoint = ""                    # ws:// endpoint of a remote browser; empty -> local launch
 accept_dialogs = false           # true -> accept (else dismiss) dialogs no in-step capture claims
+speed = 100                      # pace of the run, 0-100 %; 100 -> full speed (default)
 ```
 
 The old flat keys `browser`, `headless` and `browser_endpoint` at the
@@ -281,12 +327,24 @@ Every setting has a `PRETTYPLAY_<SETTING_UPPER>` environment override for CI —
 including `PRETTYPLAY_STRICT` and `PRETTYPLAY_CLASSIFICATION_PROMPT` — and the
 browser group reads the flat `PRETTYPLAY_BROWSER_NAME`,
 `PRETTYPLAY_BROWSER_SCREEN`, `PRETTYPLAY_BROWSER_HEADLESS`,
-`PRETTYPLAY_BROWSER_ENDPOINT` and `PRETTYPLAY_BROWSER_ACCEPT_DIALOGS`. Env
+`PRETTYPLAY_BROWSER_ENDPOINT`, `PRETTYPLAY_BROWSER_ACCEPT_DIALOGS` and
+`PRETTYPLAY_BROWSER_SPEED`. Env
 values parse by the field type: booleans
 accept `true/false/1/0` case-insensitively, integers parse as decimals, floats
 (the polling settings) parse as decimal floats, and an
 unparseable value fails loudly with a `ConfigurationError` naming the setting,
 the received value and the accepted form.
+
+### Pace
+
+`speed` of the browser group (0–100 inclusive, default 100) controls how fast
+the browser executes the run: 100 — full speed, lower values slow the run
+down linearly through Playwright's native `slow_mo`
+(`int((100 − speed) × 30)` ms between browser operations). One value per
+test, fixed at browser start in every launch mode — local headed, local
+headless and remote connects alike. An out-of-range or malformed value fails
+at configuration load naming `browser.speed`, the received value and the
+accepted form (an integer 0-100 inclusive).
 
 An invalid setting fails loudly with a `ConfigurationError`: one line per
 setting — the name, the received value and the allowed values.
@@ -395,5 +453,6 @@ silently generating.
 
 ## Limitations
 
-Step sentences land in the repository cache, the logs and the LLM requests:
-never put secrets or personal data into a step.
+Step sentences and group prompts land in the repository cache, the logs and
+the LLM requests: never put secrets or personal data into a step or a group
+prompt.

@@ -24,7 +24,7 @@ on the first request.
 |---|---|---|
 | `model` | the main model for both operations | — |
 | `generation_model` | code generation only | `model` |
-| `classification_model` | failure classification and the compliance gate | `model` |
+| `classification_model` | failure classification, the group diagnosis and the compliance gate | `model` |
 
 The compliance gate runs on the effective classification model
 (`classification_model` or `model`) — never on the model that wrote the
@@ -34,8 +34,9 @@ candidate.
 
 ## Parity
 
-Both providers expose the same three operations — `generate_step_code`,
-`classify_failure` and `check_instruction_compliance` — with identical inputs,
+Both providers expose the same four operations — `generate_step_code`,
+`classify_step_failure`, `classify_group_failure` and
+`check_instruction_compliance` — with identical inputs,
 identical output shapes and the identical failure taxonomy: a provider service
 failure raises `LLMUnavailableError`; cached step code never depends on the
 provider. One request per attempt; attempt budgets belong to the calling
@@ -62,6 +63,14 @@ message of the interactive steering, when present) — rendered in this fixed
 order, identically in both providers. An unset input renders no block.
 Unrecognized classification labels fall back to `incurable` in both
 providers alike.
+
+Group framing parity: a generation, regeneration or guided request of a step
+inside a group carries the group framing — a `GROUP PROMPT` block with the
+group prompt verbatim, rendered immediately before the `PREVIOUS STEPS`
+block, whose group entries are marked (`- {sentence} [group step —
+{group prompt}]`; ordinary entries render as the plain sentence). `None`
+renders no block and no marking, identically in both providers. The framing
+is an input of the request, never a capability difference.
 
 Page-URL parity: a generation request may carry the current page URL — a
 non-empty `page_url` renders as its own `PAGE URL` line immediately after
@@ -94,7 +103,7 @@ downstream in execution.
 ## Classification
 
 ```python
-classification = provider.classify_failure(
+classification = provider.classify_step_failure(
     prompt=system_prompt,  # the system prompt text comes from the calling engine
     user_instructions="",  # the classification instructions from the classification_prompt setting; empty — no block
     step_text="click the «Sign in» button",
@@ -113,6 +122,18 @@ The classification categories — `rot`, `product_defect`, `fixable`,
 A non-empty `user_instructions` renders as a separate `USER INSTRUCTIONS`
 block in the request — the final block of the user content, after all
 classification inputs.
+
+## The group diagnosis operation
+
+`classify_group_failure` is the diagnosis request of the group recovery (see
+[Groups](groups.md)): one request per recovery cycle, carrying the group
+prompt verbatim, the composed traces of the group's steps, the failed step's
+sentence and attempt history, the page snapshot and the optional screenshot —
+sent through the effective classification model (`classification_model` or
+`model`) with the project's `classification_prompt` instructions, full parity
+between the providers. The answer parses strictly; a degraded answer maps to
+the conservative `incurable` with the raw answer logged — never a granted
+regeneration.
 
 ## The compliance operation
 
