@@ -698,12 +698,12 @@ strictly through `parse_group_failure_classification` inside the provider implem
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: in `tests/llm/test_provider.py` — the port exposes
+- [x] **Contract tests**: in `tests/llm/test_provider.py` — the port exposes
   `generate_step_code` (widened signature), `classify_step_failure` (renamed; `classify_failure`
   absent), `classify_group_failure`, `check_instruction_compliance`; in
   `tests/llm/test_openai_provider.py` and `tests/llm/test_anthropic_provider.py` — both
   implementations expose all four operations (expected to fail at this stage)
-- [ ] **Code**: `prettyplay/llm/provider.py` — widen `generate_step_code` (typed
+- [x] **Code**: `prettyplay/llm/provider.py` — widen `generate_step_code` (typed
   `previous_steps`, `group_prompt` in the contract position), rename `classify_failure` →
   `classify_step_failure`, add the `classify_group_failure` abstract method; `_request.py` —
   `build_fields_text(+group_prompt, typed previous_steps)` with the GROUP PROMPT section and the
@@ -711,8 +711,8 @@ strictly through `parse_group_failure_classification` inside the provider implem
   `openai_provider.py`/`anthropic_provider.py` — thread the new inputs, implement the diagnosis
   operation (classification model, SDK image part, parse through
   `parse_group_failure_classification`, SDK error → `LLMUnavailableError`)
-- [ ] **Interface verification**: `pytest tests/llm/ -q` — all pass
-- [ ] **Logic tests** — the design scenario, verbatim, plus the parity/rename pins:
+- [x] **Interface verification**: `pytest tests/llm/ -q` — all pass
+- [x] **Logic tests** — the design scenario, verbatim, plus the parity/rename pins:
   - `test_typed_scenario_records_render_marked_and_plain`: Setup — `build_fields_text` with a
     mixed record list; `group_prompt=None` and set. Input — `[ScenarioStep("open the login page",
     ""), ScenarioStep("fill the email field", "the order form group")]`. Trace — with
@@ -734,11 +734,11 @@ strictly through `parse_group_failure_classification` inside the provider implem
     (existing classification tests repointed, green).
   - Byte-identity (C13): every existing `build_fields_text`/provider test with ordinary inputs
     stays green unchanged.
-- [ ] **Debugging**: `pytest tests/llm/ -q` — fix implementation code until all tests pass (do NOT fix test code)
-- [ ] **Contract re-verification**: facade — `python -c "from prettyplay.llm import LLMProvider,
+- [x] **Debugging**: `pytest tests/llm/ -q` — fix implementation code until all tests pass (do NOT fix test code)
+- [x] **Contract re-verification**: facade — `python -c "from prettyplay.llm import LLMProvider,
   create_provider, OpenAIProvider, AnthropicProvider"`; the one-request-per-attempt rule covers
   the diagnosis; the new inputs take no part in step addressing
-- [ ] **Lint**: `ruff check prettyplay/llm tests/llm && ruff format --check prettyplay/llm tests/llm`
+- [x] **Lint**: `ruff check prettyplay/llm tests/llm && ruff format --check prettyplay/llm tests/llm`
 
 ### Task 7: `RunBudgets.refresh_healing` + `open_group_cycle` (cache)
 

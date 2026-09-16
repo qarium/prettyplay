@@ -10,13 +10,21 @@ from ._request import (
     build_classification_fields,
     build_compliance_fields,
     build_fields_text,
+    build_group_diagnosis_fields,
     encode_screenshot,
     extract_code_block,
     parse_classification_line,
     require_completion_text,
     unparsable_classification,
 )
-from .models import ComplianceFinding, FailureClassification, parse_compliance_verdict
+from .models import (
+    ComplianceFinding,
+    FailureClassification,
+    GroupFailureClassification,
+    ScenarioStep,
+    parse_compliance_verdict,
+    parse_group_failure_classification,
+)
 from .provider import LLMProvider
 
 #: The anthropic Messages API requires ``max_tokens`` on every request — the
@@ -46,9 +54,10 @@ def _first_text_block(response: object) -> str | None:
 class AnthropicProvider(LLMProvider):
     """The LLMProvider implementation served by the anthropic SDK.
 
-    Full parity with :class:`OpenAIProvider`: the same three operations
-    (generation, classification, compliance verdict), the same inputs, the
-    same output shapes. The constructor reads no environment and
+    Full parity with :class:`OpenAIProvider`: the same four operations
+    (generation, classification, group diagnosis, compliance verdict), the
+    same inputs, the same output shapes. The constructor reads no
+    environment and
     constructs no client; the SDK client is created lazily on the first
     request, so the library starts without LLM credentials. Every service
     failure maps to :class:`~prettyplay.failures.LLMUnavailableError`
@@ -118,7 +127,8 @@ class AnthropicProvider(LLMProvider):
         user_instructions: str,
         step_text: str,
         step_type: str,
-        previous_steps: list[str],
+        previous_steps: list[ScenarioStep],
+        group_prompt: str | None,
         snapshot: str,
         page_url: str | None,
         screenshot: bytes | None,
@@ -142,8 +152,16 @@ class AnthropicProvider(LLMProvider):
             step_type: the type of the step; rendered as a STEP TYPE line
                 immediately before the STEP line, identically to the openai
                 implementation; takes no part in step addressing.
-            previous_steps: the sentences of the previous steps of the test,
-                in execution order — scenario context.
+            previous_steps: the typed scenario records of the previous steps
+                of the test, in execution order — each the raw sentence plus
+                its permanent group membership; rendered as the PREVIOUS
+                STEPS block with the group entries marked, identically to
+                the openai implementation.
+            group_prompt: the group prompt of the current step's group;
+                None — an ordinary step, no GROUP PROMPT block; non-empty —
+                rendered verbatim as a separate GROUP PROMPT block
+                immediately before the PREVIOUS STEPS block, identically to
+                the openai implementation; takes no part in step addressing.
             snapshot: the accessibility snapshot of the current page.
             page_url: the current URL of the page; non-empty — rendered as
                 its own PAGE URL line immediately after the PAGE SNAPSHOT
@@ -190,6 +208,7 @@ class AnthropicProvider(LLMProvider):
             step_text=step_text,
             step_type=step_type,
             previous_steps=previous_steps,
+            group_prompt=group_prompt,
             snapshot=snapshot,
             page_url=page_url,
             cheat_sheet=cheat_sheet,
@@ -210,7 +229,7 @@ class AnthropicProvider(LLMProvider):
 
         return extract_code_block(require_completion_text(_first_text_block(response), "anthropic"))
 
-    def classify_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
+    def classify_step_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
         prompt: str,
         user_instructions: str,
@@ -220,7 +239,7 @@ class AnthropicProvider(LLMProvider):
         snapshot: str,
         screenshot: bytes | None,
     ) -> FailureClassification:
-        """Classify a failed cached step.
+        """Classify a failed cached step — the former classify_failure, renamed nominally.
 
         Args:
             prompt: the system prompt text supplied by the calling engine;
@@ -265,6 +284,81 @@ class AnthropicProvider(LLMProvider):
 
         category, explanation, recommendation = parsed
         return FailureClassification(category=category, explanation=explanation, recommendation=recommendation)
+
+    def classify_group_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
+        self,
+        prompt: str,
+        user_instructions: str,
+        group_prompt: str,
+        group_steps: list[str],
+        step_text: str,
+        attempt_history: list[str],
+        snapshot: str,
+        screenshot: bytes | None,
+    ) -> GroupFailureClassification:
+        """Diagnose a failed group step with the whole interaction in view.
+
+        The group diagnosis request of the recovery: the user content
+        carries the GROUP PROMPT, GROUP STEPS, STEP, HISTORY (when
+        non-empty) and PAGE SNAPSHOT blocks in this fixed order with the
+        optional USER INSTRUCTIONS block last; the screenshot rides the
+        anthropic image part exactly like every attached image; sent as one
+        request through the effective classification model under the fixed
+        ``max_tokens`` cap; the text answer parses strictly through
+        ``parse_group_failure_classification`` — an unusable answer
+        degrades to the conservative incurable inside the provider, never
+        raising across the port. Identically to the openai implementation.
+
+        Args:
+            prompt: the group diagnosis system prompt supplied by the calling
+                engine; applied verbatim as the system parameter.
+            user_instructions: the project's classification guidance from
+                the classification_prompt setting; empty — the request
+                carries no instructions block, non-empty — rendered verbatim
+                as a separate USER INSTRUCTIONS block placed last of the
+                user content, identically to the openai implementation.
+            group_prompt: the group prompt of the diagnosed group, verbatim.
+            group_steps: the composed verbatim traces of the group's steps
+                in execution order — each the sentence, the outcome and the
+                URL before -> after transition, supplied by the calling
+                engine.
+            step_text: the raw sentence of the failed step.
+            attempt_history: the rendered verbatim records of the failed
+                step's attempt history; non-empty — rendered as a separate
+                HISTORY block, every record verbatim, no collapsing, no size
+                limits; empty — no block.
+            snapshot: the accessibility snapshot of the current page.
+            screenshot: an optional PNG image of the page; passed only when
+                the project enables screenshots.
+
+        Returns:
+            The diagnosis verdict; a degraded answer carries the
+            conservative incurable with the raw answer in root_cause.
+
+        Raises:
+            LLMUnavailableError: the SDK client is unavailable or the
+                service request failed.
+        """
+        text = build_group_diagnosis_fields(
+            user_instructions=user_instructions,
+            group_prompt=group_prompt,
+            group_steps=group_steps,
+            step_text=step_text,
+            attempt_history=attempt_history,
+            snapshot=snapshot,
+        )
+
+        try:
+            response = self._get_client().messages.create(
+                model=self._config.effective_classification_model,
+                system=prompt,
+                max_tokens=REQUEST_MAX_TOKENS,
+                messages=[{"role": "user", "content": self._user_content(text, screenshot)}],
+            )
+        except AnthropicError as sdk_error:
+            raise LLMUnavailableError("llm unavailable: anthropic request failed") from sdk_error
+
+        return parse_group_failure_classification(require_completion_text(_first_text_block(response), "anthropic"))
 
     def check_instruction_compliance(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,

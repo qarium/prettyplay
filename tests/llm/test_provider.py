@@ -7,7 +7,7 @@ from unittest import mock
 
 import pytest
 from prettyplay.config import Config
-from prettyplay.llm import AnthropicProvider, LLMProvider, OpenAIProvider, create_provider
+from prettyplay.llm import AnthropicProvider, LLMProvider, OpenAIProvider, ScenarioStep, create_provider
 
 GENERATE_STEP_CODE_PARAMS = [
     "self",
@@ -16,6 +16,7 @@ GENERATE_STEP_CODE_PARAMS = [
     "step_text",
     "step_type",
     "previous_steps",
+    "group_prompt",
     "snapshot",
     "page_url",
     "screenshot",
@@ -24,13 +25,24 @@ GENERATE_STEP_CODE_PARAMS = [
     "recommendation",
     "guidance",
 ]
-CLASSIFY_FAILURE_PARAMS = [
+CLASSIFY_STEP_FAILURE_PARAMS = [
     "self",
     "prompt",
     "user_instructions",
     "step_text",
     "code",
     "error",
+    "snapshot",
+    "screenshot",
+]
+CLASSIFY_GROUP_FAILURE_PARAMS = [
+    "self",
+    "prompt",
+    "user_instructions",
+    "group_prompt",
+    "group_steps",
+    "step_text",
+    "attempt_history",
     "snapshot",
     "screenshot",
 ]
@@ -60,10 +72,16 @@ class TestLLMProviderContract:
         assert list(signature.parameters) == GENERATE_STEP_CODE_PARAMS
         assert signature.return_annotation is str
 
-    def test_classify_failure_signature(self) -> None:
-        signature = inspect.signature(LLMProvider.classify_failure)
+    def test_classify_step_failure_signature(self) -> None:
+        signature = inspect.signature(LLMProvider.classify_step_failure)
 
-        assert list(signature.parameters) == CLASSIFY_FAILURE_PARAMS
+        assert list(signature.parameters) == CLASSIFY_STEP_FAILURE_PARAMS
+        assert signature.return_annotation is not inspect.Signature.empty
+
+    def test_classify_group_failure_signature(self) -> None:
+        signature = inspect.signature(LLMProvider.classify_group_failure)
+
+        assert list(signature.parameters) == CLASSIFY_GROUP_FAILURE_PARAMS
         assert signature.return_annotation is not inspect.Signature.empty
 
     def test_check_instruction_compliance_signature(self) -> None:
@@ -78,9 +96,36 @@ class TestLLMProviderContract:
                 CHECK_INSTRUCTION_COMPLIANCE_PARAMS
             ), owner.__name__
 
-    def test_classify_failure_signature_carries_user_instructions(self) -> None:
+    def test_classify_step_failure_signature_on_every_implementation(self) -> None:
         for owner in (LLMProvider, OpenAIProvider, AnthropicProvider):
-            parameters = inspect.signature(owner.classify_failure).parameters
+            assert list(inspect.signature(owner.classify_step_failure).parameters) == (CLASSIFY_STEP_FAILURE_PARAMS), (
+                owner.__name__
+            )
+
+    def test_classify_group_failure_signature_on_every_implementation(self) -> None:
+        for owner in (LLMProvider, OpenAIProvider, AnthropicProvider):
+            assert list(inspect.signature(owner.classify_group_failure).parameters) == (
+                CLASSIFY_GROUP_FAILURE_PARAMS
+            ), owner.__name__
+
+    def test_the_port_exposes_exactly_the_four_operations(self) -> None:
+        for owner in (LLMProvider, OpenAIProvider, AnthropicProvider):
+            for operation in (
+                "generate_step_code",
+                "classify_step_failure",
+                "classify_group_failure",
+                "check_instruction_compliance",
+            ):
+                assert callable(getattr(owner, operation)), (owner.__name__, operation)
+
+    def test_the_old_classify_failure_name_is_gone_everywhere(self) -> None:
+        for owner in (LLMProvider, OpenAIProvider, AnthropicProvider):
+            with pytest.raises(AttributeError):
+                getattr(owner, "classify_" + "failure")  # the dead name, assembled — no literal
+
+    def test_classify_step_failure_signature_carries_user_instructions(self) -> None:
+        for owner in (LLMProvider, OpenAIProvider, AnthropicProvider):
+            parameters = inspect.signature(owner.classify_step_failure).parameters
             names = list(parameters)
 
             assert names[names.index("prompt") + 1] == "user_instructions", owner.__name__
@@ -94,10 +139,13 @@ class TestLLMProviderContract:
             expected_tail = ["attempt_history", "recommendation", "guidance"]
             assert names[names.index("cheat_sheet") + 1 :] == expected_tail, owner.__name__
             assert parameters["step_type"].annotation is str, owner.__name__
-            assert parameters["attempt_history"].annotation == parameters["previous_steps"].annotation, owner.__name__
+            assert parameters["previous_steps"].annotation == list[ScenarioStep], owner.__name__
+            assert parameters["group_prompt"].annotation == parameters["page_url"].annotation, owner.__name__
             assert parameters["recommendation"].annotation == parameters["page_url"].annotation, owner.__name__
             assert parameters["guidance"].annotation == parameters["page_url"].annotation, owner.__name__
-            for name in ("step_type", "attempt_history", "recommendation", "guidance"):
+            assert names[names.index("previous_steps") + 1] == "group_prompt", owner.__name__
+            assert names[names.index("group_prompt") + 1] == "snapshot", owner.__name__
+            for name in ("step_type", "group_prompt", "attempt_history", "recommendation", "guidance"):
                 assert parameters[name].default is inspect.Signature.empty, (owner.__name__, name)
 
     def test_generate_step_code_signature_drops_the_removed_regeneration_inputs(self) -> None:
@@ -138,6 +186,7 @@ class TestLLMProviderContract:
                 step_text="s",
                 step_type="action",
                 previous_steps=[],
+                group_prompt=None,
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
@@ -148,12 +197,24 @@ class TestLLMProviderContract:
             )
 
         with pytest.raises(NotImplementedError):
-            port.classify_failure(
+            port.classify_step_failure(
                 prompt="p",
                 user_instructions="",
                 step_text="s",
                 code="c",
                 error="e",
+                snapshot="- snap",
+                screenshot=None,
+            )
+
+        with pytest.raises(NotImplementedError):
+            port.classify_group_failure(
+                prompt="p",
+                user_instructions="",
+                group_prompt="the checkout flow",
+                group_steps=["trace record"],
+                step_text="s",
+                attempt_history=[],
                 snapshot="- snap",
                 screenshot=None,
             )
@@ -286,7 +347,7 @@ class TestClassificationInstructionsPlacement:
             client, requests = make_client(CLASSIFICATION_ANSWER)
 
             with mock.patch.object(provider, "_get_client", return_value=client):
-                classification = provider.classify_failure(
+                classification = provider.classify_step_failure(
                     prompt="sys",
                     user_instructions="be terse",
                     step_text="s",
@@ -305,7 +366,7 @@ class TestClassificationInstructionsPlacement:
             empty_client, empty_requests = make_client(CLASSIFICATION_ANSWER)
 
             with mock.patch.object(provider, "_get_client", return_value=empty_client):
-                provider.classify_failure(
+                provider.classify_step_failure(
                     prompt="sys",
                     user_instructions="",
                     step_text="s",
@@ -327,6 +388,7 @@ class TestClassificationInstructionsPlacement:
                     step_text="s",
                     step_type="action",
                     previous_steps=[],
+                    group_prompt=None,
                     snapshot="snap",
                     page_url=None,
                     screenshot=None,
@@ -382,7 +444,8 @@ class TestNewInputsParity:
                     user_instructions="be terse",
                     step_text="s",
                     step_type="assertion",
-                    previous_steps=["step one"],
+                    previous_steps=[ScenarioStep(sentence="step one")],
+                    group_prompt=None,
                     snapshot="snap",
                     page_url=self.PAGE_URL,
                     screenshot=None,
@@ -431,3 +494,98 @@ class TestNewInputsParity:
                 < text.index("ATTEMPT HISTORY:")
                 < text.index("CODE:")
             )
+
+
+DIAGNOSIS_ANSWER = (
+    '{"category": "recoverable", "root_cause": "the fill step used a stale locator", '
+    '"earliest_step": "fill the email field", "recommendation": "regenerate the row from the fill step"}'
+)
+GARBAGE_DIAGNOSIS_ANSWER = "the app is broken"
+
+
+class TestGroupDiagnosisParity:
+    """Logic tests: the diagnosis operation routes identically in both providers."""
+
+    GROUP_STEPS: ClassVar[list[str]] = [
+        "accept the cookie banner\noutcome: passed\nurl: https://a.example -> https://a.example",
+        "the status shows order confirmed\noutcome: failed\nurl: https://a.example -> https://b.example",
+    ]
+    ATTEMPT_HISTORY: ClassVar[list[str]] = [
+        "execution failed\nurl: https://a.example -> https://b.example\ncode:\n...\nerror:\nboom"
+    ]
+
+    def test_diagnosis_routes_through_the_classification_model_in_both_providers(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "test")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+
+        diagnosis_texts = []
+
+        for provider, make_client in (
+            (OpenAIProvider(Config(model="gpt-5", classification_model="the-classifier")), _openai_client),
+            (
+                AnthropicProvider(Config(model="claude-sonnet-4-5", classification_model="the-classifier")),
+                _anthropic_client,
+            ),
+        ):
+            client, requests = make_client(DIAGNOSIS_ANSWER)
+
+            with mock.patch.object(provider, "_get_client", return_value=client):
+                verdict = provider.classify_group_failure(
+                    prompt="diagnosis system prompt",
+                    user_instructions="be terse",
+                    group_prompt="the checkout flow",
+                    group_steps=self.GROUP_STEPS,
+                    step_text="the status shows order confirmed",
+                    attempt_history=self.ATTEMPT_HISTORY,
+                    snapshot="- snap",
+                    screenshot=None,
+                )
+
+            assert len(requests) == 1  # one request per diagnosis
+            assert requests[0]["model"] == "the-classifier"  # effective classification model, both providers
+            assert verdict.category == "recoverable"
+            assert verdict.degraded is False
+            assert verdict.earliest_step == "fill the email field"
+            diagnosis_texts.append(requests[0]["messages"][-1]["content"])
+
+        # parity: one shared builder — identical inputs render identical user text, field for field
+        assert diagnosis_texts[0] == diagnosis_texts[1]
+
+        for text in diagnosis_texts:
+            assert (
+                text.index("GROUP PROMPT:\nthe checkout flow")
+                < text.index("GROUP STEPS:\n")
+                < text.index("STEP:\nthe status shows order confirmed")
+                < text.index("HISTORY:\n")
+                < text.index("PAGE SNAPSHOT:\n- snap")
+                < text.index("USER INSTRUCTIONS:\nbe terse")
+            )  # the fixed diagnosis order, instructions last
+
+    def test_garbage_diagnosis_answer_degrades_inside_the_provider(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "test")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+
+        for provider, make_client in (
+            (OpenAIProvider(Config(model="gpt-5")), _openai_client),
+            (AnthropicProvider(Config(model="claude-sonnet-4-5")), _anthropic_client),
+        ):
+            client, requests = make_client(GARBAGE_DIAGNOSIS_ANSWER)
+
+            with mock.patch.object(provider, "_get_client", return_value=client):
+                verdict = provider.classify_group_failure(  # never raises across the port
+                    prompt="diagnosis system prompt",
+                    user_instructions="",
+                    group_prompt="the checkout flow",
+                    group_steps=self.GROUP_STEPS,
+                    step_text="the status shows order confirmed",
+                    attempt_history=[],
+                    snapshot="- snap",
+                    screenshot=None,
+                )
+
+            assert verdict.category == "incurable"
+            assert verdict.degraded is True
+            assert verdict.root_cause == GARBAGE_DIAGNOSIS_ANSWER  # the raw answer rides the verdict
+            assert len(requests) == 1  # one request per diagnosis — the degradation adds no retry

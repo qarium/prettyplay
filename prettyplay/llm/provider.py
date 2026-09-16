@@ -1,11 +1,11 @@
 """The unified LLM port of the library and the provider factory."""
 
 from ..config import Config
-from .models import ComplianceFinding, FailureClassification
+from .models import ComplianceFinding, FailureClassification, GroupFailureClassification, ScenarioStep
 
 
 class LLMProvider:
-    """The single LLM port: step code generation, failure classification and the compliance verdict.
+    """The single LLM port: step code generation, failure classification, the group diagnosis and the verdict.
 
     One contract, two interchangeable SDK implementations selected by
     configuration — the provider choice is never a capability difference.
@@ -21,7 +21,8 @@ class LLMProvider:
         user_instructions: str,
         step_text: str,
         step_type: str,
-        previous_steps: list[str],
+        previous_steps: list[ScenarioStep],
+        group_prompt: str | None,
         snapshot: str,
         page_url: str | None,
         screenshot: bytes | None,
@@ -45,8 +46,17 @@ class LLMProvider:
             step_type: the type of the step; rendered as a STEP TYPE line
                 immediately before the STEP line, identically in both
                 implementations; takes no part in step addressing.
-            previous_steps: the sentences of the previous steps of the test,
-                in execution order — scenario context.
+            previous_steps: the typed scenario records of the previous steps
+                of the test, in execution order — each the raw sentence plus
+                its permanent group membership; rendered by the provider
+                implementations as the PREVIOUS STEPS block with the group
+                entries marked, identically in both.
+            group_prompt: the group prompt of the current step's group;
+                None — an ordinary step, no GROUP PROMPT block; non-empty —
+                rendered by the provider implementations verbatim as a
+                separate GROUP PROMPT block immediately before the PREVIOUS
+                STEPS block, identically in both; takes no part in step
+                addressing.
             snapshot: the accessibility snapshot of the current page.
             page_url: the current URL of the page; non-empty — rendered by
                 the provider implementations as its own PAGE URL line
@@ -88,7 +98,7 @@ class LLMProvider:
         """
         raise NotImplementedError("LLMProvider is a port; use create_provider() to select an implementation")
 
-    def classify_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
+    def classify_step_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
         prompt: str,
         user_instructions: str,
@@ -98,7 +108,7 @@ class LLMProvider:
         snapshot: str,
         screenshot: bytes | None,
     ) -> FailureClassification:
-        """Classify a failed cached step.
+        """Classify a failed cached step — the former classify_failure, renamed nominally.
 
         Args:
             prompt: the system prompt text supplied by the calling engine;
@@ -117,6 +127,59 @@ class LLMProvider:
 
         Returns:
             The classification verdict.
+
+        Raises:
+            NotImplementedError: the port itself carries no implementation.
+        """
+        raise NotImplementedError("LLMProvider is a port; use create_provider() to select an implementation")
+
+    def classify_group_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
+        self,
+        prompt: str,
+        user_instructions: str,
+        group_prompt: str,
+        group_steps: list[str],
+        step_text: str,
+        attempt_history: list[str],
+        snapshot: str,
+        screenshot: bytes | None,
+    ) -> GroupFailureClassification:
+        """Diagnose a failed group step with the whole interaction in view.
+
+        The fourth port operation, in absolute parity across the
+        implementations: one request per diagnosis carrying the group
+        prompt, the group step traces, the failed step's sentence and
+        attempt history, the page snapshot and the optional screenshot —
+        sent through the effective classification model; the answer parses
+        strictly through
+        :func:`~prettyplay.llm.parse_group_failure_classification`; a
+        degraded answer is the conservative incurable, never a granted
+        regeneration.
+
+        Args:
+            prompt: the group diagnosis system prompt supplied by the calling
+                engine; applied verbatim as the system message.
+            user_instructions: the project's classification guidance supplied
+                by the calling engine from the classification_prompt setting;
+                the diagnosis request carries them exactly as a classification
+                request does — empty, no instructions block; non-empty,
+                rendered verbatim as a separate USER INSTRUCTIONS block placed
+                last of the user content, identically in both implementations.
+            group_prompt: the group prompt of the diagnosed group, verbatim.
+            group_steps: the composed verbatim traces of the group's steps in
+                execution order — each the sentence, the outcome and the URL
+                before -> after transition, supplied by the calling engine.
+            step_text: the raw sentence of the failed step.
+            attempt_history: the rendered verbatim records of the failed
+                step's attempt history; non-empty — rendered as a separate
+                HISTORY block, every record verbatim, no collapsing, no size
+                limits; empty — no block.
+            snapshot: the accessibility snapshot of the current page.
+            screenshot: an optional PNG image of the page; passed only when
+                the project enables screenshots.
+
+        Returns:
+            The diagnosis verdict.
 
         Raises:
             NotImplementedError: the port itself carries no implementation.

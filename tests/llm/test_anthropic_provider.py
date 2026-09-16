@@ -9,7 +9,7 @@ import pytest
 from anthropic import AnthropicError
 from prettyplay.config import Config
 from prettyplay.failures import ComplianceVerdictError, LLMUnavailableError, PrettyplayError
-from prettyplay.llm import AnthropicProvider, LLMProvider
+from prettyplay.llm import AnthropicProvider, LLMProvider, ScenarioStep
 from prettyplay.llm._request import build_compliance_fields
 
 GENERATE_STEP_CODE_PARAMS = [
@@ -19,6 +19,7 @@ GENERATE_STEP_CODE_PARAMS = [
     "step_text",
     "step_type",
     "previous_steps",
+    "group_prompt",
     "snapshot",
     "page_url",
     "screenshot",
@@ -27,13 +28,24 @@ GENERATE_STEP_CODE_PARAMS = [
     "recommendation",
     "guidance",
 ]
-CLASSIFY_FAILURE_PARAMS = [
+CLASSIFY_STEP_FAILURE_PARAMS = [
     "self",
     "prompt",
     "user_instructions",
     "step_text",
     "code",
     "error",
+    "snapshot",
+    "screenshot",
+]
+CLASSIFY_GROUP_FAILURE_PARAMS = [
+    "self",
+    "prompt",
+    "user_instructions",
+    "group_prompt",
+    "group_steps",
+    "step_text",
+    "attempt_history",
     "snapshot",
     "screenshot",
 ]
@@ -90,11 +102,21 @@ class TestAnthropicProviderContract:
         assert list(signature.parameters) == GENERATE_STEP_CODE_PARAMS
         assert signature.return_annotation is str
 
-    def test_classify_failure_signature_matches_port(self) -> None:
-        signature = inspect.signature(AnthropicProvider.classify_failure)
+    def test_classify_step_failure_signature_matches_port(self) -> None:
+        signature = inspect.signature(AnthropicProvider.classify_step_failure)
 
-        assert list(signature.parameters) == CLASSIFY_FAILURE_PARAMS
+        assert list(signature.parameters) == CLASSIFY_STEP_FAILURE_PARAMS
         assert signature.return_annotation is not inspect.Signature.empty
+
+    def test_classify_group_failure_signature_matches_port(self) -> None:
+        signature = inspect.signature(AnthropicProvider.classify_group_failure)
+
+        assert list(signature.parameters) == CLASSIFY_GROUP_FAILURE_PARAMS
+        assert signature.return_annotation is not inspect.Signature.empty
+
+    def test_the_old_classify_failure_name_is_gone(self) -> None:
+        with pytest.raises(AttributeError):
+            getattr(AnthropicProvider, "classify_" + "failure")  # the dead name, assembled — no literal
 
     def test_check_instruction_compliance_signature_matches_port(self) -> None:
         signature = inspect.signature(AnthropicProvider.check_instruction_compliance)
@@ -126,6 +148,7 @@ class TestAnthropicProviderLogic:
                 step_text="s",
                 step_type="action",
                 previous_steps=[],
+                group_prompt=None,
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
@@ -153,6 +176,7 @@ class TestAnthropicProviderLogic:
                 step_text="s",
                 step_type="action",
                 previous_steps=[],
+                group_prompt=None,
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
@@ -178,6 +202,7 @@ class TestAnthropicProviderLogic:
                 step_text="s",
                 step_type="action",
                 previous_steps=[],
+                group_prompt=None,
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
@@ -199,7 +224,7 @@ class TestAnthropicProviderLogic:
             mock.patch.object(provider, "_get_client", return_value=client),
             pytest.raises(LLMUnavailableError) as excinfo,
         ):
-            provider.classify_failure(
+            provider.classify_step_failure(
                 prompt="p",
                 user_instructions="",
                 step_text="s",
@@ -217,7 +242,7 @@ class TestAnthropicProviderLogic:
         provider = AnthropicProvider(Config())  # does not fail — the constructor reads no env
 
         with pytest.raises(LLMUnavailableError) as excinfo:
-            provider.classify_failure(
+            provider.classify_step_failure(
                 prompt="p",
                 user_instructions="",
                 step_text="s",
@@ -235,7 +260,7 @@ class TestAnthropicProviderLogic:
         provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
-            classification = provider.classify_failure(
+            classification = provider.classify_step_failure(
                 prompt="p",
                 user_instructions="",
                 step_text="s",
@@ -261,7 +286,8 @@ class TestAnthropicProviderLogic:
                 user_instructions="",
                 step_text="открыть страницу",
                 step_type="action",
-                previous_steps=["шаг один"],
+                previous_steps=[ScenarioStep(sentence="шаг один")],
+                group_prompt=None,
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
@@ -299,6 +325,7 @@ class TestAnthropicProviderLogic:
                 step_text="s",
                 step_type="action",
                 previous_steps=[],
+                group_prompt=None,
                 snapshot="- snap",
                 page_url="https://shop.example.com/cart",
                 screenshot=None,
@@ -326,6 +353,7 @@ class TestAnthropicProviderLogic:
                 step_text="s",
                 step_type="action",
                 previous_steps=[],
+                group_prompt=None,
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
@@ -357,6 +385,7 @@ class TestAnthropicProviderLogic:
                 step_text="s",
                 step_type="action",
                 previous_steps=[],
+                group_prompt=None,
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
@@ -378,7 +407,7 @@ class TestAnthropicProviderLogic:
         provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
-            classification = provider.classify_failure(
+            classification = provider.classify_step_failure(
                 prompt="p",
                 user_instructions="",
                 step_text="s",
@@ -396,7 +425,7 @@ class TestAnthropicProviderLogic:
         provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
-            classification = provider.classify_failure(
+            classification = provider.classify_step_failure(
                 prompt="p",
                 user_instructions="",
                 step_text="s",
@@ -420,6 +449,7 @@ class TestAnthropicProviderLogic:
                 step_text="s",
                 step_type="action",
                 previous_steps=[],
+                group_prompt=None,
                 snapshot="- snap",
                 page_url=None,
                 screenshot=b"png-bytes",
@@ -450,6 +480,7 @@ class TestAnthropicProviderLogic:
                 step_text="s",
                 step_type="action",
                 previous_steps=[],
+                group_prompt=None,
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
@@ -475,6 +506,7 @@ class TestAnthropicProviderLogic:
                 step_text="s",
                 step_type="action",
                 previous_steps=[],
+                group_prompt=None,
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
@@ -493,7 +525,7 @@ class TestAnthropicProviderLogic:
         provider = AnthropicProvider(Config(model="claude-sonnet-4-5", classification_model="claude-haiku-4-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
-            classification = provider.classify_failure(
+            classification = provider.classify_step_failure(
                 prompt="p",
                 user_instructions="",
                 step_text="s",
@@ -514,7 +546,7 @@ class TestAnthropicProviderLogic:
         provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
-            provider.classify_failure(
+            provider.classify_step_failure(
                 prompt="p",
                 user_instructions="",
                 step_text="s",
@@ -537,7 +569,7 @@ class TestAnthropicProviderLogic:
             mock.patch.object(provider, "_get_client", return_value=client),
             pytest.raises(LLMUnavailableError) as excinfo,
         ):
-            provider.classify_failure(
+            provider.classify_step_failure(
                 prompt="p",
                 user_instructions="",
                 step_text="s",
@@ -562,6 +594,7 @@ class TestAnthropicProviderLogic:
                 step_text="s",
                 step_type="action",
                 previous_steps=[],
+                group_prompt=None,
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
@@ -582,7 +615,7 @@ class TestAnthropicProviderLogic:
         provider = AnthropicProvider(Config(model="claude-sonnet-4-5", classification_prompt=USER_INSTRUCTIONS))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
-            provider.classify_failure(
+            provider.classify_step_failure(
                 prompt="p",
                 user_instructions=USER_INSTRUCTIONS,
                 step_text="s",
@@ -603,7 +636,7 @@ class TestAnthropicProviderLogic:
         provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
-            provider.classify_failure(
+            provider.classify_step_failure(
                 prompt="p",
                 user_instructions="",
                 step_text="s",
@@ -679,3 +712,137 @@ class TestAnthropicProviderLogic:
         assert str(excinfo.value) == "llm unavailable: anthropic request failed"
         assert not isinstance(excinfo.value, ComplianceVerdictError)  # the SDK error is never a verdict failure
         assert isinstance(excinfo.value.__cause__, AnthropicError)
+
+
+DIAGNOSIS_ANSWER = (
+    '{"category": "recoverable", "root_cause": "the fill step used a stale locator", '
+    '"earliest_step": "fill the email field", "recommendation": "regenerate the row from the fill step"}'
+)
+GROUP_STEPS = [
+    "accept the cookie banner\noutcome: passed\nurl: https://a.example -> https://a.example",
+    "the status shows order confirmed\noutcome: failed\nurl: https://a.example -> https://b.example",
+]
+
+
+class TestAnthropicGroupDiagnosis:
+    """Logic tests: the group diagnosis operation of the anthropic implementation."""
+
+    def test_anthropic_classify_group_failure_request_and_parse(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+        client, requests = make_client_create(answer=DIAGNOSIS_ANSWER)
+        provider = AnthropicProvider(
+            Config(model="claude-sonnet-4-5", generation_model="claude-haiku-4-5", classification_model="claude-x")
+        )
+        record = (
+            "original cached code\nurl: https://a.example -> https://a.example\n"
+            f"code:\n{WORKING_CODE}error:\nAssertionError: boom"
+        )
+
+        with mock.patch.object(provider, "_get_client", return_value=client):
+            verdict = provider.classify_group_failure(
+                prompt="diagnosis prompt",
+                user_instructions="be terse",
+                group_prompt="the checkout flow",
+                group_steps=GROUP_STEPS,
+                step_text="the status shows order confirmed",
+                attempt_history=[record],
+                snapshot="- snap",
+                screenshot=None,
+            )
+
+        assert len(requests) == 1  # one request per diagnosis
+        request = requests[0]
+        assert request["model"] == "claude-x"  # effective classification model — never the generation model
+        assert request["system"] == "diagnosis prompt"  # prompt verbatim
+        assert request["max_tokens"] == 4096  # the SDK-forced cap rides the diagnosis request too
+        user = request["messages"][0]
+        assert user["role"] == "user"
+        assert (
+            user["content"].index("GROUP PROMPT:\nthe checkout flow")
+            < user["content"].index("GROUP STEPS:\n")
+            < user["content"].index("STEP:\nthe status shows order confirmed")
+            < user["content"].index(f"HISTORY:\n{record}")
+            < user["content"].index("PAGE SNAPSHOT:\n- snap")
+            < user["content"].index("USER INSTRUCTIONS:\nbe terse")
+        )  # parity: the fixed diagnosis order, instructions last, exactly as in the openai implementation
+        assert GROUP_STEPS[0] in user["content"]  # every trace record verbatim
+
+        assert verdict.category == "recoverable"
+        assert verdict.root_cause == "the fill step used a stale locator"
+        assert verdict.earliest_step == "fill the email field"
+        assert verdict.recommendation == "regenerate the row from the fill step"
+        assert verdict.degraded is False
+
+    def test_anthropic_garbage_diagnosis_answer_degrades_inside_the_provider(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+        client, requests = make_client_create(answer="the app is broken")
+        provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+
+        with mock.patch.object(provider, "_get_client", return_value=client):
+            verdict = provider.classify_group_failure(  # never raises across the port
+                prompt="p",
+                user_instructions="",
+                group_prompt="the checkout flow",
+                group_steps=GROUP_STEPS,
+                step_text="the status shows order confirmed",
+                attempt_history=[],
+                snapshot="- snap",
+                screenshot=None,
+            )
+
+        assert verdict.category == "incurable"
+        assert verdict.degraded is True
+        assert verdict.root_cause == "the app is broken"  # the raw answer rides the degraded verdict
+        assert len(requests) == 1  # the degradation adds no retry
+
+    def test_anthropic_diagnosis_sdk_error_maps_to_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+        client = SimpleNamespace(messages=SimpleNamespace(create=mock.MagicMock(side_effect=AnthropicError("boom"))))
+        provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+
+        with (
+            mock.patch.object(provider, "_get_client", return_value=client),
+            pytest.raises(LLMUnavailableError) as excinfo,
+        ):
+            provider.classify_group_failure(
+                prompt="p",
+                user_instructions="",
+                group_prompt="the checkout flow",
+                group_steps=GROUP_STEPS,
+                step_text="the status shows order confirmed",
+                attempt_history=[],
+                snapshot="- snap",
+                screenshot=None,
+            )
+
+        assert str(excinfo.value) == "llm unavailable: anthropic request failed"
+        assert isinstance(excinfo.value.__cause__, AnthropicError)
+
+    def test_anthropic_diagnosis_with_screenshot_uses_anthropic_image_block(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+        client, requests = make_client_create(answer=DIAGNOSIS_ANSWER)
+        provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+
+        with mock.patch.object(provider, "_get_client", return_value=client):
+            provider.classify_group_failure(
+                prompt="p",
+                user_instructions="",
+                group_prompt="the checkout flow",
+                group_steps=GROUP_STEPS,
+                step_text="the status shows order confirmed",
+                attempt_history=[],
+                snapshot="- snap",
+                screenshot=b"png-bytes",
+            )
+
+        user_content = requests[0]["messages"][0]["content"]
+        assert isinstance(user_content, list)
+        assert user_content[0]["type"] == "text"
+        image_block = user_content[1]
+        assert image_block["type"] == "image"  # parity: the diagnosis attaches the same image shape
+        assert image_block["source"]["media_type"] == "image/png"
+        assert image_block["source"]["data"] == base64.b64encode(b"png-bytes").decode("ascii")
