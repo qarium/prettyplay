@@ -496,16 +496,16 @@ step code is untouched (slow_mo is a browser-process start parameter, not a code
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: in `tests/driver/test_session.py` — `DriverSession` with
+- [x] **Contract tests**: in `tests/driver/test_session.py` — `DriverSession` with
   `Config(browser=BrowserConfig(speed=40))` launches and connects with the recorded `slow_mo`
   kwarg (expected to fail at this stage)
-- [ ] **Code**: in `prettyplay/driver/session.py` `_launch_engine` — compute
+- [x] **Code**: in `prettyplay/driver/session.py` `_launch_engine` — compute
   `slow_mo = int((100 - group.speed) * 30)` after reading the browser group; pass
   `slow_mo=slow_mo` to `engine.connect(endpoint, slow_mo=slow_mo)` (inside the existing
   endpoint-wrapped try) and add `"slow_mo": slow_mo` to the local `launch_kwargs`; extend the
   method docstring with the pace sentence
-- [ ] **Interface verification**: `pytest tests/driver/test_session.py -q` — all pass
-- [ ] **Logic tests** — the design scenario, verbatim:
+- [x] **Interface verification**: `pytest tests/driver/test_session.py -q` — all pass
+- [x] **Logic tests** — the design scenario, verbatim:
   - `test_driver_launch_and_connect_pass_slow_mo`: Setup — a `DriverSession` with
     `Config(browser=BrowserConfig(speed=40))`; the Playwright engines monkeypatched with
     recording fakes (local launch and ws connect cases). Input — `open_context()` twice — once
@@ -517,11 +517,11 @@ step code is untouched (slow_mo is a browser-process start parameter, not a code
     slow_mo == 0` (passed identically; behaviorally today's default). Sufficiency: SC1 — the
     mapping and the every-launch-mode requirement; prevents a pace that only slows one mode or
     drifts from the linear formula.
-- [ ] **Debugging**: `pytest tests/driver/ -q` — fix implementation code until all tests pass (do NOT fix test code)
-- [ ] **Contract re-verification**: the screen-mode branches, the channel launch, the
+- [x] **Debugging**: `pytest tests/driver/ -q` — fix implementation code until all tests pass (do NOT fix test code)
+- [x] **Contract re-verification**: the screen-mode branches, the channel launch, the
   endpoint-naming error and the dialog registration are unchanged;
   `python -c "from prettyplay.driver import DriverSession"`
-- [ ] **Lint**: `ruff check prettyplay/driver tests/driver && ruff format --check prettyplay/driver tests/driver`
+- [x] **Lint**: `ruff check prettyplay/driver tests/driver && ruff format --check prettyplay/driver tests/driver`
 
 ### Task 4: `SettleWindow` count-bounded mode + the `settle` count loop (engine/polling)
 

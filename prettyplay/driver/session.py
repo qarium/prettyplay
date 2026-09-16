@@ -320,6 +320,13 @@ class DriverSession:
     def _launch_engine(self, playwright: Playwright) -> Browser:
         """Start the browser engine selected by the browser group of the configuration.
 
+        The group ``speed`` setting maps linearly to Playwright's native pace —
+        ``slow_mo = int((100 - speed) * 30)`` ms, 100 → 0 — and rides every
+        launch mode: the local launch and the remote connect receive the same
+        one value, fixed for the whole browser process. ``slow_mo`` is a
+        browser-process start parameter, not a code wait — the fixed-delays
+        rule for generated step code is untouched.
+
         A set group ``endpoint`` connects over the Playwright ws endpoint of
         the selected engine instead of launching locally: the group ``name``
         selects the engine type (``chrome``/``msedge`` map to chromium —
@@ -347,6 +354,8 @@ class DriverSession:
         """
         group = self._config.browser
         name = group.name
+        # the pace setting maps linearly to the native slow_mo: 100 -> 0 ms, 0 -> 3000 ms
+        slow_mo = int((100 - group.speed) * 30)
 
         engines: dict[str, object] = {
             "chromium": playwright.chromium,
@@ -358,7 +367,7 @@ class DriverSession:
             endpoint = group.endpoint
             engine = playwright.chromium if name in ("chrome", "msedge") else engines[name]
             try:
-                return cast(Browser, engine.connect(endpoint))
+                return cast(Browser, engine.connect(endpoint, slow_mo=slow_mo))
             except Error as failure:
                 raise Error(f"cannot connect to the browser endpoint {endpoint}: {failure}") from failure
 
@@ -370,7 +379,7 @@ class DriverSession:
             engine = engines[name]
             channel = None
 
-        launch_kwargs: dict[str, object] = {"headless": group.headless}
+        launch_kwargs: dict[str, object] = {"headless": group.headless, "slow_mo": slow_mo}
         if channel:
             launch_kwargs["channel"] = channel
         if group.screen == "fullscreen" and name in ("chromium", "chrome", "msedge") and not group.headless:

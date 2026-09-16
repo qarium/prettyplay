@@ -330,7 +330,7 @@ class TestDriverSessionContract:
             session.close()
 
         assert factory.launches == ["chromium"]  # the channel launches via the chromium engine
-        assert factory.launch_kwargs == [{"headless": False, "channel": "msedge"}]
+        assert factory.launch_kwargs == [{"headless": False, "channel": "msedge", "slow_mo": 0}]
 
     def test_launch_engine_default_config_headless_only(self) -> None:
         factory = FakePlaywrightFactory()
@@ -341,7 +341,27 @@ class TestDriverSessionContract:
             session.close()
 
         assert factory.launches == ["chromium"]
-        assert factory.launch_kwargs == [{"headless": True}]
+        assert factory.launch_kwargs == [{"headless": True, "slow_mo": 0}]
+
+    def test_launch_engine_passes_slow_mo_from_speed(self) -> None:
+        factory = FakePlaywrightFactory()
+
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(Config(browser=BrowserConfig(name="chromium", speed=40)))
+            session.open_context()
+            session.close()
+
+        assert factory.launch_kwargs == [{"headless": True, "slow_mo": 1800}]
+
+    def test_connect_engine_passes_slow_mo_from_speed(self) -> None:
+        factory = FakePlaywrightFactory()
+
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(Config(browser=BrowserConfig(name="chromium", endpoint="ws://grid:3000", speed=40)))
+            session.open_context()
+            session.close()
+
+        assert factory.chromium.connect_kwargs == [{"slow_mo": 1800}]
 
 
 class TestDriverSessionLogic:
@@ -383,7 +403,7 @@ class TestDriverSessionLogic:
             session.close()
 
         assert factory.launches == ["chromium"]  # chrome/msedge go through chromium
-        assert factory.chromium.launch_calls[0].kwargs == {"headless": False, "channel": "msedge"}
+        assert factory.chromium.launch_calls[0].kwargs == {"headless": False, "channel": "msedge", "slow_mo": 0}
 
         factory = FakePlaywrightFactory()
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
@@ -391,7 +411,7 @@ class TestDriverSessionLogic:
             session.open_context()
             session.close()
 
-        assert factory.chromium.launch_calls[0].kwargs == {"headless": True}
+        assert factory.chromium.launch_calls[0].kwargs == {"headless": True, "slow_mo": 0}
 
     def test_channel_launch_without_installed_browser_propagates_loudly(self) -> None:
         factory = FakePlaywrightFactory()
@@ -528,7 +548,7 @@ class TestDriverSessionConnect:
 
         assert factory.firefox.connect_calls == [endpoint]
         assert factory.launches == []  # no local launch happened
-        assert factory.firefox.connect_kwargs == [{}]  # headless is not passed
+        assert factory.firefox.connect_kwargs == [{"slow_mo": 0}]  # headless is not passed
         assert isinstance(page, PageFacade)
 
     def test_session_connect_maps_channels_to_chromium(self) -> None:
@@ -576,6 +596,58 @@ class TestDriverSessionConnect:
         assert isinstance(page, PageFacade)
 
 
+class TestDriverSessionPace:
+    """Logic tests: the speed setting maps linearly to slow_mo on every launch mode."""
+
+    def test_driver_launch_and_connect_pass_slow_mo(self) -> None:
+        endpoint = "ws://ci-grid:3000/playwright/chromium"
+
+        # the local launch case: speed=40 -> int((100 - 40) * 30) = 1800
+        factory = FakePlaywrightFactory()
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(Config(browser=BrowserConfig(name="chromium", speed=40)))
+            session.open_context()
+            session.close()
+
+        assert factory.launch_kwargs[0]["slow_mo"] == 1800
+
+        # the remote connect case: the same mapping rides the ws connect
+        factory = FakePlaywrightFactory()
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(Config(browser=BrowserConfig(name="chromium", endpoint=endpoint, speed=40)))
+            session.open_context()
+            session.close()
+
+        assert factory.chromium.connect_calls == [endpoint]
+        assert factory.chromium.connect_kwargs[0]["slow_mo"] == 1800
+
+        # the default speed=100 -> slow_mo == 0, passed identically — behaviorally today's start
+        factory = FakePlaywrightFactory()
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(Config(browser=BrowserConfig(name="chromium", speed=100)))
+            session.open_context()
+            session.close()
+
+        assert factory.launch_kwargs[0]["slow_mo"] == 0
+
+        factory = FakePlaywrightFactory()
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(Config(browser=BrowserConfig(name="chromium", endpoint=endpoint, speed=100)))
+            session.open_context()
+            session.close()
+
+        assert factory.chromium.connect_kwargs[0]["slow_mo"] == 0
+
+        # the slowest bound of the linear formula: speed=0 -> 3000 ms
+        factory = FakePlaywrightFactory()
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(Config(browser=BrowserConfig(name="chromium", speed=0)))
+            session.open_context()
+            session.close()
+
+        assert factory.launch_kwargs[0]["slow_mo"] == 3000
+
+
 def viewport_params(width: int, height: int) -> dict:
     """The expected new_context kwargs of a WxH-shaped screen value."""
     return {"viewport": {"width": width, "height": height}}
@@ -583,15 +655,32 @@ def viewport_params(width: int, height: int) -> dict:
 
 SCREEN_MODE_MATRIX = [
     # (case, name, screen, headless, endpoint, expected launch kwargs, expected new_context kwargs)
-    # expected launch kwargs None — the remote connect path (connect, no launch)
-    ("empty-headed", "chromium", "", False, "", {"headless": False}, {}),
-    ("empty-headless", "chromium", "", True, "", {"headless": True}, {}),
+    # expected launch kwargs None — the remote connect path (connect, no launch);
+    # every launch carries slow_mo 0 — the default speed 100 maps to no pause
+    ("empty-headed", "chromium", "", False, "", {"headless": False, "slow_mo": 0}, {}),
+    ("empty-headless", "chromium", "", True, "", {"headless": True, "slow_mo": 0}, {}),
     ("empty-remote", "chromium", "", False, "ws://grid:3000", None, {}),
-    ("wxh-headed", "chromium", "1280x720", False, "", {"headless": False}, viewport_params(1280, 720)),
-    ("wxh-headless", "chromium", "1280x720", True, "", {"headless": True}, viewport_params(1280, 720)),
+    ("wxh-headed", "chromium", "1280x720", False, "", {"headless": False, "slow_mo": 0}, viewport_params(1280, 720)),
+    ("wxh-headless", "chromium", "1280x720", True, "", {"headless": True, "slow_mo": 0}, viewport_params(1280, 720)),
     ("wxh-remote", "chromium", "1280x720", False, "ws://grid:3000", None, viewport_params(1280, 720)),
-    ("device-headed", "chromium", "iPhone 13", False, "", {"headless": False}, dict(IPHONE_13_DESCRIPTOR)),
-    ("device-headless", "chromium", "iPhone 13", True, "", {"headless": True}, dict(IPHONE_13_DESCRIPTOR)),
+    (
+        "device-headed",
+        "chromium",
+        "iPhone 13",
+        False,
+        "",
+        {"headless": False, "slow_mo": 0},
+        dict(IPHONE_13_DESCRIPTOR),
+    ),
+    (
+        "device-headless",
+        "chromium",
+        "iPhone 13",
+        True,
+        "",
+        {"headless": True, "slow_mo": 0},
+        dict(IPHONE_13_DESCRIPTOR),
+    ),
     ("device-remote", "chromium", "iPhone 13", False, "ws://grid:3000", None, dict(IPHONE_13_DESCRIPTOR)),
     (
         "fullscreen-chromium-headed",
@@ -599,7 +688,7 @@ SCREEN_MODE_MATRIX = [
         "fullscreen",
         False,
         "",
-        {"headless": False, "args": ["--start-maximized"]},
+        {"headless": False, "args": ["--start-maximized"], "slow_mo": 0},
         {"no_viewport": True},
     ),
     (
@@ -608,13 +697,37 @@ SCREEN_MODE_MATRIX = [
         "fullscreen",
         False,
         "",
-        {"headless": False, "channel": "chrome", "args": ["--start-maximized"]},
+        {"headless": False, "channel": "chrome", "args": ["--start-maximized"], "slow_mo": 0},
         {"no_viewport": True},
     ),
-    ("fullscreen-headless", "chromium", "fullscreen", True, "", {"headless": True}, viewport_params(1920, 1080)),
+    (
+        "fullscreen-headless",
+        "chromium",
+        "fullscreen",
+        True,
+        "",
+        {"headless": True, "slow_mo": 0},
+        viewport_params(1920, 1080),
+    ),
     ("fullscreen-remote", "chromium", "fullscreen", False, "ws://grid:3000", None, viewport_params(1920, 1080)),
-    ("fullscreen-firefox-headed", "firefox", "fullscreen", False, "", {"headless": False}, {"no_viewport": True}),
-    ("fullscreen-webkit-headed", "webkit", "fullscreen", False, "", {"headless": False}, {"no_viewport": True}),
+    (
+        "fullscreen-firefox-headed",
+        "firefox",
+        "fullscreen",
+        False,
+        "",
+        {"headless": False, "slow_mo": 0},
+        {"no_viewport": True},
+    ),
+    (
+        "fullscreen-webkit-headed",
+        "webkit",
+        "fullscreen",
+        False,
+        "",
+        {"headless": False, "slow_mo": 0},
+        {"no_viewport": True},
+    ),
 ]
 
 
