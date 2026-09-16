@@ -4,6 +4,59 @@ from types import SimpleNamespace
 from unittest import mock
 
 import pytest
+from prettyplay.cache import StepIdentity, normalize_step_text
+from prettyplay.engine.groups import GroupStepOutcome
+from prettyplay.llm import ScenarioStep
+
+#: The group prompt of the shared cross-cell fixtures — the checkout flow of the group scenarios.
+FIXTURE_GROUP_PROMPT = "the checkout flow"
+
+
+@pytest.fixture
+def scenario_records() -> list[ScenarioStep]:
+    """The typed scenario context of the cross-cell tests — a mix of ordinary and group entries.
+
+    The membership is a property of each record: the group entries keep
+    their group prompt, the ordinary entries stay empty — exactly the shape
+    the executor's ``_scenario`` appends and every engine request renders.
+    """
+    return [
+        ScenarioStep(sentence="open the shop page"),
+        ScenarioStep(sentence="accept the cookie banner", group_prompt=FIXTURE_GROUP_PROMPT),
+        ScenarioStep(sentence="fill the email field", group_prompt=FIXTURE_GROUP_PROMPT),
+    ]
+
+
+@pytest.fixture
+def group_traces() -> list[GroupStepOutcome]:
+    """The verbatim trace records of a three-step group — two passed steps and the failed last one.
+
+    The recovery-ready shape the executor hands to the group recovery: the
+    sentences and outcomes are honest, each record carries the cache
+    identity the recovery resolves its row from.
+    """
+
+    def _trace(sentence: str, step_type: str, outcome: str) -> GroupStepOutcome:
+        return GroupStepOutcome(
+            sentence=sentence,
+            step_type=step_type,
+            tries=None,
+            delay=None,
+            outcome=outcome,
+            url_before="https://shop.example.com/checkout",
+            url_after="https://shop.example.com/checkout",
+            identity=StepIdentity(
+                cache_key="tests/test_checkout.py",
+                step_type=step_type,
+                normalized_text=normalize_step_text(sentence),
+            ),
+        )
+
+    return [
+        _trace("accept the cookie banner", "action", "passed"),
+        _trace("fill the email field", "action", "passed"),
+        _trace("submit the form", "action", "failed"),
+    ]
 
 
 @pytest.fixture(autouse=True)

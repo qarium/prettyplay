@@ -1371,11 +1371,11 @@ answers, `StepCache` under `tmp_path`, real `RunBudgets`.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] Create/extend the fixtures `scenario_records()` and `group_traces()` in `tests/conftest.py`
+- [x] Create/extend the fixtures `scenario_records()` and `group_traces()` in `tests/conftest.py`
   (the design's third shared fixture — a recovery-ready executor — is deliberately not a
   conftest fixture: Tasks 11 and 13 build their recovery-ready executor setups inline with
   their own fakes, keeping each TDD task self-contained)
-- [ ] Test cross-entity interaction — the design scenario, verbatim:
+- [x] Test cross-entity interaction — the design scenario, verbatim:
   `test_group_replay_is_llm_free_and_strict_never_recovers` (SC7): Setup — a group whose three
   steps are all cached under `tmp_path`; a provider fake that fails the test on any call; strict
   off (case A) and strict on with a failed cached hit (case B — the classification-only path).
@@ -1386,18 +1386,18 @@ answers, `StepCache` under `tmp_path`, real `RunBudgets`.
   steps green; B: recovery not called; the strict classification-only outcome raised by kind.
   Sufficiency: SC7 + C2 — group membership changes no cache address and no replay behavior;
   strict keeps its classification-only path.
-- [ ] Test cross-cell mirror pin — the design scenario, verbatim:
+- [x] Test cross-cell mirror pin — the design scenario, verbatim:
   `test_prompt_mirrors_after_rename`: Setup — the mirror constants of `generator.py`,
   `steering.py`, `diagnosis.py`. Input — compare against `step_generation.md` (after `---`),
   `step_cheatsheet.md` (whole file), `group_diagnosis.md` (after `---`). Trace — read practice
   file → extract per the mirror rule → assert equal to the constant. Assertions — all mirrors
   byte-equal; the renamed files' content equals the pre-rename content (the git R100 record plus
   the pin). Sufficiency: C13 — the frozen prompts never drift, and the rename changed no byte.
-- [ ] Test edge case: the typed scenario context end-to-end — an ordinary step followed by a
+- [x] Test edge case: the typed scenario context end-to-end — an ordinary step followed by a
   group step then an ordinary step: the third step's generation request renders the group
   entry marked (permanent membership) even outside the group (C13 honesty pin, executor →
   generator → provider fake recording `previous_steps`)
-- [ ] Run validation: `pytest tests/ -x` — the full suite green (every ordinary-path pin from
+- [x] Run validation: `pytest tests/ -x` — the full suite green (every ordinary-path pin from
   the pre-change suite included)
 
 ### Task 16: Public MkDocs surface follow-up (docs, non-cell)
@@ -1445,20 +1445,20 @@ changes — public documentation only, matching the already-current cell `.usage
 
 ## Completion Criteria
 
-- [ ] Every contract entity is implemented in the correct `location`
-- [ ] Every contract entity is accessible from the facade (cell `__all__` + root `__all__` with `StepGroup`)
-- [ ] Properties and methods match the declared API (signatures incl. keyword-only `tries`/`delay`, the renamed `classify_step_failure`, the four port operations)
-- [ ] Descriptions are reflected in behavior (the pinned render forms, the group-branch reason strings, the verdict mapping, the log records)
-- [ ] Contract dependencies are met (config → llm/driver → cache/polling → engine → groups/steering → facade; no import cycles)
-- [ ] Re-exports are accessible from the facade (`PrettyConfig`, `BrowserConfig`, `StepHooks`)
-- [ ] Every coding task followed the TDD workflow (contract tests → code → verification → logic tests → debugging → re-verification → lint)
-- [ ] Contract tests and logic tests cover facade, API, and behavior within each coding task
-- [ ] Integration tests exist where cross-entity scenarios require them (Task 15: SC7, the mirror pins, the typed-context end-to-end)
-- [ ] All 17 design test scenarios exist and pass (SC1–SC8 coverage as mapped in the tasks)
-- [ ] Every `group_prompt=None`/`group=None`/`tries=None`/`delay=None` path is byte-identical to today (the C13 regression pins stay green)
-- [ ] No package boundary was expanded (no new cells beyond the contracted `prettyplay/engine/groups`)
-- [ ] `CODEMANIFEST` files were not modified (contract is read-only)
-- [ ] No `.usages/` file was modified (all current by the design review)
-- [ ] All validation commands pass (`pytest tests/ -x`, `ruff check`, `goga lint`, `goga schema`)
-- [ ] Every Usages entry is mentioned in at least one task (`conventions`, `pydantic`, `playwright`, `json_repair`, `openai`, `anthropic`, `system_prompt`, `cheat_sheet`, `group_framing`, `group_diagnosis`, `classification_prompt`, `compliance_prompt`, imported `recovery`/`generation`/`healing`/`taxonomy`/`hooks`/`classification`)
+- [x] Every contract entity is implemented in the correct `location`
+- [x] Every contract entity is accessible from the facade (cell `__all__` + root `__all__` with `StepGroup`)
+- [x] Properties and methods match the declared API (signatures incl. keyword-only `tries`/`delay`, the renamed `classify_step_failure`, the four port operations)
+- [x] Descriptions are reflected in behavior (the pinned render forms, the group-branch reason strings, the verdict mapping, the log records)
+- [x] Contract dependencies are met (config → llm/driver → cache/polling → engine → groups/steering → facade; no import cycles)
+- [x] Re-exports are accessible from the facade (`PrettyConfig`, `BrowserConfig`, `StepHooks`)
+- [x] Every coding task followed the TDD workflow (contract tests → code → verification → logic tests → debugging → re-verification → lint)
+- [x] Contract tests and logic tests cover facade, API, and behavior within each coding task
+- [x] Integration tests exist where cross-entity scenarios require them (Task 15: SC7, the mirror pins, the typed-context end-to-end)
+- [x] All 17 design test scenarios exist and pass (SC1–SC8 coverage as mapped in the tasks)
+- [x] Every `group_prompt=None`/`group=None`/`tries=None`/`delay=None` path is byte-identical to today (the C13 regression pins stay green)
+- [x] No package boundary was expanded (no new cells beyond the contracted `prettyplay/engine/groups`)
+- [x] `CODEMANIFEST` files were not modified (contract is read-only)
+- [x] No `.usages/` file was modified (all current by the design review)
+- [x] All validation commands pass (`pytest tests/ -x`, `ruff check`, `goga lint`, `goga schema`)
+- [x] Every Usages entry is mentioned in at least one task (`conventions`, `pydantic`, `playwright`, `json_repair`, `openai`, `anthropic`, `system_prompt`, `cheat_sheet`, `group_framing`, `group_diagnosis`, `classification_prompt`, `compliance_prompt`, imported `recovery`/`generation`/`healing`/`taxonomy`/`hooks`/`classification`)
 - [ ] The public MkDocs surface is updated (Task 16)
