@@ -46,6 +46,7 @@ nav:
       - LLM providers: reference/llm-providers.md
       - Settle polling: reference/settle-polling.md
       - Self-healing: reference/self-healing.md
+      - Groups: reference/groups.md
       - Interactive steering: reference/interactive-steering.md
       - Driver facade: reference/driver-facade.md
 

@@ -3,7 +3,9 @@
 Healing a failed cached step. For engineers reasoning about healed runs.
 
 When a cached step fails, the failure is classified first; the classification
-verdict decides the path.
+verdict decides the path. A step executing inside a group block never takes
+this path: its failure routes to the group recovery — see
+[Groups](groups.md).
 
 ## Classification categories
 
@@ -22,7 +24,7 @@ healed = healer.heal(
     error="element not found: button «Sign in»",
     step_text="click the «Sign in» button",  # the raw sentence as written by the engineer
     step_type="action",  # action | assertion
-    previous_steps=["open the login page"],
+    previous_steps=scenario_records,  # the typed scenario records of the test, execution order
     page=page,
     attempt_history=history,  # the per-step attempt records — record 0 anchors the failed cached code
     window=window,  # the settle window of the current step execution
@@ -55,6 +57,17 @@ The classification verdict decides the path:
   `LLMUnavailableError` — an explicit infrastructure failure
 - Healing never runs in strict mode: a failed cached step is at most
   classified, never regenerated
+- A step inside a group block never heals in isolation. Routing precedence:
+  strict mode keeps the classification-only path (no recovery, no group
+  framing), a failing group step on a non-strict run routes to the group
+  recovery — see [Groups](groups.md) — and only an ordinary failed cached
+  step takes the per-step heal of this page; a still-terminal group failure
+  reaches the steering gate like any terminal failure — see
+  [Interactive steering](interactive-steering.md)
+- The group recovery reports its rows through the same
+  `on_healing_started` / `on_healed` events with the category `recoverable`
+  — the label distinguishes a recovered group row from an ordinary
+  `rot`/`fixable` heal
 - Every candidate execution runs under the settle window of the current step
   execution — see [Settle polling](settle-polling.md)
 

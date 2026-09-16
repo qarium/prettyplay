@@ -1416,17 +1416,19 @@ changes — public documentation only, matching the already-current cell `.usage
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them.**
 
-- [ ] Update `docs/configuration.md` — the `browser.speed` setting (TOML, the env table row, the
+- [x] Update `docs/configuration.md` — the `browser.speed` setting (TOML, the env table row, the
   Pace section with the layering example and the loud-failure note)
-- [ ] Update `docs/guides/writing-steps.md` — the keyword-only `tries`/`delay` step parameters
+- [x] Update `docs/guides/writing-steps.md` — the keyword-only `tries`/`delay` step parameters
   (the count-bounded re-execution, the quiet pre-step pause)
-- [ ] Create the groups page (e.g. `docs/reference/groups.md`) — the group authoring block
+- [x] Create the groups page (e.g. `docs/reference/groups.md`) — the group authoring block
   (prompt, speed, delay, traces), the pauses (entry + between-step pace, never slow_mo), the
   diagnosis-driven recovery cycle, the budgets; add it to `mkdocs.yml` nav
-- [ ] Update `docs/reference/self-healing.md` — the group recovery routing (strict → recovery →
+- [x] Update `docs/reference/self-healing.md` — the group recovery routing (strict → recovery →
   heal, steering the terminal gate) and the `on_healing_started` `recoverable` label
-- [ ] Verify: the mkdocs nav contains the new page and every referenced code sample imports
+- [x] Verify: the mkdocs nav contains the new page and every referenced code sample imports
   cleanly (`python -c "import prettyplay"`); `mkdocs build --strict` if the tool is available
+  (tool not installed in this environment — the nav, the 17 python samples and every internal
+  link verified by script instead; the docs are markdown-only changes)
 
 ---
 
@@ -1461,4 +1463,4 @@ changes — public documentation only, matching the already-current cell `.usage
 - [x] No `.usages/` file was modified (all current by the design review)
 - [x] All validation commands pass (`pytest tests/ -x`, `ruff check`, `goga lint`, `goga schema`)
 - [x] Every Usages entry is mentioned in at least one task (`conventions`, `pydantic`, `playwright`, `json_repair`, `openai`, `anthropic`, `system_prompt`, `cheat_sheet`, `group_framing`, `group_diagnosis`, `classification_prompt`, `compliance_prompt`, imported `recovery`/`generation`/`healing`/`taxonomy`/`hooks`/`classification`)
-- [ ] The public MkDocs surface is updated (Task 16)
+- [x] The public MkDocs surface is updated (Task 16)

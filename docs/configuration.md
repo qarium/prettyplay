@@ -31,6 +31,7 @@ screen = ""                      # "" | WxH | fullscreen | Playwright device nam
 headless = true                  # false -> run with a visible browser window
 endpoint = ""                    # ws:// endpoint of a remote browser; empty -> local launch
 accept_dialogs = false           # true -> accept (else dismiss) dialogs no in-step capture claims
+speed = 100                      # pace of the run: 0-100 %, 100 — full speed (default)
 ```
 
 The browser group settings — engines, screen modes, remote endpoints — are
@@ -49,6 +50,7 @@ upper case; the browser group keeps flat env names:
 | browser.headless | `PRETTYPLAY_BROWSER_HEADLESS` |
 | browser.endpoint | `PRETTYPLAY_BROWSER_ENDPOINT` |
 | browser.accept_dialogs | `PRETTYPLAY_BROWSER_ACCEPT_DIALOGS` |
+| browser.speed | `PRETTYPLAY_BROWSER_SPEED` |
 | model | `PRETTYPLAY_MODEL` |
 | generation_model | `PRETTYPLAY_GENERATION_MODEL` |
 | classification_model | `PRETTYPLAY_CLASSIFICATION_MODEL` |
@@ -104,7 +106,7 @@ test = PrettyPlay(
 - The merge reaches inside the nested group: explicitly set fields of a passed
   `BrowserConfig` win over the file layer; untouched group defaults never
   overwrite file values — set only `screen` and the file's `name`,
-  `headless`, `endpoint`, `accept_dialogs` keep working
+  `headless`, `endpoint`, `accept_dialogs`, `speed` keep working
 - `strict`, `interactive` and `generation_approve` participate when passed
   explicitly — an explicit `False` overrides the file value too
 - `polling_timeout` merges by skip-when-`None`: a `PrettyConfig` that leaves
@@ -168,6 +170,7 @@ config.effective_classification_model  # classification_model when non-empty, ot
 | `headless` | bool | `True` | windowless local launch; ignored on a remote connect |
 | `endpoint` | str | `""` | ws endpoint of a remote browser; empty — local launch |
 | `accept_dialogs` | bool | `False` | accept (else dismiss) dialogs no in-step stock dialog capture claims, at the run-unit tail |
+| `speed` | int | `100` | pace of the run, 0–100 inclusive; 100 — full speed (the default behavior), lower values slow the run linearly, 0 — the slowest supported pace |
 
 Fields inside the group carry no `browser_` prefix — the group name scopes
 them; env overrides stay flat (`PRETTYPLAY_BROWSER_NAME`, ...). Validation:
@@ -332,6 +335,36 @@ resort settles unclaimed dialogs:
 - A dialog claimed by a step's in-step stock capture is accepted or
   dismissed by the step itself — the setting does not apply to captured
   dialogs
+
+## Pace
+
+`speed` of the browser group (a percentage, 0–100 inclusive, default 100)
+controls how fast the browser executes the run: 100 — full speed, exactly the
+default behavior; lower values slow the run down linearly — 0 is the slowest
+supported pace. The mapping is Playwright's native `slow_mo`: the browser
+inserts `int((100 − speed) × 30)` ms between its operations. It is an
+ordinary layered setting — file, env (`PRETTYPLAY_BROWSER_SPEED`), per-test
+override:
+
+```python
+from prettyplay import BrowserConfig, PrettyConfig, PrettyPlay
+
+test = PrettyPlay(
+    "demo",
+    config=PrettyConfig(browser=BrowserConfig(speed=40)),
+)
+```
+
+- One value per test, fixed for the whole run — it applies at browser start
+  in every launch mode (local headed, local headless, remote connect);
+  replays and strict runs take it identically
+- The fixed-delays rule for generated step code is untouched: `slow_mo` is a
+  browser-process start parameter, not a code wait; group blocks slow down
+  through their own library-level pauses instead — see
+  [Groups](reference/groups.md)
+- An out-of-range or malformed value fails at configuration load — the error
+  names the dotted setting `browser.speed`, the received value and the
+  accepted form (an integer 0-100 inclusive); never a silent ignore
 
 ## Strict mode
 

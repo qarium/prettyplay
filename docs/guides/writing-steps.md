@@ -31,6 +31,39 @@ with PrettyPlay("login-flow") as t:
 - `expect(text)` — verifies what the sentence says; a legitimately failed
   expectation fails the test as a product defect
 
+## Step parameters
+
+- `step(text, tries=3)` — the total number of executions of the step's code,
+  the first execution included; for that step it replaces the time-bounded
+  settle window of the polling settings with a count-bounded one — only
+  pollable failures re-execute, after `polling_delay`, until the count is
+  spent; the global polling settings stay untouched; absorbed retries appear
+  as `settle_retry` records only, the step stays green — see
+  [Settle polling](../reference/settle-polling.md)
+- `step(text, delay=1.5)` — a quiet pause in seconds before the step's code
+  runs: the started event fires, the declared seconds pass, then the code; a
+  step never reached never pauses
+- Both parameters are keyword-only and accepted by both step kinds; invalid
+  values (zero or negative `tries`, negative `delay`) fail loudly at the
+  call — before any page or LLM involvement
+
+## Step groups
+
+```python
+with t.group("accept cookies, fill and submit the order form") as g:
+    g.step("accept the cookie banner")
+    g.step("fill the email field", delay=0.5)
+    g.step("submit the form")
+    g.expect("the status shows order confirmed", tries=2)
+```
+
+The group block is one coherent mini-scenario with a shared goal: inside,
+steps use the ordinary authoring surface — retry count and start pause
+included. A failing group step on a non-strict run is diagnosed with the
+whole group in view and the affected row is recovered automatically; group
+membership changes no step's cache address. See
+[Groups](../reference/groups.md).
+
 ## Stateful page actions — the escape hatch
 
 Some actions stay out of generated code because they outlive a step on the
