@@ -50,7 +50,7 @@ Annotations: |
   Bounded autonomy: every new recovery cycle grants each row step a fresh healing counter — the full healing pool per cycle — while the number of cycles per group is capped by the healing pool value; the loop is never infinite.
   Recovery re-executes forward on the current page — no rollback machinery; a re-planned action step repeats its action, never riding leftover state.
   Every successfully re-executed row step passes the two-dimension compliance gate — the same gate as every caching path — and is written back to the cache per step.
-  Reporting reuses the healing events per recovered step plus structured log records for the diagnosis itself and the row composition — no new hook events.
+  Reporting reuses the healing events per recovered step plus structured log records for the diagnosis itself and the row composition; the block lifecycle itself reports through the four group lifecycle hook events of the reporting cell — the diagnosis records stay log-only.
   Strict mode never runs the recovery — the executor keeps the classification-only path.
   Honest inputs: the group prompt and the step sentences reach the diagnosis and the regeneration requests verbatim; the group prompt joins the repository cache, the logs and the LLM requests — the never-put-secrets rule extends to it.
 

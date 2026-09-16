@@ -18,6 +18,10 @@ class Reporter(StepHooks):
     def on_step_failed(self, step_text: str, step_type: str, error: str) -> None: ...
     def on_step_verdict(self, step_text: str, category: str, explanation: str, recommendation: str) -> None: ...
     def on_step_finished(self, step_text: str, step_type: str, outcome: str) -> None: ...
+    def on_group_started(self, group_prompt: str) -> None: ...
+    def on_group_passed(self, group_prompt: str) -> None: ...
+    def on_group_failed(self, group_prompt: str) -> None: ...
+    def on_group_finished(self, group_prompt: str) -> None: ...
     def on_generation_started(self, step_text: str, attempt: int) -> None: ...
     def on_healing_started(self, step_text: str, category: str) -> None: ...
     def on_healed(self, step_text: str, explanation: str) -> None: ...
@@ -43,6 +47,10 @@ root, so `from prettyplay import StepHooks` works too.
 | `on_step_failed` | the step failed | step_text, step_type, error — the **full rendered failure message** (see below) |
 | `on_step_verdict` | the terminal failure carried a verdict (fires after on_step_failed) | step_text, category (rot, product_defect, fixable, incurable), explanation, recommendation |
 | `on_step_finished` | the step ended — the closing event of every step, fired exactly once regardless of outcome, after every other event | step_text, step_type, outcome (passed or failed) |
+| `on_group_started` | a group block started — once per entered group, zero-step groups included | group_prompt |
+| `on_group_passed` | the group block completed without an exception — a recovered group reports passed (its traces keep the verbatim failed record), a zero-step group reports passed | group_prompt |
+| `on_group_failed` | the group block exited through an exception — a terminally failed step, a refused recovery or an author exception inside the block alike; the exception still propagates | group_prompt |
+| `on_group_finished` | the group block ended — the closing event of every group, fired exactly once regardless of outcome, after `on_group_passed`/`on_group_failed` | group_prompt |
 | `on_generation_started` | a generation attempt started | step_text, attempt (1-based) |
 | `on_healing_started` | healing of a failed cached step started | step_text, category (rot, product_defect, fixable, incurable, recoverable — a group recovery row, see [Groups](groups.md)) |
 | `on_healed` | the step healed, cache updated | step_text, explanation (why the heal happened — the rot/fixable verdict, the interactive engineer guidance, or the group diagnosis root cause) |
@@ -81,12 +89,15 @@ class FailureMonitor(StepHooks):
 
 Visibility goes through the standard logging library: the logger is named
 `prettyplay`; the library configures no handlers. Step lifecycle events —
-including the verdict event — are logged at INFO; a skipped cache write, a
+including the verdict event — and group lifecycle events are logged at INFO;
+a skipped cache write, a
 failed hook call and the non-blocking compliance outcomes — WARNING. The
 steering dialog logs its openings, guidance lines and declines at INFO as
 `steering_opened`, `steering_guidance` and `steering_declined`; settle
 re-executions log at INFO as `settle_retry`. A group block frames itself
-with `group_started`/`group_finished` at INFO (the group prompt verbatim),
+with the lifecycle events `on_group_started`/`on_group_passed`/`on_group_failed`/`on_group_finished`
+at INFO (the group prompt verbatim; the outcome events are mutually exclusive,
+`on_group_finished` always closes),
 its recovery logs the landed diagnosis as `group_diagnosed` at INFO and each
 recovered row step as `group_row_recovered` at INFO; a degraded diagnosis
 answer logs `group_diagnosis_degraded` at WARNING (see

@@ -11,6 +11,10 @@ EVENT_SIGNATURES: dict[str, list[tuple[str, type]]] = {
     "on_step_failed": [("step_text", str), ("step_type", str), ("error", str)],
     "on_step_verdict": [("step_text", str), ("category", str), ("explanation", str), ("recommendation", str)],
     "on_step_finished": [("step_text", str), ("step_type", str), ("outcome", str)],
+    "on_group_started": [("group_prompt", str)],
+    "on_group_passed": [("group_prompt", str)],
+    "on_group_failed": [("group_prompt", str)],
+    "on_group_finished": [("group_prompt", str)],
     "on_generation_started": [("step_text", str), ("attempt", int)],
     "on_healing_started": [("step_text", str), ("category", str)],
     "on_healed": [("step_text", str), ("explanation", str)],
@@ -22,7 +26,7 @@ SAMPLE_VALUES: dict[type, object] = {str: "value", int: 1}
 
 
 class TestStepHooksContract:
-    """Contract tests: facade import, the exact ten-method surface, no-op bodies."""
+    """Contract tests: facade import, the exact fourteen-method surface, no-op bodies."""
 
     def test_step_hooks_importable_from_facade(self) -> None:
         assert isinstance(StepHooks, type)
@@ -30,7 +34,7 @@ class TestStepHooksContract:
     def test_step_hooks_constructs_without_arguments(self) -> None:
         assert StepHooks() is not None
 
-    def test_all_ten_methods_declared_with_exact_signatures(self) -> None:
+    def test_all_fourteen_methods_declared_with_exact_signatures(self) -> None:
         for event, expected in EVENT_SIGNATURES.items():
             method = getattr(StepHooks, event, None)
             assert callable(method), f"missing method: {event}"
@@ -130,3 +134,56 @@ class TestStepFinishedLogic:
         assert len(info_records) == 1
         assert info_records[0].name == "prettyplay"
         assert info_records[0].message == "on_step_finished"
+
+
+class GroupRecordingHooks(StepHooks):
+    """Overrides the four group lifecycle events and records every argument received."""
+
+    def __init__(self) -> None:
+        self.group_calls: list[tuple[str, str]] = []
+
+    def on_group_started(self, group_prompt: str) -> None:
+        self.group_calls.append(("on_group_started", group_prompt))
+
+    def on_group_passed(self, group_prompt: str) -> None:
+        self.group_calls.append(("on_group_passed", group_prompt))
+
+    def on_group_failed(self, group_prompt: str) -> None:
+        self.group_calls.append(("on_group_failed", group_prompt))
+
+    def on_group_finished(self, group_prompt: str) -> None:
+        self.group_calls.append(("on_group_finished", group_prompt))
+
+
+class TestGroupLifecycleLogic:
+    """Logic tests: the group events' no-op bases, payload delivery and INFO records."""
+
+    def test_group_event_bases_are_no_ops(self) -> None:
+        hooks = StepHooks()
+
+        assert hooks.on_group_started("the checkout flow") is None
+        assert hooks.on_group_passed("the checkout flow") is None
+        assert hooks.on_group_failed("the checkout flow") is None
+        assert hooks.on_group_finished("the checkout flow") is None
+
+    def test_group_events_dispatch_the_group_prompt_to_the_hook(self, caplog) -> None:
+        hooks = GroupRecordingHooks()
+        reporter = StepReporter(hooks=[hooks])
+
+        with caplog.at_level(logging.INFO, logger="prettyplay"):
+            for event in ("on_group_started", "on_group_failed", "on_group_finished"):
+                reporter.emit(event, {"group_prompt": "the checkout flow"})
+
+        assert hooks.group_calls == [
+            ("on_group_started", "the checkout flow"),
+            ("on_group_failed", "the checkout flow"),
+            ("on_group_finished", "the checkout flow"),
+        ]
+        assert all(isinstance(value, str) for _, value in hooks.group_calls)
+
+        info_records = [record for record in caplog.records if record.levelno == logging.INFO]
+        assert [record.message for record in info_records] == [
+            "on_group_started",
+            "on_group_failed",
+            "on_group_finished",
+        ]

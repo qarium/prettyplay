@@ -7,7 +7,7 @@ need. No event bus, no queuing, no delivery retries.
 
 
 class StepHooks:
-    """Callback contract of the ten prettyplay events; every base method is a no-op."""
+    """Callback contract of the fourteen prettyplay events; every base method is a no-op."""
 
     def on_step_started(self, step_text: str, step_type: str) -> None:
         """A step started executing; ``step_type`` is action or assertion."""
@@ -30,6 +30,20 @@ class StepHooks:
 
     def on_step_finished(self, step_text: str, step_type: str, outcome: str) -> None:
         """The step ended — the closing event of every step, fired exactly once regardless of outcome."""
+
+    def on_group_started(self, group_prompt: str) -> None:
+        """A group block started; ``group_prompt`` is the group prompt, verbatim."""
+
+    def on_group_passed(self, group_prompt: str) -> None:
+        """The group block completed without an exception — a recovered group reports passed here."""
+
+    def on_group_failed(self, group_prompt: str) -> None:
+        """The group block exited through an exception — a failed step, a refused recovery or an
+        author exception inside the block alike; the exception still propagates."""
+
+    def on_group_finished(self, group_prompt: str) -> None:
+        """The group block ended — the closing event of every group, fired exactly once
+        regardless of outcome, after on_group_passed or on_group_failed."""
 
     def on_generation_started(self, step_text: str, attempt: int) -> None:
         """A code generation attempt started; ``attempt`` is the 1-based attempt number."""

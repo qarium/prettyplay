@@ -78,7 +78,7 @@ Annotations: |
   `StepHooks` — the callback contract the facade accepts — is re-exported by this facade (see the embedding), uniform with `PrettyConfig` and `BrowserConfig`.
   Strict mode — the strict field of the effective config — makes the step cycle replay-only: cached code executes honestly, nothing is ever (re)generated. A cache miss is the incurable failure stating that strict forbids generation; a failed cached step is at most classified — never regenerated; without LLM access the failure raises immediately by step type. Classifications are the only LLM calls of a strict run; the generation and healing budgets are never consumed.
   Group steps route their failures differently on a non-strict run: every classification point of a group step goes to one group-level diagnosis and the group-scoped recovery instead of the per-step heal (see `recovery` from Imports); strict mode keeps the classification-only path; the honest inputs extend to the group prompt — it joins requests verbatim and the never-put-secrets rule covers it.
-  The authoring surface: step and expect accept the keyword-only retry count and start pause; the group block yields a group object with the ordinary step surface — no ambient rerouting of the test object.
+  The authoring surface: step and expect accept the keyword-only retry count and start pause; the group block yields a group object with the ordinary step surface — no ambient rerouting of the test object; the block frames itself with the four group lifecycle events of `hooks` from Imports.
   The group pace and pauses are library-level behavior around steps: the pauses between the group's steps follow the same percent→ms mapping as the browser speed setting — never slow_mo, which cannot change mid-run.
   Honest inputs thread end to end through the executor: the executor owns the per-step attempt history — created empty on a cache miss, anchored on a failed cached hit by record 0 (the original cached code, the full replay error and the URL pair of the replay, a `StepAttempt` of outcome original cached code) — and passes the step type and the raw step sentence into every engine call; the casefolded normalization stays an addressing key only.
   The interactive gate lives in the executor: the steering dialog opens exactly at a caught IncurableStepError on a non-strict interactive run — never on product_defect, never in replay-strict, never when the LLM is unavailable; the dialog receives the same anchored history, the raw sentence and the step type, and continues growing it.
@@ -140,7 +140,7 @@ Annotations: |
       `prompt`: the group prompt — empty raises the loud actionable `PrettyplayError` at entry.
       `speed`: keyword-only — the group pace, an integer 0–100; outside the range — the loud actionable `PrettyplayError`.
       `delay`: keyword-only — the quiet pause before the group's first step in seconds, non-negative; negative — the loud actionable `PrettyplayError`.
-      `g`: the group object — the ordinary step surface (step, expect, tries/delay included); no ambient rerouting of the test object; group membership changes no step's cache address; cached group steps replay as ordinary steps.
+      `g`: the group object — the ordinary step surface (step, expect, tries/delay included); no ambient rerouting of the test object; group membership changes no step's cache address; cached group steps replay as ordinary steps. Used as a context manager the block frames itself with the group lifecycle events — on_group_started on entry, then on_group_passed/on_group_failed and the closing on_group_finished on exit (see `hooks` from Imports).
     "run_on_page(action: Callable[[Page], T]) -> result: T": |
       Execute the author action wholly inside the driver worker thread against the genuine sync Page of the test — the author escape hatch.
 
@@ -180,28 +180,35 @@ Annotations: |
     "close()": |
       Close the test page context and stop the whole runtime of this test — the browser process, the Playwright driver and the driver thread; idempotent; the context manager exit does the same.
 
-"StepGroup(prompt: str, speed: int | None, delay: float | None, executor: StepExecutor)":
+"StepGroup(prompt: str, speed: int | None, delay: float | None, executor: StepExecutor, reporter: StepReporter)":
   location: groups.py
   annotations: |
     The authoring group object — one coherent mini-scenario with a shared goal, yielded by the
     group method of the test object.
 
     `prompt`: the group prompt, verbatim — reaches generation and diagnosis requests and the
-    framing log records.
+    lifecycle events.
     `speed`: the group pace, 0–100; None — no between-step pauses.
     `delay`: the quiet pause before the group's first step, seconds; None — no pause.
     `executor`: the step cycle executor of the owning test — every step delegates to it with this
     group as the context.
+    `reporter`: the visibility point of the owning test — the group lifecycle events dispatch
+    through it (see `hooks` from Imports).
 
-    Supports the context manager protocol: entry — one INFO framing log record with the group
-    prompt verbatim; exit — one INFO framing log record; zero steps — a quiet no-op.
+    Supports the context manager protocol: entry emits on_group_started; exit emits
+    on_group_failed when the block exits through an exception — a terminally failed step, a
+    refused recovery or an author exception alike — or on_group_passed when it completes
+    without one, then the closing on_group_finished exactly once; zero steps — the lifecycle
+    events and nothing else.
 
     Requirements:
-    - The declared delay passes quietly before the first step — the entry framing visible, the
+    - The declared delay passes quietly before the first step — the entry event visible, the
       wait quiet
     - Between consecutive group steps the quiet pause int((100 − speed) × 30) milliseconds when
       speed is declared — library-level pauses, never slow_mo
     - Group membership changes no step's cache address
+    - A group step healed by the recovery continues as success — the group reports passed while
+      its traces keep the verbatim failed record
   properties:
     "prompt -> str": |
       The group prompt, verbatim.

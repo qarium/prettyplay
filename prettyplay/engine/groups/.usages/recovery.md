@@ -42,5 +42,7 @@ healed = recovery.recover(
 
 ## Reporting
 
-`on_healing_started` / `on_healed` per recovered step plus structured log records for the
-diagnosis itself and the row composition. No new hook events.
+The block itself reports through the four group lifecycle hook events — `on_group_started`,
+then `on_group_passed` (a recovered group reports passed) or `on_group_failed`, closed by
+`on_group_finished`. `on_healing_started` / `on_healed` fire per recovered step; the diagnosis
+itself and the row composition stay log-only records.

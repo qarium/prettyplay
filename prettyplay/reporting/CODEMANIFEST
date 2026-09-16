@@ -7,7 +7,7 @@ Annotations: |
   Visibility goes through the standard logging library: the logger is named prettyplay.
   Log messages: lowercase, concise operational wording, stable event names, contextual metadata attached.
   Never log secrets, credentials, tokens or personal sensitive data.
-  Step lifecycle events — including the verdict event and the closing finished event — are logged at INFO; a skipped cache write and a failed hook call — WARNING.
+  Step lifecycle events — including the verdict event and the closing finished event — and group lifecycle events are logged at INFO; a skipped cache write and a failed hook call — WARNING.
   Hook events fire per step or per LLM attempt — never per execution retry: settle re-executions of the same code emit no hook events, their visibility is log-only.
   The error field of the on_step_failed event and its log record carry the full structured render of the terminal failure — the same multi-line text the raised exception carries: the first line with the class name of the terminal failure and the authored reason, the --- separated step/error section, the conditional received/cause/Call log details section and the unpadded verdict block; integrators display it verbatim.
   The on_step_verdict event keeps its structured fields built from the verdict object of the failure — never parsed from the render.
@@ -52,6 +52,32 @@ Annotations: |
       Requirements:
       - Fired after on_step_passed, or after on_step_failed — and after on_step_verdict whenever the verdict exists
       - Covers every terminal kind: the step, generation, healing and infrastructure failures alike — a step ends exactly once
+    "on_group_started(group_prompt: str)": |
+      A group block started; fired by the group object on block entry, once per entered group — a zero-step group included.
+
+      `group_prompt`: the group prompt, verbatim.
+    "on_group_passed(group_prompt: str)": |
+      The group block completed without an exception.
+
+      `group_prompt`: the group prompt, verbatim.
+
+      Requirements:
+      - A group step healed by the group recovery continues as success — the recovered group reports passed here while its traces keep the verbatim failed record
+      - A zero-step group reports passed
+    "on_group_failed(group_prompt: str)": |
+      The group block exited through an exception — a terminally failed step, a refused recovery or an author exception inside the block alike.
+
+      `group_prompt`: the group prompt, verbatim.
+
+      Requirements:
+      - Fired before on_group_finished; the group never suppresses — the exception still propagates
+    "on_group_finished(group_prompt: str)": |
+      The group block ended — the closing event of every group, fired exactly once regardless of outcome.
+
+      `group_prompt`: the group prompt, verbatim.
+
+      Requirements:
+      - Fired after on_group_passed or on_group_failed — the exception path of the block included
     "on_generation_started(step_text: str, attempt: int)": |
       A code generation attempt started; `attempt` is the 1-based attempt number of the LLM request — settle re-executions of the same candidate do not count as attempts.
     "on_healing_started(step_text: str, category: str)": |
@@ -66,7 +92,7 @@ Annotations: |
 "StepReporter(hooks: list[StepHooks])":
   location: reporter.py
   annotations: |
-    The single visibility point of the library: every step, generation, healing and cache event goes through the emit method — written to the logger prettyplay and forwarded to the registered `StepHooks` implementations.
+    The single visibility point of the library: every step, group, generation, healing and cache event goes through the emit method — written to the logger prettyplay and forwarded to the registered `StepHooks` implementations.
 
     `hooks`: callback implementations registered by the integrator; the list may be empty.
   methods:
@@ -93,4 +119,4 @@ Annotations: |
 Author: Goga
 CreatedAt: 10/09/26
 Description: |
-  Visibility of prettyplay: the logger prettyplay plus the thin StepHooks callback contract; the step failure event carries the full structured render of the terminal failure.
+  Visibility of prettyplay: the logger prettyplay plus the thin StepHooks callback contract; the step failure event carries the full structured render of the terminal failure, and the group block frames itself with the four group lifecycle events.

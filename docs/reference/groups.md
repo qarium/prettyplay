@@ -96,13 +96,16 @@ see [Interactive steering](interactive-steering.md).
 
 ## Reporting
 
+The block frames itself with the four lifecycle events — `on_group_started`
+on entry, then `on_group_passed` (a recovered group reports passed: the
+recovery absorbed the failure, the traces keep the verbatim failed record)
+or `on_group_failed` (the block exited through an exception), closed by
+`on_group_finished` exactly once; all four carry the group prompt verbatim.
 `on_healing_started` / `on_healed` fire per recovered step — the
 `on_healing_started` category is `recoverable`, distinguishing a group row
-from an ordinary `rot`/`fixable` heal — plus structured log records: the
-framing records `group_started` / `group_finished` (INFO, the group prompt
-verbatim), the diagnosis records `group_diagnosed` (INFO) and
-`group_diagnosis_degraded` (WARNING, the raw answer), one
-`group_row_recovered` INFO record per recovered step. No new hook events —
+from an ordinary `rot`/`fixable` heal. The diagnosis itself stays log-only:
+`group_diagnosed` (INFO) and `group_diagnosis_degraded` (WARNING, the raw
+answer), one `group_row_recovered` INFO record per recovered step —
 see [Hooks and logging](hooks.md).
 
 ## Budgets

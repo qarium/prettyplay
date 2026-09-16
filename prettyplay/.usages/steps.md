@@ -51,6 +51,9 @@ with t.group("accept cookies, fill and submit the order form") as g:
 
 - The group block is one coherent mini-scenario with a shared goal; inside, steps use the ordinary
   authoring surface — retry count and start pause included
+- The block frames itself with the four group lifecycle events — on_group_started on entry, then
+  on_group_passed/on_group_failed and the closing on_group_finished on exit; a recovered group
+  reports passed
 - An empty group prompt fails loudly at entry; a group with zero steps is a quiet no-op
 - Group membership changes no step's cache address: cached group steps replay as ordinary steps —
   no LLM calls, strict replay-only included

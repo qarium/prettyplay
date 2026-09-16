@@ -13,6 +13,10 @@ StepHooks is a thin callback contract. The library calls the matching method syn
 | on_step_failed | the step failed | step_text, step_type, error — the **full rendered failure message** (see below) |
 | on_step_verdict | the terminal failure carried a verdict (fires after on_step_failed) | step_text, category (rot, product_defect, fixable, incurable), explanation, recommendation |
 | on_step_finished | the step ended — always the last step event, regardless of outcome | step_text, step_type, outcome (passed or failed) |
+| on_group_started | a group block started (once per entered group, zero-step groups included) | group_prompt |
+| on_group_passed | the group block completed without an exception — a recovered group reports passed; a zero-step group reports passed | group_prompt |
+| on_group_failed | the group block exited through an exception — a failed step, a refused recovery or an author exception alike; the exception still propagates | group_prompt |
+| on_group_finished | the group block ended — always the last group event, regardless of outcome, after on_group_passed/on_group_failed | group_prompt |
 | on_generation_started | a generation attempt started | step_text, attempt (1-based, one per LLM request) |
 | on_healing_started | healing of a failed cached step started | step_text, category (rot, product_defect, fixable, incurable — a group recovery row reports the diagnosis label recoverable) |
 | on_healed | the step healed, cache updated | step_text, explanation (why it failed, what changed — interactive healings report here too) |
@@ -25,7 +29,7 @@ StepHooks is a thin callback contract. The library calls the matching method syn
 
 ## Attempt semantics
 
-Hook events fire per step or per LLM attempt — never per execution retry. Settle re-executions of the same step code (transient failure absorption) emit no hook events: they are visible only as settle_retry log records. on_step_finished closes every step exactly once, passed or failed.
+Hook events fire per step or per LLM attempt — never per execution retry. Settle re-executions of the same step code (transient failure absorption) emit no hook events: they are visible only as settle_retry log records. on_step_finished closes every step exactly once, passed or failed; on_group_finished closes every entered group exactly once the same way — the group verdict is the block outcome, never the traces: a step healed by the group recovery leaves its verbatim failed trace record behind while the group reports passed.
 
 ## Example
 

@@ -300,9 +300,11 @@ class PrettyPlay:
 
         The returned group object carries the ordinary step surface —
         ``step``/``expect`` with the ``tries``/``delay`` parameters — and
-        used as a context manager it frames the block with one INFO record
-        on entry and one on exit. There is no ambient rerouting of this test
-        object: steps outside the block are ordinary steps, and group
+        used as a context manager it frames the block with the group
+        lifecycle events: ``on_group_started`` on entry, then
+        ``on_group_passed`` or ``on_group_failed`` and the closing
+        ``on_group_finished`` on exit. There is no ambient rerouting of this
+        test object: steps outside the block are ordinary steps, and group
         membership changes no step's cache address.
 
         Args:
@@ -332,8 +334,8 @@ class PrettyPlay:
             _validate_group_speed(speed)
             _validate_delay(delay)
 
-            block = StepGroup(prompt, speed, delay, self._executor)
-            block._open_page = self._ensure_page  # the lazy opener of this test; the constructor stays four-parameter
+            block = StepGroup(prompt, speed, delay, self._executor, self._reporter)
+            block._open_page = self._ensure_page  # the lazy opener of this test; the constructor stays five-parameter
 
             return block
         except PrettyplayError as error:

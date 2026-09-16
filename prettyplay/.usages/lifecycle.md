@@ -74,7 +74,7 @@ the steering dialog with the group context available.
 
 ## Hooks
 
-Implement the StepHooks callback contract and register the implementation — either pass the list to the keyword-only constructor parameter `hooks` (events are captured from the very construction) or call add_hooks before the first step. Step, generation, healing, cache and verdict events reach the handler synchronously. on_step_failed carries the full rendered failure message; on_step_verdict fires after it whenever the terminal failure carries an LLM verdict; on_step_finished closes every step exactly once, passed or failed. In strict mode generation and healing events never fire.
+Implement the StepHooks callback contract and register the implementation — either pass the list to the keyword-only constructor parameter `hooks` (events are captured from the very construction) or call add_hooks before the first step. Step, generation, healing, cache and verdict events reach the handler synchronously. on_step_failed carries the full rendered failure message; on_step_verdict fires after it whenever the terminal failure carries an LLM verdict; on_step_finished closes every step exactly once, passed or failed. A group block frames itself with the four group lifecycle events — on_group_started on entry, then on_group_passed (a recovered group reports passed) or on_group_failed, and the closing on_group_finished exactly once. In strict mode generation and healing events never fire.
 
 ## Failures
 

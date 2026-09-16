@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import math
 import time
 from collections.abc import Callable
@@ -15,8 +14,7 @@ if TYPE_CHECKING:
     from .driver import PageFacade
     from .engine.groups import GroupStepOutcome
     from .executor import StepExecutor
-
-logger = logging.getLogger("prettyplay")
+    from .reporting import StepReporter
 
 
 def _validate_tries(tries: int | None) -> None:
@@ -74,9 +72,9 @@ class StepGroup:
     input, the internal classification points are suppressed and a failed
     step routes to the group recovery instead of the per-step heal — that
     routing belongs to the executor; this object owns the authoring surface,
-    the pauses and the traces. The pauses are plain library-level waits —
-    never ``slow_mo``, which is fixed at browser start and cannot change
-    mid-run.
+    the pauses, the traces and the block lifecycle events. The pauses are
+    plain library-level waits — never ``slow_mo``, which is fixed at browser
+    start and cannot change mid-run.
 
     Attributes:
         _speed: the group pace, 0-100; ``None`` — no between-step pauses.
@@ -84,6 +82,8 @@ class StepGroup:
             ``None`` — no entry pause.
         _executor: the step cycle executor of the owning test — every step
             delegates to it with this group as the context.
+        _reporter: the visibility point of the owning test — the group
+            lifecycle events dispatch through it.
         _traces: the verbatim trace records of the group's steps, appended
             by the executor once per executed group step.
         _delegated: the internal first-step marker — set immediately before
@@ -92,24 +92,34 @@ class StepGroup:
             entry pause for a later step of the same group.
         _open_page: the owning test's lazy page opener, bound by
             :meth:`PrettyPlay.group`; the declared constructor stays
-            four-parameter, the group is only ever constructed there.
+            five-parameter, the group is only ever constructed there.
     """
 
-    def __init__(self, prompt: str, speed: int | None, delay: float | None, executor: StepExecutor) -> None:
-        """Keep the group framing, the pace settings and the owning executor.
+    def __init__(
+        self,
+        prompt: str,
+        speed: int | None,
+        delay: float | None,
+        executor: StepExecutor,
+        reporter: StepReporter,
+    ) -> None:
+        """Keep the group framing, the pace settings and the owning executor and reporter.
 
         Args:
             prompt: the group prompt, verbatim — reaches generation and
-                diagnosis requests and the framing log records.
+                diagnosis requests and the lifecycle events.
             speed: the group pace, 0-100; ``None`` — no between-step pauses.
             delay: the quiet pause before the group's first step, seconds;
                 ``None`` — no pause.
             executor: the step cycle executor of the owning test.
+            reporter: the visibility point of the owning test — the group
+                lifecycle events dispatch through it.
         """
         self._prompt = prompt
         self._speed = speed
         self._delay = delay
         self._executor = executor
+        self._reporter = reporter
         self._traces: list[GroupStepOutcome] = []
         self._delegated = False
         self._open_page: Callable[[], PageFacade] | None = None
@@ -130,16 +140,16 @@ class StepGroup:
         return self._traces
 
     def __enter__(self) -> StepGroup:
-        """Enter the group block: one INFO framing record with the group prompt verbatim.
+        """Enter the group block: the on_group_started event with the group prompt verbatim.
 
         The entry pause is not slept here — it is applied lazily immediately
         before the group's first executed step, so a zero-step group is a
-        quiet no-op: the framing records and nothing else.
+        quiet no-op: the lifecycle events and nothing else.
 
         Returns:
             This group object.
         """
-        logger.info("group_started", extra={"group": self._prompt})
+        self._reporter.emit("on_group_started", {"group_prompt": self._prompt})
 
         return self
 
@@ -149,10 +159,16 @@ class StepGroup:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Leave the group block: one INFO framing record; never suppresses.
+        """Leave the group block: the outcome event, then the closing event; never suppresses.
 
-        The closing record is unconditional once entry logged — it also
-        lands on the exception path of the block.
+        The outcome event is ``on_group_failed`` when the block exits
+        through an exception — a terminally failed step, a refused recovery
+        or an author exception inside the block alike — and
+        ``on_group_passed`` when the block completes without one: a group
+        step healed by the recovery continues as success, so the recovered
+        group reports passed here while its traces keep the verbatim failed
+        record. ``on_group_finished`` closes the group exactly once — the
+        exception path included.
 
         Args:
             exc_type: the type of the block exception, if any.
@@ -162,7 +178,10 @@ class StepGroup:
         Returns:
             Nothing — a falsy return keeps the exception propagating.
         """
-        logger.info("group_finished", extra={"group": self._prompt})
+        outcome_event = "on_group_failed" if exc_type is not None else "on_group_passed"
+
+        self._reporter.emit(outcome_event, {"group_prompt": self._prompt})
+        self._reporter.emit("on_group_finished", {"group_prompt": self._prompt})
 
     def step(self, text: str, *, tries: int | None = None, delay: float | None = None) -> None:
         """Execute the action step ``text`` inside the group.

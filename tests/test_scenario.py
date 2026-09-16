@@ -227,6 +227,25 @@ class RecorderHook(StepHooks):
         self.events.append(("on_step_failed", {"step_text": step_text, "step_type": step_type, "error": error}))
 
 
+class GroupRecorderHook(StepHooks):
+    """Hook recording the group lifecycle events into a shared ``events`` list for assertions."""
+
+    def __init__(self) -> None:
+        self.events: list[tuple[str, dict[str, str]]] = []
+
+    def on_group_started(self, group_prompt: str) -> None:
+        self.events.append(("on_group_started", {"group_prompt": group_prompt}))
+
+    def on_group_passed(self, group_prompt: str) -> None:
+        self.events.append(("on_group_passed", {"group_prompt": group_prompt}))
+
+    def on_group_failed(self, group_prompt: str) -> None:
+        self.events.append(("on_group_failed", {"group_prompt": group_prompt}))
+
+    def on_group_finished(self, group_prompt: str) -> None:
+        self.events.append(("on_group_finished", {"group_prompt": group_prompt}))
+
+
 class CycleRecorderHook(StepHooks):
     """Hook recording the closing events of the step cycle: failed, verdict, finished."""
 
@@ -394,7 +413,7 @@ class TestStepGroupContract:
     def test_step_group_constructor_signature_matches_contract(self) -> None:
         parameters = list(inspect.signature(StepGroup.__init__).parameters.values())[1:]
 
-        assert [parameter.name for parameter in parameters] == ["prompt", "speed", "delay", "executor"]
+        assert [parameter.name for parameter in parameters] == ["prompt", "speed", "delay", "executor", "reporter"]
         assert all(parameter.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD for parameter in parameters)
 
     def test_step_group_surface_matches_contract(self) -> None:
@@ -1273,10 +1292,10 @@ class TestGroupAuthoringBlock:
         assert [record[1] for record in group.traces] == ["accept the cookie banner", "fill the email field"]
         assert quiet.traces == []  # a zero-step group is a quiet no-op
 
-        started = [record for record in caplog.records if record.getMessage() == "group_started"]
-        finished = [record for record in caplog.records if record.getMessage() == "group_finished"]
-        assert [record.group for record in started] == ["the checkout flow", "the quiet block"]
-        assert [record.group for record in finished] == ["the checkout flow", "the quiet block"]
+        started = [record for record in caplog.records if record.getMessage() == "on_group_started"]
+        finished = [record for record in caplog.records if record.getMessage() == "on_group_finished"]
+        assert [record.group_prompt for record in started] == ["the checkout flow", "the quiet block"]
+        assert [record.group_prompt for record in finished] == ["the checkout flow", "the quiet block"]
 
     def test_group_without_speed_and_delay_never_pauses(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         executor = RecordingGroupExecutor()
@@ -1363,5 +1382,92 @@ class TestGroupAuthoringBlock:
             ):
                 block.step("one")
 
-        finished = [record for record in caplog.records if record.getMessage() == "group_finished"]
-        assert [record.group for record in finished] == ["the failing block"]  # unconditional once entry logged
+        events = [record.getMessage() for record in caplog.records if record.getMessage().startswith("on_group_")]
+        assert events == ["on_group_started", "on_group_failed", "on_group_finished"]
+
+        finished = [record for record in caplog.records if record.getMessage() == "on_group_finished"]
+        assert [record.group_prompt for record in finished] == ["the failing block"]  # unconditional once entry logged
+
+    def test_group_lifecycle_events_dispatch_to_hooks_in_order(self, tmp_path: Path) -> None:
+        """A green group and a zero-step group: started, passed, finished — exactly once each, in order."""
+        executor = RecordingGroupExecutor()
+        hook = GroupRecorderHook()
+
+        with scenario_on_tmp_cache(tmp_path):
+            test = PrettyPlay(CACHE_KEY, hooks=[hook])
+            test._executor = executor
+
+            with mock.patch.object(test._runtime, "open_page", return_value=FakePage()):
+                with test.group("the checkout flow") as group:
+                    group.step("accept the cookie banner")
+
+                with test.group("the quiet block"):
+                    pass
+
+        assert hook.events == [
+            ("on_group_started", {"group_prompt": "the checkout flow"}),
+            ("on_group_passed", {"group_prompt": "the checkout flow"}),
+            ("on_group_finished", {"group_prompt": "the checkout flow"}),
+            ("on_group_started", {"group_prompt": "the quiet block"}),
+            ("on_group_passed", {"group_prompt": "the quiet block"}),
+            ("on_group_finished", {"group_prompt": "the quiet block"}),
+        ]
+        assert len(group.traces) == 1  # the zero-step block executed nothing — only its lifecycle events fired
+
+    def test_recovered_group_reports_passed_despite_the_failed_trace(self, tmp_path: Path) -> None:
+        """A recovery-healed step leaves a failed trace record, never an exception — the group reports passed."""
+
+        class RecoveringExecutor:
+            """Fake executor standing in for a recovery-healed step: the verbatim failed
+            trace record lands, no exception leaves the step — the block continues."""
+
+            def execute(  # noqa: PLR0913, PLR0917 — the signature is fixed by the root cell contract
+                self,
+                step_text: str,
+                step_type: str,
+                page: object,
+                group: object | None = None,
+                tries: int | None = None,
+                delay: float | None = None,
+            ) -> None:
+                if group is not None:
+                    group.traces.append(("failed", step_text))
+
+        hook = GroupRecorderHook()
+
+        with scenario_on_tmp_cache(tmp_path):
+            test = PrettyPlay(CACHE_KEY, hooks=[hook])
+            test._executor = RecoveringExecutor()
+
+            with (
+                mock.patch.object(test._runtime, "open_page", return_value=FakePage()),
+                test.group("the flaky block") as group,
+            ):
+                group.step("one")
+
+        assert hook.events == [
+            ("on_group_started", {"group_prompt": "the flaky block"}),
+            ("on_group_passed", {"group_prompt": "the flaky block"}),
+            ("on_group_finished", {"group_prompt": "the flaky block"}),
+        ]
+        assert group.traces == [("failed", "one")]  # verbatim record stays failed — the verdict never rewrites traces
+
+    def test_hooks_added_after_group_creation_receive_the_group_events(self, tmp_path: Path) -> None:
+        """The group holds the test's reporter by reference — add_hooks after group() still reaches the block."""
+        executor = RecordingGroupExecutor()
+        hook = GroupRecorderHook()
+
+        with scenario_on_tmp_cache(tmp_path):
+            test = PrettyPlay(CACHE_KEY)
+            test._executor = executor
+            block = test.group("the late block")
+            test.add_hooks(hook)
+
+            with mock.patch.object(test._runtime, "open_page", return_value=FakePage()), block:
+                block.step("one")
+
+        assert hook.events == [
+            ("on_group_started", {"group_prompt": "the late block"}),
+            ("on_group_passed", {"group_prompt": "the late block"}),
+            ("on_group_finished", {"group_prompt": "the late block"}),
+        ]
