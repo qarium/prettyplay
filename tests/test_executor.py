@@ -220,6 +220,7 @@ class RecordingSteering:
         step_text: str,
         step_type: str,
         previous_steps: list[str],
+        group_prompt: str | None,
         page: FakePage,
         attempt_history: list[StepAttempt],
     ) -> CachedStep | None:
@@ -230,6 +231,7 @@ class RecordingSteering:
                 "step_text": step_text,
                 "step_type": step_type,
                 "previous_steps": list(previous_steps),  # snapshot: the live list grows after the call
+                "group_prompt": group_prompt,
                 "page": page,
                 "attempt_history": list(attempt_history),  # snapshot: the dialog joins the grown history
             }
@@ -591,7 +593,7 @@ class TestStepExecutorContract:
             "window",
         }
 
-        # terminal failure, interactive — steer(failure, identity, step_text, step_type, scenario, page, history)
+        # terminal failure, interactive — steer(…, scenario, group_prompt, page, history)
         failure = IncurableStepError("нажать войти", "budget exhausted", "Timeout …", verdict=None)
         steering = RecordingSteering(healed=None)  # declined — the shape is recorded before the decline
         interactive = interactive_fixture(
@@ -608,9 +610,11 @@ class TestStepExecutorContract:
             "step_text",
             "step_type",
             "previous_steps",
+            "group_prompt",
             "page",
             "attempt_history",
         }
+        assert steering.calls[0]["group_prompt"] is None  # interim wiring — the ordinary cycle carries no group
 
 
 class TestStepExecutorLogic:

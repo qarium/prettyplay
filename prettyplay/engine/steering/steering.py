@@ -10,7 +10,7 @@ from ...cache import CachedStep, StepCache, StepIdentity
 from ...config import Config
 from ...driver import PageFacade
 from ...failures import ComplianceVerdictError, IncurableStepError, LLMUnavailableError
-from ...llm import LLMProvider
+from ...llm import LLMProvider, ScenarioStep
 from ...reporting import StepReporter
 from ..attempts import (
     OUTCOME_COMPLIANCE_BLOCKED,
@@ -26,10 +26,11 @@ from ..text import format_step_error
 logger = logging.getLogger("prettyplay")
 
 #: System prompt of every guided regeneration request of the steering dialog.
-#: Frozen mirror of ``.goga/usages/prompts/generation.md`` (the section after the
-#: ``---`` separator) — the single source of the prompt; the constant changes only
-#: together with the file. A local copy of the engine constant, not an import:
-#: frozen mirrors stay cell-owned, no runtime read of ``.goga/`` ever happens.
+#: Frozen mirror of ``.goga/usages/prompts/step_generation.md`` (the section after
+#: the ``---`` separator) — the single source of the prompt; the constant changes
+#: only together with the file. A local copy of the engine constant, not an
+#: import: frozen mirrors stay cell-owned, no runtime read of ``.goga/`` ever
+#: happens.
 SYSTEM_PROMPT = """You generate executable Python code for one step of a web UI test.
 
 Input you receive:
@@ -76,7 +77,7 @@ Rules:
 
 #: The compact standard Playwright sync API reference of every guided request;
 #: guidance, not an allowlist — everything standard stays allowed.
-#: Frozen mirror of ``.goga/usages/prompts/cheatsheet.md`` — the whole file, verbatim
+#: Frozen mirror of ``.goga/usages/prompts/step_cheatsheet.md`` — the whole file, verbatim
 #: (the practice has no ``---`` separator, so the whole-file rule is the only mirror
 #: rule with no extraction logic to drift); the constant changes only together with
 #: the file. A local copy of the engine constant, not an import — the same
@@ -249,7 +250,8 @@ class StepSteering:
         identity: StepIdentity,
         step_text: str,
         step_type: str,
-        previous_steps: list[str],
+        previous_steps: list[ScenarioStep],
+        group_prompt: str | None,
         page: PageFacade,
         attempt_history: list[StepAttempt],
     ) -> CachedStep | None:
@@ -285,8 +287,15 @@ class StepSteering:
                 verbatim.
             step_type: action or assertion — carried into every guided
                 request and the gate verdict.
-            previous_steps: the sentences of the previous steps of the test —
-                scenario context of the guided requests.
+            previous_steps: the typed scenario records of the previous steps
+                of the test — each the raw sentence plus its permanent group
+                membership; carried into every guided request unchanged, the
+                provider renders the marked entries.
+            group_prompt: the group prompt of the stuck step's group;
+                ``None`` — an ordinary step, no group framing; non-empty —
+                every guided request of this dialog carries the group framing
+                (the GROUP PROMPT block before the scenario context, rendered
+                by the provider).
             page: the live page facade of the test.
             attempt_history: the shared per-step attempt history grown by
                 the engine loops and anchored by record 0 — the dialog
@@ -316,7 +325,9 @@ class StepSteering:
             print("regenerating with USER GUIDANCE")
 
             try:
-                code = self._guided_request(step_text, step_type, previous_steps, page, message, attempt_history)
+                code = self._guided_request(
+                    step_text, step_type, previous_steps, group_prompt, page, message, attempt_history
+                )
             except LLMUnavailableError as outcome:
                 print(f"provider unavailable: {outcome}")
                 return None
@@ -535,7 +546,8 @@ class StepSteering:
         self,
         step_text: str,
         step_type: str,
-        previous_steps: list[str],
+        previous_steps: list[ScenarioStep],
+        group_prompt: str | None,
         page: PageFacade,
         guidance: str,
         attempt_history: list[StepAttempt],
@@ -548,13 +560,19 @@ class StepSteering:
         shared attempt history compose the request: record 0 anchors the
         original failure the engineer guidance refers to, every completed
         turn of the dialog rides its record after it, and the message
-        itself rides the USER GUIDANCE block.
+        itself rides the USER GUIDANCE block. A group step's request
+        carries the group framing: the typed scenario records and the group
+        prompt ride the port call, the provider renders the GROUP PROMPT
+        block and the marked entries.
 
         Args:
             step_text: the raw sentence of the stuck step — carried
                 verbatim.
             step_type: action or assertion — carried into the request.
-            previous_steps: the sentences of the previous steps of the test.
+            previous_steps: the typed scenario records of the previous steps
+                of the test — carried unchanged.
+            group_prompt: the group prompt of the stuck step's group;
+                ``None`` — an ordinary step, no group framing.
             page: the live page facade of the test.
             guidance: the engineer guidance message of this turn.
             attempt_history: the shared per-step attempt history — rendered
@@ -575,6 +593,7 @@ class StepSteering:
             step_text=step_text,
             step_type=step_type,
             previous_steps=previous_steps,
+            group_prompt=group_prompt,
             snapshot=self._guarded_snapshot(page),
             page_url=self._guarded_url(page),
             screenshot=screenshot,

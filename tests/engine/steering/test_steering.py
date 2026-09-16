@@ -28,16 +28,22 @@ from prettyplay.engine.generator import SYSTEM_PROMPT as ENGINE_SYSTEM_PROMPT
 from prettyplay.engine.steering.steering import CHEAT_SHEET, SYSTEM_PROMPT
 from prettyplay.engine.text import format_step_error
 from prettyplay.failures import ComplianceVerdictError, FailureVerdict, IncurableStepError, LLMUnavailableError
-from prettyplay.llm import ComplianceFinding
+from prettyplay.llm import ComplianceFinding, ScenarioStep
 from prettyplay.reporting import StepHooks, StepReporter
 
 STEPPING_MODULE = "prettyplay.engine.steering.steering"
 
-GENERATION_PROMPT_PRACTICE = Path(__file__).resolve().parents[3] / ".goga" / "usages" / "prompts" / "generation.md"
-CHEAT_SHEET_PRACTICE = Path(__file__).resolve().parents[3] / ".goga" / "usages" / "prompts" / "cheatsheet.md"
+GENERATION_PROMPT_PRACTICE = Path(__file__).resolve().parents[3] / ".goga" / "usages" / "prompts" / "step_generation.md"
+CHEAT_SHEET_PRACTICE = Path(__file__).resolve().parents[3] / ".goga" / "usages" / "prompts" / "step_cheatsheet.md"
+
+GROUP_PROMPT = "the checkout flow"
 
 GENERATED_CODE = "def step(page) -> None:\n    page.get_by_label('Close').click()\n"
 REGENERATED_CODE = "def step(page) -> None:\n    page.get_by_role('button', name='Pay').click()\n"
+
+#: The typed scenario records of the guided requests — an ordinary entry and a group entry.
+ORDINARY_STEP = ScenarioStep(sentence="open the page", group_prompt="")
+GROUP_STEP = ScenarioStep(sentence="fill the email field", group_prompt=GROUP_PROMPT)
 
 INSTRUCTIONS = "Prefer id attributes"
 HIGH_FINDING = ComplianceFinding(
@@ -149,7 +155,8 @@ class FakeProvider:
         user_instructions: str,
         step_text: str,
         step_type: str,
-        previous_steps: list[str],
+        previous_steps: list[ScenarioStep],
+        group_prompt: str | None,
         snapshot: str,
         page_url: str | None,
         screenshot: bytes | None,
@@ -165,6 +172,7 @@ class FakeProvider:
                 "step_text": step_text,
                 "step_type": step_type,
                 "previous_steps": previous_steps,
+                "group_prompt": group_prompt,
                 "snapshot": snapshot,
                 "page_url": page_url,
                 "screenshot": screenshot,
@@ -270,7 +278,7 @@ class TestStepSteeringContract:
         assert isinstance(steering._reporter, StepReporter)
         assert steering._reporter.hooks == []
 
-    def test_steer_declares_the_seven_contract_parameters_in_order(self) -> None:
+    def test_steer_declares_the_eight_contract_parameters_in_order(self) -> None:
         from prettyplay.engine.steering import StepSteering  # noqa: PLC0415 — cell facade check
 
         parameters = list(inspect.signature(StepSteering.steer).parameters)
@@ -282,16 +290,17 @@ class TestStepSteeringContract:
             "step_text",
             "step_type",
             "previous_steps",
+            "group_prompt",
             "page",
             "attempt_history",
-        ]  # the raw sentence, the step type and the shared history thread through in the contract order
+        ]  # the typed records and the group prompt ride in the contract position, before the page
 
     def test_turn_record_helper_is_gone(self) -> None:
         from prettyplay.engine.steering import steering  # noqa: PLC0415 — cell-local module check
 
         assert not hasattr(steering, "_turn_record")  # the dialog-local turn-history helper is deleted, not adapted
 
-    def test_steer_is_callable_with_the_seven_contract_parameters(
+    def test_steer_is_callable_with_the_eight_contract_parameters(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from prettyplay.engine.steering import StepSteering  # noqa: PLC0415 — cell facade check
@@ -300,7 +309,7 @@ class TestStepSteeringContract:
         steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
         _script_input(monkeypatch, ["quit"])
 
-        healed = steering.steer(_failure(), _identity(), "click Pay", "action", ["open the page"], FakePage(), [])
+        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [ORDINARY_STEP], None, FakePage(), [])
 
         assert healed is None  # declined — no provider request, nothing raised
         assert fixture.provider.call_count == 0
@@ -339,7 +348,7 @@ class TestStepSteeringContract:
         _script_input(monkeypatch, ["use count forms", "y"])
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
 
-        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], FakePage(), [])
+        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], None, FakePage(), [])
 
         request = provider.calls[0]
         assert request["cheat_sheet"] == CHEAT_SHEET  # the frozen mirror of the cheat-sheet practice
@@ -362,7 +371,7 @@ class TestStepSteeringContract:
         _script_input(monkeypatch, ["dismiss the modal first", "y"])
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
 
-        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], FakePage(), [])
+        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], None, FakePage(), [])
 
         assert healed is not None
         assert healed.code == GENERATED_CODE
@@ -390,7 +399,7 @@ class TestStepSteeringContract:
         _script_input(monkeypatch, ["dismiss the modal first", "y"])
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
 
-        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], FakePage(), [])
+        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], None, FakePage(), [])
 
         assert healed is not None
         assert provider.compliance_calls == []  # the gate never ran — fully the old behavior
@@ -419,7 +428,7 @@ class TestStepSteeringLogic:
 
         with caplog.at_level(logging.INFO, logger="prettyplay"):
             healed = steering.steer(
-                _failure(), _identity(), "click Pay", "action", ["open the page"], FakePage(), history
+                _failure(), _identity(), "click Pay", "action", [ORDINARY_STEP], None, FakePage(), history
             )
 
         assert healed is not None
@@ -440,7 +449,7 @@ class TestStepSteeringLogic:
         assert history == []  # a green turn never appends a record
         assert request["prompt"] == SYSTEM_PROMPT  # the frozen mirror of the generation practice
         assert request["cheat_sheet"] == CHEAT_SHEET  # the frozen mirror of the cheat-sheet practice
-        assert request["previous_steps"] == ["open the page"]
+        assert request["previous_steps"] == [ORDINARY_STEP]  # the typed records ride unchanged — no re-rendering here
         assert request["snapshot"] == "- heading: Pay\n- button: Pay now"
         assert request["page_url"] == DEFAULT_PAGE_URL  # the fresh URL rides every guided request
         assert request["screenshot"] is None  # send_screenshots defaults to False
@@ -453,6 +462,87 @@ class TestStepSteeringLogic:
         assert "generated code:" in out  # the complete code showed at the approval gate
         assert GENERATED_CODE in out
         assert "healed step written to the cache" in out
+
+    def test_steer_group_step_requests_carry_group_prompt_and_typed_records(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Every guided request of a group step carries the group prompt and the typed scenario records.
+
+        The provider renders the GROUP PROMPT block and the marked entries from these inputs —
+        the rendering itself is the request layer's pin, not the dialog's.
+        """
+        from prettyplay.engine.steering import StepSteering  # noqa: PLC0415 — cell facade check
+
+        provider = FakeProvider(answers=[GENERATED_CODE, REGENERATED_CODE])
+        fixture = SteeringFixture(provider, tmp_path)
+        steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
+        _script_input(monkeypatch, ["dismiss the modal first", "n", "then hover", "y"])
+        execute = mock.Mock(return_value=None)
+        monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", execute)
+        history: list[StepAttempt] = []
+
+        healed = steering.steer(
+            _failure(),
+            _identity(),
+            "fill the email field",
+            "action",
+            [ORDINARY_STEP, GROUP_STEP],
+            GROUP_PROMPT,
+            FakePage(),
+            history,
+        )
+
+        assert healed is not None
+        assert provider.call_count == 2  # a rejected turn, then the green turn — both guided requests ran
+        for request in provider.calls:
+            assert request["group_prompt"] == GROUP_PROMPT  # verbatim, on every turn of the dialog
+            assert request["previous_steps"] == [ORDINARY_STEP, GROUP_STEP]  # the typed records, unchanged
+            assert request["step_text"] == "fill the email field"  # the group step's own sentence verbatim
+        assert len(history) == 1  # only the rejected turn recorded; the green turn never does
+
+    def test_steer_ordinary_dialog_keeps_the_ordinary_payload_with_none_group_prompt(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """With group_prompt=None every ordinary request keeps the pre-change payload — the new key rides as None.
+
+        The rendered byte-identity of that payload (no GROUP PROMPT block, plain entries) is the
+        request layer's C13 pin; this holds the input side: no group context ever leaks into an
+        ordinary dialog.
+        """
+        from prettyplay.engine.steering import StepSteering  # noqa: PLC0415 — cell facade check
+
+        provider = FakeProvider(answers=[GENERATED_CODE, REGENERATED_CODE])
+        fixture = SteeringFixture(provider, tmp_path)
+        steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
+        _script_input(monkeypatch, ["try this", "n", "then click", "y"])
+        execute = mock.Mock(return_value=None)
+        monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", execute)
+
+        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [ORDINARY_STEP], None, FakePage(), [])
+
+        assert healed is not None
+        assert provider.call_count == 2
+        assert set(provider.calls[0]) == {
+            "prompt",
+            "user_instructions",
+            "step_text",
+            "step_type",
+            "previous_steps",
+            "group_prompt",
+            "snapshot",
+            "page_url",
+            "screenshot",
+            "cheat_sheet",
+            "attempt_history",
+            "recommendation",
+            "guidance",
+        }  # the pre-change request shape plus the one widened key — nothing else moved
+        for request in provider.calls:
+            assert request["group_prompt"] is None  # no group framing on the ordinary dialog, ever
 
     def test_steer_green_approved_turn_heals(
         self,
@@ -470,7 +560,7 @@ class TestStepSteeringLogic:
         execute = mock.Mock(return_value=None)
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", execute)
 
-        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], FakePage(), [])
+        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], None, FakePage(), [])
 
         assert healed is not None
         assert healed.code == GENERATED_CODE
@@ -502,7 +592,7 @@ class TestStepSteeringLogic:
         _script_input(monkeypatch, ["I solved the captcha", "y"])
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
 
-        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], FakePage(url=url), [])
+        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], None, FakePage(url=url), [])
 
         assert healed is not None
         assert provider.calls[0]["page_url"] == url  # the recorded request carries the fresh URL
@@ -526,7 +616,7 @@ class TestStepSteeringLogic:
         execute = mock.Mock(return_value=None)
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", execute)
 
-        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], FakePage(), [])
+        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], None, FakePage(), [])
 
         assert healed is None
         assert execute.call_count == 0  # nothing ran — the gate held
@@ -556,7 +646,7 @@ class TestStepSteeringLogic:
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", execute)
         history: list[StepAttempt] = []
 
-        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], FakePage(), history)
+        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], None, FakePage(), history)
 
         assert healed is not None
         assert healed.code == REGENERATED_CODE
@@ -594,7 +684,7 @@ class TestStepSteeringLogic:
         execute = mock.Mock(return_value=None)
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", execute)
 
-        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], FakePage(), [])
+        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], None, FakePage(), [])
 
         assert healed is not None  # the follow-up turn heals
         assert provider.calls[1]["attempt_history"] == [
@@ -635,7 +725,7 @@ class TestStepSteeringLogic:
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", execute)
 
         with caplog.at_level(logging.INFO, logger="prettyplay"):
-            healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], FakePage(), [])
+            healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], None, FakePage(), [])
 
         assert healed is None  # the original failure propagates from the executor
         assert provider.call_count == 1  # the turn generated; the approval ended the dialog
@@ -672,7 +762,7 @@ class TestStepSteeringLogic:
         )
         history: list[StepAttempt] = []
 
-        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], FakePage(), history)
+        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], None, FakePage(), history)
 
         assert healed is not None
         assert healed.code == REGENERATED_CODE
@@ -716,7 +806,7 @@ class TestStepSteeringLogic:
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", execute)
         history: list[StepAttempt] = []
 
-        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], FakePage(), history)
+        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], None, FakePage(), history)
 
         assert healed is not None
         out = capsys.readouterr().out
@@ -753,7 +843,7 @@ class TestStepSteeringLogic:
 
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", execute)
 
-        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], FakePage(), [])
+        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], None, FakePage(), [])
 
         assert healed is None  # quit after the red turn — the original failure propagates
         assert execute.call_count == 1  # one execution per approved guidance message — no settle re-execution
@@ -775,7 +865,7 @@ class TestStepSteeringLogic:
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(side_effect=KeyboardInterrupt()))
 
         with pytest.raises(KeyboardInterrupt):
-            steering.steer(_failure(), _identity(), "click Pay", "action", [], FakePage(), [])
+            steering.steer(_failure(), _identity(), "click Pay", "action", [], None, FakePage(), [])
 
         assert provider.call_count == 1  # the turn ran; the interrupt escaped its execution
         assert fixture.cache.save_calls == []  # never healed, never written back
@@ -815,7 +905,7 @@ class TestStepSteeringLogic:
         _script_input(monkeypatch, ["quit"])
         monkeypatch.setattr(f"{STEPPING_MODULE}.tempfile", SimpleNamespace(NamedTemporaryFile=ExplodingTempFile))
 
-        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], FakePage(), [])
+        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], None, FakePage(), [])
 
         assert healed is None
         assert created  # the dialog attempted a temp screenshot
@@ -848,7 +938,7 @@ class TestStepSteeringLogic:
         _script_input(monkeypatch, [answer])
 
         with caplog.at_level(logging.INFO, logger="prettyplay"):
-            healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], FakePage(), [])
+            healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], None, FakePage(), [])
 
         assert healed is None
         assert provider.call_count == 0
@@ -869,7 +959,7 @@ class TestStepSteeringLogic:
         steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
         scripted = _script_input(monkeypatch, ["try clicking the label instead"])
 
-        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], FakePage(), [])
+        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], None, FakePage(), [])
 
         assert healed is None
         assert provider.call_count == 1
@@ -891,7 +981,7 @@ class TestStepSteeringLogic:
         steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
         _script_input(monkeypatch, ["code", "error", "snapshot", "screenshot", "quit"])
 
-        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], FakePage(), [])
+        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], None, FakePage(), [])
 
         assert healed is None
         assert provider.call_count == 0
@@ -925,7 +1015,7 @@ class TestStepSteeringLogic:
         _script_input(monkeypatch, ["snapshot", "screenshot", "quit"])
 
         with caplog.at_level(logging.INFO, logger="prettyplay"):
-            healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], DeadPage(), [])
+            healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], None, DeadPage(), [])
 
         assert healed is None
         out = capsys.readouterr().out
@@ -950,7 +1040,7 @@ class TestStepSteeringLogic:
         _script_input(monkeypatch, ["", "   ", "quit"])
 
         with caplog.at_level(logging.INFO, logger="prettyplay"):
-            healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], FakePage(), [])
+            healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], None, FakePage(), [])
 
         assert healed is None
         assert provider.call_count == 0
@@ -972,7 +1062,7 @@ class TestStepSteeringLogic:
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
         failure = IncurableStepError("click Pay", "budget exhausted", "Timeout 10000ms exceeded", code="", verdict=None)
 
-        healed = steering.steer(failure, _identity(), "click Pay", "action", [], FakePage(), [])
+        healed = steering.steer(failure, _identity(), "click Pay", "action", [], None, FakePage(), [])
 
         assert healed is not None
         assert healed.code == GENERATED_CODE
@@ -1005,7 +1095,7 @@ class TestStepSteeringLogic:
             verdict=FailureVerdict("fixable", "the button is behind the modal", "dismiss the modal first"),
         )
 
-        steering.steer(failure, _identity(), "click Pay", "action", [], FakePage(), [])
+        steering.steer(failure, _identity(), "click Pay", "action", [], None, FakePage(), [])
 
         out = capsys.readouterr().out
         assert "IncurableStepError: budget exhausted" in out  # the error: value opens with the render's first line
@@ -1037,7 +1127,7 @@ class TestStepSteeringLogic:
             "click Pay", "budget exhausted", "Timeout 10000ms exceeded", code=sample, verdict=None
         )
 
-        steering.steer(failure, _identity(), "click Pay", "action", [], FakePage(), [])
+        steering.steer(failure, _identity(), "click Pay", "action", [], None, FakePage(), [])
 
         out = capsys.readouterr().out
         for line in sample.splitlines():
@@ -1063,7 +1153,7 @@ class TestStepSteeringLogic:
             "click Pay", "budget exhausted", "Timeout 10000ms exceeded", code=sample, verdict=None
         )
 
-        steering.steer(failure, _identity(), "click Pay", "action", [], FakePage(), [])
+        steering.steer(failure, _identity(), "click Pay", "action", [], None, FakePage(), [])
 
         out = capsys.readouterr().out
         assert 'code:     videos = page.get_by_role("listitem")' in out  # the label column opens the block
@@ -1086,7 +1176,7 @@ class TestStepSteeringLogic:
         steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
 
         _script_input(monkeypatch, ["quit"])
-        steering.steer(_failure(), _identity(), "click Pay", "action", [], TallSnapshotPage(), [])
+        steering.steer(_failure(), _identity(), "click Pay", "action", [], None, TallSnapshotPage(), [])
         banner = capsys.readouterr().out
         assert "IncurableStepError: budget exhausted" in banner  # the error: line opens with the render's first line
         assert "url:" in banner  # the fresh URL rides the banner
@@ -1095,7 +1185,7 @@ class TestStepSteeringLogic:
         assert "- line 30" not in banner
 
         _script_input(monkeypatch, ["snapshot", "quit"])
-        steering.steer(_failure(), _identity(), "click Pay", "action", [], TallSnapshotPage(), [])
+        steering.steer(_failure(), _identity(), "click Pay", "action", [], None, TallSnapshotPage(), [])
         served = capsys.readouterr().out
         assert "- line 1" in served  # the snapshot command prints the full tree, uncut
         assert "- line 30" in served
@@ -1115,7 +1205,7 @@ class TestStepSteeringLogic:
         _script_input(monkeypatch, ["dismiss the modal first", "y"])
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
 
-        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], FakePage(), [])
+        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], None, FakePage(), [])
 
         assert healed is not None
         assert provider.calls[0]["screenshot"] == b"png"  # the guided request carries the image
@@ -1136,7 +1226,7 @@ class TestStepSteeringLogic:
         _script_input(monkeypatch, ["dismiss the modal first", "y"])
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
 
-        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], DeadPage(), [])
+        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], None, DeadPage(), [])
 
         assert healed is not None
         assert provider.calls[0]["screenshot"] is None  # a failed interaction never kills the request
@@ -1159,7 +1249,7 @@ class TestStepSteeringLogic:
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
         history: list[StepAttempt] = []
 
-        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], DeadPage(), history)
+        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], None, DeadPage(), history)
 
         assert healed is not None  # the dialog survived and completed the scripted green turn
         assert provider.calls[0]["page_url"] is None  # the failed read degrades to None in the request
@@ -1184,7 +1274,7 @@ class TestStepSteeringLogic:
         _script_input(monkeypatch, ["dismiss the modal first", "y"])
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
 
-        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], FakePage(), [])
+        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], None, FakePage(), [])
 
         assert healed is not None  # the green turn still returns the healed step
         assert len(fixture.cache.save_calls) == 1  # the save was attempted
@@ -1219,7 +1309,7 @@ class TestStepSteeringLogic:
         _script_input(monkeypatch, ["dismiss the modal first", "y"])
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
 
-        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], FakePage(), [])
+        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], None, FakePage(), [])
 
         assert healed is not None  # the green turn still returns the healed step
         assert len(fixture.cache.save_calls) == 1  # the save was attempted
@@ -1245,7 +1335,7 @@ class TestStepSteeringLogic:
         _script_input(monkeypatch, ["use the id attribute", "y", "now click the button", "y"])
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
 
-        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], FakePage(), [])
+        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], None, FakePage(), [])
 
         assert healed is not None
         assert healed.code == REGENERATED_CODE
@@ -1285,7 +1375,7 @@ class TestStepSteeringLogic:
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
         history: list[StepAttempt] = []
 
-        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], FakePage(), history)
+        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], None, FakePage(), history)
 
         assert healed is None  # the dialog ended declined — the original failure propagates
         assert fixture.cache.save_calls == []  # no cache write
@@ -1314,7 +1404,7 @@ class TestStepSteeringLogic:
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
 
         with caplog.at_level(logging.WARNING, logger="prettyplay"):
-            healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], FakePage(), [])
+            healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], None, FakePage(), [])
 
         assert healed is not None
         assert healed.code == GENERATED_CODE
@@ -1360,7 +1450,7 @@ class TestStepSteeringLogic:
         history = _anchored_history()
 
         with caplog.at_level(logging.WARNING, logger="prettyplay"):
-            healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], FakePage(), history)
+            healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], None, FakePage(), history)
 
         assert healed is None  # the dialog ended — the original terminal failure propagates at the caller
         assert cache.load(_identity()) is None  # the cache file is absent
@@ -1393,7 +1483,7 @@ class TestStepSteeringLogic:
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
 
         with pytest.raises(KeyboardInterrupt):
-            steering.steer(_failure(), _identity(), "click Pay", "action", [], FakePage(), [])
+            steering.steer(_failure(), _identity(), "click Pay", "action", [], None, FakePage(), [])
 
         assert fixture.cache.save_calls == []  # nothing cached — the gate never finished
         out = capsys.readouterr().out
@@ -1415,7 +1505,9 @@ class TestStepSteeringLogic:
         history = _anchored_history()
         record0 = history[0].render()
 
-        healed = steering.steer(_failure(), _identity(), "click the «Sign in» button", "action", [], page, history)
+        healed = steering.steer(
+            _failure(), _identity(), "click the «Sign in» button", "action", [], None, page, history
+        )
 
         assert healed is None  # quit after the rejected turn — the original failure propagates
         assert len(history) == 2  # record 0 intact, the rejected turn appended
@@ -1445,7 +1537,7 @@ class TestStepSteeringLogic:
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
         history = _anchored_history()
 
-        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], FakePage(), history)
+        healed = steering.steer(_failure(), _identity(), "click Pay", "action", [], None, FakePage(), history)
 
         assert healed is not None
         assert healed.code == REGENERATED_CODE

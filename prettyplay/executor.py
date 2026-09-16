@@ -280,7 +280,12 @@ class StepExecutor:
         if not (self._config.interactive and not self._config.strict):
             raise failure
 
-        healed = self._steering.steer(failure, identity, step_text, step_type, previous_steps, page, attempt_history)
+        # interim wiring: the widened steering contract takes the group prompt after the
+        # scenario context; the ordinary cycle passes None — the group routing lands with
+        # the recovery wiring
+        healed = self._steering.steer(
+            failure, identity, step_text, step_type, previous_steps, None, page, attempt_history
+        )
         if healed is None:  # quit, EOF, SIGINT, an unreadable stdin or a dead provider
             raise failure
 

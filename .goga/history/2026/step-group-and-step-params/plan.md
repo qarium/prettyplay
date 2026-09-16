@@ -1128,25 +1128,25 @@ C13); the steering test pins repoint.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: in `tests/engine/steering/test_steering.py` — `steer` accepts the typed
+- [x] **Contract tests**: in `tests/engine/steering/test_steering.py` — `steer` accepts the typed
   `previous_steps` and the `group_prompt` parameter (signature shape); the guided request
   threads them into `generate_step_code` (expected to fail at this stage)
-- [ ] **Code**: `prettyplay/engine/steering/steering.py` — widen `steer` and `_guided_request`
+- [x] **Code**: `prettyplay/engine/steering/steering.py` — widen `steer` and `_guided_request`
   (`previous_steps: list[ScenarioStep]`, `group_prompt: str | None` in the contract position);
   pass both into `generate_step_code`; update the mirror comment paths; repoint the practice
   paths in the test pins
-- [ ] **Interface verification**: `pytest tests/engine/steering/ -q` — all pass
-- [ ] **Logic tests**: positive — a guided request of a group step carries `group_prompt` and
+- [x] **Interface verification**: `pytest tests/engine/steering/ -q` — all pass
+- [x] **Logic tests**: positive — a guided request of a group step carries `group_prompt` and
   the typed records (the provider renders the GROUP PROMPT block and the marked entries);
   negative/byte-identity (C13) — with `group_prompt=None` and ordinary records the guided
   request payload is byte-identical to today (the ordinary dialog tests stay green unchanged);
   edge — the dialog flow (banner, commands, y/N confirmation, rejected-candidate records) is
   unchanged; the mirror pins green against the renamed paths
-- [ ] **Debugging**: `pytest tests/engine/steering/ -q` — fix implementation code until all tests pass (do NOT fix test code)
-- [ ] **Contract re-verification**: `python -c "from prettyplay.engine.steering import
+- [x] **Debugging**: `pytest tests/engine/steering/ -q` — fix implementation code until all tests pass (do NOT fix test code)
+- [x] **Contract re-verification**: `python -c "from prettyplay.engine.steering import
   StepSteering"`; the gate still guards the write-back; interactive attempts still consume no
   budgets
-- [ ] **Lint**: `ruff check prettyplay/engine/steering tests/engine/steering && ruff format --check prettyplay/engine/steering tests/engine/steering`
+- [x] **Lint**: `ruff check prettyplay/engine/steering tests/engine/steering && ruff format --check prettyplay/engine/steering tests/engine/steering`
 
 ### Task 13: `StepExecutor` — the rewired cycle + the composition wiring (facade)
 
