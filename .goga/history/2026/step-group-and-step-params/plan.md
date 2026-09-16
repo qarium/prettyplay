@@ -895,23 +895,26 @@ diagnosis request renders; immutable once appended.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: create `tests/engine/groups/__init__.py` and
+- [x] **Contract tests**: create `tests/engine/groups/__init__.py` and
   `tests/engine/groups/test_outcome.py` — `from prettyplay.engine.groups import
   GroupStepOutcome` importable; kw_only construction with all eight fields; `render()` on the
   facade (expected to fail at this stage — the package does not exist)
-- [ ] **Code**: create `prettyplay/engine/groups/__init__.py` (docstring + `__all__` starting
+- [x] **Code**: create `prettyplay/engine/groups/__init__.py` (docstring + `__all__` starting
   with `GroupStepOutcome`) and `prettyplay/engine/groups/outcome.py` — the model and `render()`
   per the algorithm, typed `identity: StepIdentity` (imported from `...cache`)
-- [ ] **Interface verification**: `pytest tests/engine/groups/test_outcome.py -q` — all pass
-- [ ] **Logic tests**: positive — `render()` produces exactly the three pinned lines with the
+- [x] **Interface verification**: `pytest tests/engine/groups/test_outcome.py -q` — all pass
+- [x] **Logic tests**: positive — `render()` produces exactly the three pinned lines with the
   sentence verbatim, `outcome: failed`/`outcome: passed`, `url: {before} -> {after}`; negative —
   `identity` never appears in the render; edge — no truncation of long sentences/URLs;
   immutability — assignment raises (frozen); `identity` required (construction without it raises)
-- [ ] **Debugging**: `pytest tests/engine/groups/ -q` — fix implementation code until all tests pass (do NOT fix test code)
-- [ ] **Contract re-verification**: facade —
+- [x] **Debugging**: `pytest tests/engine/groups/ -q` — fix implementation code until all tests pass (do NOT fix test code)
+- [x] **Contract re-verification**: facade —
   `python -c "from prettyplay.engine.groups import GroupStepOutcome"`; `goga schema` still
   reports the groups cell and its facade edge (no structural drift)
-- [ ] **Lint**: `ruff check prettyplay/engine/groups tests/engine/groups && ruff format --check prettyplay/engine/groups tests/engine/groups`
+- [x] **Lint**: `ruff check prettyplay/engine/groups tests/engine/groups && ruff format --check prettyplay/engine/groups tests/engine/groups` — check and format clean on every Python file;
+  the two `ruff format` complaints under the cell are the pre-existing read-only `.usages/*.md`
+  markdown files (unchanged from the apply stage — same situation Task 8 documented; the plan
+  forbids touching `.usages/` files)
 
 ### Task 10: `classify_group_failure` routine + the `GROUP_DIAGNOSIS_PROMPT` mirror (engine/groups)
 
