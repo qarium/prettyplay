@@ -198,8 +198,11 @@ class StepExecutor:
                 raise IncurableStepError(step_text, _STRICT_MISS_REASON, "", code="")
             else:
                 try:
+                    # interim wiring: the widened engine contract takes the group prompt after the
+                    # scenario context; the ordinary cycle passes None — the group routing lands with
+                    # the recovery wiring
                     self._generator.generate(
-                        identity, step_text, step_type, self._scenario, page, attempt_history, window
+                        identity, step_text, step_type, self._scenario, None, page, attempt_history, window
                     )
                 except IncurableStepError as failure:  # the only kind the steering intercept serves
                     self._steer_or_raise(failure, identity, step_text, step_type, self._scenario, page, attempt_history)

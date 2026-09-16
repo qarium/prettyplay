@@ -31,17 +31,17 @@ class ClassificationProvider:
 
     def __init__(self, verdict: FailureClassification) -> None:
         self.verdict = verdict
-        self.classify_failure_calls: list[dict[str, object]] = []
+        self.classify_step_failure_calls: list[dict[str, object]] = []
 
-    def classify_failure(self, **kwargs: object) -> FailureClassification:
-        self.classify_failure_calls.append(dict(kwargs))
+    def classify_step_failure(self, **kwargs: object) -> FailureClassification:
+        self.classify_step_failure_calls.append(dict(kwargs))
         return self.verdict
 
 
 class UnavailableProvider:
     """Stub provider whose service is down: classification raises LLMUnavailableError."""
 
-    def classify_failure(self, **_kwargs: object) -> FailureClassification:
+    def classify_step_failure(self, **_kwargs: object) -> FailureClassification:
         raise LLMUnavailableError("openai down")
 
 
@@ -63,6 +63,21 @@ class TestClassifyStepFailureContract:
             "page",
         ]
 
+    def test_routine_calls_the_renamed_port_method(self, tmp_path: Path) -> None:
+        """The routine goes through the port's classify_step_failure — the former name is gone."""
+        provider = ClassificationProvider(
+            FailureClassification(
+                category="rot",
+                explanation="the button was renamed",
+                recommendation="refresh the cache",
+            )
+        )
+        assert not hasattr(provider, "classify_failure")  # the stub carries the renamed method only
+
+        classify_step_failure(Config(cache_root=str(tmp_path)), provider, "s", "code", "err", FakePage())
+
+        assert len(provider.classify_step_failure_calls) == 1  # reached through the renamed name
+
     def test_forwards_classification_prompt_as_user_instructions(self, tmp_path: Path) -> None:
         provider = ClassificationProvider(
             FailureClassification(
@@ -82,7 +97,7 @@ class TestClassifyStepFailureContract:
             page,
         )
 
-        assert provider.classify_failure_calls[0]["user_instructions"] == "answer in Russian"
+        assert provider.classify_step_failure_calls[0]["user_instructions"] == "answer in Russian"
 
 
 class TestClassifyStepFailureLogic:
@@ -108,7 +123,7 @@ class TestClassifyStepFailureLogic:
         )
 
         assert result.category == "rot"
-        kwargs = provider.classify_failure_calls[0]
+        kwargs = provider.classify_step_failure_calls[0]
         assert kwargs["step_text"] == "click Sign in"
         assert kwargs["code"] == STEP_CODE
         assert kwargs["error"] == "TimeoutError"
@@ -130,7 +145,7 @@ class TestClassifyStepFailureLogic:
             page,
         )
 
-        kwargs = provider.classify_failure_calls[0]
+        kwargs = provider.classify_step_failure_calls[0]
         assert kwargs["screenshot"] is None
         assert page.screenshot_calls == 0
 
@@ -161,7 +176,7 @@ class TestClassifyStepFailureLogic:
             page,
         )
 
-        recorded = provider.classify_failure_calls[0]
+        recorded = provider.classify_step_failure_calls[0]
         assert recorded["user_instructions"] == "answer in Russian"
         assert (
             "- USER INSTRUCTIONS: the project's binding classification guidance, when configured — "
@@ -171,4 +186,4 @@ class TestClassifyStepFailureLogic:
         empty = ClassificationProvider(FailureClassification(category="rot", explanation="e", recommendation="r"))
         classify_step_failure(Config(cache_root=str(tmp_path)), empty, "step", "code", "err", FakePage())
 
-        assert empty.classify_failure_calls[0]["user_instructions"] == ""
+        assert empty.classify_step_failure_calls[0]["user_instructions"] == ""

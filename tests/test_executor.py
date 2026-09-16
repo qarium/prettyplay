@@ -84,6 +84,7 @@ class RecordingGenerator:
         step_text: str,
         step_type: str,
         previous_steps: list[str],
+        group_prompt: str | None,
         page: FakePage,
         attempt_history: list[StepAttempt],
         window: SettleWindow,
@@ -115,6 +116,7 @@ class RaisingGenerator:
         step_text: str,
         step_type: str,
         previous_steps: list[str],
+        group_prompt: str | None,
         page: FakePage,
         attempt_history: list[StepAttempt],
         window: SettleWindow,
@@ -137,6 +139,7 @@ class FlakyGenerator:
         step_text: str,
         step_type: str,
         previous_steps: list[str],
+        group_prompt: str | None,
         page: FakePage,
         attempt_history: list[StepAttempt],
         window: SettleWindow,
@@ -251,6 +254,7 @@ class ScriptedProvider(LLMProvider):
         step_text: str = "",
         step_type: str = "",
         previous_steps: list[str] | None = None,
+        group_prompt: str | None = None,
         snapshot: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
@@ -262,7 +266,7 @@ class ScriptedProvider(LLMProvider):
         self.generation_calls += 1
         raise AssertionError("provider must not generate: strict mode replays cached code only")
 
-    def classify_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
+    def classify_step_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
         prompt: str = "",
         user_instructions: str = "",
@@ -289,6 +293,7 @@ class UnavailableProvider(LLMProvider):
         step_text: str = "",
         step_type: str = "",
         previous_steps: list[str] | None = None,
+        group_prompt: str | None = None,
         snapshot: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
@@ -300,7 +305,7 @@ class UnavailableProvider(LLMProvider):
         self.generation_calls += 1
         raise AssertionError("provider must not generate: strict mode replays cached code only")
 
-    def classify_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
+    def classify_step_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
         prompt: str = "",
         user_instructions: str = "",
@@ -327,6 +332,7 @@ class CrashingProvider(LLMProvider):
         step_text: str = "",
         step_type: str = "",
         previous_steps: list[str] | None = None,
+        group_prompt: str | None = None,
         snapshot: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
@@ -338,7 +344,7 @@ class CrashingProvider(LLMProvider):
         self.generation_calls += 1
         raise AssertionError("provider must not generate: strict mode replays cached code only")
 
-    def classify_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
+    def classify_step_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
         prompt: str = "",
         user_instructions: str = "",

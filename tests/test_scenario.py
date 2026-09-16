@@ -99,6 +99,7 @@ class RecordingProvider(LLMProvider):
         step_text: str,
         step_type: str,
         previous_steps: list[str],
+        group_prompt: str | None,
         snapshot: str,
         page_url: str | None,
         screenshot: bytes | None,
@@ -110,7 +111,7 @@ class RecordingProvider(LLMProvider):
         self.generate_calls += 1
         raise AssertionError("provider must not be called: the cached step runs without a generation request")
 
-    def classify_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
+    def classify_step_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
         prompt: str,
         user_instructions: str,
@@ -145,6 +146,7 @@ class GateHardFailingProvider(LLMProvider):
         step_text: str,
         step_type: str,
         previous_steps: list[str],
+        group_prompt: str | None,
         snapshot: str,
         page_url: str | None,
         screenshot: bytes | None,
@@ -171,7 +173,7 @@ class GateHardFailingProvider(LLMProvider):
         )
         return CACHED_CODE  # a candidate that executes green on the fake page
 
-    def classify_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
+    def classify_step_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
         prompt: str,
         user_instructions: str,

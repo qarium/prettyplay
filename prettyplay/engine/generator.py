@@ -7,7 +7,7 @@ from ..cache import CachedStep, RunBudgets, StepCache, StepIdentity
 from ..config import Config
 from ..driver import PageFacade
 from ..failures import FailureVerdict, IncurableStepError, LLMUnavailableError, ProductDefectError
-from ..llm import ComplianceFinding, FailureClassification, LLMProvider
+from ..llm import ComplianceFinding, FailureClassification, LLMProvider, ScenarioStep
 from ..reporting import StepReporter
 from .attempts import (
     OUTCOME_COMPLIANCE_BLOCKED,
@@ -25,7 +25,7 @@ from .text import format_step_error
 logger = logging.getLogger("prettyplay")
 
 #: System prompt of every generation and regeneration request; applied verbatim by the provider.
-#: Frozen mirror of ``.goga/usages/prompts/generation.md`` (the section after the ``---``
+#: Frozen mirror of ``.goga/usages/prompts/step_generation.md`` (the section after the ``---``
 #: separator) — the single source of the prompt; the constant changes only together with the file.
 SYSTEM_PROMPT = """You generate executable Python code for one step of a web UI test.
 
@@ -73,7 +73,7 @@ Rules:
 
 #: The compact standard Playwright sync API reference of every generation request;
 #: guidance, not an allowlist — everything standard stays allowed.
-#: Frozen mirror of ``.goga/usages/prompts/cheatsheet.md`` — the whole file, verbatim
+#: Frozen mirror of ``.goga/usages/prompts/step_cheatsheet.md`` — the whole file, verbatim
 #: (the practice has no ``---`` separator, so the whole-file rule is the only mirror
 #: rule with no extraction logic to drift); the constant changes only together with the file.
 CHEAT_SHEET = """# Playwright cheat sheet
@@ -182,6 +182,10 @@ class StepGenerator:
     exhaustion). A green candidate passes the two-dimension compliance gate
     before it is cached; a high finding of either dimension fails the
     attempt. Only a proven candidate is cached — failures are never stored.
+    A group step (a non-empty group framing input) carries the framing on
+    every request and suppresses the internal classification points — its
+    failed checks and budget exhaustions raise the unclassified incurable
+    the calling executor routes to the group recovery.
 
     Attributes:
         _config: project settings; the screenshot flag feeds the requests.
@@ -219,7 +223,8 @@ class StepGenerator:
         identity: StepIdentity,
         step_text: str,
         step_type: str,
-        previous_steps: list[str],
+        previous_steps: list[ScenarioStep],
+        group_prompt: str | None,
         page: PageFacade,
         attempt_history: list[StepAttempt],
         window: SettleWindow,
@@ -231,7 +236,16 @@ class StepGenerator:
             step_text: the raw sentence of the step — carried into every
                 request verbatim.
             step_type: action or assertion — carried into every request.
-            previous_steps: the sentences of the previous steps of the test.
+            previous_steps: the typed scenario records of the previous steps
+                of the test, in execution order — each the raw sentence plus
+                its permanent group membership.
+            group_prompt: the group prompt of the current step's group;
+                None — an ordinary step: every path stays byte-identical to
+                today, the same requests, the same classification points,
+                the same bounded healing; non-empty — a group step: every
+                request carries the group framing and the internal
+                classification points are suppressed — the calling executor
+                routes the unclassified failures to the group recovery.
             page: the live page facade the candidates run against.
             attempt_history: the per-step attempt history created by the
                 executor — this loop appends a record after every attempt
@@ -245,22 +259,28 @@ class StepGenerator:
         Raises:
             ProductDefectError: a failed candidate check classified as a
                 genuine product defect — by the entry or the final
-                classification.
+                classification; never raised for a group step inside this
+                loop.
             IncurableStepError: a check or budget outcome classified
                 incurable, or the healing funding refused; the code field
-                carries the failed step code.
+                carries the failed step code; a group step raises the
+                unclassified variant at its failed check and its budget
+                exhaustion — the group recovery decides.
             LLMUnavailableError: the provider service failed; no retry.
             ComplianceVerdictError: the compliance verdict of a green
                 candidate did not parse; nothing is cached.
         """
-        return self._generation_loop(identity, step_text, step_type, previous_steps, page, attempt_history, window)
+        return self._generation_loop(
+            identity, step_text, step_type, previous_steps, group_prompt, page, attempt_history, window
+        )
 
     def regenerate(  # noqa: PLR0913, PLR0917 — the signature is fixed by the engine contract
         self,
         identity: StepIdentity,
         step_text: str,
         step_type: str,
-        previous_steps: list[str],
+        previous_steps: list[ScenarioStep],
+        group_prompt: str | None,
         page: PageFacade,
         attempt_history: list[StepAttempt],
         recommendation: str,
@@ -282,7 +302,11 @@ class StepGenerator:
             step_text: the raw sentence of the step — carried into every
                 request verbatim, never the casefolded normalization.
             step_type: action or assertion — carried into every request.
-            previous_steps: the sentences of the previous steps of the test.
+            previous_steps: the typed scenario records of the previous steps
+                of the test, in execution order.
+            group_prompt: the group prompt of the row step's group — the
+                recovery row passes it; non-empty — the request carries the
+                group framing; None — an ordinary regeneration.
             page: the live page facade the candidates run against.
             attempt_history: the anchored per-step attempt history — record 0
                 carries the original cached code composed by the caller; this
@@ -304,7 +328,7 @@ class StepGenerator:
                 candidate did not parse; nothing is cached.
         """
         return self._healing_loop(
-            identity, step_text, step_type, previous_steps, page, attempt_history, recommendation, window
+            identity, step_text, step_type, previous_steps, group_prompt, page, attempt_history, recommendation, window
         )
 
     def _generation_loop(  # noqa: PLR0913, PLR0917 — the shared attempt loop with its fixed inputs
@@ -312,7 +336,8 @@ class StepGenerator:
         identity: StepIdentity,
         step_text: str,
         step_type: str,
-        previous_steps: list[str],
+        previous_steps: list[ScenarioStep],
+        group_prompt: str | None,
         page: PageFacade,
         history: list[StepAttempt],
         window: SettleWindow,
@@ -332,12 +357,21 @@ class StepGenerator:
         and follows the same table — the rot and fixable verdicts grant one
         extra funded regeneration there too; a standing high finding raises
         carrying the verdict built from the finding, with no classification.
+        A group step (a non-empty ``group_prompt``) suppresses the internal
+        classification points: its failed check and its budget exhaustion
+        raise the unclassified incurable carrying the underlying error — the
+        calling executor routes them to the group recovery.
 
         Args:
             identity: the address of the step.
             step_text: the raw sentence of the step.
             step_type: action or assertion — carried into every request.
-            previous_steps: the sentences of the previous steps of the test.
+            previous_steps: the typed scenario records of the previous steps
+                of the test, in execution order.
+            group_prompt: the group prompt of the current step's group;
+                None — an ordinary step, the ordinary paths byte-identical;
+                non-empty — a group step, the classification points
+                suppressed.
             page: the live page facade the candidates run against.
             history: the per-step attempt history this loop grows — every
                 attempt that does not produce a cached step appends its
@@ -362,13 +396,22 @@ class StepGenerator:
         while True:
             if not self._budgets.try_generation(identity):
                 return self._exhaustion_outcome(
-                    identity, step_text, step_type, previous_steps, page, history, window, attempt, standing
+                    identity,
+                    step_text,
+                    step_type,
+                    previous_steps,
+                    group_prompt,
+                    page,
+                    history,
+                    window,
+                    attempt,
+                    standing,
                 )
 
             attempt += 1
             self._emit_generation_started(step_text, attempt)
 
-            code = self._request(step_text, step_type, previous_steps, page, history, recommendation=None)
+            code = self._request(step_text, step_type, previous_steps, group_prompt, page, history, recommendation=None)
 
             url_before = _read_url(page)
             try:
@@ -383,6 +426,7 @@ class StepGenerator:
                     step_text,
                     step_type,
                     previous_steps,
+                    group_prompt,
                     page,
                     history,
                     code,
@@ -416,7 +460,8 @@ class StepGenerator:
         identity: StepIdentity,
         step_text: str,
         step_type: str,
-        previous_steps: list[str],
+        previous_steps: list[ScenarioStep],
+        group_prompt: str | None,
         page: PageFacade,
         history: list[StepAttempt],
         recommendation: str,
@@ -441,7 +486,11 @@ class StepGenerator:
             identity: the address of the step.
             step_text: the raw sentence of the step.
             step_type: action or assertion — carried into every request.
-            previous_steps: the sentences of the previous steps of the test.
+            previous_steps: the typed scenario records of the previous steps
+                of the test, in execution order.
+            group_prompt: the group prompt of the row step's group — the
+                recovery row passes it; non-empty — the request carries the
+                framing; None — an ordinary regeneration.
             page: the live page facade the candidates run against.
             history: the anchored per-step attempt history — record 0 stays
                 untouched at index 0 through every retry.
@@ -469,7 +518,7 @@ class StepGenerator:
             attempt += 1
             self._emit_generation_started(step_text, attempt)
 
-            code = self._request(step_text, step_type, previous_steps, page, history, recommendation)
+            code = self._request(step_text, step_type, previous_steps, group_prompt, page, history, recommendation)
 
             url_before = _read_url(page)
             try:
@@ -501,7 +550,8 @@ class StepGenerator:
         identity: StepIdentity,
         step_text: str,
         step_type: str,
-        previous_steps: list[str],
+        previous_steps: list[ScenarioStep],
+        group_prompt: str | None,
         page: PageFacade,
         history: list[StepAttempt],
         code: str,
@@ -517,13 +567,19 @@ class StepGenerator:
         history — a refused funding is terminal, and a repeat failure gets
         one final classification that decides only the terminal kind, never
         another regeneration. The loop already appended the failed check's
-        record before this table runs.
+        record before this table runs. A group step takes no table at all:
+        the unclassified incurable raise carries the underlying failure —
+        the group recovery supplies the verdict and the regeneration.
 
         Args:
             identity: the address of the step — the healing funding key.
             step_text: the raw sentence of the failed step.
             step_type: action or assertion — carried into the funded request.
-            previous_steps: the sentences of the previous steps of the test.
+            previous_steps: the typed scenario records of the previous steps
+                of the test, in execution order.
+            group_prompt: the group prompt of the current step's group;
+                non-empty — the suppressed-classification group raise;
+                None — the ordinary decision table.
             page: the live page facade of the test.
             history: the per-step attempt history — the failed check's
                 record already appended; the funded request carries it grown.
@@ -539,8 +595,19 @@ class StepGenerator:
             ProductDefectError: the entry or final verdict says product defect.
             IncurableStepError: the verdict says incurable, the healing
                 funding is refused, or the repeat failure stays terminal —
-                the code field carries the failed step code.
+                the code field carries the failed step code; a group step
+                raises the unclassified variant — the group recovery decides.
         """
+        if group_prompt:
+            # a group step suppresses the classification and the funded regeneration — the
+            # group recovery decides; colon-free authored reason, no verdict attached
+            raise IncurableStepError(
+                step_text,
+                "group step check failed — the group recovery decides",
+                error_field,
+                code=code,
+            ) from None
+
         reason = f"candidate check failed — {_first_line(error_field)}"
         verdict = self._classify(step_text, code, error_field, page)
         if verdict is None:  # quiet skip — the failed check itself is the primary signal
@@ -557,7 +624,16 @@ class StepGenerator:
             ) from None
 
         healed, failed_code, failure_text, repeat_was_check = self._funded_regeneration(
-            identity, step_text, step_type, previous_steps, page, history, verdict.recommendation, window, attempt
+            identity,
+            step_text,
+            step_type,
+            previous_steps,
+            group_prompt,
+            page,
+            history,
+            verdict.recommendation,
+            window,
+            attempt,
         )
         if healed is not None:
             return healed
@@ -580,7 +656,8 @@ class StepGenerator:
         identity: StepIdentity,
         step_text: str,
         step_type: str,
-        previous_steps: list[str],
+        previous_steps: list[ScenarioStep],
+        group_prompt: str | None,
         page: PageFacade,
         history: list[StepAttempt],
         window: SettleWindow,
@@ -589,7 +666,11 @@ class StepGenerator:
     ) -> CachedStep:
         """Decide the outcome of a refused generation attempt.
 
-        A standing high compliance finding raises first, carrying the verdict
+        A group step (a non-empty ``group_prompt``) raises the unclassified
+        incurable carrying the last record's facts — the empty pair when no
+        candidate ever ran — with no classification and no funded
+        regeneration: the group recovery decides. The ordinary table follows:
+        a standing high compliance finding raises first, carrying the verdict
         built from the finding itself — no LLM classification, no
         healing-funded regeneration: the standing violation already consumed
         the failed attempt and the pool is exhausted. Otherwise: no candidate
@@ -605,7 +686,11 @@ class StepGenerator:
             identity: the address of the step — the healing funding key.
             step_text: the raw sentence of the failed step.
             step_type: action or assertion — carried into the funded request.
-            previous_steps: the sentences of the previous steps of the test.
+            previous_steps: the typed scenario records of the previous steps
+                of the test, in execution order.
+            group_prompt: the group prompt of the current step's group;
+                non-empty — the suppressed-classification group raise;
+                None — the ordinary exhaustion table.
             page: the live page facade of the test.
             history: the per-step attempt history of the pool run — its last
                 record carries the last candidate's facts; empty — no
@@ -623,8 +708,20 @@ class StepGenerator:
             IncurableStepError: the generation attempt budget is exhausted —
                 with the finding named when a high one stands, the verdict
                 says incurable, or the healing funding is refused — the code
-                field carries the failed step code.
+                field carries the failed step code; a group step raises the
+                unclassified variant — the group recovery decides.
         """
+        if group_prompt:
+            # a group step suppresses the exhaustion classification and the funded regeneration —
+            # the group recovery decides; the last record carries the terminal-failure facts
+            code, error = _last_facts(history)
+            raise IncurableStepError(
+                step_text,
+                "group step generation budget exhausted — the group recovery decides",
+                error,
+                code=code,
+            ) from None
+
         if standing is not None:
             # the verdict is built from the finding — no classification, no regrant of a funded attempt
             verdict = FailureVerdict(
@@ -660,7 +757,16 @@ class StepGenerator:
             ) from None
 
         healed, failed_code, failure_text, _repeat_was_check = self._funded_regeneration(
-            identity, step_text, step_type, previous_steps, page, history, verdict.recommendation, window, attempt
+            identity,
+            step_text,
+            step_type,
+            previous_steps,
+            group_prompt,
+            page,
+            history,
+            verdict.recommendation,
+            window,
+            attempt,
         )
         if healed is not None:
             return healed
@@ -673,7 +779,8 @@ class StepGenerator:
         identity: StepIdentity,
         step_text: str,
         step_type: str,
-        previous_steps: list[str],
+        previous_steps: list[ScenarioStep],
+        group_prompt: str | None,
         page: PageFacade,
         history: list[StepAttempt],
         recommendation: str,
@@ -699,7 +806,11 @@ class StepGenerator:
             identity: the address of the step — the identity of the stored step.
             step_text: the raw sentence of the step.
             step_type: action or assertion — carried into the request.
-            previous_steps: the sentences of the previous steps of the test.
+            previous_steps: the typed scenario records of the previous steps
+                of the test, in execution order.
+            group_prompt: the group prompt of the current step's group;
+                threaded into the request — the funded path only runs for an
+                ordinary step (None), the group branches raise before it.
             page: the live page facade the candidate runs against.
             history: the per-step attempt history — the request carries it
                 grown; the funded attempt's own failure appends its record.
@@ -722,7 +833,7 @@ class StepGenerator:
         attempt += 1
         self._emit_generation_started(step_text, attempt)
 
-        code = self._request(step_text, step_type, previous_steps, page, history, recommendation)
+        code = self._request(step_text, step_type, previous_steps, group_prompt, page, history, recommendation)
         url_before = _read_url(page)
         try:
             settle(run_step_code, code, page, window)
@@ -751,7 +862,8 @@ class StepGenerator:
         self,
         step_text: str,
         step_type: str,
-        previous_steps: list[str],
+        previous_steps: list[ScenarioStep],
+        group_prompt: str | None,
         page: PageFacade,
         history: list[StepAttempt],
         recommendation: str | None,
@@ -761,7 +873,13 @@ class StepGenerator:
         Args:
             step_text: the raw sentence of the step — carried verbatim.
             step_type: action or assertion — carried into every request.
-            previous_steps: the sentences of the previous steps of the test.
+            previous_steps: the typed scenario records of the previous steps
+                of the test, in execution order — the provider renders the
+                PREVIOUS STEPS block from them, the group entries marked.
+            group_prompt: the group prompt of the current step's group;
+                non-empty — the provider renders the GROUP PROMPT block
+                immediately before PREVIOUS STEPS; None — no block, the
+                ordinary request byte-identical to today.
             page: the live page facade of the test.
             history: the per-step attempt history — rendered record by
                 record into the HISTORY block of the request.
@@ -779,6 +897,7 @@ class StepGenerator:
             step_text=step_text,
             step_type=step_type,
             previous_steps=previous_steps,
+            group_prompt=group_prompt,
             snapshot=snapshot,
             page_url=_read_url(page),  # the guarded read — an empty string renders no PAGE URL line
             screenshot=screenshot,

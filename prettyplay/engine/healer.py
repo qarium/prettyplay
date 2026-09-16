@@ -4,7 +4,7 @@ from ..cache import CachedStep, RunBudgets, StepCache
 from ..config import Config
 from ..driver import PageFacade
 from ..failures import FailureVerdict, IncurableStepError, ProductDefectError
-from ..llm import LLMProvider
+from ..llm import LLMProvider, ScenarioStep
 from ..reporting import StepReporter
 from .attempts import StepAttempt
 from .classification import classify_step_failure
@@ -62,12 +62,16 @@ class StepHealer:
         error: str,
         step_text: str,
         step_type: str,
-        previous_steps: list[str],
+        previous_steps: list[ScenarioStep],
         page: PageFacade,
         attempt_history: list[StepAttempt],
         window: SettleWindow,
     ) -> CachedStep:
         """Heal a failed cached step according to the classification verdict.
+
+        The healer serves ordinary steps only — a group step never reaches
+        it (the executor routes group failures to the group recovery), so
+        the regeneration request always carries ``group_prompt=None``.
 
         Args:
             step: the cached step whose code failed.
@@ -77,7 +81,10 @@ class StepHealer:
                 request verbatim, never the casefolded normalization.
             step_type: action or assertion — forwarded into every regeneration
                 request.
-            previous_steps: the sentences of the previous steps of the test.
+            previous_steps: the typed scenario records of the previous steps
+                of the test, in execution order — each the raw sentence plus
+                its permanent group membership; scenario context for
+                regeneration, never the normalized addressing forms.
             page: the live page facade the healed code runs against.
             attempt_history: the anchored per-step attempt history — record 0
                 carries the original cached code seeded by the executor;
@@ -121,6 +128,7 @@ class StepHealer:
                 step_text=step_text,
                 step_type=step_type,
                 previous_steps=previous_steps,
+                group_prompt=None,  # a group step never reaches the healer — no framing on this path
                 page=page,
                 attempt_history=attempt_history,
                 recommendation=classification.recommendation,

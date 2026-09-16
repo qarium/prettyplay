@@ -42,6 +42,8 @@ def classify_step_failure(  # noqa: PLR0913, PLR0917 — the parameter list is f
     stop and exhaustion, the healer verdict. Provider unavailability propagates
     to the caller: this routine never swallows it — the calling path decides
     whether it is a terminal infrastructure failure or a quiet verdict skip.
+    The port method carries the renamed name ``classify_step_failure``; group
+    steps never reach this routine — the group diagnosis is a separate path.
 
     Args:
         config: project settings; ``send_screenshots`` attaches page images
@@ -63,7 +65,7 @@ def classify_step_failure(  # noqa: PLR0913, PLR0917 — the parameter list is f
     snapshot = page.aria_snapshot()
     screenshot = page.screenshot() if config.send_screenshots else None
 
-    return provider.classify_failure(
+    return provider.classify_step_failure(
         prompt=CLASSIFICATION_PROMPT,
         user_instructions=config.classification_prompt,
         step_text=step_text,

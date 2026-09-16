@@ -129,6 +129,7 @@ class StubProvider(LLMProvider):
         step_text: str = "",
         step_type: str = "",
         previous_steps: list[str] | None = None,
+        group_prompt: str | None = None,
         snapshot: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
@@ -157,7 +158,7 @@ class StubProvider(LLMProvider):
             raise AssertionError("stub provider has no generation answers left")
         return self.answers.pop(0)
 
-    def classify_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
+    def classify_step_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
         prompt: str,
         user_instructions: str,
@@ -217,6 +218,7 @@ class ForbiddenProvider(LLMProvider):
         step_text: str = "",
         step_type: str = "",
         previous_steps: list[str] | None = None,
+        group_prompt: str | None = None,
         snapshot: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
@@ -228,7 +230,7 @@ class ForbiddenProvider(LLMProvider):
         self.calls += 1
         raise AssertionError("provider must not be called")
 
-    def classify_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
+    def classify_step_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
         prompt: str,
         user_instructions: str,

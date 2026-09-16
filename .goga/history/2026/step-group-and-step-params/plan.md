@@ -833,20 +833,20 @@ repoint (only the path in the pin's comment changes).
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: in `tests/engine/test_generator.py` — `generate`/`regenerate` accept
+- [x] **Contract tests**: in `tests/engine/test_generator.py` — `generate`/`regenerate` accept
   the typed `previous_steps` and `group_prompt` (signature shape); in
   `tests/engine/test_healer.py` — `heal` accepts typed records; in
   `tests/engine/test_classification.py` — the routine calls the port's `classify_step_failure`
   (expected to fail at this stage)
-- [ ] **Code**: `prettyplay/engine/generator.py` — widen `generate`/`regenerate` (and the
+- [x] **Code**: `prettyplay/engine/generator.py` — widen `generate`/`regenerate` (and the
   internal threading: `_generation_loop`, `_healing_loop`, `_request`, `_exhaustion_outcome`,
   the failed-check handler) with `previous_steps: list[ScenarioStep]` and `group_prompt:
   str | None`; add the two group branches per the algorithm (colon-free authored reasons,
   `verdict=None`, the code field carrying the candidate/last code); `healer.py` — typed
   `previous_steps`; `classification.py` — the renamed port call; update the mirror comment
   paths; repoint the practice-path constants in the test pins
-- [ ] **Interface verification**: `pytest tests/engine/test_generator.py tests/engine/test_healer.py tests/engine/test_classification.py -q` — all pass
-- [ ] **Logic tests** — the design scenario, verbatim, plus the C13 pins:
+- [x] **Interface verification**: `pytest tests/engine/test_generator.py tests/engine/test_healer.py tests/engine/test_classification.py -q` — all pass
+- [x] **Logic tests** — the design scenario, verbatim, plus the C13 pins:
   - `test_generate_group_step_suppresses_classification_and_raises_unclassified`: Setup — real
     `StepGenerator` with a fake provider: first candidate raises an `AssertionError` that
     survives the window; the fake provider's `classify_step_failure` raises `AssertionError`
@@ -871,10 +871,10 @@ repoint (only the path in the pin's comment changes).
     method — existing classification tests repointed and green.
   - Mirror pins: the `SYSTEM_PROMPT`/`CHEAT_SHEET` constants equal the renamed practice files
     (byte-identity — C13; the pin paths now `step_generation.md`/`step_cheatsheet.md`).
-- [ ] **Debugging**: `pytest tests/engine/ -q` — fix implementation code until all tests pass (do NOT fix test code)
-- [ ] **Contract re-verification**: `python -c "from prettyplay.engine import StepGenerator,
+- [x] **Debugging**: `pytest tests/engine/ -q` — fix implementation code until all tests pass (do NOT fix test code)
+- [x] **Contract re-verification**: `python -c "from prettyplay.engine import StepGenerator,
   StepHealer, classify_step_failure"`; the ordinary decision table untouched behind the branches
-- [ ] **Lint**: `ruff check prettyplay/engine tests/engine && ruff format --check prettyplay/engine tests/engine`
+- [x] **Lint**: `ruff check prettyplay/engine tests/engine && ruff format --check prettyplay/engine tests/engine`
 
 ### Task 9: The groups cell — infrastructure + `GroupStepOutcome` (engine/groups)
 
