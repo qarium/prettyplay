@@ -49,7 +49,8 @@ class StepHooks:
         """A code generation attempt started; ``attempt`` is the 1-based attempt number."""
 
     def on_healing_started(self, step_text: str, category: str) -> None:
-        """Healing of a failed cached step started; ``category`` is rot, product_defect, fixable or incurable."""
+        """Healing of a failed cached step started; ``category`` is rot, product_defect, fixable or
+        incurable — a group recovery row reports the diagnosis label recoverable."""
 
     def on_healed(self, step_text: str, explanation: str) -> None:
         """The step was healed and the cache updated; ``explanation`` says why and what changed."""
