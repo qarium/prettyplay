@@ -33,6 +33,7 @@ Imports:
   - Types:
       - LLMProvider
       - create_provider
+      - ScenarioStep
     From: prettyplay/llm
   - Types:
       - StepGenerator
@@ -52,6 +53,12 @@ Imports:
   - Types:
       - StepSteering
     From: prettyplay/engine/steering
+  - Types:
+      - GroupRecovery
+      - GroupStepOutcome
+    Usages:
+      - recovery
+    From: prettyplay/engine/groups
 
 Usages:
   conventions: .goga/usages/conventions.md
@@ -61,6 +68,7 @@ Annotations: |
   Use `taxonomy` from Imports for the failure kinds the step methods propagate.
   Use `hooks` from Imports for the callback contract accepted by the constructor hooks parameter and add_hooks.
   Use `generation` and `healing` from Imports for the engine cycles the executor delegates to.
+  Use `recovery` from Imports for the group cycle the executor delegates to.
 
   The facade of the library: one main object per test; the engineer writes steps as plain sentences and reads the suite as a scenario.
   Framework-agnostic: no plugin machinery, no runner integration — the integrator wires the library in a few lines.
@@ -69,6 +77,9 @@ Annotations: |
   `BrowserConfig` — the public name of the browser settings group — is re-exported by this facade (see the embedding), uniform with `PrettyConfig`.
   `StepHooks` — the callback contract the facade accepts — is re-exported by this facade (see the embedding), uniform with `PrettyConfig` and `BrowserConfig`.
   Strict mode — the strict field of the effective config — makes the step cycle replay-only: cached code executes honestly, nothing is ever (re)generated. A cache miss is the incurable failure stating that strict forbids generation; a failed cached step is at most classified — never regenerated; without LLM access the failure raises immediately by step type. Classifications are the only LLM calls of a strict run; the generation and healing budgets are never consumed.
+  Group steps route their failures differently on a non-strict run: every classification point of a group step goes to one group-level diagnosis and the group-scoped recovery instead of the per-step heal (see `recovery` from Imports); strict mode keeps the classification-only path; the honest inputs extend to the group prompt — it joins requests verbatim and the never-put-secrets rule covers it.
+  The authoring surface: step and expect accept the keyword-only retry count and start pause; the group block yields a group object with the ordinary step surface — no ambient rerouting of the test object.
+  The group pace and pauses are library-level behavior around steps: the pauses between the group's steps follow the same percent→ms mapping as the browser speed setting — never slow_mo, which cannot change mid-run.
   Honest inputs thread end to end through the executor: the executor owns the per-step attempt history — created empty on a cache miss, anchored on a failed cached hit by record 0 (the original cached code, the full replay error and the URL pair of the replay, a `StepAttempt` of outcome original cached code) — and passes the step type and the raw step sentence into every engine call; the casefolded normalization stays an addressing key only.
   The interactive gate lives in the executor: the steering dialog opens exactly at a caught IncurableStepError on a non-strict interactive run — never on product_defect, never in replay-strict, never when the LLM is unavailable; the dialog receives the same anchored history, the raw sentence and the step type, and continues growing it.
   The author escape hatch: run_on_page executes an author callable wholly inside the driver worker thread with the genuine sync Page — the stateful actions excluded from generated code (page.route, page.clock, add_init_script, tracing, HAR, CDP) are performed by the author explicitly; Playwright objects never cross back to the calling thread — the callable returns plain data.
@@ -98,8 +109,8 @@ Annotations: |
     2. Build the own `PrettyplayRuntime` with the effective config — no process-wide singleton exists
     3. Construct the per-test reporter: `StepReporter` seeded with hooks — the given list or an empty one; add_hooks appends to it
     4. Construct the per-test `StepCache` from the runtime config, `cache_path` and the reporter
-    5. Construct `StepGenerator`, `StepHealer` and `StepSteering` from the runtime config, provider, budgets, the step cache and the reporter
-    6. Construct `StepExecutor` with `cache_key`, the cache, the engines, the steering, the runtime budgets, the reporter, the runtime config and the runtime provider
+    5. Construct `StepGenerator`, `StepHealer` and `StepSteering` from the runtime config, provider, budgets, the step cache and the reporter; construct `GroupRecovery` from the runtime config, provider, budgets, the step cache, the generator and the reporter
+    6. Construct `StepExecutor` with `cache_key`, the cache, the engines, the steering, the recovery engine, the runtime budgets, the reporter, the runtime config and the runtime provider
     7. The test page opens lazily on the first step via the runtime open_page
 
     Requirements:
@@ -109,16 +120,27 @@ Annotations: |
     "cache_key -> str": |
       The explicit context key, exposed for diagnostics.
   methods:
-    "step(text: str)": |
+    "step(text: str, tries: int | None, delay: float | None)": |
       Execute the action step `text`.
+
+      `tries`: keyword-only — the total number of executions of the step's code, a positive integer, the first execution included; invalid values — zero, negative, non-integer — raise the loud actionable `PrettyplayError` naming the parameter, the received value and the allowed form. `delay`: keyword-only — the quiet pre-step pause in seconds, non-negative, fractional allowed; a negative or malformed value raises the same loud error. A declared `tries` switches the step to the count-bounded re-execution; a declared `delay` is the quiet pre-step pause.
 
       Delegates to the executor execute with the step type action, the sentence and the test page; failures propagate by kind — `ProductDefectError`, `IncurableStepError`, `LLMUnavailableError`, `ComplianceVerdictError` (see `taxonomy`).
       A `PrettyplayError` leaving this method carries its traceback folded to the library boundary: internal library frames — engine, healing, provider — do not appear in what the runner shows.
-    "expect(text: str)": |
+    "expect(text: str, tries: int | None, delay: float | None)": |
       Execute the assertion step `text` — a legitimately failed expectation surfaces as the product defect failure.
+
+      `tries`: keyword-only — the total number of executions of the step's code, a positive integer, the first execution included; invalid values — zero, negative, non-integer — raise the loud actionable `PrettyplayError` naming the parameter, the received value and the allowed form. `delay`: keyword-only — the quiet pre-step pause in seconds, non-negative, fractional allowed; a negative or malformed value raises the same loud error. A declared `tries` switches the step to the count-bounded re-execution; a declared `delay` is the quiet pre-step pause.
 
       Delegates to the executor execute with the step type assertion; failures propagate by kind — `ProductDefectError`, `IncurableStepError`, `LLMUnavailableError`, `ComplianceVerdictError` (see `taxonomy`).
       A `PrettyplayError` leaving this method carries its traceback folded to the library boundary: internal library frames — engine, healing, provider — do not appear in what the runner shows.
+    "group(prompt: str, speed: int | None, delay: float | None) -> g: StepGroup": |
+      Open the group authoring block — one coherent mini-scenario with a shared goal.
+
+      `prompt`: the group prompt — empty raises the loud actionable `PrettyplayError` at entry.
+      `speed`: keyword-only — the group pace, an integer 0–100; outside the range — the loud actionable `PrettyplayError`.
+      `delay`: keyword-only — the quiet pause before the group's first step in seconds, non-negative; negative — the loud actionable `PrettyplayError`.
+      `g`: the group object — the ordinary step surface (step, expect, tries/delay included); no ambient rerouting of the test object; group membership changes no step's cache address; cached group steps replay as ordinary steps.
     "run_on_page(action: Callable[[Page], T]) -> result: T": |
       Execute the author action wholly inside the driver worker thread against the genuine sync Page of the test — the author escape hatch.
 
@@ -158,7 +180,45 @@ Annotations: |
     "close()": |
       Close the test page context and stop the whole runtime of this test — the browser process, the Playwright driver and the driver thread; idempotent; the context manager exit does the same.
 
-"StepExecutor(cache_key: str, cache: StepCache, generator: StepGenerator, healer: StepHealer, steering: StepSteering, budgets: RunBudgets, reporter: StepReporter, config: PrettyConfig, provider: LLMProvider)":
+"StepGroup(prompt: str, speed: int | None, delay: float | None, executor: StepExecutor)":
+  location: groups.py
+  annotations: |
+    The authoring group object — one coherent mini-scenario with a shared goal, yielded by the
+    group method of the test object.
+
+    `prompt`: the group prompt, verbatim — reaches generation and diagnosis requests and the
+    framing log records.
+    `speed`: the group pace, 0–100; None — no between-step pauses.
+    `delay`: the quiet pause before the group's first step, seconds; None — no pause.
+    `executor`: the step cycle executor of the owning test — every step delegates to it with this
+    group as the context.
+
+    Supports the context manager protocol: entry — one INFO framing log record with the group
+    prompt verbatim; exit — one INFO framing log record; zero steps — a quiet no-op.
+
+    Requirements:
+    - The declared delay passes quietly before the first step — the entry framing visible, the
+      wait quiet
+    - Between consecutive group steps the quiet pause int((100 − speed) × 30) milliseconds when
+      speed is declared — library-level pauses, never slow_mo
+    - Group membership changes no step's cache address
+  properties:
+    "prompt -> str": |
+      The group prompt, verbatim.
+    "traces -> list[GroupStepOutcome]": |
+      The verbatim trace records of the group's steps, in execution order — the input the
+      executor passes to the group recovery; a record is appended once per executed group step.
+  methods:
+    "step(text: str, tries: int | None, delay: float | None)": |
+      Execute the action step `text` inside the group — the ordinary step surface with the group
+      context: validates like the facade methods, delegates to the executor execute with this
+      group, records the step trace — the sentence, the step type, the declared tries/delay, the
+      outcome and the URL pair bracketing the step.
+    "expect(text: str, tries: int | None, delay: float | None)": |
+      Execute the assertion step `text` inside the group — the same delegation and trace as step,
+      assertion kind.
+
+"StepExecutor(cache_key: str, cache: StepCache, generator: StepGenerator, healer: StepHealer, steering: StepSteering, recovery: GroupRecovery, budgets: RunBudgets, reporter: StepReporter, config: PrettyConfig, provider: LLMProvider)":
   location: executor.py
   annotations: |
     The owner of the step cycle and the per-step attempt history: cache hit — execute; cache miss — generate and store; cached failure — heal. In strict mode the cycle is replay-only: nothing is ever (re)generated.
@@ -168,28 +228,31 @@ Annotations: |
     `cache`: the step cache of the test.
     `generator` and `healer`: the engines (see `generation` and `healing` from Imports) — never invoked in strict mode.
     `steering`: the interactive steering of terminally stuck steps — invoked only on a non-strict interactive run; never in strict mode.
+    `recovery`: the group recovery engine — invoked only on a non-strict run for a group step; never in strict mode.
     `budgets`: the per-test attempt registry — never consumed in strict mode.
     `reporter`: the visibility point.
     `config`: the effective settings of the test — the source of the strict switch.
     `provider`: the LLM port of the test — the source of the strict-path classification.
     A classification reached on the strict path is carried by the raised terminal failure as a `FailureVerdict`.
   methods:
-    "execute(step_text: str, step_type: str, page: PageFacade)": |
+    "execute(step_text: str, step_type: str, page: PageFacade, group: StepGroup | None, tries: int | None, delay: float | None)": |
       Run one step through the full cycle.
 
       Algorithm:
-      1. Report on_step_started with the sentence and the step type
-      2. Build the step identity: `normalize_step_text`, then `StepIdentity` with the test cache key and the step type; create a `SettleWindow` of this step execution from the polling settings of the effective config; create the per-step attempt history — an empty `StepAttempt` record list
+      1. Report on_step_started with the sentence and the step type; a declared `delay` passes quietly — the step's started event fires, the declared seconds pass, then the step's code runs; a step never reached after a terminal failure never pauses
+      2. Build the step identity: `normalize_step_text`, then `StepIdentity` with the test cache key and the step type; create a `SettleWindow` of this step execution from the polling settings of the effective config and the declared `tries` — a declared count switches the window to the count-bounded mode; create the per-step attempt history — an empty `StepAttempt` record list
       3. Load the cached step. Strict mode and a miss: raise `IncurableStepError` — the reason states that strict mode forbids generation and names the cache miss, the error field empty, the verdict absent; no generation request is made, no budget consumed. A hit: read the page URL, execute its code under the settle window — `settle` with `run_step_code`, the cached code, `page` and the window; read the page URL again — the pair brackets the replay; replay-strict included: re-executing cached code is execution, not generation
-      4. On a hit execution failure. Strict mode — classification only: classify via `classify_step_failure` passing the raw sentence and the full underlying error; a product_defect classification raises `ProductDefectError` carrying the verdict and the full underlying error; a rot, fixable or incurable classification raises `IncurableStepError` carrying them — the reason names the classification explanation; both authored colon-free; never regenerated: the healer is not invoked, the healing budget stays untouched, on_healing_started never fires; an unavailable LLM at this classification is skipped quietly with a WARNING and the failure raises immediately by step type without a verdict — colon-free. Otherwise: seed the attempt history with record 0 — a `StepAttempt` of outcome original cached code carrying the cached code, the full replay error formatted by `format_step_error` and the URL pair of the replay — then delegate to the healer heal with the raw sentence, the step type, the scenario context, the anchored history and the window — a healed step is already re-executed and stored by the engine
-      5. Otherwise on a miss: the generator generate with the window, the raw sentence, the step type and the empty attempt history — the engine stores the step on success
-      6. Steering intercept — wrap the engine paths of steps 4 and 5: a raised `IncurableStepError` on a non-strict interactive run goes to the steering steer with the failure, the identity, the raw sentence, the step type, the scenario context, the anchored attempt history and `page` before it propagates; a healed return continues as success — the cache write-back already happened inside the dialog; None — the original failure propagates unchanged. The intercept never triggers on `ProductDefectError`, on `LLMUnavailableError`, in strict mode or when interactive is off
-      7. Append the sentence to the scenario context of the test — the previous step texts feed the next generation
+      4. On a hit execution failure. Strict mode — classification only: classify via `classify_step_failure` passing the raw sentence and the full underlying error; a product_defect classification raises `ProductDefectError` carrying the verdict and the full underlying error; a rot, fixable or incurable classification raises `IncurableStepError` carrying them — the reason names the classification explanation; both authored colon-free; never regenerated: the healer is not invoked, the healing budget stays untouched, on_healing_started never fires; an unavailable LLM at this classification is skipped quietly with a WARNING and the failure raises immediately by step type without a verdict — colon-free. Otherwise, a group step (a non-null `group`): delegate to the recovery engine recover with the group prompt, the traces of `group`, the raw sentence, the step type, the scenario context, the identity, the anchored history and the window — instead of the healer; a recovered step continues as success. Otherwise: seed the attempt history with record 0 — a `StepAttempt` of outcome original cached code carrying the cached code, the full replay error formatted by `format_step_error` and the URL pair of the replay — then delegate to the healer heal with the raw sentence, the step type, the scenario context, the anchored history and the window — a healed step is already re-executed and stored by the engine
+      5. Otherwise on a miss: the generator generate with the window, the raw sentence, the step type, the group prompt as the framing input for a group step and the empty attempt history — the engine stores the step on success; the group-step generation failures arrive unclassified (the engine suppresses its classification points) and route to the recovery
+      6. Steering intercept — wrap the engine paths of steps 4 and 5: a group step's `IncurableStepError` reaches the recovery first on a non-strict run; steering remains the terminal gate for the still-terminal failure — the dialog receives the group context; a raised `IncurableStepError` on a non-strict interactive run goes to the steering steer with the failure, the identity, the raw sentence, the step type, the group prompt, the scenario context, the anchored attempt history and `page` before it propagates; a healed return continues as success — the cache write-back already happened inside the dialog; None — the original failure propagates unchanged. The intercept never triggers on `ProductDefectError`, on `LLMUnavailableError`, in strict mode or when interactive is off
+      7. Append the `ScenarioStep` record — the raw sentence plus the group prompt of `group` when inside one, permanent for the test — the previous steps feed the next generation and the row regeneration of the group recovery
       8. Report on_step_passed; on a failed step report on_step_failed with the sentence, the step type and the full render — the rendered message of the raised error, never re-composed; then, when the terminal failure carries a verdict, report on_step_verdict with the sentence and the three verdict fields taken from the verdict object; finally raise by kind — `ProductDefectError`, `IncurableStepError`, `LLMUnavailableError`, `ComplianceVerdictError` (see `taxonomy`)
       9. Report on_step_finished with the sentence, the step type and the outcome — passed or failed — exactly once at the very end of every step, after every other event, regardless of outcome
 
       Requirements:
       - The scenario context lives per test: steps of different tests never mix
+      - The pre-step pause is quiet — elapsed time, no output noise; uniform for the first step of a test, every following step and every re-execution inside a recovery row — the recovery applies the row step's declared delay
+      - The scenario context lives per test as typed records; group membership is permanent once recorded
       - A cached step executes with no LLM involvement whatsoever
       - An assertion step surfaces a legitimately failed expectation as the product defect failure
       - Strict mode: the only LLM calls are classifications; the generation and healing budgets are never consumed; the engines are never invoked; the settle window still applies to the cached code
@@ -236,4 +299,4 @@ Annotations: |
 Author: Goga
 CreatedAt: 10/09/26
 Description: |
-  The facade of prettyplay: the per-test scenario object with screenshot abilities and the author escape hatch onto the genuine page, the step cycle executor with the strict replay-only path, the per-step attempt history and the honest-inputs threading, verdict reporting, the per-test composition root, and the re-exported settings models — PrettyConfig and BrowserConfig.
+  The facade of prettyplay: the per-test scenario object with screenshot abilities and the author escape hatch onto the genuine page, the step cycle executor with the strict replay-only path, the per-step attempt history and the honest-inputs threading, verdict reporting, the per-test composition root, and the re-exported settings models — PrettyConfig and BrowserConfig, the step parameters (tries, delay), the group authoring block and the group recovery routing.

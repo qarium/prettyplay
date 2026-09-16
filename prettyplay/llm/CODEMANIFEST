@@ -25,6 +25,10 @@ Annotations: |
   The page-URL input participates in both provider implementations with identical semantics: a non-empty page_url of a generation request renders as its own PAGE URL line immediately after the PAGE SNAPSHOT block of the user content; None or empty — no line; a parity requirement, not a capability difference.
   The step-type input participates in both provider implementations with identical semantics: every generation request and every compliance verdict request renders the STEP TYPE line — action or assertion — immediately before the STEP line of the user content; a parity requirement, not a capability difference.
   The attempt-history input participates in both provider implementations with identical semantics: the HISTORY block renders every attempt-history record verbatim — each record a complete multi-line record (the attempt outcome, the URL before -> after line, the complete candidate code, the complete error) composed by the calling engine; the record list carries the whole attempt history of the step, the anchored original cached code first when it exists; no collapsing, no size limits; the block takes the place of the former CODE and ERROR request inputs and the former steering-only history block; a parity requirement, not a capability difference.
+  The scenario-context input participates in both provider implementations with identical semantics: every generation request renders the PREVIOUS STEPS block from the typed scenario records — the raw sentence of each entry verbatim, the entries carrying group membership marked as group steps; a parity requirement, not a capability difference.
+  The group-framing input participates in both provider implementations with identical semantics: a non-empty group_prompt of a generation request renders as its own GROUP PROMPT block immediately before the PREVIOUS STEPS block; None — no block; a parity requirement, not a capability difference.
+  The group diagnosis operation is the fourth operation of the port with the same absolute parity: one request per diagnosis carrying the group prompt, the group step traces, the failed step's sentence and attempt history, the page snapshot and the optional screenshot — sent through the effective classification model; the answer parses strictly through `parse_group_failure_classification`; a degraded answer is the conservative incurable, never a granted regeneration.
+  The classification operation classify_step_failure is the former classify_failure — the rename is nominal, the behavior identical. The one-request-per-attempt rule covers the diagnosis request too.
   API keys come only from environment variables; never log keys or payloads containing secrets.
   One completion request per attempt: attempt budgets are owned by the calling engine, never by a provider.
   Cached step code never depends on the provider: the provider serves generation, classification and the compliance verdict only.
@@ -38,14 +42,15 @@ Annotations: |
   annotations: |
     The unified LLM port of the library: code generation for a step, failure classification for healing and the two-dimension compliance verdict of the gate. One contract, two interchangeable implementations selected by configuration.
   methods:
-    "generate_step_code(prompt: str, user_instructions: str, step_text: str, step_type: str, previous_steps: list[str], snapshot: str, page_url: str | None, screenshot: bytes | None, cheat_sheet: str, attempt_history: list[str], recommendation: str | None, guidance: str | None) -> code: str": |
+    "generate_step_code(prompt: str, user_instructions: str, step_text: str, step_type: str, previous_steps: list[ScenarioStep], group_prompt: str | None, snapshot: str, page_url: str | None, screenshot: bytes | None, cheat_sheet: str, attempt_history: list[str], recommendation: str | None, guidance: str | None) -> code: str": |
       Generate step code of the fixed form.
 
       `prompt`: the system prompt text supplied by the calling engine — applied verbatim as the system message.
       `user_instructions`: the project's code style instructions supplied by the calling engine from the generation_prompt setting; empty — the request carries no instructions block; non-empty — rendered by the provider implementations verbatim as a separate USER INSTRUCTIONS block of the user content, identically in both.
       `step_text`: the raw sentence of the step to generate — as written by the engineer, verbatim; never the normalized addressing form.
       `step_type`: action or assertion — rendered by the provider implementations as the STEP TYPE line immediately before the STEP line, identically in both.
-      `previous_steps`: the sentences of the previous steps of the test, in execution order — scenario context.
+      `previous_steps`: the typed scenario records of the previous steps of the test, in execution order — each the raw sentence plus its permanent group membership; rendered by the provider implementations as the PREVIOUS STEPS block with the group entries marked, identically in both.
+      `group_prompt`: the group prompt of the current step's group; None — an ordinary step, no GROUP PROMPT block; non-empty — rendered by the provider implementations verbatim as a separate GROUP PROMPT block immediately before the PREVIOUS STEPS block, identically in both; takes no part in step addressing.
       `snapshot`: the accessibility snapshot of the current page.
       `page_url`: the current URL of the page; non-empty — rendered by the provider implementations as its own PAGE URL line immediately after the PAGE SNAPSHOT block, identically in both; None — no line; supplied by the engine and steering generation paths.
       `screenshot`: an optional PNG image of the page; passed only when the project enables screenshots.
@@ -59,10 +64,12 @@ Annotations: |
       - A provider service failure (connectivity, timeout, rate limit, authentication) raises `LLMUnavailableError` naming the provider
       - The generated code contains no provider-specific constructs
       - The block order of a generation request is fixed: CHEAT SHEET, user instructions, HISTORY, RECOMMENDATION, USER GUIDANCE — a non-empty input renders its named block, identically in both implementations
+      - the GROUP PROMPT block renders immediately before the PREVIOUS STEPS block of the scenario part, identically in both implementations
       - The PAGE URL line renders in the scenario part — immediately after the PAGE SNAPSHOT block; the STEP TYPE line renders immediately before the STEP line; the fixed order of the regeneration tail (HISTORY, RECOMMENDATION, USER GUIDANCE) is unchanged within it
       - The new inputs take no part in step addressing: a cached step never regenerates because they changed
-    "classify_failure(prompt: str, user_instructions: str, step_text: str, code: str, error: str, snapshot: str, screenshot: bytes | None) -> classification: FailureClassification": |
+    "classify_step_failure(prompt: str, user_instructions: str, step_text: str, code: str, error: str, snapshot: str, screenshot: bytes | None) -> classification: FailureClassification": |
       Classify a failed cached step.
+      The former classify_failure — the rename is nominal, the behavior identical.
 
       `prompt`: the system prompt text supplied by the calling engine — applied verbatim as the system message.
       `user_instructions`: the project's classification instructions supplied by the calling engine from the classification_prompt setting; empty — the request carries no instructions block; non-empty — rendered by the provider implementations verbatim as a separate USER INSTRUCTIONS block of the user content, identically in both.
@@ -75,6 +82,38 @@ Annotations: |
 
       Requirements:
       - A provider service failure raises `LLMUnavailableError` naming the provider
+    "classify_group_failure(prompt: str, user_instructions: str, group_prompt: str, group_steps: list[str], step_text: str, attempt_history: list[str], snapshot: str, screenshot: bytes | None) -> diagnosis: GroupFailureClassification": |
+      Send one group diagnosis request — the diagnosis of a failed step with the whole interaction
+      in view.
+
+      `prompt`: the group diagnosis system prompt supplied by the calling engine — applied
+      verbatim as the system message.
+      `user_instructions`: the project's classification instructions supplied by the calling
+      engine from the classification_prompt setting — the diagnosis request carries them exactly
+      as a classification request does; empty — no instructions block.
+      `group_prompt`: the group prompt, verbatim.
+      `group_steps`: the composed verbatim traces of the group's steps in execution order — each
+      the sentence, the outcome and the URL before -> after transition, supplied by the calling
+      engine.
+      `step_text`: the raw sentence of the failed step.
+      `attempt_history`: the rendered verbatim records of the failed step's attempt history.
+      `snapshot`: the accessibility snapshot of the current page.
+      `screenshot`: an optional PNG image of the page; passed only when the project enables
+      screenshots.
+      `diagnosis`: the `GroupFailureClassification` verdict.
+
+      Algorithm:
+      1. Build the user content in the fixed order GROUP PROMPT, GROUP STEPS, STEP, HISTORY,
+         PAGE SNAPSHOT, SCREENSHOT (when attached), USER INSTRUCTIONS last — identically in both
+         implementations
+      2. Send one request through the effective classification model
+      3. Parse the text answer strictly through `parse_group_failure_classification` and return
+         the verdict
+
+      Requirements:
+      - A provider service failure raises `LLMUnavailableError` naming the provider
+      - One request per diagnosis — attempt budgets belong to the calling engine
+      - The input takes no part in step addressing
     "check_instruction_compliance(prompt: str, user_instructions: str, step_text: str, step_type: str, code: str, attempt_history: list[str]) -> verdict: list[ComplianceFinding]": |
       Check the successfully executed candidate code on two dimensions — instruction compliance and step adequacy — the compliance verdict request of the gate.
 
@@ -202,9 +241,86 @@ Annotations: |
     - The salvage repairs syntax only — semantics stay strict: no field, type or label requirement is relaxed for a salvaged answer
     - A failure of the salvage library itself is a malformed verdict: a third-party exception never crosses the parse (see `json_repair`)
 
+"ScenarioStep(sentence: str, group_prompt: str)":
+  location: models.py
+  annotations: |
+    One record of the scenario context of a test — the unit every PREVIOUS STEPS block renders.
+
+    `sentence`: the raw step sentence as written by the engineer, verbatim — never the normalized
+    addressing form.
+    `group_prompt`: the group prompt of the step's group; empty — an ordinary step; non-empty —
+    the verbatim group prompt; the membership is permanent for the lifetime of the test context.
+
+    Requirements:
+    - pydantic v2, kw_only, empty defaults (see `conventions`)
+    - A record appended to the scenario context is never rewritten
+  properties:
+    "sentence -> str": |
+      The raw step sentence, verbatim.
+    "group_prompt -> str": |
+      The group prompt of the step's group; empty means an ordinary step.
+
+"GroupFailureClassification(category: str, root_cause: str, earliest_step: str, recommendation: str)":
+  location: models.py
+  annotations: |
+    The verdict of a group diagnosis: what kind of failure it is, why, where it stems from and what
+    to do.
+
+    `category`: one of recoverable (the affected steps of the group can be regenerated and the run
+    fixed), product_defect (the application is genuinely broken — never healed green), incurable
+    (the root cannot be reached from inside the group, or regeneration cannot help).
+    `root_cause`: why the failure got this category.
+    `earliest_step`: the verbatim sentence quote of the earliest affected step as answered.
+    `recommendation`: the recommended regeneration or engineer action.
+
+    Requirements:
+    - `category` is always one of the three labels; a degraded answer carries the conservative
+      incurable with the raw answer in root_cause
+    - degraded is False on every parsed answer and True only on the degradation path — a
+      library-set flag the parse controls, never part of the model answer; the calling engine
+      logs its WARNING from this flag
+  properties:
+    "category -> str": |
+      The diagnosis label: recoverable, product_defect or incurable.
+    "root_cause -> str": |
+      Why the failure got this category; a degraded verdict carries the raw answer here.
+    "earliest_step -> str": |
+      The verbatim sentence quote of the earliest affected step.
+    "recommendation -> str": |
+      The recommended engineer or regeneration action.
+    "degraded -> bool": |
+      Whether the parse degraded the raw answer to the conservative incurable; False on every
+      parsed answer, True only on the degradation path.
+
+"parse_group_failure_classification(verdict_text: str) -> diagnosis: GroupFailureClassification":
+  location: models.py
+  annotations: |
+    Parse the raw answer of the group diagnosis request into the verdict — the strict single
+    parsing point of the diagnosis with the conservative degradation.
+
+    `verdict_text`: the raw text answer of the diagnosis model.
+    `diagnosis`: the parsed verdict; a garbage answer degrades to the conservative incurable.
+
+    Algorithm:
+    1. Parse the trimmed text as a JSON object of the four fields; a JSON syntax failure is
+       salvaged once through the `json_repair` library (see `json_repair`)
+    2. Validate the semantics: category of the {recoverable, product_defect, incurable} set and
+       the four fields present; the validation applies to a salvaged answer identically
+    3. An unparseable, unrecognized or incomplete answer degrades conservatively: category
+       incurable, the raw answer carried in root_cause
+    4. Return the verdict
+
+    Requirements:
+    - Pure function: no state, no I/O, deterministic on the input text
+    - The salvage repairs syntax only — semantics stay strict
+    - Never synthesizes recoverable: a garbage answer never grants regeneration
+    - A failure of the salvage library itself degrades too — a third-party exception never crosses
+      the parse (see `json_repair`)
+    - The WARNING naming the degraded raw answer is logged by the calling engine, not here
+
 ---
 
 Author: Goga
 CreatedAt: 10/09/26
 Description: |
-  The LLM port of prettyplay: one contract, the openai and anthropic SDK implementations in full parity — generation, classification and the two-dimension compliance verdict with identical user-instructions, cheat-sheet, step-type and attempt-history semantics — the failure classification verdict and the instruction-compliance and step-adequacy findings.
+  The LLM port of prettyplay: one contract, the openai and anthropic SDK implementations in full parity — generation, classification and the two-dimension compliance verdict with identical user-instructions, cheat-sheet, step-type and attempt-history semantics — the failure classification verdict and the instruction-compliance and step-adequacy findings, the typed scenario records, the group diagnosis operation and its verdict.

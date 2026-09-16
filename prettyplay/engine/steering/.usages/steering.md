@@ -56,6 +56,9 @@ run? [y/N] y
 - `quit`, EOF (Ctrl+D), SIGINT (Ctrl+C) and an unreadable stdin (a captured CI stream) end
   the dialog and the original terminal failure propagates — nothing hangs
 
+A group step's guidance requests carry the group context — the group prompt and the
+group-marked previous steps; the banner is unchanged.
+
 ## Effects
 
 - A green turn writes the healed step back to the cache — only after the successful execution — and reports

@@ -29,6 +29,38 @@ with PrettyPlay("login-flow") as t:
 - step(text) — performs what the sentence says
 - expect(text) — verifies what the sentence says; a legitimately failed expectation fails the test as a product defect
 
+## Step parameters
+
+- step(text, tries=3) — the total number of executions of the step's code (the first included);
+  replaces the time-bounded settle window for that step; the global polling settings stay
+  untouched; absorbed retries appear as settle_retry records only, the step stays green
+- step(text, delay=1.5) — a quiet pause in seconds before the step's code runs: the started event
+  fires, the declared seconds pass, then the code; a step never reached never pauses
+- Both parameters are keyword-only and accepted by both step kinds; invalid values (zero/negative
+  tries, negative delay) fail loudly at the call
+
+## Groups
+
+```python
+with t.group("accept cookies, fill and submit the order form") as g:
+    g.step("accept the cookie banner")
+    g.step("fill the email field", delay=0.5)
+    g.step("submit the form")
+    g.expect("the status shows order confirmed", tries=2)
+```
+
+- The group block is one coherent mini-scenario with a shared goal; inside, steps use the ordinary
+  authoring surface — retry count and start pause included
+- An empty group prompt fails loudly at entry; a group with zero steps is a quiet no-op
+- Group membership changes no step's cache address: cached group steps replay as ordinary steps —
+  no LLM calls, strict replay-only included
+- On a non-strict run a failing group step is diagnosed with the whole group in view and the
+  affected row is regenerated and re-executed automatically — a product defect fails loudly,
+  recovery never loops forever
+- Group pace and pause: `with t.group("…", speed=30, delay=2) as g:` slows the pauses between the
+  group's steps (the same percent→pause mapping as the browser speed setting) and waits the
+  declared seconds before the group's first step — quiet, library-level pauses
+
 ## The honest step context
 
 The step cycle carries an honest context window end to end: every generation, healing and

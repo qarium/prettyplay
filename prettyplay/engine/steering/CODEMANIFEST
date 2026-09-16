@@ -7,6 +7,7 @@ Imports:
     From: prettyplay/config
   - Types:
       - LLMProvider
+      - ScenarioStep
     From: prettyplay/llm
   - Types:
       - StepCache
@@ -27,8 +28,9 @@ Imports:
 
 Usages:
   conventions: .goga/usages/conventions.md
-  system_prompt: .goga/usages/prompts/generation.md
-  cheat_sheet: .goga/usages/prompts/cheatsheet.md
+  system_prompt: .goga/usages/prompts/step_generation.md
+  cheat_sheet: .goga/usages/prompts/step_cheatsheet.md
+  group_framing: .goga/usages/prompts/group_framing.md
 
 Annotations: |
   Use `conventions` for code writing rules and testing.
@@ -39,6 +41,7 @@ Annotations: |
 
   The opt-in human-in-the-loop escape hatch of a terminally stuck step: opened by the step executor exactly at the moment an IncurableStepError would propagate — never on product_defect, never in replay-strict, never when the LLM is unavailable.
   The dialog joins the one shared per-step attempt history passed by the executor — the same record list the engine loops grew; the history no longer dies with the dialog. Every completed turn lands as a full record: the outcome label, the URL before -> after pair of the turn (identical on both sides when the engineer rejected the candidate without execution), the complete generated code, the complete outcome text — the full error or the compliance-violation text; no line-collapsing, no size limits, no truncation.
+  A terminally failed group step reaches the dialog with the group context available: the guided regeneration requests of a group step carry the group framing — the GROUP PROMPT block and the group-marked scenario context (see `group_framing`); the dialog itself is unchanged.
   Every guidance turn is a regeneration request carrying the honest inputs — the step type and the raw step sentence passed by the executor — plus the grown attempt history in place of the former dialog-local turn history; record 0 anchors the original failure the engineer guidance refers to; the complete generated code is shown to the engineer before any execution and confirmed with the run? [y/N] prompt — nothing runs unseen; y executes against the live page, n, Enter or quit aborts the turn without execution; every executed turn has a measurable green or red outcome; no free-form conversation.
   An engineer-rejected candidate enters the shared history as a completed turn with the outcome rejected by the engineer, not executed — the model never re-proposes it blind.
   The current page URL joins every guided regeneration request (its own line beside the page snapshot) and the dialog banner — the banner only, never per turn; the banner carries the step, the failed code, the terminal error render, the URL, the screenshot path and the commands — never a snapshot fragment; the full snapshot stays behind the snapshot command and in the request.
@@ -58,14 +61,15 @@ Annotations: |
     `cache`: the step cache for the healed write-back.
     `reporter`: the visibility point — the healed step is reported loudly; omitted — the hook-less default reporter.
   methods:
-    "steer(failure: IncurableStepError, identity: StepIdentity, step_text: str, step_type: str, previous_steps: list[str], page: PageFacade, attempt_history: list[StepAttempt]) -> healed: CachedStep | None": |
+    "steer(failure: IncurableStepError, identity: StepIdentity, step_text: str, step_type: str, previous_steps: list[ScenarioStep], group_prompt: str | None, page: PageFacade, attempt_history: list[StepAttempt]) -> healed: CachedStep | None": |
       Run the steering dialog over a terminal failure.
 
       `failure`: the terminal failure about to propagate — the source of the failed code, the underlying error and the verdict.
       `identity`: the address of the stuck step — the healed step is written back under it.
       `step_text`: the raw sentence of the stuck step as written by the engineer — carried into every guided request verbatim.
       `step_type`: action or assertion — carried into every guided request and the gate verdict.
-      `previous_steps`: the sentences of the previous steps of the test — scenario context for regeneration.
+      `previous_steps`: the typed scenario records of the previous steps of the test — each the raw sentence plus its permanent group membership.
+      `group_prompt`: the group prompt of the stuck step's group; None — an ordinary step; non-empty — every guidance request of this dialog carries the group framing per `group_framing`.
       `page`: the live page facade of the test.
       `attempt_history`: the shared per-step attempt history grown by the engine loops and anchored by record 0 — the dialog appends every completed turn to it.
       `healed`: the healed cached step on a successful guided execution; None — the dialog declined or died: the caller propagates the original failure.
@@ -74,7 +78,7 @@ Annotations: |
       1. Render the context banner once: the step sentence, the failed code, the terminal error render of `failure`, the current URL read from `page`, a screenshot path, the commands — no snapshot fragment
       2. Read the guidance line; quit, EOF, SIGINT or an unreadable stdin — return None
       3. A local command runs without the LLM: snapshot — the full accessibility snapshot; screenshot — a full PNG written to a temporary file with the path printed; error and code — the stored texts; back to step 2
-      4. A guidance message builds one regeneration request via the provider: `system_prompt` as the system prompt, the cheat-sheet from `cheat_sheet`, the raw `step_text` with `step_type` and `previous_steps` as the scenario context, the fresh accessibility snapshot plus the screenshot when the project settings enable screenshots, the current URL read from `page` as the page URL input, the user instructions — the effective config generation_prompt — when non-empty, the message as the guidance and the rendered `attempt_history` as the HISTORY block — every record verbatim, the anchored original first
+      4. A guidance message builds one regeneration request via the provider: `system_prompt` as the system prompt, the cheat-sheet from `cheat_sheet`, the raw `step_text` with `step_type` and `previous_steps` as the scenario context — the request carries the group framing — `group_prompt` and the marked scenario context — per `group_framing` when the step belongs to a group — the fresh accessibility snapshot plus the screenshot when the project settings enable screenshots, the current URL read from `page` as the page URL input, the user instructions — the effective config generation_prompt — when non-empty, the message as the guidance and the rendered `attempt_history` as the HISTORY block — every record verbatim, the anchored original first
       5. Show the complete generated code to the engineer, then the confirmation prompt run? [y/N]: y — proceed to step 6; n, Enter or quit — the turn is aborted without execution, the rejected candidate enters `attempt_history` as a completed record with the outcome rejected by the engineer, not executed, and the same URL on both sides, back to step 2
       6. Read the page URL, execute the candidate via `run_step_code` against `page` — the whole step runs inside the driver worker thread; the settle window never re-arms inside the dialog; read the page URL again — the pair brackets the turn
       7. Success: gate the executed candidate through `check_step_compliance` with `step_text`, `step_type` and `attempt_history` — the gate switch off or empty generation instructions yield an empty findings list with zero provider calls. An empty findings list: build `CachedStep` with `identity`, save it to the cache, report on_healed with an explanation naming the interactive healing, return the healed step. A high finding of either dimension: no write-back — show the violation in the dialog (the finding instruction and explanation), append the completed record — outcome compliance blocked, complete code, complete violation text — to `attempt_history`, return to step 2. Medium and low findings pass with a WARNING naming the instructions, then the write-back. The gate hard failures — provider unavailability and a malformed verdict — end the dialog after showing the gate failure line in the dialog and logging a WARNING through the library logger naming the step and the gate failure: return None, the original terminal failure propagates; nothing is cached

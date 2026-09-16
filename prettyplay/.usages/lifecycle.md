@@ -61,6 +61,17 @@ leaving the engine never reaches it (with a dead provider the dialog still opens
 first guidance message then declines and the original failure propagates) — and consumes no budgets.
 Keep it off in CI — an accidentally opened dialog would hang the run.
 
+## Group recovery
+
+Steps inside a group fail differently: on a non-strict run every failure that would be classified
+and healed per-step triggers one group-level diagnosis instead — the classification model sees the
+group prompt, every step's outcome and URL transition, and the current page. recoverable → the
+affected row regenerates and re-executes automatically (per-step cache write-back, loud
+reporting); product_defect → the test fails loudly. The recovery budget: every new cycle grants
+each row step a fresh healing counter, the number of cycles per group is capped by
+healing_attempts. Strict mode never recovers groups; a terminally failed group step still reaches
+the steering dialog with the group context available.
+
 ## Hooks
 
 Implement the StepHooks callback contract and register the implementation — either pass the list to the keyword-only constructor parameter `hooks` (events are captured from the very construction) or call add_hooks before the first step. Step, generation, healing, cache and verdict events reach the handler synchronously. on_step_failed carries the full rendered failure message; on_step_verdict fires after it whenever the terminal failure carries an LLM verdict; on_step_finished closes every step exactly once, passed or failed. In strict mode generation and healing events never fire.

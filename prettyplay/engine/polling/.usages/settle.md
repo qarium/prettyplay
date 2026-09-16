@@ -40,3 +40,12 @@ regeneration attempt.
 - `polling_timeout` None (default) and 0 keep polling off — the settle call degenerates to a single execution
 - `polling_delay` 0 re-executes without a pause
 - The settle window never re-arms: one window per step execution, shared by every execution inside it
+
+## Count-bounded re-execution (tries)
+
+A step declared with a retry count replaces the time bound for that step's loop with a count
+bound: `SettleWindow(timeout=..., delay=..., tries=3)` — the code unit executes at most 3 times in
+total (the first execution included; 1 — no re-execution). The pollable filter and the `delay`
+pause keep applying between executions; retries appear as `settle_retry` records; exhaustion
+propagates the failure to the ordinary path. Each `settle` call counts from zero — the cached code
+and every generated candidate each get their own full count. No LLM budget is consumed.

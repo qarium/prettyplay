@@ -17,7 +17,7 @@ Annotations: |
 
   The cache is a repository artifact: one .py file per step, addressed deterministically; the cache is always read, writes are best-effort.
   Step identity is intentional: the same normalized sentence in the same context is one step; a different language, a different step type or a different cache key is a different step.
-  RunBudgets lives in this cell because its accounting key is `StepIdentity`: per-test attempt accounting stays next to the addressing it is keyed by.
+  RunBudgets lives in this cell because its accounting key is `StepIdentity`: per-test attempt accounting stays next to the addressing it is keyed by; the recovery-cycle accounting joins the registry — per-group cycle counters keyed by the group key, beside the per-step pools.
 
 ---
 
@@ -128,7 +128,7 @@ Annotations: |
 "RunBudgets(generation_limit: int, healing_limit: int)":
   location: budgets.py
   annotations: |
-    The per-test attempt registry: how many generation and healing attempts each step has left within the test.
+    The per-test attempt registry: how many generation and healing attempts each step has left within the test — and how many recovery cycles each group has left.
 
     `generation_limit`: the generation attempt budget per step per test.
     `healing_limit`: the healing attempt budget per step per test.
@@ -137,6 +137,8 @@ Annotations: |
     - The registry lives for the lifetime of one test, owned by the test's runtime: every test starts with full limits — a step reused across tests gets a fresh budget in each test
     - The identity key is `StepIdentity`
     - An exhausted budget returns False — the caller turns it into the incurable failure
+    - Ordinary per-step healing keeps its per-test pools exactly as today — the recovery semantics ride beside them
+    - The recovery cycle cap of a group is the healing_limit value — the loop is never infinite
 
     Constraints:
     - No persistence: budgets exist only in the memory of the running process
@@ -145,10 +147,27 @@ Annotations: |
       Consume one generation attempt for the step; False — the budget is exhausted, the caller reports incurability.
     "try_healing(identity: StepIdentity) -> allowed: bool": |
       Consume one healing attempt for the step; False — the budget is exhausted, the caller reports incurability.
+    "refresh_healing(identity: StepIdentity)": |
+      Grant the step a fresh full healing counter — the recovery engine calls it at every new
+      recovery cycle for every row step, so a second attempt is never starved by the first cycle.
+
+      `identity`: the address of the row step.
+
+      Requirements:
+      - The next try_healing calls of the step draw from a renewed pool of the full healing_limit
+    "open_group_cycle(group_key: str) -> allowed: bool": |
+      Consume one recovery cycle for the group identified by `group_key` within this test.
+
+      `group_key`: the key of the group — its group prompt.
+      `allowed`: True — a new cycle is open; False — the per-group cycle cap, the healing_limit
+      value, is exhausted — the caller turns it into the terminal incurable failure.
+
+      Requirements:
+      - The cap counts recovery cycles per group per test, never per step
 
 ---
 
 Author: Goga
 CreatedAt: 07/09/26
 Description: |
-  The step cache of prettyplay: normalization, deterministic addressing, atomic repository storage and the per-test attempt budgets.
+  The step cache of prettyplay: normalization, deterministic addressing, atomic repository storage and the per-test attempt budgets, the group recovery cycle accounting.

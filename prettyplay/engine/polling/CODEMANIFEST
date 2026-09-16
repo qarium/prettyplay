@@ -10,25 +10,31 @@ Usages:
 Annotations: |
   Use `conventions` for code writing rules and testing.
 
-  The settle policy of step-code execution: one window per step execution, created by the step executor from the polling settings, threaded into every execution of the step's code — cached code and candidates alike, replay-strict included.
+  The settle policy of step-code execution: one window per step execution, created by the step executor from the polling settings and the step's declared retry count, threaded into every execution of the step's code — cached code and candidates alike, replay-strict included.
+  Two bound modes live side by side: the time window (no declared count — the behavior identical to today) and the count bound (a declared count — the total number of executions of one code unit replaces the time bound for that loop); the pollable filter and the inter-execution pause apply in both.
   The window gates repetitions, never kills a running attempt; re-executions emit no hook events — their visibility is the settle_retry log record alone; no LLM budget is ever consumed.
 
 ---
 
-"SettleWindow(timeout: float | None, delay: float)":
+"SettleWindow(timeout: float | None, delay: float, tries: int | None)":
   location: window.py
   annotations: |
     The settle horizon of one step execution: when re-executing the same step code may still help and how long to pause between re-executions.
 
     `timeout`: the total window in seconds; None — polling disabled; 0 — an explicit disable, equivalent to None; positive — the window.
     `delay`: the pause between re-executions in seconds; 0 — re-execute without a pause.
+    `tries`: the total number of executions of one code unit within its re-execution loop, the first execution included (1 — no re-execution); None — the time-bounded mode of today.
   properties:
     "timeout -> float | None": |
       The total window in seconds; None means polling disabled.
     "delay -> float": |
       The pause between re-executions in seconds.
+    "tries -> int | None": |
+      The declared retry count: None — the time-bounded mode, a positive integer — the count-bounded mode.
+    "count_bounded -> bool": |
+      Whether the window bounds this loop by execution count.
     "enabled -> bool": |
-      Whether polling is active: a positive timeout is set.
+      Whether polling is active: a positive timeout is set or the window is count-bounded (a declared tries count).
   methods:
     "start()": |
       Mark the window start at the first execution of the step code.
@@ -39,6 +45,9 @@ Annotations: |
       Whether the window still allows a repetition.
 
       `remaining`: True — time remains and the window is enabled and started.
+
+      Time-bounded mode alone: the count-bounded loop checks its own execution counter and
+      never calls this — a count-bounded window with polling disabled has no time horizon.
 
       Requirements:
       - Checked only before a repetition: the window never interrupts a running attempt
@@ -55,6 +64,7 @@ Annotations: |
     `window`: the settle window of the current step execution.
 
     Algorithm:
+    In the count-bounded mode (`window` count_bounded): execute the code up to `window` tries times in total — each repetition requires the failure to be pollable and pauses the `window` delay; settle_retry records are uniform with the time mode; exhaustion propagates the failure to the caller as-is. In the time-bounded mode — as today.
     1. `window` start — mark the first execution
     2. Call `execute` with `code` and `page`; success — return: the step code worked
     3. On failure: `window` enabled, `is_pollable_failure` of the exception True, `window` has time remaining — pause the `window` delay, repeat from step 2
@@ -63,6 +73,8 @@ Annotations: |
     Requirements:
     - Each repetition writes a settle_retry record to the logger prettyplay at INFO: the attempt counter and the failure text; no hook events are emitted
     - No LLM budget is consumed: re-execution is execution, not generation
+    - Each settle call counts from zero in the count mode — the counter belongs to the code unit being executed: the cached code and every generated candidate each get their own full count; the LLM attempt budget is never multiplied
+    - Re-executions of both modes write settle_retry records at INFO — no hook events
 
     Constraints:
     - Never swallow, translate or retry a non-pollable failure — the classification path decides it
@@ -72,4 +84,4 @@ Annotations: |
 Author: Goga
 CreatedAt: 12/09/26
 Description: |
-  The settle policy of prettyplay: the per-execution settle window and the re-execution loop absorbing transient page-state failures before any costly move.
+  The settle policy of prettyplay: the per-execution settle window and the re-execution loop absorbing transient page-state failures before any costly move, beside the time window the count-bounded re-execution mode (tries).

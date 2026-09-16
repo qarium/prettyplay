@@ -1,6 +1,6 @@
 # json_repair — Salvage of Malformed JSON From Model Answers
 
-Practices for the `json-repair` library within prettyplay. Target audience: implementing agents parsing model answers as JSON — the compliance verdict parse of the `prettyplay/llm` cell.
+Practices for the `json-repair` library within prettyplay. Target audience: implementing agents parsing model answers as JSON — the compliance verdict parse and the group diagnosis answer parse.
 
 `json-repair` repairs malformed JSON from LLMs: missing quotes, commas and brackets, single-quoted strings, markdown fences, stray prose, truncated values. Zero dependencies, pure Python, requires Python >= 3.10 (the project compatibility floor).
 
@@ -26,6 +26,21 @@ Rules:
 - Prose answers repair to a non-list value (an empty string) — the shape check rejects them loudly
 - A failure of the salvage library itself is a malformed verdict too: wrap the call so no third-party exception crosses the library boundary
 - The salvage never repairs semantics: a finding without a dimension (the old answer shape) or with an unknown priority stays a hard failure
+
+## The group diagnosis answer — the same pattern, a conservative failure
+
+The group diagnosis answer of step-group recovery is the second consumer of the
+salvage-once flow above: `json.loads` first, one repair of a syntax glitch, then the
+same strict semantic validation of the closed label set
+`recoverable | product_defect | incurable`.
+
+Rules beyond the shared pattern:
+
+- An answer that is not the required shape, or carries an unknown label, never passes
+  and never raises across the boundary: it degrades conservatively to `incurable`
+  with the raw answer logged
+- The salvage never grants regeneration: a garbage answer cannot become a
+  `recoverable` verdict
 
 ## Recognized glitch shapes
 

@@ -29,6 +29,7 @@ screen = ""                # "" | WxH | fullscreen | Playwright device name
 headless = true            # false — run with a visible window
 endpoint = ""              # ws endpoint of a remote browser; empty -> local launch
 accept_dialogs = false     # true — accept (else dismiss) dialogs no in-step capture claims, at the run-unit tail
+speed = 100            # pace of the run: 0–100 %, 100 — full speed (default)
 ```
 
 ## Environment overrides
@@ -43,6 +44,7 @@ Every setting has an override for CI — env variable PRETTYPLAY_<SETTING> in up
 | browser.headless | PRETTYPLAY_BROWSER_HEADLESS |
 | browser.endpoint | PRETTYPLAY_BROWSER_ENDPOINT |
 | browser.accept_dialogs | PRETTYPLAY_BROWSER_ACCEPT_DIALOGS |
+| browser.speed | PRETTYPLAY_BROWSER_SPEED |
 | model | PRETTYPLAY_MODEL |
 | generation_model | PRETTYPLAY_GENERATION_MODEL |
 | classification_model | PRETTYPLAY_CLASSIFICATION_MODEL |
@@ -96,6 +98,27 @@ kind with time remaining re-executes the same code after `polling_delay` until s
 is consumed, attempts are visible as settle_retry log records. Locator ambiguity and Python-level errors of the step
 code never poll. Polling is opt-in: the default `None` (and `0`) keeps it off; polling applies in strict replay too —
 re-executing cached code is execution, not generation.
+
+## Pace
+
+`speed` of the browser group (a percentage, 0–100 inclusive, default 100) controls how fast the
+browser executes the run: 100 — full speed, exactly the default behavior; lower values slow the
+run down linearly — 0 is the slowest supported pace. It is an ordinary layered setting — file,
+env (PRETTYPLAY_BROWSER_SPEED), per-test override:
+
+```python
+from prettyplay import BrowserConfig, PrettyConfig, PrettyPlay
+
+test = PrettyPlay(
+    cache_key="demo",
+    config=PrettyConfig(browser=BrowserConfig(speed=40)),
+)
+```
+
+- One value per test, fixed for the whole run — it applies at browser start in every launch mode
+  (local headed, local headless, remote connect); replays and strict runs take it identically
+- An out-of-range or malformed value fails at configuration load — the error names the setting,
+  the received value and the allowed range; never a silent ignore
 
 ## Interactive steering
 

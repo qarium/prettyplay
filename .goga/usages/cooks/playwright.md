@@ -43,6 +43,29 @@ Rules:
 - `headless` comes from configuration; the default is `True` — the current behavior
 - A channel requires the real browser installed on user infrastructure: a missing browser fails loudly with an actionable message; engine binaries come from `playwright install` on user infrastructure — the package never bundles browsers
 
+## Pace — `slow_mo` at launch and connect
+
+The `speed` setting of the browser group (a percentage, 0–100 inclusive, default 100 — full speed) maps linearly to Playwright's native `slow_mo` and applies at browser start in every launch mode:
+
+```python
+slow_mo = int((100 - speed) * 30)  # 100 -> 0 ms (no pause); 0 -> 3000 ms (the maximum)
+
+browser = engine.launch(headless=config.headless, slow_mo=slow_mo)  # local launch
+browser = engine.connect(ws_endpoint, slow_mo=slow_mo)  # remote connect
+```
+
+Rules:
+- One value per test, fixed for the whole run: `slow_mo` belongs to the browser
+  process start and cannot change mid-run; replays and strict runs take it
+  identically
+- An out-of-range or malformed `speed` fails at configuration load — never a silent
+  ignore
+- `slow_mo` is not the tool for group-level pace: a group's own speed slows the
+  pauses **between** the group's steps by the same formula as library-level waits —
+  never `slow_mo`
+- Step-level `delay` and the group pauses are plain library waits around steps;
+  generated step code stays free of fixed delays — the driver rule is untouched
+
 ## Screen modes — viewport, fullscreen, device emulation
 
 The `screen` setting of the browser group selects the single size mode; it applies at context creation:

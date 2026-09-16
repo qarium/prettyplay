@@ -30,9 +30,13 @@ base_url overrides the provider endpoint when set.
 
 ## Parity
 
-Both providers expose the same three operations — generate_step_code, classify_failure and check_instruction_compliance — with identical inputs, identical output shapes and the identical failure taxonomy: a provider service failure raises LLMUnavailableError; cached step code never depends on the provider. One request per attempt; attempt budgets belong to the calling engine.
+Both providers expose the same four operations — generate_step_code, classify_step_failure, classify_group_failure and check_instruction_compliance — with identical inputs, identical output shapes and the identical failure taxonomy: a provider service failure raises LLMUnavailableError; cached step code never depends on the provider. One request per attempt; attempt budgets belong to the calling engine.
+
+The classification operation is named `classify_step_failure` — the former `classify_failure`, a nominal rename.
 
 User instructions parity: each operation carries its own instructions — generation requests render the generation_prompt setting, classification requests render the classification_prompt setting — as a verbatim USER INSTRUCTIONS block with identical placement semantics in both providers. A parity requirement, not a capability difference.
+
+Scenario-context parity: the previous steps of a generation request arrive as typed records — each the raw sentence plus its permanent group membership — and render as the PREVIOUS STEPS block with the group entries marked; the group prompt of the current step renders as the GROUP PROMPT block before PREVIOUS STEPS. A parity requirement, not a capability difference.
 
 Step-type parity: every generation request and every compliance verdict request renders the STEP TYPE line — action or assertion — immediately before the STEP line, identically in both providers. A parity requirement, not a capability difference.
 
@@ -69,6 +73,23 @@ STEP TYPE line), ATTEMPT HISTORY, CODE; the answer is a JSON list of findings:
   dimension, or an emptiness reached only through the salvage — raises
   ComplianceVerdictError and a provider failure raises LLMUnavailableError — both hard: the
   candidate is not cached unchecked
+
+## The group diagnosis operation
+
+The fourth port operation `classify_group_failure` — one request per diagnosis through the
+effective classification model, both providers in full parity:
+
+- inputs: the group prompt (verbatim), the group step traces (sentence, outcome, URL transition —
+  one per step), the failed step's sentence, its rendered attempt history, the page snapshot and
+  the optional screenshot; the classification instructions of the project reach it exactly as a
+  classification request
+- the answer parses strictly through `parse_group_failure_classification`: JSON with the four
+  fields, one json-repair salvage of a syntax glitch, the closed label set
+  recoverable | product_defect | incurable
+- a garbage or incomplete answer degrades conservatively to incurable with the raw answer logged —
+  never a granted regeneration
+- provider unavailability raises LLMUnavailableError; one request per diagnosis, budgets belong to
+  the calling engine
 
 ## Answer shape
 

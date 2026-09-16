@@ -9,7 +9,7 @@ step = generator.generate(
     identity=identity,
     step_text="click the «Sign in» button",
     step_type="action",
-    previous_steps=["open the login page", "enter the login and password"],
+    previous_steps=[ScenarioStep(sentence="open the login page", group_prompt=""), ScenarioStep(sentence="enter the login and password", group_prompt="")],
     page=page,
     attempt_history=history,
     window=window,
@@ -52,13 +52,29 @@ record, then is classified:
 - incurable → IncurableStepError with the verdict
 - LLM unavailable at the classification → the verdict is skipped quietly (WARNING in the log) and IncurableStepError raises without it
 
+## Group steps (framing, no per-step classification)
+
+Inside a group the generator behaves differently in exactly two ways:
+
+- every request of a group step carries the additive group framing — the GROUP PROMPT block and
+  the group-marked earlier steps of the group on top of the full test scenario context; nothing
+  existing is removed
+- the two internal classification points — a failed check of a candidate and the
+  generation-budget exhaustion — are suppressed: no classification request, no healing-funded
+  regeneration; the loop appends the attempt record and raises IncurableStepError carrying the
+  failed code and the full failure text; the executor routes it to the group recovery
+
+With no group framing input (`group_prompt=None`) the ordinary paths are byte-identical. The
+previous-steps context is typed: each entry carries the raw sentence verbatim plus its permanent
+group membership.
+
 ## The instruction compliance gate
 
 Every successfully executed candidate is verified on two dimensions before it is cached —
 instruction compliance and step adequacy — the default behavior; switch it off with
 generation_approve = false:
 
-- one verdict request per candidate through the provider (the effective generation
+- one verdict request per candidate through the provider (the effective classification
   model); zero requests when the switch is off or the instructions are empty
 - the request carries INSTRUCTIONS, STEP with its STEP TYPE line, the ATTEMPT HISTORY
   records and the CODE block; the reviewer is instructed to use the attempt history as

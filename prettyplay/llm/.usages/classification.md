@@ -16,7 +16,7 @@ An unrecognized label of the model answer parses to `incurable` — the protecti
 ## Call
 
 ```python
-classification = provider.classify_failure(
+classification = provider.classify_step_failure(
     prompt=system_prompt,  # the system prompt text comes from the calling engine
     user_instructions="",  # the classification instructions from the classification_prompt setting; empty — no block
     step_text="click the «Sign in» button",

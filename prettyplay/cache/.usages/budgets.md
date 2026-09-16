@@ -30,3 +30,22 @@ Two verdict-driven regenerations are paid from the healing budget via `try_heali
 A refused `try_healing` — the healing budget already exhausted — leaves the failure terminal: no unfunded regeneration ever runs.
 
 Settle re-executions of the same code never consume budgets — re-execution is execution, not generation. Interactive steering attempts never consume budgets either: the human in the loop is the bound.
+
+## Recovery budgets (groups)
+
+The group recovery engine draws on the same registry with two group-scoped operations:
+
+```python
+if budgets.open_group_cycle(group_key=group_prompt):
+    for step_identity in row:
+        budgets.refresh_healing(step_identity)  # a fresh full healing counter per cycle
+```
+
+- `open_group_cycle(group_key)` — consume one recovery cycle of the group; False — the per-group
+  cycle cap (the `healing_attempts` value) is exhausted → the terminal incurable failure
+- `refresh_healing(identity)` — at every new cycle each row step gets a fresh full healing
+  counter, so a second attempt is never starved by the first
+
+Ordinary per-step healing keeps its per-test pools unchanged. Row regenerations pay from the
+healing budget via the ordinary `try_healing`. Group cycle counters live only in the memory of the
+running process, like every budget.

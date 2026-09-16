@@ -55,7 +55,7 @@ Annotations: |
     "on_generation_started(step_text: str, attempt: int)": |
       A code generation attempt started; `attempt` is the 1-based attempt number of the LLM request — settle re-executions of the same candidate do not count as attempts.
     "on_healing_started(step_text: str, category: str)": |
-      Healing of a failed cached step started; `category` is the classification label: rot, product_defect, fixable, incurable.
+      Healing of a failed cached step started; `category` is the classification label: rot, product_defect, fixable, incurable — a group recovery row reports the diagnosis label recoverable.
     "on_healed(step_text: str, explanation: str)": |
       The step was healed and the cache updated; `explanation` says why it failed and what changed — an interactively healed step reports here too.
     "on_cache_saved(step_text: str, filename: str)": |

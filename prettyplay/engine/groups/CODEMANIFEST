@@ -1,0 +1,195 @@
+Imports:
+  - Types:
+      - Config
+    From: prettyplay/config
+  - Types:
+      - StepReporter
+    From: prettyplay/reporting
+  - Types:
+      - ProductDefectError
+      - IncurableStepError
+      - LLMUnavailableError
+      - FailureVerdict
+    From: prettyplay/failures
+  - Types:
+      - PageFacade
+    From: prettyplay/driver
+  - Types:
+      - StepCache
+      - StepIdentity
+      - CachedStep
+      - RunBudgets
+    From: prettyplay/cache
+  - Types:
+      - LLMProvider
+      - ScenarioStep
+      - GroupFailureClassification
+    From: prettyplay/llm
+  - Types:
+      - StepGenerator
+      - StepAttempt
+    From: prettyplay/engine
+  - Types:
+      - SettleWindow
+    From: prettyplay/engine/polling
+
+Usages:
+  conventions: .goga/usages/conventions.md
+  group_diagnosis: .goga/usages/prompts/group_diagnosis.md
+  group_framing: .goga/usages/prompts/group_framing.md
+
+Annotations: |
+  Use `conventions` for code writing rules and testing.
+  Use `group_diagnosis` from Usages as the system prompt of every group diagnosis request.
+  Use `group_framing` from Usages as the single source of the additive group framing of the row regeneration requests.
+
+  The diagnosis-driven recovery of step groups: every classification point of a group step routes here — one group-level diagnosis replaces the per-step classification-and-heal; inside a group there is no isolated per-step healing.
+  The diagnosis rides the classification model and the classification instructions of the project settings — the screenshot attaches when enabled.
+  Anti-masking: a product_defect diagnosis fails the test loudly through the existing product-defect failure; a garbage answer never grants regeneration — the conservative incurable with the raw answer logged.
+  Recovery is group-scoped: the row is built from the group's own steps only; a diagnosis naming a root outside the group ends the run in the honest terminal incurable failure whose verdict names that step — no doomed cycles are spent.
+  Bounded autonomy: every new recovery cycle grants each row step a fresh healing counter — the full healing pool per cycle — while the number of cycles per group is capped by the healing pool value; the loop is never infinite.
+  Recovery re-executes forward on the current page — no rollback machinery; a re-planned action step repeats its action, never riding leftover state.
+  Every successfully re-executed row step passes the two-dimension compliance gate — the same gate as every caching path — and is written back to the cache per step.
+  Reporting reuses the healing events per recovered step plus structured log records for the diagnosis itself and the row composition — no new hook events.
+  Strict mode never runs the recovery — the executor keeps the classification-only path.
+  Honest inputs: the group prompt and the step sentences reach the diagnosis and the regeneration requests verbatim; the group prompt joins the repository cache, the logs and the LLM requests — the never-put-secrets rule extends to it.
+
+---
+
+"GroupStepOutcome(sentence: str, step_type: str, tries: int | None, delay: float | None, outcome: str, url_before: str, url_after: str, identity: StepIdentity)":
+  location: outcome.py
+  annotations: |
+    One verbatim trace record of a group step's execution — the unit the GROUP STEPS block of the diagnosis request renders.
+
+    `sentence`: the raw sentence of the step, verbatim.
+    `step_type`: action or assertion.
+    `tries`: the declared retry count of the step; None — the step is governed by the global polling settings.
+    `delay`: the declared start pause of the step in seconds; None — no pause.
+    `outcome`: passed or failed.
+    `url_before`: the page URL read immediately before the step's execution.
+    `url_after`: the page URL read immediately after the step's execution.
+    `identity`: the cache address of the step — recorded by the executor when the trace is
+    appended; the addressing metadata of the row mechanics (regeneration and the healing-counter
+    refresh resolve row steps by it), never rendered into the GROUP STEPS block.
+
+    Requirements:
+    - pydantic v2, kw_only, empty defaults (see `conventions`)
+    - A record is immutable once appended: no rewriting, no truncation
+  properties:
+    "sentence -> str": |
+      The raw sentence of the group step, verbatim.
+    "step_type -> str": |
+      The step kind: action or assertion.
+    "tries -> int | None": |
+      The declared retry count; None — the global polling settings govern the step.
+    "delay -> float | None": |
+      The declared start pause in seconds; None — no pause.
+    "outcome -> str": |
+      The execution outcome: passed or failed.
+    "url_before -> str": |
+      The page URL read immediately before the step's execution.
+    "url_after -> str": |
+      The page URL read immediately after the step's execution.
+    "identity -> StepIdentity": |
+      The cache address of the step; recorded at trace time, never rendered.
+  methods:
+    "render() -> record: str": |
+      Render the complete verbatim trace — the unit the GROUP STEPS block renders.
+
+      `record`: the multi-line trace text.
+
+      Algorithm:
+      1. The sentence line — the raw sentence verbatim
+      2. The outcome line — the outcome label
+      3. The URL line — url_before, an arrow, url_after
+
+      Requirements:
+      - No collapsing, no size limits, no truncation of any field
+
+"classify_group_failure(config: Config, provider: LLMProvider, group_prompt: str, traces: list[GroupStepOutcome], step_text: str, step_type: str, attempt_history: list[StepAttempt], page: PageFacade) -> diagnosis: GroupFailureClassification":
+  location: diagnosis.py
+  annotations: |
+    Compose and send one group diagnosis request — the single diagnosis call of the recovery.
+
+    `config`: project settings — the screenshot flag and the classification instructions.
+    `provider`: the LLM port.
+    `group_prompt`: the group prompt, verbatim.
+    `traces`: the group's step traces in execution order.
+    `step_text`: the raw sentence of the failed step, verbatim.
+    `step_type`: action or assertion.
+    `attempt_history`: the per-step attempt history of the failed step — rendered records.
+    `page`: the page facade of the current test.
+    `diagnosis`: the `GroupFailureClassification` verdict.
+
+    Algorithm:
+    1. Collect the fresh page accessibility snapshot — plus the screenshot when the project settings enable it
+    2. Compose the GROUP STEPS traces — the render of every trace record — and the HISTORY records of the failed step
+    3. One request via the provider port classify_group_failure passing `group_diagnosis` as the system prompt and the user instructions — the effective classification_prompt — when non-empty
+    4. A degraded verdict — the conservative incurable carrying the raw answer in root_cause — logs a WARNING through the logger prettyplay naming the group and carrying the raw answer
+    5. Return the verdict
+
+    Constraints:
+    - Provider unavailability propagates as `LLMUnavailableError` — an explicit infrastructure failure; no retry
+
+"GroupRecovery(config: Config, provider: LLMProvider, generator: StepGenerator, cache: StepCache, budgets: RunBudgets, reporter: StepReporter)":
+  location: recovery.py
+  annotations: |
+    The group recovery engine: one diagnosis over the whole interaction, a group-scoped affected row, bounded cycles.
+
+    `config`: project settings.
+    `provider`: the LLM port for the diagnosis request.
+    `generator`: the regeneration engine — every row step regenerates as its own per-step unit.
+    `cache`: the step cache for the per-step write-back.
+    `budgets`: the per-test attempt registry — the cycle cap and the per-cycle refresh.
+    `reporter`: the visibility point.
+  methods:
+    "recover(group_prompt: str, traces: list[GroupStepOutcome], step_text: str, step_type: str, previous_steps: list[ScenarioStep], identity: StepIdentity, attempt_history: list[StepAttempt], page: PageFacade, window: SettleWindow) -> step: CachedStep": |
+      Diagnose a failed group step and recover the affected row.
+
+      `group_prompt`: the group prompt, verbatim — reaches the diagnosis and every row request.
+      `traces`: the group's step traces with outcomes and URL transitions.
+      `step_text`: the raw sentence of the failed step, verbatim.
+      `step_type`: action or assertion.
+      `previous_steps`: the typed scenario records of the test, in execution order — every row
+      regeneration request carries them per `group_framing`.
+      `identity`: the address of the failed step.
+      `attempt_history`: the per-step attempt history grown to the failure.
+      `page`: the live page facade — the row re-executes forward on the current page.
+      `window`: the settle window of the failed step's execution.
+      `step`: the healed cached step of the failed step.
+
+      Verdict mapping: every raised terminal failure carries a `FailureVerdict` — a diagnosis
+      verdict maps onto it (category as is — product_defect and incurable are taxonomy labels,
+      recoverable never raises; explanation ← root_cause plus the earliest_step quote when it
+      names a step; recommendation ← recommendation); a refused cycle authors its own — category
+      incurable, the explanation naming the exhausted per-group cycle cap (colon-free); an
+      outside-group root — category incurable, the explanation naming that step verbatim
+      (colon-free).
+
+      Algorithm:
+      1. Open a recovery cycle via budgets open_group_cycle keyed by the group prompt; a refused cycle raises `IncurableStepError` carrying the verdict naming the exhausted cycle cap — the reason colon-free, one render
+      2. Diagnose via `classify_group_failure`; a product_defect verdict raises `ProductDefectError` carrying the verdict and the full underlying error; an incurable verdict raises `IncurableStepError` carrying them
+      3. Match the earliest affected step: an exact verbatim match of earliest_step against the group's steps names the row start; an exact match against a step of the test outside the group raises the honest terminal `IncurableStepError` whose verdict names that step — recovery is out of mandate; no match degrades to the failed step itself
+      4. Grant every row step a fresh healing counter via budgets refresh_healing
+      5. The row — from the earliest affected step through the failed step, the group's own steps only — sequentially: the step's declared delay passes quietly; the step regenerates via the generator regenerate carrying the diagnosis recommendation, the group framing per `group_framing`, `previous_steps`, the grown attempt history and the step's own window built from its declared tries and the trace identity; the candidate executes immediately on the current page inside the regeneration loop; the two-dimension compliance gate guards the write-back; the cache stores the step; report on_healing_started and on_healed for the recovered step; a structured log record names the diagnosis and the row composition
+      6. A repeat failure of a row step — an `IncurableStepError` from the regeneration — re-enters a fresh diagnosis and a new cycle from step 1 with the fresh failure state, while cycles remain
+      7. On success return the healed cached step of the failed step — the group continues normally
+
+      Requirements:
+      - Strict mode never invokes this engine — the executor guards the gate
+      - The row never leaves the group's steps
+      - Anti-masking: a product_defect diagnosis always fails the test loudly
+      - One render per terminal failure — the existing taxonomy, exactly once
+      - The recovery is loudly reported through the healing events and the log records
+
+      Constraints:
+      - No page-state rollback — forward re-execution only
+      - No new failure kinds — the existing taxonomy carries every terminal outcome
+      - The ordinary per-step healing pools of non-group steps are never consumed
+
+---
+
+Author: Goga
+CreatedAt: 16/09/26
+Description: |
+  The group recovery of prettyplay: the group-level diagnosis request over the whole interaction (recoverable | product_defect | incurable), the group-scoped affected row with sequential per-step regeneration and immediate forward re-execution, the compliance-gated per-step cache write-back, and the bounded recovery cycles with fresh healing counters per cycle.

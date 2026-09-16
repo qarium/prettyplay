@@ -10,7 +10,7 @@ healed = healer.heal(
     error="element not found: button «Sign in»",
     step_text="click the «Sign in» button",
     step_type="action",
-    previous_steps=["open the login page"],
+    previous_steps=[ScenarioStep(sentence="open the login page", group_prompt="")],
     page=page,
     attempt_history=history,
     window=window,
@@ -42,6 +42,7 @@ The classification verdict decides the path — the uniform decision table:
 - Generation and healing attempts live in one per-test registry — owned by the runtime of the test — with separate per-step limits (default 3 and 2)
 - Inside the regeneration loop no per-attempt classification happens (rejected: LLM cost): a failed attempt of any kind — a failed check included — appends its record and retries with the fresh error, the fresh snapshot and the grown history while budget remains; the entry classification guards the anti-masking
 - A regeneration budget exhaustion raises IncurableStepError carrying the verdict of the original classification — no extra LLM request
+- The scenario context is typed (the raw sentence + permanent group membership); group steps never reach the healer — their failures route to the group recovery
 - Provider unavailability during the classification raises LLMUnavailableError — an explicit infrastructure failure
 - Healing never runs in strict mode: a failed cached step is at most classified, never regenerated
 - Interactive steering attempts are separate from healing: they consume no budgets, join the same per-step history and report their own healings
