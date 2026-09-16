@@ -633,16 +633,16 @@ engine, not here; the parse itself never logs).
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: in `tests/llm/test_models.py` — `from prettyplay.llm import
+- [x] **Contract tests**: in `tests/llm/test_models.py` — `from prettyplay.llm import
   ScenarioStep, GroupFailureClassification, parse_group_failure_classification`;
   `ScenarioStep(sentence=…, group_prompt=…)` kw_only construction; `GroupFailureClassification`
   exposes the five properties including `degraded` (expected to fail at this stage)
-- [ ] **Code**: add the two models and the parse routine to `prettyplay/llm/models.py` per the
+- [x] **Code**: add the two models and the parse routine to `prettyplay/llm/models.py` per the
   algorithms above (a frozen `GROUP_CATEGORIES = frozenset({"recoverable", "product_defect",
   "incurable"})` constant; the degraded verdict composed per the pinned constants); export the
   three names from `prettyplay/llm/__init__.py` `__all__`
-- [ ] **Interface verification**: `pytest tests/llm/test_models.py -q` — all pass
-- [ ] **Logic tests** — the design scenario, verbatim, plus the model pins:
+- [x] **Interface verification**: `pytest tests/llm/test_models.py -q` — all pass
+- [x] **Logic tests** — the design scenario, verbatim, plus the model pins:
   - `test_parse_group_failure_classification_valid_and_degraded`: Setup — none (pure function).
     Input — a valid JSON answer; a single-quoted glitch; a prose answer; a wrong-label answer.
     Trace — valid parses to `verdict(degraded=False)`; glitched JSON → json_repair salvage →
@@ -656,10 +656,10 @@ engine, not here; the parse itself never logs).
   - `ScenarioStep` immutability: frozen — assignment raises; empty defaults construct.
   - Salvage-library failure degrades too (monkeypatch `repair_loads` to raise — a third-party
     exception never crosses the parse).
-- [ ] **Debugging**: `pytest tests/llm/ -q` — fix implementation code until all tests pass (do NOT fix test code)
-- [ ] **Contract re-verification**: pure function (no state, no I/O, deterministic); the parse
+- [x] **Debugging**: `pytest tests/llm/ -q` — fix implementation code until all tests pass (do NOT fix test code)
+- [x] **Contract re-verification**: pure function (no state, no I/O, deterministic); the parse
   never logs; the existing `parse_compliance_verdict` untouched
-- [ ] **Lint**: `ruff check prettyplay/llm tests/llm && ruff format --check prettyplay/llm tests/llm`
+- [x] **Lint**: `ruff check prettyplay/llm tests/llm && ruff format --check prettyplay/llm tests/llm`
 
 ### Task 6: Port widening — typed context, `group_prompt`, the `classify_step_failure` rename, the `classify_group_failure` operation, both providers (llm)
 
