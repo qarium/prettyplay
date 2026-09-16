@@ -14,6 +14,9 @@ from pydantic import BaseModel, ConfigDict, PositiveInt, field_validator
 #: The browser matrix the group ``name`` setting is validated against.
 _BROWSER_MATRIX = ("chromium", "firefox", "webkit", "chrome", "msedge")
 
+#: The inclusive pace range, in percent, the group ``speed`` setting accepts.
+_SPEED_RANGE = range(0, 101)
+
 
 class BrowserConfig(BaseModel):
     """The nested browser group of the project settings.
@@ -45,6 +48,11 @@ class BrowserConfig(BaseModel):
             False. The resolution runs at the tail of the driver-thread
             unit, not at the moment the dialog fires: a dialog unclaimed
             by the step blocks the page until the unit ends.
+        speed: the pace of the run as a percentage; 100 — full speed, the
+            default, a behavior identical to today; lower values slow the
+            run linearly; 0 — the slowest supported pace; valid 0-100
+            inclusive — an out-of-range or non-integer value fails loudly
+            with the received value named, never a silent ignore.
     """
 
     model_config = ConfigDict(kw_only=True, extra="forbid")
@@ -54,6 +62,7 @@ class BrowserConfig(BaseModel):
     headless: bool = True
     endpoint: str = ""
     accept_dialogs: bool = False
+    speed: int = 100
 
     @field_validator("name")
     @classmethod
@@ -126,6 +135,28 @@ class BrowserConfig(BaseModel):
         width, height = int(match.group(1)), int(match.group(2))
         if width <= 0 or height <= 0:
             raise ValueError("must be positive integers in WxH form")
+
+        return value
+
+    @field_validator("speed", mode="before")
+    @classmethod
+    def _validate_speed(cls, value: object) -> object:
+        """Check that the pace is an integer 0-100 inclusive.
+
+        Args:
+            value: the raw speed setting; booleans are rejected explicitly
+                before the integer check — ``True`` is not a pace.
+
+        Returns:
+            The unchanged speed when an integer inside the 0-100 range.
+
+        Raises:
+            ValueError: when the value is a boolean, not an integer or
+                outside 0-100 — the received value is named, never a
+                silent ignore.
+        """
+        if isinstance(value, bool) or not isinstance(value, int) or value not in _SPEED_RANGE:
+            raise ValueError(f"must be an integer 0-100 inclusive — received {value!r}")
 
         return value
 

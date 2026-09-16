@@ -132,8 +132,30 @@ class TestBrowserConfigContract:
     def test_browser_config_is_kw_only(self) -> None:
         assert BrowserConfig.model_config.get("kw_only") is True
 
-    def test_browser_config_declares_five_fields_in_contract_order(self) -> None:
-        assert list(BrowserConfig.model_fields) == ["name", "screen", "headless", "endpoint", "accept_dialogs"]
+    def test_browser_config_declares_six_fields_in_contract_order(self) -> None:
+        assert list(BrowserConfig.model_fields) == ["name", "screen", "headless", "endpoint", "accept_dialogs", "speed"]
+
+    def test_browser_config_speed_field_type_and_full_speed_default(self) -> None:
+        """Contract: the pace setting is an int field defaulting to full speed."""
+        speed = BrowserConfig.model_fields["speed"]
+
+        assert speed.annotation is int
+        assert speed.default == 100
+        assert BrowserConfig().speed == 100
+        assert Config().browser.speed == 100
+
+    def test_browser_config_speed_bounds_zero_and_hundred_pass(self) -> None:
+        """Contract: both ends of the 0-100 range are legal paces."""
+        assert BrowserConfig(speed=0).speed == 0
+        assert BrowserConfig(speed=100).speed == 100
+
+    @pytest.mark.parametrize("value", [-1, 101, True, "fast", 1.5])
+    def test_browser_config_speed_rejected_forms_raise_naming_the_value(self, value: object) -> None:
+        """Contract: out-of-range, boolean and non-integer paces fail loudly, value named."""
+        with pytest.raises(pydantic.ValidationError) as excinfo:
+            BrowserConfig(speed=value)
+
+        assert repr(value) in str(excinfo.value)
 
     def test_browser_config_accept_dialogs_default_and_explicit(self) -> None:
         """The dialog auto-accept switch: neutral default False, explicit True."""
@@ -302,3 +324,28 @@ class TestConfigLogic:
         locations = [entry["loc"] for entry in excinfo.value.errors()]
         assert ("screen",) in locations
         assert "must be positive" in str(excinfo.value)
+
+    def test_browser_speed_forty_accepted_and_readable_through_config(self) -> None:
+        """Positive: a mid-range pace validates and reads through the nested group."""
+        assert BrowserConfig(speed=40).speed == 40
+
+        config = Config(browser=BrowserConfig(speed=40))
+
+        assert config.browser.speed == 40
+        assert Config(browser={"speed": 40}).browser.speed == 40
+
+    def test_browser_speed_bounds_stay_legal_through_the_group(self) -> None:
+        """Edge: 0 — the slowest supported pace, 100 — full speed; both construct."""
+        assert Config(browser={"speed": 0}).browser.speed == 0
+        assert Config(browser={"speed": 100}).browser.speed == 100
+
+    @pytest.mark.parametrize("value", [-1, 101, True, False, "fast", "40", 1.5, None])
+    def test_browser_speed_loud_message_names_every_rejected_form(self, value: object) -> None:
+        """Negative: every rejected pace names the received value and the allowed range."""
+        with pytest.raises(pydantic.ValidationError) as excinfo:
+            BrowserConfig(speed=value)
+
+        message = str(excinfo.value)
+
+        assert repr(value) in message
+        assert "0-100" in message

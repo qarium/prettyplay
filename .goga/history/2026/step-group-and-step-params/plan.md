@@ -404,26 +404,26 @@ validators. Loud-failure parity: the received value is named, never a silent ign
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: in `tests/config/test_models.py` — `BrowserConfig` exposes `speed`
+- [x] **Contract tests**: in `tests/config/test_models.py` — `BrowserConfig` exposes `speed`
   (default 100); `from prettyplay.config import BrowserConfig` importable; constructing with
   `speed=0` and `speed=100` passes; constructing with `speed=-1`, `speed=101`, `speed=True`,
   `speed="fast"`, `speed=1.5` raises `ValidationError` whose message contains the received value
   (expected to fail at this stage — the field does not exist)
-- [ ] **Code**: add `speed: int = 100` to `BrowserConfig` in `prettyplay/config/models.py` with a
+- [x] **Code**: add `speed: int = 100` to `BrowserConfig` in `prettyplay/config/models.py` with a
   `@field_validator("speed")` rejecting bool, non-int and out-of-range values (ValueError naming
   the received value, mirroring `_validate_name`); extend the class docstring Attributes with the
   pace semantics (100 — full speed, default; lower values slow the run linearly; 0 — the slowest
   supported pace; valid 0–100 inclusive)
-- [ ] **Interface verification**: `pytest tests/config/test_models.py -q` — all pass
-- [ ] **Logic tests**: positive — `speed=40` accepted and readable as `config.browser.speed`;
+- [x] **Interface verification**: `pytest tests/config/test_models.py -q` — all pass
+- [x] **Logic tests**: positive — `speed=40` accepted and readable as `config.browser.speed`;
   edge — the 0 and 100 bounds pass; negative — the loud message names the received value for
   every rejected form (bool excluded explicitly: `isinstance(value, bool)` check before the int
   check)
-- [ ] **Debugging**: `pytest tests/config/ -q` — fix implementation code until all tests pass (do NOT fix test code)
-- [ ] **Contract re-verification**: `speed` is an int 0–100 with default 100; `kw_only`
+- [x] **Debugging**: `pytest tests/config/ -q` — fix implementation code until all tests pass (do NOT fix test code)
+- [x] **Contract re-verification**: `speed` is an int 0–100 with default 100; `kw_only`
   construction preserved (`model_config` unchanged); the root facade still imports
   (`python -c "from prettyplay import BrowserConfig"`)
-- [ ] **Lint**: `ruff check prettyplay/config tests/config && ruff format --check prettyplay/config tests/config` — fix formatting if necessary
+- [x] **Lint**: `ruff check prettyplay/config tests/config && ruff format --check prettyplay/config tests/config` — fix formatting if necessary
 
 ### Task 2: `load_config` — the `PRETTYPLAY_BROWSER_SPEED` env override (config)
 

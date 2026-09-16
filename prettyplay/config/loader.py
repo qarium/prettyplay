@@ -63,6 +63,7 @@ _ENV_NAMES: dict[str, str] = {
         "browser.headless",
         "browser.endpoint",
         "browser.accept_dialogs",
+        "browser.speed",
     )
 }
 
