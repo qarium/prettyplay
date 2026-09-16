@@ -2,6 +2,7 @@
 
 from .config import BrowserConfig, PrettyConfig
 from .executor import StepExecutor
+from .groups import StepGroup
 from .reporting import StepHooks
 from .runtime import PrettyplayRuntime
 from .scenario import PrettyPlay
@@ -13,4 +14,5 @@ __all__ = [  # noqa: RUF022 — the facade listing order is fixed by the root ce
     "BrowserConfig",
     "PrettyplayRuntime",
     "StepExecutor",
+    "StepGroup",
 ]

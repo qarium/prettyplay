@@ -2,10 +2,12 @@
 
 import contextlib
 import inspect
+import logging
 import threading
 import traceback
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 import prettyplay
@@ -19,6 +21,7 @@ from prettyplay.driver.session import PlaywrightWorker
 from prettyplay.engine.steering import StepSteering
 from prettyplay.executor import StepExecutor
 from prettyplay.failures import ComplianceVerdictError, FailureVerdict, IncurableStepError, PrettyplayError
+from prettyplay.groups import StepGroup
 from prettyplay.llm import ComplianceFinding, FailureClassification, LLMProvider
 from prettyplay.reporting import StepHooks, StepReporter
 
@@ -323,6 +326,7 @@ class TestPrettyPlayContract:
         for name in (
             "step",
             "expect",
+            "group",
             "run_on_page",
             "get_screenshot",
             "save_screenshot",
@@ -334,8 +338,23 @@ class TestPrettyPlayContract:
             assert callable(getattr(PrettyPlay, name)), name
 
     def test_step_method_signatures_match_contract(self) -> None:
-        assert list(inspect.signature(PrettyPlay.step).parameters) == ["self", "text"]
-        assert list(inspect.signature(PrettyPlay.expect).parameters) == ["self", "text"]
+        for method in (PrettyPlay.step, PrettyPlay.expect):
+            parameters = list(inspect.signature(method).parameters.values())[1:]
+
+            assert [parameter.name for parameter in parameters] == ["text", "tries", "delay"]
+            assert parameters[0].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD  # text stays positional
+            for parameter in parameters[1:]:  # tries/delay — keyword-only, None defaults
+                assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+                assert parameter.default is None
+
+    def test_group_method_signature_matches_contract(self) -> None:
+        parameters = list(inspect.signature(PrettyPlay.group).parameters.values())[1:]
+
+        assert [parameter.name for parameter in parameters] == ["prompt", "speed", "delay"]
+        assert parameters[0].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD  # prompt stays positional
+        for parameter in parameters[1:]:  # speed/delay — keyword-only, None defaults
+            assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+            assert parameter.default is None
 
     def test_run_on_page_signature_matches_contract(self) -> None:
         assert list(inspect.signature(PrettyPlay.run_on_page).parameters) == ["self", "action"]
@@ -361,6 +380,38 @@ class TestPrettyPlayContract:
             test = PrettyPlay(CACHE_KEY, config=config)
 
         assert isinstance(test._executor._steering, StepSteering)
+
+
+class TestStepGroupContract:
+    """Contract tests: the StepGroup facade entity — import, constructor, surface, signatures."""
+
+    def test_step_group_is_importable_from_facade(self) -> None:
+        assert isinstance(StepGroup, type)
+        assert prettyplay.StepGroup is StepGroup
+        assert "StepGroup" in prettyplay.__all__
+
+    def test_step_group_constructor_signature_matches_contract(self) -> None:
+        parameters = list(inspect.signature(StepGroup.__init__).parameters.values())[1:]
+
+        assert [parameter.name for parameter in parameters] == ["prompt", "speed", "delay", "executor"]
+        assert all(parameter.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD for parameter in parameters)
+
+    def test_step_group_surface_matches_contract(self) -> None:
+        assert isinstance(StepGroup.prompt, property)
+        assert isinstance(StepGroup.traces, property)
+
+        for name in ("step", "expect", "__enter__", "__exit__"):
+            assert callable(getattr(StepGroup, name)), name
+
+    def test_step_group_step_and_expect_signatures_match_contract(self) -> None:
+        for method in (StepGroup.step, StepGroup.expect):
+            parameters = list(inspect.signature(method).parameters.values())[1:]
+
+            assert [parameter.name for parameter in parameters] == ["text", "tries", "delay"]
+            assert parameters[0].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD  # text stays positional
+            for parameter in parameters[1:]:  # tries/delay — keyword-only, None defaults
+                assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+                assert parameter.default is None
 
 
 class TestPrettyPlayLogic:
@@ -675,7 +726,9 @@ class TestPrettyPlayLogic:
 
             cache_key = CACHE_KEY
 
-            def execute(self, step_text: str, step_type: str, page_: FakePage) -> None:
+            def execute(  # noqa: PLR0913, PLR0917 — the signature is fixed by the root cell contract
+                self, step_text: str, step_type: str, page_: FakePage, group=None, tries=None, delay=None
+            ) -> None:
                 engine_depth_two()
 
         with scenario_on_tmp_cache(tmp_path):
@@ -700,7 +753,9 @@ class TestPrettyPlayLogic:
 
             cache_key = CACHE_KEY
 
-            def execute(self, step_text: str, step_type: str, page_: FakePage) -> None:
+            def execute(  # noqa: PLR0913, PLR0917 — the signature is fixed by the root cell contract
+                self, step_text: str, step_type: str, page_: FakePage, group=None, tries=None, delay=None
+            ) -> None:
                 raise error
 
         with scenario_on_tmp_cache(tmp_path):
@@ -727,7 +782,9 @@ class TestPrettyPlayLogic:
 
             cache_key = CACHE_KEY
 
-            def execute(self, step_text: str, step_type: str, page_: FakePage) -> None:
+            def execute(  # noqa: PLR0913, PLR0917 — the signature is fixed by the root cell contract
+                self, step_text: str, step_type: str, page_: FakePage, group=None, tries=None, delay=None
+            ) -> None:
                 try:
                     raise original
                 except TimeoutError:
@@ -757,7 +814,9 @@ class TestPrettyPlayLogic:
 
             cache_key = CACHE_KEY
 
-            def execute(self, step_text: str, step_type: str, page_: FakePage) -> None:
+            def execute(  # noqa: PLR0913, PLR0917 — the signature is fixed by the root cell contract
+                self, step_text: str, step_type: str, page_: FakePage, group=None, tries=None, delay=None
+            ) -> None:
                 raise RuntimeError("hook bug")
 
         with scenario_on_tmp_cache(tmp_path):
@@ -1059,3 +1118,191 @@ class TestComplianceGateLoudSurface:
             cache_key=CACHE_KEY, step_type="action", normalized_text=normalize_step_text("open example.com")
         )
         assert StepCache(config, None, StepReporter(hooks=[])).load(identity) is None
+
+
+class RecordingGroupExecutor:
+    """Fake executor recording delegated steps; appends one trace record per group step.
+
+    The facade-level stand-in for the step cycle: every ``execute`` call is
+    recorded with its full parameter set, and a group step grows its group's
+    traces — the append the real executor owns.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    def execute(  # noqa: PLR0913, PLR0917 — the signature is fixed by the root cell contract
+        self,
+        step_text: str,
+        step_type: str,
+        page: object,
+        group: object | None = None,
+        tries: int | None = None,
+        delay: float | None = None,
+    ) -> None:
+        self.calls.append(
+            {"step_text": step_text, "step_type": step_type, "group": group, "tries": tries, "delay": delay}
+        )
+
+        if group is not None:
+            group.traces.append(("executed", step_text))
+
+
+class TestStepParametersValidation:
+    """The loud shared validation of the keyword-only step parameters — no executor involvement."""
+
+    def test_step_parameters_validate_loudly(self, tmp_path: Path) -> None:
+        """Every malformed parameter fails at the call, before any page or LLM involvement."""
+        executor = mock.Mock(name="executor")
+
+        def group_step_with_zero_tries(test: PrettyPlay) -> None:
+            test.group("p").step("x", tries=0)
+
+        cases: list[tuple[Callable[[PrettyPlay], None], tuple[str, ...]]] = [
+            (lambda t: t.step("x", tries=0), ("tries", "0", "a positive integer")),
+            (lambda t: t.step("x", tries=-1), ("tries", "-1", "a positive integer")),
+            (lambda t: t.step("x", tries=True), ("tries", "True", "a positive integer")),
+            (lambda t: t.step("x", tries="3"), ("tries", "'3'", "a positive integer")),
+            (lambda t: t.step("x", delay=-0.5), ("delay", "-0.5", "a non-negative number of seconds")),
+            (lambda t: t.step("x", delay="slow"), ("delay", "'slow'", "a non-negative number of seconds")),
+            (lambda t: t.expect("x", tries=0), ("tries", "0", "a positive integer")),
+            (lambda t: t.expect("x", delay=-1), ("delay", "-1", "a non-negative number of seconds")),
+            (lambda t: t.group(""), ("group prompt", "empty")),
+            (lambda t: t.group("p", speed=101), ("speed", "101", "0-100")),
+            (lambda t: t.group("p", speed="fast"), ("speed", "'fast'", "0-100")),
+            (lambda t: t.group("p", delay=-1), ("delay", "-1", "a non-negative number of seconds")),
+            (group_step_with_zero_tries, ("tries", "0", "a positive integer")),
+        ]
+
+        with scenario_on_tmp_cache(tmp_path):
+            test = PrettyPlay(CACHE_KEY)
+            test._executor = executor
+
+            for call, expected_fragments in cases:
+                with pytest.raises(PrettyplayError) as excinfo:
+                    call(test)
+
+                for fragment in expected_fragments:  # the parameter, repr(value) and the allowed form
+                    assert fragment in str(excinfo.value), f"{fragment!r} missing from: {excinfo.value}"
+
+        executor.execute.assert_not_called()  # a bad value never reaches the executor
+
+    def test_validation_error_carries_the_folded_traceback(self, tmp_path: Path) -> None:
+        """A validation failure leaving step carries its traceback folded to the facade boundary."""
+        with scenario_on_tmp_cache(tmp_path):
+            test = PrettyPlay(CACHE_KEY)
+            test._executor = mock.Mock(name="executor")
+
+            with pytest.raises(PrettyplayError) as excinfo:
+                test.step("x", tries=0)
+
+        frames = [entry.filename for entry in traceback.extract_tb(excinfo.value.__traceback__)]
+        assert frames[-1].endswith("scenario.py")  # the folded head link — the facade frame
+        assert not any(frame.endswith(("groups.py", "executor.py")) for frame in frames)
+
+
+class TestGroupAuthoringBlock:
+    """The group block: the lazy entry pause, the between-step pace, the framing records, the traces."""
+
+    def test_group_authoring_block_pauses_and_traces(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        executor = RecordingGroupExecutor()
+        page = FakePage()
+        sleeps: list[float] = []
+        monkeypatch.setattr("prettyplay.groups.time", SimpleNamespace(sleep=sleeps.append))
+
+        with scenario_on_tmp_cache(tmp_path):
+            test = PrettyPlay(CACHE_KEY)
+            test._executor = executor
+
+            with (
+                mock.patch.object(test._runtime, "open_page", return_value=page),
+                caplog.at_level(logging.INFO, logger="prettyplay"),
+            ):
+                with test.group("the checkout flow", speed=50, delay=2) as group:
+                    group.step("accept the cookie banner")
+                    group.step("fill the email field", delay=0.5)
+
+                with test.group("the quiet block") as quiet:
+                    pass
+
+                test.step("outside")
+
+        # the entry pause then the between-step pace — both slept by StepGroup, never slow_mo;
+        # the step's own declared delay belongs to the real executor cycle this test replaces
+        assert sleeps == [2.0, 1.5]
+
+        first, second, outside = executor.calls
+        assert [call["step_text"] for call in executor.calls] == [
+            "accept the cookie banner",
+            "fill the email field",
+            "outside",
+        ]
+        assert first["group"] is group  # the delegation carries the group as the context
+        assert first["group"] is second["group"]
+        assert first["tries"] is None
+        assert first["delay"] is None
+        assert second["delay"] == 0.5
+        assert outside["group"] is None  # no ambient rerouting of the test object
+
+        assert len(group.traces) == 2  # the traces grew per executed group step
+        assert [record[1] for record in group.traces] == ["accept the cookie banner", "fill the email field"]
+        assert quiet.traces == []  # a zero-step group is a quiet no-op
+
+        started = [record for record in caplog.records if record.getMessage() == "group_started"]
+        finished = [record for record in caplog.records if record.getMessage() == "group_finished"]
+        assert [record.group for record in started] == ["the checkout flow", "the quiet block"]
+        assert [record.group for record in finished] == ["the checkout flow", "the quiet block"]
+
+    def test_group_without_speed_and_delay_never_pauses(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        executor = RecordingGroupExecutor()
+        sleeps: list[float] = []
+        monkeypatch.setattr("prettyplay.groups.time", SimpleNamespace(sleep=sleeps.append))
+
+        with scenario_on_tmp_cache(tmp_path):
+            test = PrettyPlay(CACHE_KEY)
+            test._executor = executor
+
+            with (
+                mock.patch.object(test._runtime, "open_page", return_value=FakePage()),
+                test.group("the plain block") as group,
+            ):
+                group.step("one")
+                group.step("two")
+
+        assert sleeps == []  # speed=None/delay=None — no pauses at all
+        assert len(executor.calls) == 2
+        assert len(group.traces) == 2
+
+    def test_group_exit_logs_finished_on_the_exception_path(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        class FailingExecutor:
+            """Stub executor failing every delegated step."""
+
+            def execute(  # noqa: PLR0913, PLR0917 — the signature is fixed by the root cell contract
+                self,
+                step_text: str,
+                step_type: str,
+                page: object,
+                group: object | None = None,
+                tries: int | None = None,
+                delay: float | None = None,
+            ) -> None:
+                raise RuntimeError("step exploded")
+
+        with scenario_on_tmp_cache(tmp_path):
+            test = PrettyPlay(CACHE_KEY)
+            test._executor = FailingExecutor()
+
+            with (
+                mock.patch.object(test._runtime, "open_page", return_value=FakePage()),
+                caplog.at_level(logging.INFO, logger="prettyplay"),
+                pytest.raises(RuntimeError, match="step exploded"),
+                test.group("the failing block") as block,
+            ):
+                block.step("one")
+
+        finished = [record for record in caplog.records if record.getMessage() == "group_finished"]
+        assert [record.group for record in finished] == ["the failing block"]  # unconditional once entry logged

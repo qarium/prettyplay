@@ -1308,17 +1308,17 @@ Export `StepGroup` from the root facade (`prettyplay/__init__.py` `__all__`).
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: in `tests/test_scenario.py` — `t.step`/`t.expect` accept keyword-only
+- [x] **Contract tests**: in `tests/test_scenario.py` — `t.step`/`t.expect` accept keyword-only
   `tries`/`delay`; `t.group(...)` returns a `StepGroup` supporting the context manager protocol
   with `step`/`expect`/`traces`/`prompt`; `from prettyplay import StepGroup` importable
   (expected to fail at this stage)
-- [ ] **Code**: create `prettyplay/groups.py` — `StepGroup` per the algorithm (the delegation
+- [x] **Code**: create `prettyplay/groups.py` — `StepGroup` per the algorithm (the delegation
   flag, the lazy entry pause, the between-step pace, the framing records, the `_open_page`
   binding attribute); `prettyplay/scenario.py` — the `_validate_tries`/`_validate_delay` shared
   helpers, the widened `step`/`expect` (keyword-only parameters, delegation with `tries`/
   `delay`), the `group()` factory; `prettyplay/__init__.py` — export `StepGroup` in `__all__`
-- [ ] **Interface verification**: `pytest tests/test_scenario.py -q` — all pass
-- [ ] **Logic tests** — the two design scenarios, verbatim:
+- [x] **Interface verification**: `pytest tests/test_scenario.py -q` — all pass
+- [x] **Logic tests** — the two design scenarios, verbatim:
   - `test_step_parameters_validate_loudly`: Setup — a `PrettyPlay` with a monkeypatched executor
     (must not be reached). Input — `t.step("x", tries=0)`, `tries=-1`, `tries=True`,
     `tries="3"`, `delay=-0.5`, `delay="slow"`, `t.expect(...)` variants, `t.group("")`,
@@ -1349,11 +1349,11 @@ Export `StepGroup` from the root facade (`prettyplay/__init__.py` `__all__`).
     pauses), the trace growth and the addressing isolation a consumer observes.
   - Edge pins: `speed=None`/`delay=None` combinations (no pauses); the exception path still
     logs `group_finished`; a `PrettyplayError` from validation carries the folded traceback.
-- [ ] **Debugging**: `pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code)
-- [ ] **Contract re-verification**: `python -c "from prettyplay import PrettyPlay, StepGroup"`;
+- [x] **Debugging**: `pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code)
+- [x] **Contract re-verification**: `python -c "from prettyplay import PrettyPlay, StepGroup"`;
   the root `__all__` still exports `PrettyPlay, StepHooks, PrettyConfig, BrowserConfig,
   PrettyplayRuntime, StepExecutor` (+ `StepGroup`)
-- [ ] **Lint**: `ruff check prettyplay tests && ruff format --check prettyplay tests`
+- [x] **Lint**: `ruff check prettyplay tests && ruff format --check prettyplay tests`
 
 ### Task 15: Integration tests — group replay, strict isolation, the cross-cell mirror pins
 

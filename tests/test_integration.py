@@ -330,6 +330,7 @@ def test_pretty_config_exported_and_get_runtime_removed() -> None:
         "BrowserConfig",
         "PrettyplayRuntime",
         "StepExecutor",
+        "StepGroup",
     ]
     assert not hasattr(prettyplay, "get_runtime")
 

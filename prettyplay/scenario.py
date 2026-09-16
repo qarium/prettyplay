@@ -18,10 +18,14 @@ from .engine.groups import GroupRecovery
 from .engine.steering import StepSteering
 from .executor import StepExecutor
 from .failures import PrettyplayError
+from .groups import StepGroup, _validate_delay, _validate_tries
 from .reporting import StepHooks, StepReporter
 from .runtime import PrettyplayRuntime
 
 _T = TypeVar("_T")
+
+#: The inclusive pace range, in percent, a group's ``speed`` parameter accepts.
+_SPEED_RANGE = range(0, 101)
 
 
 def _raise_folded(error: PrettyplayError) -> types.NoReturn:
@@ -79,11 +83,32 @@ def _fold_chain_tracebacks(error: BaseException) -> None:
                 pending.append(link)
 
 
+def _validate_group_speed(speed: int | None) -> None:
+    """Validate the declared group pace; ``None`` — no between-step pauses.
+
+    The group-level twin of the browser ``speed`` setting: an integer
+    0-100 inclusive, bools never coerced. The loud failure names the
+    parameter, the received value and the allowed form.
+
+    Args:
+        speed: the group pace — an integer 0-100 inclusive.
+
+    Raises:
+        PrettyplayError: the value is a bool, not an integer or outside 0-100.
+    """
+    if speed is None:
+        return
+
+    if isinstance(speed, bool) or not isinstance(speed, int) or speed not in _SPEED_RANGE:
+        raise PrettyplayError(f"invalid speed {speed!r} — an integer 0-100 inclusive, keyword-only")
+
+
 class PrettyPlay:
     """The main object of the integrator: one instance per UI test.
 
     The test writes its scenario in plain sentences — :meth:`step` and
-    :meth:`expect` — and this object does the rest: addressing of the
+    :meth:`expect`, framed into coherent mini-scenarios by :meth:`group` —
+    and this object does the rest: addressing of the
     cached steps by the context key, the isolated page of the test, and the
     full step cycle delegated to the executor (in strict replay-only mode:
     cached code only, classification at most). Construction is cheap: the
@@ -199,7 +224,7 @@ class PrettyPlay:
             self._page = self._runtime.open_page()
         return self._page
 
-    def step(self, text: str) -> None:
+    def step(self, text: str, *, tries: int | None = None, delay: float | None = None) -> None:
         """Execute one action step sentence through the step cycle.
 
         A library failure leaving this method carries its traceback folded to
@@ -208,8 +233,19 @@ class PrettyPlay:
 
         Args:
             text: the sentence of the action as written by the engineer.
+            tries: keyword-only — the total number of executions of the
+                step's code, the first execution included; a positive
+                integer. ``None`` — the time-bounded settle mode of the
+                polling settings. An invalid value raises the loud
+                actionable failure at the call, before any page or LLM
+                involvement.
+            delay: keyword-only — the quiet pre-step pause in seconds,
+                non-negative, fractional allowed; ``None`` — no pause.
 
         Raises:
+            PrettyplayError: ``tries`` or ``delay`` is invalid — the loud
+                failure names the parameter, the received value and the
+                allowed form.
             ProductDefectError: the step expectation is genuinely broken in the product.
             IncurableStepError: the step never generated successfully, or the verdict
                 says regeneration cannot help.
@@ -218,11 +254,13 @@ class PrettyPlay:
                 usable verdict; the executed candidate is never cached.
         """
         try:
-            self._executor.execute(text, "action", self._ensure_page())
+            _validate_tries(tries)
+            _validate_delay(delay)
+            self._executor.execute(text, "action", self._ensure_page(), tries=tries, delay=delay)
         except PrettyplayError as error:
             _raise_folded(error)
 
-    def expect(self, text: str) -> None:
+    def expect(self, text: str, *, tries: int | None = None, delay: float | None = None) -> None:
         """Execute one assertion step sentence through the step cycle.
 
         A library failure leaving this method carries its traceback folded to
@@ -230,8 +268,19 @@ class PrettyPlay:
 
         Args:
             text: the sentence of the assertion as written by the engineer.
+            tries: keyword-only — the total number of executions of the
+                step's code, the first execution included; a positive
+                integer. ``None`` — the time-bounded settle mode of the
+                polling settings. An invalid value raises the loud
+                actionable failure at the call, before any page or LLM
+                involvement.
+            delay: keyword-only — the quiet pre-step pause in seconds,
+                non-negative, fractional allowed; ``None`` — no pause.
 
         Raises:
+            PrettyplayError: ``tries`` or ``delay`` is invalid — the loud
+                failure names the parameter, the received value and the
+                allowed form.
             ProductDefectError: the step expectation is genuinely broken in the product.
             IncurableStepError: the step never generated successfully, or the verdict
                 says regeneration cannot help.
@@ -240,7 +289,53 @@ class PrettyPlay:
                 usable verdict; the executed candidate is never cached.
         """
         try:
-            self._executor.execute(text, "assertion", self._ensure_page())
+            _validate_tries(tries)
+            _validate_delay(delay)
+            self._executor.execute(text, "assertion", self._ensure_page(), tries=tries, delay=delay)
+        except PrettyplayError as error:
+            _raise_folded(error)
+
+    def group(self, prompt: str, *, speed: int | None = None, delay: float | None = None) -> StepGroup:
+        """Open the group authoring block — one coherent mini-scenario with a shared goal.
+
+        The returned group object carries the ordinary step surface —
+        ``step``/``expect`` with the ``tries``/``delay`` parameters — and
+        used as a context manager it frames the block with one INFO record
+        on entry and one on exit. There is no ambient rerouting of this test
+        object: steps outside the block are ordinary steps, and group
+        membership changes no step's cache address.
+
+        Args:
+            prompt: the group prompt, verbatim — the shared goal of the
+                block, reaching the generation and diagnosis requests;
+                empty raises the loud actionable failure at entry.
+            speed: keyword-only — the group pace, an integer 0-100; the
+                pauses between the group's steps follow the same
+                percent-to-ms mapping as the browser speed setting.
+                ``None`` — no between-step pauses.
+            delay: keyword-only — the quiet pause before the group's first
+                step, seconds, non-negative; ``None`` — no pause.
+
+        Returns:
+            The authoring group object — yield it from a ``with`` block.
+
+        Raises:
+            PrettyplayError: ``prompt`` is empty, ``speed`` is malformed or
+                outside 0-100, or ``delay`` is negative or malformed.
+        """
+        try:
+            if not prompt:
+                raise PrettyplayError(
+                    "the group prompt must not be empty — a group block needs its shared goal sentence"
+                )
+
+            _validate_group_speed(speed)
+            _validate_delay(delay)
+
+            block = StepGroup(prompt, speed, delay, self._executor)
+            block._open_page = self._ensure_page  # the lazy opener of this test; the constructor stays four-parameter
+
+            return block
         except PrettyplayError as error:
             _raise_folded(error)
 
