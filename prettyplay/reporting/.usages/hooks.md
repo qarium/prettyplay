@@ -14,7 +14,7 @@ StepHooks is a thin callback contract. The library calls the matching method syn
 | on_step_verdict | the terminal failure carried a verdict (fires after on_step_failed) | step_text, category (rot, product_defect, fixable, incurable), explanation, recommendation |
 | on_step_finished | the step ended — always the last step event, regardless of outcome | step_text, step_type, outcome (passed or failed) |
 | on_generation_started | a generation attempt started | step_text, attempt (1-based, one per LLM request) |
-| on_healing_started | healing of a failed cached step started | step_text, category (rot, product_defect, fixable, incurable) |
+| on_healing_started | healing of a failed cached step started | step_text, category (rot, product_defect, fixable, incurable — a group recovery row reports the diagnosis label recoverable) |
 | on_healed | the step healed, cache updated | step_text, explanation (why it failed, what changed — interactive healings report here too) |
 | on_cache_saved | step code written to the cache | step_text, filename |
 | on_cache_skipped | cache write skipped | step_text, reason (e.g. read-only cache) |
