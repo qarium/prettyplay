@@ -761,24 +761,24 @@ Booleans; no persistence, process memory only.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: in `tests/cache/test_budgets.py` — `RunBudgets` exposes
+- [x] **Contract tests**: in `tests/cache/test_budgets.py` — `RunBudgets` exposes
   `refresh_healing` and `open_group_cycle` with the contract signatures (expected to fail at
   this stage)
-- [ ] **Code**: add the two methods and the `_group_cycles_used: dict[str, int]` registry to
+- [x] **Code**: add the two methods and the `_group_cycles_used: dict[str, int]` registry to
   `prettyplay/cache/budgets.py` per the algorithm; extend the class docstring (the cap counts
   recovery cycles per group per test, never per step)
-- [ ] **Interface verification**: `pytest tests/cache/test_budgets.py -q` — all pass
-- [ ] **Logic tests**: positive — `refresh_healing` renews an exhausted pool (a subsequent
+- [x] **Interface verification**: `pytest tests/cache/test_budgets.py -q` — all pass
+- [x] **Logic tests**: positive — `refresh_healing` renews an exhausted pool (a subsequent
   `try_healing` returns True for the full `healing_limit` count again); `open_group_cycle`
   returns True and increments. Negative — the cap: the (`healing_limit`+1)-th call returns False.
   Edge cases (design-pinned) — two groups with the same prompt share one cap (the key is the
   prompt — deliberate); the same group entered twice in one test shares its cap; a fresh
   `RunBudgets` instance (a new test) starts all counters at zero; ordinary `try_generation`/
   `try_healing` pools never consumed by the recovery operations
-- [ ] **Debugging**: `pytest tests/cache/ -q` — fix implementation code until all tests pass (do NOT fix test code)
-- [ ] **Contract re-verification**: `python -c "from prettyplay.cache import RunBudgets"`; the
+- [x] **Debugging**: `pytest tests/cache/ -q` — fix implementation code until all tests pass (do NOT fix test code)
+- [x] **Contract re-verification**: `python -c "from prettyplay.cache import RunBudgets"`; the
   existing `try_generation`/`try_healing` behavior unchanged
-- [ ] **Lint**: `ruff check prettyplay/cache tests/cache && ruff format --check prettyplay/cache tests/cache`
+- [x] **Lint**: `ruff check prettyplay/cache tests/cache && ruff format --check prettyplay/cache tests/cache`
 
 ### Task 8: Engine — typed context threading, `group_prompt`, the group branches, the routine rename, the mirror paths (engine)
 
