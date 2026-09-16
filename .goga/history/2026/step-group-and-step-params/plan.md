@@ -950,15 +950,15 @@ covers the group prompt (C9) — it flows only into requests/logs like step sent
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: create `tests/engine/groups/test_diagnosis.py` — `from
+- [x] **Contract tests**: create `tests/engine/groups/test_diagnosis.py` — `from
   prettyplay.engine.groups import classify_group_failure` importable; the routine returns the
   provider verdict; `GROUP_DIAGNOSIS_PROMPT` exists and equals the practice file section
   (expected to fail at this stage)
-- [ ] **Code**: create `prettyplay/engine/groups/diagnosis.py` — the frozen
+- [x] **Code**: create `prettyplay/engine/groups/diagnosis.py` — the frozen
   `GROUP_DIAGNOSIS_PROMPT` mirror (with the mirror comment naming the source path) and the
   routine per the algorithm; export `classify_group_failure` on the cell facade `__all__`
-- [ ] **Interface verification**: `pytest tests/engine/groups/test_diagnosis.py -q` — all pass
-- [ ] **Logic tests**: positive — the port receives `prompt=GROUP_DIAGNOSIS_PROMPT`, the
+- [x] **Interface verification**: `pytest tests/engine/groups/test_diagnosis.py -q` — all pass
+- [x] **Logic tests**: positive — the port receives `prompt=GROUP_DIAGNOSIS_PROMPT`, the
   classification instructions as `user_instructions` when non-empty, the group prompt verbatim,
   the GROUP STEPS renders (`trace.render()` per record), the HISTORY renders, the snapshot, the
   screenshot only when `send_screenshots`; the INFO `group_diagnosed` record carries
@@ -967,11 +967,11 @@ covers the group prompt (C9) — it flows only into requests/logs like step sent
   `extra={"group", "answer"}` (the raw answer rides `root_cause`) and still returns the verdict;
   `LLMUnavailableError` propagates untouched (no retry, no swallow). Edge — empty
   `user_instructions` → the request carries no instructions block (provider-side rendering)
-- [ ] **Debugging**: `pytest tests/engine/groups/ -q` — fix implementation code until all tests pass (do NOT fix test code)
-- [ ] **Contract re-verification**: facade —
+- [x] **Debugging**: `pytest tests/engine/groups/ -q` — fix implementation code until all tests pass (do NOT fix test code)
+- [x] **Contract re-verification**: facade —
   `python -c "from prettyplay.engine.groups import classify_group_failure"`; the mirror constant
   byte-equals the practice section
-- [ ] **Lint**: `ruff check prettyplay/engine/groups tests/engine/groups && ruff format --check prettyplay/engine/groups tests/engine/groups`
+- [x] **Lint**: `ruff check prettyplay/engine/groups tests/engine/groups && ruff format --check prettyplay/engine/groups tests/engine/groups`
 
 ### Task 11: `GroupRecovery.recover` — the diagnosis-driven recovery engine (engine/groups)
 
