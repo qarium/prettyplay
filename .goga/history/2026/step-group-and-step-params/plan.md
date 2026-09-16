@@ -1038,17 +1038,17 @@ for earlier row steps.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: create `tests/engine/groups/test_recovery.py` — `from
+- [x] **Contract tests**: create `tests/engine/groups/test_recovery.py` — `from
   prettyplay.engine.groups import GroupRecovery` importable; `recover` signature per the
   contract; returns the healed `CachedStep` of the failed step (expected to fail at this stage)
-- [ ] **Code**: create `prettyplay/engine/groups/recovery.py` — `GroupRecovery` per the
+- [x] **Code**: create `prettyplay/engine/groups/recovery.py` — `GroupRecovery` per the
   algorithm above (the exact-match earliest-step resolution against `trace.sentence` first, then
   against `previous_steps` sentences whose record is NOT a member of this group; the per-row
   histories with record 0 anchored by the cached code loaded via `trace.identity` —
   `OUTCOME_ORIGINAL`, empty error when no cached step exists; the cycle re-entry on a row
   `IncurableStepError`); export `GroupRecovery` on the cell facade `__all__`
-- [ ] **Interface verification**: `pytest tests/engine/groups/test_recovery.py -q` — all pass
-- [ ] **Logic tests** — the four design scenarios, verbatim:
+- [x] **Interface verification**: `pytest tests/engine/groups/test_recovery.py -q` — all pass
+- [x] **Logic tests** — the four design scenarios, verbatim:
   - `test_recover_reference_scenario_goes_green` (SC6): Setup — fake provider:
     `classify_group_failure` answers recoverable with `earliest_step` quoting the fill step;
     `generate_step_code` returns working code for the row (recorded calls); real
@@ -1100,12 +1100,12 @@ for earlier row steps.
     no cached code (record 0 anchors an empty code); `product_defect` raises
     `ProductDefectError` carrying the mapped verdict (anti-masking); the traces list object is
     not mutated by the recovery.
-- [ ] **Debugging**: `pytest tests/engine/groups/ -q` — fix implementation code until all tests pass (do NOT fix test code)
-- [ ] **Contract re-verification**: facade —
+- [x] **Debugging**: `pytest tests/engine/groups/ -q` — fix implementation code until all tests pass (do NOT fix test code)
+- [x] **Contract re-verification**: facade —
   `python -c "from prettyplay.engine.groups import GroupRecovery, GroupStepOutcome,
   classify_group_failure"`; the ordinary per-step healing pools of non-group steps are never
   consumed (the row refreshes only its own identities)
-- [ ] **Lint**: `ruff check prettyplay/engine/groups tests/engine/groups && ruff format --check prettyplay/engine/groups tests/engine/groups`
+- [x] **Lint**: `ruff check prettyplay/engine/groups tests/engine/groups && ruff format --check prettyplay/engine/groups tests/engine/groups`
 
 ### Task 12: `StepSteering.steer` — typed context + the group prompt (engine/steering)
 

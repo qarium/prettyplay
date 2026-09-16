@@ -2,5 +2,6 @@
 
 from .diagnosis import classify_group_failure
 from .outcome import GroupStepOutcome
+from .recovery import GroupRecovery
 
-__all__ = ["GroupStepOutcome", "classify_group_failure"]
+__all__ = ["GroupRecovery", "GroupStepOutcome", "classify_group_failure"]
