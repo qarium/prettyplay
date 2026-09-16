@@ -449,8 +449,8 @@ class TestStepGeneratorLogic:
         assert request["snapshot"] == "- snapshot"
         assert request["screenshot"] is None  # send_screenshots defaults to False
 
-    def test_engine_requests_pass_page_url_none(self, tmp_path: Path) -> None:
-        """Every engine request carries no URL — the input is steering-only, uniform with guidance."""
+    def test_engine_requests_carry_the_page_url(self, tmp_path: Path) -> None:
+        """Every engine request carries the guarded page URL read — the guidance stays steering-only."""
         provider = StubProvider([WORKING_CODE, WORKING_CODE])
         fixture = GeneratorFixture(tmp_path, provider)
         page = FakePage()
@@ -460,9 +460,9 @@ class TestStepGeneratorLogic:
             make_identity(), "click Sign in", "action", [], page, [], "retry with an id locator", fixture.window
         )
 
-        assert provider.calls[0]["page_url"] is None  # the generation request — steering-only input
+        assert provider.calls[0]["page_url"] == "https://example.com"  # the generation request
         assert provider.calls[0]["guidance"] is None
-        assert provider.calls[1]["page_url"] is None  # the regeneration request — the same shared _request
+        assert provider.calls[1]["page_url"] == "https://example.com"  # the regeneration — the same shared _request
         assert provider.calls[1]["guidance"] is None
 
     def test_generate_attaches_screenshot_when_enabled(self, tmp_path: Path) -> None:
@@ -880,7 +880,7 @@ class TestStepGeneratorLogic:
         assert history[0].code == CHECK_CODE
         assert history[0].error == "button is hidden"
         assert second["guidance"] is None  # engine requests never carry steering guidance
-        assert second["page_url"] is None  # the funded regeneration shares the same _request call shape
+        assert second["page_url"] == "https://example.com"  # the funded regeneration shares the same _request shape
         attempts = [event for event in fixture.recorder.events if event[0] == "on_generation_started"]
         assert attempts == [
             ("on_generation_started", {"step_text": "click Pay", "attempt": 1}),
@@ -1233,10 +1233,17 @@ class TestStepGeneratorAttemptHistory:
     """Logic tests: the per-step attempt history growth, URL brackets and honest inputs."""
 
     def test_generate_appends_execution_failed_record_and_retries_with_grown_history(self, tmp_path: Path) -> None:
-        provider = StubProvider([BAD_CODE, WORKING_CODE], compliance_verdicts=[[]])
+        provider = StubProvider([BAD_CODE, WORKING_CODE], compliance_verdicts=[])
         fixture = GeneratorFixture(tmp_path, provider, generation_prompt="Prefer id attributes")
         page = FakePage(
-            url=url_cycle("https://a.example", "https://b.example", "https://c.example", "https://d.example")
+            url=url_cycle(
+                "https://a.example",
+                "https://b.example",
+                "https://c.example",
+                "https://d.example",
+                "https://e.example",
+                "https://f.example",
+            )
         )
         history: list[StepAttempt] = []
 
@@ -1246,12 +1253,13 @@ class TestStepGeneratorAttemptHistory:
 
         assert step.code == WORKING_CODE
         assert provider.calls[0]["attempt_history"] == []  # the first request of a fresh step
+        assert provider.calls[0]["page_url"] == "https://a.example"  # the request carries its own guarded URL read
         assert provider.calls[1]["attempt_history"] == [history[0].render()]  # the failed attempt rides the retry
         assert history[0].outcome == OUTCOME_EXECUTION_FAILED
         assert history[0].error == "RuntimeError: boom"
         assert history[0].code == BAD_CODE
-        assert history[0].url_before == "https://a.example"  # the URL pair brackets the whole attempt
-        assert history[0].url_after == "https://b.example"
+        assert history[0].url_before == "https://b.example"  # the URL pair brackets the attempt's execution
+        assert history[0].url_after == "https://c.example"
         assert len(history) == 1  # the green attempt never records
 
     def test_generate_appends_compliance_blocked_record_on_high_adequacy_finding(self, tmp_path: Path) -> None:
@@ -1789,11 +1797,13 @@ class TestPromptConstants:
             "RECOMMENDATION and USER GUIDANCE carry the diagnosis and the engineer's intent — "
             "follow them when they conflict with your first instinct" in SYSTEM_PROMPT
         )
-        # the replayability rule sits between the scrolling rule and the RECOMMENDATION rule
+        # the replayability rule and the structural rules sit between the scrolling rule and the RECOMMENDATION rule
         scrolling_rule = SYSTEM_PROMPT.index("- Scrolling: locator.scroll_into_view_if_needed()")
-        replayability_rule = SYSTEM_PROMPT.index("Your code must produce the step outcome itself")
+        replayability_rule = SYSTEM_PROMPT.index("Regeneration after failed attempts never rides the leftover state")
+        action_rule = SYSTEM_PROMPT.index("An action step performs its action and ends there")
+        assertion_rule = SYSTEM_PROMPT.index("An assertion step only observes the current page")
         recommendation_rule = SYSTEM_PROMPT.index("- RECOMMENDATION and USER GUIDANCE carry the diagnosis")
-        assert scrolling_rule < replayability_rule < recommendation_rule
+        assert scrolling_rule < replayability_rule < action_rule < assertion_rule < recommendation_rule
 
     def test_classification_prompt_moved_out_of_generator(self) -> None:
         assert not hasattr(generator_module, "CLASSIFICATION_PROMPT")  # moved to classification.py

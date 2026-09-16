@@ -112,7 +112,7 @@ What it means for the engineer:
 - the step candidate executed successfully but was never verified against the project
   instructions, so it was not cached
 - remediation is on the verdict side, not the page: rerun the test, check the provider
-  state and the model behind the effective generation model; a repeatedly malformed
+  state and the model behind the effective classification model; a repeatedly malformed
   verdict points at a model unable to follow the verdict format
 - switching `generation_approve` off removes the gate entirely (the old behavior)
 

@@ -822,7 +822,7 @@ class TestStepHealerLogic:
         retry_request = provider.generate_step_code_calls[1]
         assert retry_request["attempt_history"] == [history[0].render(), history[1].render()]  # the grown history
         assert history[1].error == "banner missing"  # the fresh failure description of the check
-        assert retry_request["page_url"] is None  # the engine-driven request carries no URL — steering-only
+        assert retry_request["page_url"] == "https://example.com"  # the engine-driven request carries the page URL
         assert retry_request["recommendation"] == "refresh the cache"  # the entry diagnosis carries on
         assert page.clicks == ["click"]  # the healed candidate actually ran
         assert len(fixture.cache.save_calls) == 1  # only the proven healed code is stored

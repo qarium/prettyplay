@@ -76,9 +76,10 @@ Usages:
     Dimension calibration:
     - instruction — the code violates a project instruction: the quote is the
       violated instruction
-    - adequacy — the code does not accomplish what the step says, given the step
-      type and the attempt history: the quote is the fragment of the step sentence
-      the code fails to accomplish
+    - adequacy — the code does not match what the step says, given the step
+      type and the attempt history: the quote is the fragment of the step
+      sentence the code fails to accomplish, or — for behavior that exceeds
+      the step — the code line performing it
 
     Priority calibration:
     - high — a confident, material finding evident from the code, the step type
@@ -88,8 +89,11 @@ Usages:
       it without any fallback attempt; for adequacy: an action step whose code
       contains no action of the step — the page state the code relies on was
       produced by a prior attempt or manual intervention, not by the code
-      itself; use the URL lines and the records of the history to see it; only
-      high blocks the candidate
+      itself, use the URL lines and the records of the history to see it — or
+      material behavior the step never asked for: an assertion step that
+      changes page state (a navigation, a click, a fill), a trailing check in
+      an action step that only confirms the action's own completion, a check
+      of a fact the step sentence never names; only high blocks the candidate
     - medium and low — minor observations, partial compliance or doubt: visible,
       never blocking; when in doubt, never high
     - an empty list [] means the code complies and accomplishes the step
@@ -99,6 +103,10 @@ Usages:
       page: the candidate ran on a page that may already contain effects of prior
       attempts or manual intervention — code that only checks an already-achieved
       state without producing it is an adequacy violation for an action step
+    - Adequacy covers both directions: falling short of the step and exceeding
+      it — extra actions inside an assertion step, a trailing confirmation of
+      the action's own completion, extra checks of facts the step sentence
+      never names are adequacy findings too
     - Conditional prefer-type instructions are checked conditionally: when the code shows
       a graceful fallback attempt, that is compliance; judge followability from the code
       and the step sentence alone — never speculate about page state beyond the attempt
@@ -124,7 +132,7 @@ Annotations: |
   Honest inputs in every step request: the step type — action or assertion — and the raw step sentence as written by the engineer reach every generation, regeneration and gate request of the engines; the casefolded normalization stays an addressing key, never a request input; the heal path forwards the raw sentence passed by the executor.
   Every attempt record carries the mechanical URL pair read from the page immediately before and after the attempt's execution — settle re-executions inside one attempt are covered by the single pair; an engineer-rejected turn carries the same URL on both sides.
   A record is appended after every attempt that does not produce a cached step — a failed execution, a failed check, a gate-blocked candidate (the violation text in the error field) — with the closed outcome label set of `StepAttempt`.
-  The replayability requirement lands in `system_prompt` and its frozen mirror: the current page state may include effects of prior attempts or manual intervention — the generated code must produce the step outcome itself, never rely on the current state.
+  The replayability requirement lands in `system_prompt` and its frozen mirror: the current page state may include effects of prior attempts or manual intervention — a regeneration never rides the leftover state of those attempts, an action step repeats its action; a first attempt works on the page the previous steps produced. The structural separation lands there too: an action step ends at its action, an assertion step observes without changing the page.
   Healing never masks a product defect: a classified product_defect fails the test loudly; a healed step is reported loudly and written back to the cache.
   Every terminal failure carries a verdict — a `FailureVerdict` of category, explanation, recommendation — fully present in the exception message, the verdict hook event and the log; an unavailable LLM skips the verdict quietly with a WARNING, the failure itself is never delayed or distorted — the quiet skip applies to verdicts enriching an already-decided failure; the classification driving the healing decision surfaces as the infrastructure failure.
   A failed check of a candidate stops the generation-budget retries: a check that executed and did not hold is classified first; a rot or fixable verdict grants exactly one healing-funded regeneration, a repeat failure gets the final terminal-kind classification — the attempt budget is never spent on a legitimately failing assertion beyond it.
@@ -206,7 +214,7 @@ Annotations: |
       Algorithm:
       1. Ask the budgets registry try_generation for the step identity; a refused attempt is the incurable failure
       2. Collect the request inputs: the page accessibility snapshot, the raw step sentence, `step_type`, `previous_steps`, and the cheat-sheet from `cheat_sheet`; add the page screenshot when the project settings enable screenshots
-      3. Request step code from the provider port generate_step_code passing `system_prompt` as the system prompt, the cheat-sheet taken from `cheat_sheet`, the user instructions — the effective config generation_prompt — when non-empty, the rendered `attempt_history` and page_url None — the URL input is steering-only, uniform with guidance None
+      3. Request step code from the provider port generate_step_code passing `system_prompt` as the system prompt, the cheat-sheet taken from `cheat_sheet`, the user instructions — the effective config generation_prompt — when non-empty, the rendered `attempt_history` and the guarded page URL read from `page` — the PAGE URL line renders when the read succeeds, an empty read renders no line
       4. Read the page URL, execute the candidate under the settle window: `settle` with run_step_code, the candidate code, `page` and `window` — transient failures re-execute inside the window, no LLM budget consumed; read the page URL again — the pair brackets the whole attempt
       5. On success: gate the candidate through `check_step_compliance` with the step type and the grown history. An empty findings list — build `CachedStep`, save it to the cache, return it. A high finding of either dimension — the attempt is failed: append the attempt record (outcome compliance blocked, the finding instruction and explanation in the error field); the retry carries the grown history — the model fixes the violation targeted. Medium and low findings pass with a WARNING naming the instructions, then the step is stored and returned. The gate hard failures — provider unavailability and a malformed verdict — propagate immediately: nothing is cached
       6. On a failed check — an AssertionError that survived the settle window: append the attempt record (outcome failed check, the full failure description); classify via `classify_step_failure`; a product_defect verdict raises `ProductDefectError` carrying the verdict and the full failure description of the candidate in the error field; an incurable verdict raises `IncurableStepError` carrying them; a rot or fixable verdict grants exactly one regeneration: try_healing funds it — a refused funding leaves the failure terminal `IncurableStepError` carrying the verdict, the reason naming the exhausted healing pool; the request carries the classification recommendation and the grown history — a success stores and returns the healed step; a repeat failure gets one final classification deciding only the terminal kind — product_defect raises `ProductDefectError`, anything else raises `IncurableStepError` — no further regeneration; provider unavailability at these classifications is skipped quietly with a WARNING — the failure raises without a verdict as IncurableStepError, the conservative default uniform with the unrecognized-label fallback, the reason naming the failed candidate check

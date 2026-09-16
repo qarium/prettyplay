@@ -16,9 +16,8 @@ test green), never in replay-strict, and never when the LLM is unavailable.
 
 ```text
 ── step "click Checkout" — about to raise IncurableStepError ──────────
-code:     videos = page.get_by_role("listitem")
-          expect(videos.first).to_be_visible()
-          assert videos.count() > 1
+code:     items = page.get_by_role("listitem")
+          assert items.count() > 1
 error:    IncurableStepError: the generation budget is exhausted
           ---
           step: click Checkout

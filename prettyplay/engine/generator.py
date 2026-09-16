@@ -61,7 +61,9 @@ Rules:
 - Popups and new tabs: capture with with page.expect_popup() as popup_info: — trigger the opening action inside the block, work through popup_info.value; page.bring_to_front() raises a page above the others
 - Content inside an iframe goes through page.frame_locator(selector) — locate elements within the returned scope; nested frames chain
 - Scrolling: locator.scroll_into_view_if_needed() and page.mouse.wheel(dx, dy) are the standard means
-- The page state may already include the effects of prior attempts or manual intervention — the HISTORY records and their URL before -> after lines show what already happened. Your code must produce the step outcome itself: never rely on the current page state already satisfying the step; complete the action or the check even if the page looks done
+- The page state may already include the effects of prior attempts or manual intervention — the HISTORY records and their URL before -> after lines show what already happened. Regeneration after failed attempts never rides the leftover state of those attempts: an action step repeats its action through the page even when the page looks done. A first attempt — no HISTORY — works on the page the previous steps produced: the PAGE URL line and the snapshot show where they landed
+- An action step performs its action and ends there — no trailing check that confirms the action's own completion; the following steps of the test carry their own expectations
+- An assertion step only observes the current page — never navigate, click, type or fill; passive observation such as scroll_into_view_if_needed() stays allowed
 - RECOMMENDATION and USER GUIDANCE carry the diagnosis and the engineer's intent — follow them when they conflict with your first instinct
 - USER INSTRUCTIONS are binding for everything below the safety core of these Rules: follow them when configured; silently ignoring an instruction is a violation
 - The safety core of these Rules always outranks the instructions: the fixed function form, the import rule, the lifecycle rule, the stateful-action exclusions, no fixed delays. An instruction conflicting with a Rule or demanding a stateful action is unfollowable: never implement it silently — raise in the step code with the message "instruction conflicts with rule Y" naming the conflict, so the failure surfaces loudly
@@ -125,11 +127,11 @@ this reference alone.
 
 ## Count forms — "the page shows a list of X"
 
-    videos = page.get_by_role("listitem")
-    expect(videos.first).to_be_visible()
-    assert videos.count() > 1
+    items = page.get_by_role("listitem")
+    assert items.count() > 1
 
-An exact count is the rarer need: `expect(videos).to_have_count(3)`.
+An exact count: `expect(items).to_have_count(3)`. One check per meaning — a visibility expect
+plus a count assert on the same locator verifies one fact twice.
 
 ## Immediate reads with plain asserts
 
@@ -778,7 +780,7 @@ class StepGenerator:
             step_type=step_type,
             previous_steps=previous_steps,
             snapshot=snapshot,
-            page_url=None,  # the URL input is steering-only — uniform with the guidance None below
+            page_url=_read_url(page),  # the guarded read — an empty string renders no PAGE URL line
             screenshot=screenshot,
             cheat_sheet=CHEAT_SHEET,
             attempt_history=[record.render() for record in history],

@@ -19,7 +19,7 @@ step = generator.generate(
 - The loop: request code → execute against the live page → append the full attempt record → on failure re-request with the fresh snapshot and the grown history
 - The attempt history is one continuous verbatim list: every record carries the outcome, the `URL before -> after` line, the complete candidate code and the complete error; no collapsing, no size limits — the attempt budgets are the only bound
 - Every request carries the honest inputs: the step type (action or assertion) and the raw step sentence as written by the engineer — never the casefolded normalization
-- The page may carry side effects of failed candidates and manual intervention — the replayability requirement of the system prompt tells the model the code must produce the step outcome itself
+- The page may carry side effects of failed candidates and manual intervention — the replayability requirement of the system prompt tells the model a regeneration never rides that leftover state: an action step repeats its action; a first attempt works on the page the previous steps produced. The structural separation rides the same prompt: an action step ends at its action, an assertion step observes without changing the page
 - Every candidate execution runs under the settle window: transient failures re-execute the same code inside the window (settle_retry log records), no LLM budget consumed; deterministic failures go to the next request or classification; the URL pair brackets the whole attempt, settle re-executions included
 - A non-empty generation_prompt setting adds a USER INSTRUCTIONS block to every generation and regeneration request; classification requests never carry it; changing the instructions never invalidates the cache — cached steps run as stored
 - A non-empty classification_prompt setting adds a USER INSTRUCTIONS block to classification requests only; generation requests never carry it
@@ -104,8 +104,8 @@ The routine collects the fresh page snapshot (plus the screenshot when enabled) 
 Generated code is one function receiving exactly one argument — the genuine sync Playwright Page — importing from
 playwright.sync_api and the Python standard library only (third-party libraries forbidden; imports global only, at
 the top level of the code block, before `def step`, never inside the function body) and working through the standard API: `page.get_by_role("button", name="Sign in").click()`,
-`page.locator("form > button.primary")`, `videos = page.get_by_role("listitem")` with
-`expect(videos.first).to_be_visible()` and `assert videos.count() > 1`,
+`page.locator("form > button.primary")`, `items = page.get_by_role("listitem")` with
+`assert items.count() > 1`,
 `with page.expect_event("dialog") as info: ... info.value.accept()`,
 `with page.expect_popup() as popup_info: ... popup_info.value`,
 `page.frame_locator("#checkout").get_by_role("button", name="Pay").click()`,

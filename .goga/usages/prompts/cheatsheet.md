@@ -49,11 +49,11 @@ this reference alone.
 
 ## Count forms — "the page shows a list of X"
 
-    videos = page.get_by_role("listitem")
-    expect(videos.first).to_be_visible()
-    assert videos.count() > 1
+    items = page.get_by_role("listitem")
+    assert items.count() > 1
 
-An exact count is the rarer need: `expect(videos).to_have_count(3)`.
+An exact count: `expect(items).to_have_count(3)`. One check per meaning — a visibility expect
+plus a count assert on the same locator verifies one fact twice.
 
 ## Immediate reads with plain asserts
 

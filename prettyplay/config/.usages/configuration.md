@@ -135,7 +135,7 @@ scenario = PrettyPlay(cache_key="smoke", config=config)
 
 Notes for the engineer:
 - while the gate is on, every successful generation costs one extra LLM call (the verdict
-  request) through the effective generation model
+  request) through the effective classification model
 - a `high` finding fails the attempt and the retry carries the violation text — loud
   errors instead of silent ignoring
 - changing `generation_prompt` does not invalidate cached steps: the step address stays

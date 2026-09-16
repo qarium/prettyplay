@@ -628,7 +628,7 @@ class TestOpenAIProviderLogic:
             ' "dimension": "instruction"}]'
         )
         client, requests = make_client_create(answer=verdict)
-        provider = OpenAIProvider(Config(model="gpt-x"))
+        provider = OpenAIProvider(Config(model="gpt-5", generation_model="gpt-5-mini", classification_model="gpt-x"))
         record = (
             "original cached code\nurl: https://a.example -> https://a.example\n"
             f"code:\n{WORKING_CODE}error:\nAssertionError: boom"
@@ -646,7 +646,7 @@ class TestOpenAIProviderLogic:
 
         assert len(requests) == 1  # exactly one verdict request
         request = requests[0]
-        assert request["model"] == "gpt-x"  # effective generation model
+        assert request["model"] == "gpt-x"  # effective classification model — never the generation model
         assert request["messages"][0] == {"role": "system", "content": "gate prompt"}
         user = request["messages"][1]
         assert user["role"] == "user"

@@ -24,10 +24,11 @@ on the first request.
 |---|---|---|
 | `model` | the main model for both operations | — |
 | `generation_model` | code generation only | `model` |
-| `classification_model` | failure classification only | `model` |
+| `classification_model` | failure classification and the compliance gate | `model` |
 
-The compliance gate runs on the effective generation model
-(`generation_model` or `model`).
+The compliance gate runs on the effective classification model
+(`classification_model` or `model`) — never on the model that wrote the
+candidate.
 
 `base_url` overrides the provider endpoint when set.
 
@@ -65,9 +66,9 @@ providers alike.
 Page-URL parity: a generation request may carry the current page URL — a
 non-empty `page_url` renders as its own `PAGE URL` line immediately after
 the `PAGE SNAPSHOT` block, identically in both providers; `None` renders no
-line. Supplied by the interactive steering only — engine generation and
-healing requests never carry it. A parity requirement, not a capability
-difference.
+line. Supplied by every engine generation and healing request and by the
+guided requests of the interactive steering. A parity requirement, not a
+capability difference.
 
 Cheat-sheet parity: every generation request renders the `CHEAT SHEET` block
 after the scenario inputs and immediately before the `USER INSTRUCTIONS`
@@ -138,8 +139,8 @@ findings = provider.check_instruction_compliance(
   `ATTEMPT HISTORY` (omitted when the step has no attempt records) and
   `CODE` — built identically by both through one shared builder; no
   screenshot input on this operation
-- the gate model is the effective generation model (`generation_model` or
-  `model`)
+- the gate model is the effective classification model (`classification_model`
+  or `model`)
 - the answer parses strictly: a JSON list of findings, each with
   `instruction`, `priority` (`high|medium|low`), `explanation` and
   `dimension` (`instruction|adequacy`) — the instruction dimension quotes the

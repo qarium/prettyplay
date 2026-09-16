@@ -66,6 +66,14 @@ class TestComplianceGateContract:
         assert "plainly skipped or contradicted" in COMPLIANCE_PROMPT
         assert "without any fallback attempt" in COMPLIANCE_PROMPT
 
+    def test_compliance_prompt_carries_the_overreach_calibration(self) -> None:
+        assert "does not match what the step says" in COMPLIANCE_PROMPT  # adequacy — both directions
+        assert "material behavior the step never asked for" in COMPLIANCE_PROMPT
+        assert "changes page state (a navigation, a click, a fill)" in COMPLIANCE_PROMPT
+        assert "only confirms the action's own completion" in COMPLIANCE_PROMPT
+        assert "the step sentence never names" in COMPLIANCE_PROMPT
+        assert "falling short of the step and exceeding" in COMPLIANCE_PROMPT
+
 
 class TestCheckStepComplianceLogic:
     """Logic tests: the off switch, the empty-instructions guard, the request shape."""

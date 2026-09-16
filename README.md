@@ -247,10 +247,11 @@ classification. The instructions are binding, not advisory: while the
 compliance gate is on (`generation_approve`, default `true`),
 every successfully generated candidate passes an independent compliance check
 of two dimensions before it is cached — instruction compliance with these
-instructions, and step adequacy (the code must accomplish what the step
-sentence says for its step type, judged from the verbatim per-step attempt
-history of what was already tried) — one extra LLM call through the
-effective generation model; a `high` finding in either dimension fails the
+instructions, and step adequacy (the code must match what the step sentence
+says for its step type — neither falling short nor exceeding it, judged from
+the verbatim per-step attempt history of what was already tried) — one extra
+LLM call through the effective classification model, never the model that
+wrote the candidate; a `high` finding in either dimension fails the
 attempt and the retry carries the violation with the grown history,
 `medium` and `low` findings pass with a `WARNING`, and a malformed verdict is
 a loud `ComplianceVerdictError` (the candidate is never cached unchecked).

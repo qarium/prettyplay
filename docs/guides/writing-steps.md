@@ -85,16 +85,14 @@ Playwright sync API running on the genuine page — see
 ```python
 from playwright.sync_api import expect
 
-# «open the login page and sign in»
+# «open the login page and sign in» — an action step ends at its action
 page.goto("https://example.com/login")
 page.get_by_label("Username").fill("user")
 page.get_by_role("button", name="Sign in").click()
-expect(page.get_by_text("Welcome back")).to_be_visible()
 
-# «the page shows a list of videos» — count forms
-videos = page.get_by_role("listitem")
-expect(videos.first).to_be_visible()
-assert videos.count() > 1
+# «the page shows a list of videos» — count forms, one check per meaning
+items = page.get_by_role("listitem")
+assert items.count() > 1
 
 # «click «Delete» and accept the confirmation dialog»
 with page.expect_event("dialog") as info:

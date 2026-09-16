@@ -298,7 +298,7 @@ scenario = PrettyPlay(cache_key="smoke", config=config)
 While the gate is on:
 
 - every successful generation costs one extra LLM call — the verdict request,
-  through the effective generation model
+  through the effective classification model
 - a `high` finding in either dimension fails the attempt — the violation
   text (`instruction violation: …` / `adequacy violation: …`) joins the
   attempt record's error and the retry carries the grown attempt history,

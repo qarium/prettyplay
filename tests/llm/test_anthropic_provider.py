@@ -622,7 +622,9 @@ class TestAnthropicProviderLogic:
             ' "dimension": "instruction"}]'
         )
         client, requests = make_client_create(answer=verdict)
-        provider = AnthropicProvider(Config(model="claude-x"))
+        provider = AnthropicProvider(
+            Config(model="claude-sonnet-4-5", generation_model="claude-haiku-4-5", classification_model="claude-x")
+        )
         record = (
             "original cached code\nurl: https://a.example -> https://a.example\n"
             f"code:\n{WORKING_CODE}error:\nAssertionError: boom"
@@ -640,7 +642,7 @@ class TestAnthropicProviderLogic:
 
         assert len(requests) == 1  # exactly one verdict request
         request = requests[0]
-        assert request["model"] == "claude-x"  # effective generation model
+        assert request["model"] == "claude-x"  # effective classification model — never the generation model
         assert request["system"] == "gate prompt"
         assert request["max_tokens"] == 4096  # the SDK-forced cap rides the verdict request too
         user = request["messages"][0]

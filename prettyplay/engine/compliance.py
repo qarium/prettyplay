@@ -24,9 +24,10 @@ findings:
 Dimension calibration:
 - instruction — the code violates a project instruction: the quote is the
   violated instruction
-- adequacy — the code does not accomplish what the step says, given the step
-  type and the attempt history: the quote is the fragment of the step sentence
-  the code fails to accomplish
+- adequacy — the code does not match what the step says, given the step
+  type and the attempt history: the quote is the fragment of the step
+  sentence the code fails to accomplish, or — for behavior that exceeds
+  the step — the code line performing it
 
 Priority calibration:
 - high — a confident, material finding evident from the code, the step type
@@ -36,8 +37,11 @@ Priority calibration:
   it without any fallback attempt; for adequacy: an action step whose code
   contains no action of the step — the page state the code relies on was
   produced by a prior attempt or manual intervention, not by the code
-  itself; use the URL lines and the records of the history to see it; only
-  high blocks the candidate
+  itself, use the URL lines and the records of the history to see it — or
+  material behavior the step never asked for: an assertion step that
+  changes page state (a navigation, a click, a fill), a trailing check in
+  an action step that only confirms the action's own completion, a check
+  of a fact the step sentence never names; only high blocks the candidate
 - medium and low — minor observations, partial compliance or doubt: visible,
   never blocking; when in doubt, never high
 - an empty list [] means the code complies and accomplishes the step
@@ -47,6 +51,10 @@ Rules:
   page: the candidate ran on a page that may already contain effects of prior
   attempts or manual intervention — code that only checks an already-achieved
   state without producing it is an adequacy violation for an action step
+- Adequacy covers both directions: falling short of the step and exceeding
+  it — extra actions inside an assertion step, a trailing confirmation of
+  the action's own completion, extra checks of facts the step sentence
+  never names are adequacy findings too
 - Conditional prefer-type instructions are checked conditionally: when the code shows
   a graceful fallback attempt, that is compliance; judge followability from the code
   and the step sentence alone — never speculate about page state beyond the attempt

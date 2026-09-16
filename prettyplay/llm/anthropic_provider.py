@@ -148,8 +148,8 @@ class AnthropicProvider(LLMProvider):
             page_url: the current URL of the page; non-empty — rendered as
                 its own PAGE URL line immediately after the PAGE SNAPSHOT
                 block of the user content, identically to the openai
-                implementation; None — no line; supplied by the interactive
-                steering only.
+                implementation; None — no line; supplied by the engine and
+                steering generation paths.
             screenshot: an optional PNG image of the page; passed only when
                 the project enables screenshots.
             cheat_sheet: the compact standard Playwright sync API reference
@@ -281,7 +281,7 @@ class AnthropicProvider(LLMProvider):
         the INSTRUCTIONS, STEP (with its STEP TYPE line), ATTEMPT HISTORY
         and CODE blocks in this fixed order as a plain string (no screenshot
         input on this operation), sent as one request through the effective
-        generation model under the fixed ``max_tokens`` cap; the text answer
+        classification model under the fixed ``max_tokens`` cap; the text answer
         parses strictly through ``parse_compliance_verdict`` — no fence
         unwrapping, a malformed verdict raises
         :class:`~prettyplay.failures.ComplianceVerdictError`, never a
@@ -317,7 +317,7 @@ class AnthropicProvider(LLMProvider):
 
         try:
             response = self._get_client().messages.create(
-                model=self._config.effective_generation_model,
+                model=self._config.effective_classification_model,
                 system=prompt,
                 max_tokens=REQUEST_MAX_TOKENS,
                 messages=[{"role": "user", "content": text}],

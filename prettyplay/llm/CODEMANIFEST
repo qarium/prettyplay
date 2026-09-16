@@ -47,7 +47,7 @@ Annotations: |
       `step_type`: action or assertion — rendered by the provider implementations as the STEP TYPE line immediately before the STEP line, identically in both.
       `previous_steps`: the sentences of the previous steps of the test, in execution order — scenario context.
       `snapshot`: the accessibility snapshot of the current page.
-      `page_url`: the current URL of the page; non-empty — rendered by the provider implementations as its own PAGE URL line immediately after the PAGE SNAPSHOT block, identically in both; None — no line; supplied by the interactive steering only.
+      `page_url`: the current URL of the page; non-empty — rendered by the provider implementations as its own PAGE URL line immediately after the PAGE SNAPSHOT block, identically in both; None — no line; supplied by the engine and steering generation paths.
       `screenshot`: an optional PNG image of the page; passed only when the project enables screenshots.
       `cheat_sheet`: the compact standard Playwright sync API reference supplied by the calling engine — rendered by the provider implementations as the leading CHEAT SHEET block of the user content, identically in both; guidance, not an allowlist — everything standard stays allowed.
       `attempt_history`: the attempt history of the step — every record a complete multi-line verbatim record (the attempt outcome, the URL before -> after line, the complete candidate code, the complete error) composed by the calling engine; the original cached code anchors the list as record 0 when it exists; non-empty — rendered as the HISTORY block after the USER INSTRUCTIONS block; empty — no block; no collapsing, no size limits; the list takes the place of the former existing_code, error and guidance_history inputs — the last record is the code being fixed.
@@ -90,7 +90,7 @@ Annotations: |
       - A provider service failure raises `LLMUnavailableError` naming the provider
       - The answer parses strictly through `parse_compliance_verdict`; a malformed verdict raises `ComplianceVerdictError` — unchecked code is never waved through
       - The user content carries four blocks in the fixed order INSTRUCTIONS, STEP, ATTEMPT HISTORY, CODE — with the STEP TYPE line immediately before the STEP line — identically in both implementations
-      - The gate model is the effective generation model of the provider settings
+      - The gate model is the effective classification model of the provider settings
       - The input takes no part in step addressing: a cached step never regenerates because it changed
 
 "LLMProvider::OpenAIProvider(config: Config)":
@@ -106,7 +106,7 @@ Annotations: |
     3. Extract the text answer; a generation answer unwraps its first markdown-fenced block — an unfenced answer passes through verbatim
     4. An SDK error maps to `LLMUnavailableError` (see `openai`)
 
-    The compliance operation: the prompt as the system message, the user content carrying the INSTRUCTIONS, STEP (with its STEP TYPE line), ATTEMPT HISTORY and CODE blocks in this fixed order; sent as one request through the effective generation model; the text answer parses strictly through `parse_compliance_verdict` — a malformed verdict (an answer of the old shape included) raises `ComplianceVerdictError`; an SDK error maps to `LLMUnavailableError` (see `openai`)
+    The compliance operation: the prompt as the system message, the user content carrying the INSTRUCTIONS, STEP (with its STEP TYPE line), ATTEMPT HISTORY and CODE blocks in this fixed order; sent as one request through the effective classification model; the text answer parses strictly through `parse_compliance_verdict` — a malformed verdict (an answer of the old shape included) raises `ComplianceVerdictError`; an SDK error maps to `LLMUnavailableError` (see `openai`)
 
 "LLMProvider::AnthropicProvider(config: Config)":
   location: anthropic_provider.py
@@ -121,7 +121,7 @@ Annotations: |
     3. Extract the text answer; a generation answer unwraps its first markdown-fenced block — an unfenced answer passes through verbatim
     4. An SDK error maps to `LLMUnavailableError` (see `anthropic`)
 
-    The compliance operation: the prompt as the system message, the user content carrying the INSTRUCTIONS, STEP (with its STEP TYPE line), ATTEMPT HISTORY and CODE blocks in this fixed order; sent as one request through the effective generation model; the text answer parses strictly through `parse_compliance_verdict` — a malformed verdict (an answer of the old shape included) raises `ComplianceVerdictError`; an SDK error maps to `LLMUnavailableError` (see `anthropic`)
+    The compliance operation: the prompt as the system message, the user content carrying the INSTRUCTIONS, STEP (with its STEP TYPE line), ATTEMPT HISTORY and CODE blocks in this fixed order; sent as one request through the effective classification model; the text answer parses strictly through `parse_compliance_verdict` — a malformed verdict (an answer of the old shape included) raises `ComplianceVerdictError`; an SDK error maps to `LLMUnavailableError` (see `anthropic`)
 
 "create_provider(config: Config) -> provider: LLMProvider":
   location: provider.py

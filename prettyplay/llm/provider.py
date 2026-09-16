@@ -52,7 +52,7 @@ class LLMProvider:
                 the provider implementations as its own PAGE URL line
                 immediately after the PAGE SNAPSHOT block of the user
                 content, identically in both; None — no line; supplied by
-                the interactive steering only.
+                the engine and steering generation paths.
             screenshot: an optional PNG image of the page; passed only when
                 the project enables screenshots.
             cheat_sheet: the compact standard Playwright sync API reference
@@ -140,7 +140,7 @@ class LLMProvider:
         user content carries four blocks in the fixed order INSTRUCTIONS,
         STEP (with its STEP TYPE line), ATTEMPT HISTORY and CODE,
         identically in both implementations; the request goes through the
-        effective generation model.
+        effective classification model.
 
         Args:
             prompt: the gate system prompt text supplied by the calling

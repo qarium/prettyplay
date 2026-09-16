@@ -6,7 +6,8 @@ from prettyplay import BrowserConfig, PrettyConfig, PrettyPlay, StepHooks
 
 CLASSIFICATION_INSTRUCTIONS = "Write explanations and recommendations in English"
 
-GENERATION_INSTRUCTIONS = """Requirements:
+GENERATION_INSTRUCTIONS = """
+Requirements:
 - Prefer to use `id` or `class` attributes in HTML document to find elements.
 - Make text matching checks case-insensitive.
 
@@ -61,8 +62,8 @@ def play(request):
         provider="anthropic",
         base_url="https://api.z.ai/api/anthropic",
         generation_model="glm-5.1",
-        healing_attempts=3,
-        generation_attempts=5,
+        # healing_attempts=3,
+        # generation_attempts=5,
         classification_model="glm-5.3",
         classification_prompt=CLASSIFICATION_INSTRUCTIONS,
         generation_prompt=GENERATION_INSTRUCTIONS,

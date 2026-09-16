@@ -20,10 +20,11 @@ The provider is a project setting: openai or anthropic; env override PRETTYPLAY_
 |---|---|---|
 | model | the main model for both operations | — |
 | generation_model | code generation only | model |
-| classification_model | failure classification only | model |
+| classification_model | failure classification and the compliance gate | model |
 
-The instruction compliance gate runs on the effective generation model (generation_model
-or model).
+The instruction compliance gate runs on the effective classification model (classification_model
+or model) — never on the generation model, so the verdict never comes from the model that
+wrote the candidate.
 
 base_url overrides the provider endpoint when set.
 
@@ -37,7 +38,7 @@ Step-type parity: every generation request and every compliance verdict request 
 
 Attempt-history parity: a generation request may carry the attempt history of the step — attempt_history, a list of complete multi-line records composed by the calling engine (the attempt outcome, the URL before -> after line, the complete candidate code, the complete error; the original cached code anchors the list as record 0 when it exists). Non-empty — rendered as the HISTORY block after the USER INSTRUCTIONS block, every record verbatim, never collapsed, never size-limited; the block replaces the former CODE/ERROR request pair and the former steering-only history. The request tail order is fixed: HISTORY, RECOMMENDATION (the classification diagnosis), USER GUIDANCE (the engineer message of the interactive steering). Both providers render every non-empty block identically at the same position. A parity requirement, not a capability difference.
 
-Page-URL parity: a generation request with a non-empty page URL renders it as its own PAGE URL line immediately after the PAGE SNAPSHOT block — identically in both providers. The URL reaches guided regeneration requests of the interactive steering only. A parity requirement, not a capability difference.
+Page-URL parity: a generation request with a non-empty page URL renders it as its own PAGE URL line immediately after the PAGE SNAPSHOT block — identically in both providers. The URL reaches every generation and regeneration request of the engine and the guided requests of the steering. A parity requirement, not a capability difference.
 
 Cheat-sheet parity: every generation request renders the CHEAT SHEET block after the scenario inputs and
 immediately before the USER INSTRUCTIONS block — the compact standard Playwright sync API reference supplied by the
@@ -57,10 +58,11 @@ STEP TYPE line), ATTEMPT HISTORY, CODE; the answer is a JSON list of findings:
 
 - the dimension is instruction or adequacy: instruction findings quote the violated project
   instruction; adequacy findings quote the fragment of the step sentence the code fails to
-  accomplish — judged from the step type and the attempt history
+  accomplish, or — for behavior exceeding the step — the code line performing it — judged
+  from the step type and the attempt history
 - the priority is high, medium or low; only high blocks the candidate, in either dimension —
   the calling engine owns that decision
-- the model behind the call is the effective generation model (generation_model or model)
+- the model behind the call is the effective classification model (classification_model or model)
 - a JSON syntax glitch of the answer is salvaged once (the json-repair library) before the
   strict validation — a model dropping a quote, a comma or a bracket does not fail the run; an
   answer that still is not the required shape — including an old-shaped finding without a

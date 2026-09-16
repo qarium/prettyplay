@@ -14,9 +14,8 @@ the original cached code — and continues growing it; the history survives the 
 
 ```text
 ── step "click Checkout" — about to raise IncurableStepError ──────────
-code:     videos = page.get_by_role("listitem")
-          expect(videos.first).to_be_visible()
-          assert videos.count() > 1
+code:     items = page.get_by_role("listitem")
+          assert items.count() > 1
 error:    IncurableStepError: the generation budget is exhausted
           ---
           step: click Checkout
