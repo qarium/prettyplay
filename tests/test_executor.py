@@ -2,6 +2,7 @@
 
 import inspect
 import logging
+import time
 from collections.abc import Callable
 from pathlib import Path
 from unittest import mock
@@ -13,9 +14,10 @@ from prettyplay.cache import CachedStep, RunBudgets, StepCache, StepIdentity, no
 from prettyplay.config import Config
 from prettyplay.engine import StepAttempt
 from prettyplay.engine.attempts import OUTCOME_ORIGINAL
+from prettyplay.engine.groups import GroupStepOutcome
 from prettyplay.engine.polling import SettleWindow, settle
 from prettyplay.failures import FailureVerdict, IncurableStepError, LLMUnavailableError, ProductDefectError
-from prettyplay.llm import FailureClassification, LLMProvider
+from prettyplay.llm import FailureClassification, LLMProvider, ScenarioStep
 from prettyplay.reporting import StepHooks, StepReporter
 
 CACHED_CODE = "def step(page) -> None:\n    page.goto('https://example.com')\n"
@@ -83,7 +85,7 @@ class RecordingGenerator:
         identity: StepIdentity,
         step_text: str,
         step_type: str,
-        previous_steps: list[str],
+        previous_steps: list[ScenarioStep],
         group_prompt: str | None,
         page: FakePage,
         attempt_history: list[StepAttempt],
@@ -95,6 +97,7 @@ class RecordingGenerator:
                 "step_text": step_text,
                 "step_type": step_type,
                 "previous_steps": list(previous_steps),  # snapshot: the live list grows after the call
+                "group_prompt": group_prompt,
                 "page": page,
                 "attempt_history": attempt_history,  # live reference: the per-step identity check needs it
                 "window": window,
@@ -163,7 +166,7 @@ class RecordingHealer:
         error: str,
         step_text: str,
         step_type: str,
-        previous_steps: list[str],
+        previous_steps: list[ScenarioStep],
         page: FakePage,
         attempt_history: list[StepAttempt],
         window: SettleWindow,
@@ -219,7 +222,7 @@ class RecordingSteering:
         identity: StepIdentity,
         step_text: str,
         step_type: str,
-        previous_steps: list[str],
+        previous_steps: list[ScenarioStep],
         group_prompt: str | None,
         page: FakePage,
         attempt_history: list[StepAttempt],
@@ -239,6 +242,52 @@ class RecordingSteering:
         if self.error is not None:
             raise self.error
         return self.healed
+
+
+class RecordingRecovery:
+    """Stub group recovery engine: records recover requests, returns the scripted outcome."""
+
+    def __init__(self, healed: CachedStep | None = None, error: BaseException | None = None) -> None:
+        self.healed = healed
+        self.error = error
+        self.calls: list[dict[str, object]] = []
+
+    def recover(  # noqa: PLR0913, PLR0917 — the signature is fixed by the groups cell contract
+        self,
+        group_prompt: str,
+        traces: list[GroupStepOutcome],
+        step_text: str,
+        step_type: str,
+        previous_steps: list[ScenarioStep],
+        identity: StepIdentity,
+        attempt_history: list[StepAttempt],
+        page: FakePage,
+        window: SettleWindow,
+    ) -> CachedStep | None:
+        self.calls.append(
+            {
+                "group_prompt": group_prompt,
+                "traces": list(traces),  # snapshot: the failed record rides the list at the call
+                "step_text": step_text,
+                "step_type": step_type,
+                "previous_steps": list(previous_steps),  # snapshot: the live list grows after the call
+                "identity": identity,
+                "attempt_history": attempt_history,  # live reference: record 0 is asserted through it
+                "page": page,
+                "window": window,
+            }
+        )
+        if self.error is not None:
+            raise self.error
+        return self.healed
+
+
+class FakeGroup:
+    """Duck-typed authoring group: the prompt and the traces list the executor brackets and appends."""
+
+    def __init__(self, prompt: str = "the flow") -> None:
+        self.prompt = prompt
+        self.traces: list[GroupStepOutcome] = []
 
 
 class ScriptedProvider(LLMProvider):
@@ -422,6 +471,7 @@ class ExecutorFixture:
         config: Config | None = None,
         provider: LLMProvider | None = None,
         steering: object | None = None,
+        recovery: object | None = None,
         budgets: RunBudgets | BudgetSpy | None = None,
     ) -> None:
         self.recorder = RecorderHook()
@@ -432,6 +482,7 @@ class ExecutorFixture:
         self.generator = generator
         self.healer = healer
         self.steering = steering if steering is not None else RecordingSteering()
+        self.recovery = recovery if recovery is not None else RecordingRecovery()
         self.provider = provider if provider is not None else ScriptedProvider()
         self.executor = StepExecutor(
             cache_key,
@@ -439,6 +490,7 @@ class ExecutorFixture:
             generator,
             healer,
             self.steering,
+            self.recovery,
             self.budgets,
             self.reporter,
             self.config,
@@ -471,6 +523,7 @@ def strict_fixture(
     generator: object,
     healer: object,
     provider: LLMProvider,
+    recovery: object | None = None,
 ) -> ExecutorFixture:
     """Assemble an executor in strict replay-only mode over the given LLM boundary."""
     return ExecutorFixture(
@@ -479,6 +532,7 @@ def strict_fixture(
         healer,
         config=Config(cache_root=str(tmp_path), strict=True),
         provider=provider,
+        recovery=recovery,
     )
 
 
@@ -497,6 +551,7 @@ class TestStepExecutorContract:
             "generator",
             "healer",
             "steering",
+            "recovery",
             "budgets",
             "reporter",
             "config",
@@ -505,8 +560,32 @@ class TestStepExecutorContract:
 
     def test_execute_signature_matches_contract(self) -> None:
         parameters = list(inspect.signature(StepExecutor.execute).parameters.values())[1:]
+        defaults = {parameter.name: parameter.default for parameter in parameters}
 
-        assert [parameter.name for parameter in parameters] == ["step_text", "step_type", "page"]
+        assert [parameter.name for parameter in parameters] == [
+            "step_text",
+            "step_type",
+            "page",
+            "group",
+            "tries",
+            "delay",
+        ]
+        assert defaults["group"] is None  # the ordinary step — every path byte-identical to today
+        assert defaults["tries"] is None  # the time-bounded settle mode of the polling settings
+        assert defaults["delay"] is None  # no quiet start pause
+
+    def test_execute_grows_the_typed_scenario_context(self, tmp_path: Path) -> None:
+        """The scenario context holds typed records — the sentence plus the permanent group membership."""
+        generator = RecordingGenerator()
+        fixture = ExecutorFixture(tmp_path, generator, RecordingHealer())
+
+        fixture.executor.execute("шаг один", "action", FakePage())
+        fixture.executor.execute("шаг два", "action", FakePage())
+
+        assert fixture.executor._scenario == [
+            ScenarioStep(sentence="шаг один", group_prompt=""),
+            ScenarioStep(sentence="шаг два", group_prompt=""),
+        ]
 
     @pytest.mark.parametrize(
         "failure",
@@ -567,17 +646,19 @@ class TestStepExecutorContract:
         healer = RecordingHealer()
         fixture = ExecutorFixture(tmp_path, generator, healer)
 
-        # cache miss — generate(identity, step_text, step_type, scenario, page, attempt_history, window)
+        # cache miss — generate(identity, step_text, step_type, scenario, group_prompt, page, history, window)
         fixture.executor.execute("open the page", "action", FakePage())
         assert set(generator.calls[0]) == {
             "identity",
             "step_text",
             "step_type",
             "previous_steps",
+            "group_prompt",
             "page",
             "attempt_history",
             "window",
         }
+        assert generator.calls[0]["group_prompt"] is None  # the ordinary step — no framing
 
         # failed cached hit — heal(cached, error_text, step_text, step_type, scenario, page, history, window)
         seed_cached_step(fixture, "нажать войти")
@@ -614,7 +695,7 @@ class TestStepExecutorContract:
             "page",
             "attempt_history",
         }
-        assert steering.calls[0]["group_prompt"] is None  # interim wiring — the ordinary cycle carries no group
+        assert steering.calls[0]["group_prompt"] is None  # the ordinary cycle carries no group context
 
 
 class TestStepExecutorLogic:
@@ -656,7 +737,7 @@ class TestStepExecutorLogic:
         assert generator.calls[0]["identity"] == StepIdentity(
             cache_key="login-flow", step_type="action", normalized_text=normalize_step_text("шаг один")
         )
-        assert generator.calls[1]["previous_steps"] == ["шаг один"]
+        assert generator.calls[1]["previous_steps"] == [ScenarioStep(sentence="шаг один")]
         passed = events_named(fixture.recorder, "on_step_passed")
         assert len(passed) == 2
         assert not events_named(fixture.recorder, "on_step_failed")
@@ -850,12 +931,15 @@ class TestStepExecutorLogic:
         assert len(healer.calls) == 1
         assert healer.calls[0]["step"].code.rstrip("\n") == BROKEN_CODE.rstrip("\n")  # serializer appends \n
         assert "element not found" in healer.calls[0]["error"]
-        assert healer.calls[0]["previous_steps"] == ["шаг один"]
+        assert healer.calls[0]["previous_steps"] == [ScenarioStep(sentence="шаг один")]
         assert healer.calls[0]["page"] is page
         assert len(generator.calls) == 1  # generation for the first step only, healing for the second
         assert len(events_named(fixture.recorder, "on_step_passed")) == 2
         assert not events_named(fixture.recorder, "on_step_failed")
-        assert fixture.executor._scenario == ["шаг один", "нажать Войти"]
+        assert fixture.executor._scenario == [
+            ScenarioStep(sentence="шаг один"),
+            ScenarioStep(sentence="нажать Войти"),
+        ]
 
     @pytest.mark.parametrize(
         "failure",
@@ -1066,6 +1150,7 @@ def interactive_fixture(  # noqa: PLR0913, PLR0917 — the assembly inputs of th
     steering: object | None = None,
     provider: LLMProvider | None = None,
     budgets: RunBudgets | BudgetSpy | None = None,
+    recovery: object | None = None,
 ) -> ExecutorFixture:
     """Assemble a non-strict interactive executor — the steering gate is open."""
     return ExecutorFixture(
@@ -1076,6 +1161,7 @@ def interactive_fixture(  # noqa: PLR0913, PLR0917 — the assembly inputs of th
         provider=provider,
         steering=steering,
         budgets=budgets,
+        recovery=recovery,
     )
 
 
@@ -1131,9 +1217,14 @@ class TestStepExecutorSteeringAndClosingEvent:
         assert steering.calls[0]["identity"] == StepIdentity(
             cache_key="login-flow", step_type="action", normalized_text=normalize_step_text("click Pay")
         )  # the cache write-back address of the healed step
-        assert steering.calls[0]["previous_steps"] == ["шаг один"]  # the scenario context of the guided requests
+        assert steering.calls[0]["previous_steps"] == [
+            ScenarioStep(sentence="шаг один")
+        ]  # the scenario context of the guided requests
         assert steering.calls[0]["page"] is page
-        assert fixture.executor._scenario == ["шаг один", "click Pay"]  # the healed step joined the scenario
+        assert fixture.executor._scenario == [
+            ScenarioStep(sentence="шаг один"),
+            ScenarioStep(sentence="click Pay"),
+        ]  # the healed step joined the scenario
         assert events_named(fixture.recorder, "on_step_finished")[-1] == {
             "step_text": "click Pay",
             "step_type": "action",
@@ -1390,3 +1481,297 @@ class TestStepExecutorSteeringAndClosingEvent:
         failed = events_named(fixture.recorder, "on_step_failed")
         assert failed == [{"step_text": "click Pay", "step_type": "action", "error": str(failure)}]
         assert failed_code not in failed[0]["error"]  # never carried by the hook payload
+
+
+class EventNameHook(StepHooks):
+    """Hook appending bare event names into a shared recording list of one interleaving test."""
+
+    def __init__(self, recorded: list[tuple[str, float | str]]) -> None:
+        self.recorded = recorded
+
+    def on_step_started(self, step_text: str, step_type: str) -> None:
+        self.recorded.append(("event", "on_step_started"))
+
+    def on_step_passed(self, step_text: str, step_type: str) -> None:
+        self.recorded.append(("event", "on_step_passed"))
+
+    def on_step_failed(self, step_text: str, step_type: str, error: str) -> None:
+        self.recorded.append(("event", "on_step_failed"))
+
+    def on_step_verdict(self, step_text: str, category: str, explanation: str, recommendation: str) -> None:
+        self.recorded.append(("event", "on_step_verdict"))
+
+    def on_step_finished(self, step_text: str, step_type: str, outcome: str) -> None:
+        self.recorded.append(("event", "on_step_finished"))
+
+
+class TestStepExecutorGroupCycle:
+    """Logic tests: the group routing, the quiet pause, the tries window, the trace records."""
+
+    def test_executor_routes_group_failure_to_recovery_before_steering(self, tmp_path: Path) -> None:
+        """The routing precedence — recovery before steering, strict before both."""
+        # case 1 — the recovery heals: the steering gate never opens
+        healed = CachedStep(
+            identity=StepIdentity(
+                cache_key="login-flow",
+                step_type="assertion",
+                normalized_text=normalize_step_text("the status shows order confirmed"),
+            ),
+            code=CACHED_CODE,
+            created_at="2026-09-08",
+        )
+        recovery = RecordingRecovery(healed=healed)
+        steering = RecordingSteering(healed=healed)
+        fixture = ExecutorFixture(
+            tmp_path, RecordingGenerator(), RecordingHealer(), steering=steering, recovery=recovery
+        )
+        seed_cached_step(fixture, "the status shows order confirmed", code=BROKEN_CODE, step_type="assertion")
+        group = FakeGroup(prompt="the flow")
+        page = FakePage(urls=["https://a.example", "https://b.example"])
+
+        fixture.executor.execute(
+            "the status shows order confirmed", "assertion", page, group=group, tries=None, delay=None
+        )
+
+        assert len(recovery.calls) == 1
+        call = recovery.calls[0]
+        assert call["group_prompt"] == "the flow"
+        assert len(call["traces"]) == 1  # the failed record rides the group's traces, last
+        failed_trace = call["traces"][0]
+        assert isinstance(failed_trace, GroupStepOutcome)
+        assert failed_trace.sentence == "the status shows order confirmed"
+        assert failed_trace.step_type == "assertion"
+        assert failed_trace.outcome == "failed"
+        assert failed_trace.url_before == "https://a.example"
+        assert failed_trace.url_after == "https://b.example"
+        assert failed_trace.identity == call["identity"]  # the row resolves identities from the record
+        assert call["step_text"] == "the status shows order confirmed"
+        assert call["step_type"] == "assertion"
+        assert call["previous_steps"] == []  # the first step of the test — no context yet
+        assert call["page"] is page
+        assert isinstance(call["window"], SettleWindow)  # this execution's window threads into the delegation
+        history = call["attempt_history"]
+        assert len(history) == 1  # record 0 anchored before the delegation
+        assert history[0].outcome == OUTCOME_ORIGINAL
+        assert history[0].code.rstrip("\n") == BROKEN_CODE.rstrip("\n")  # the cached code, exactly as stored
+        assert history[0].url_before == "https://a.example"
+        assert history[0].url_after == "https://b.example"
+        assert steering.calls == []  # the recovery healed — the terminal gate never opens
+        assert [event for event, _payload in fixture.recorder.events] == [
+            "on_step_started",
+            "on_step_passed",
+            "on_step_finished",
+        ]
+        assert fixture.executor._scenario == [
+            ScenarioStep(sentence="the status shows order confirmed", group_prompt="the flow")
+        ]  # the healed group step joined the scenario with its permanent membership
+        assert len(group.traces) == 1  # one record per executed step — the healed step keeps its failed record
+
+        # case 2 — a terminal recovery failure reaches the steering gate with the group context
+        terminal = IncurableStepError("the status shows order confirmed", "the group recovery decided")
+        steering = RecordingSteering(healed=healed)  # the dialog heals — the step continues as a success
+        recovery = RecordingRecovery(error=terminal)
+        fixture = interactive_fixture(
+            tmp_path, RecordingGenerator(), RecordingHealer(), steering=steering, recovery=recovery
+        )
+        seed_cached_step(fixture, "the status shows order confirmed", code=BROKEN_CODE, step_type="assertion")
+        group = FakeGroup(prompt="the flow")
+
+        fixture.executor.execute(
+            "the status shows order confirmed", "assertion", FakePage(), group=group, tries=None, delay=None
+        )
+
+        assert len(steering.calls) == 1
+        assert steering.calls[0]["failure"] is terminal  # the recovery's failure — the gate decides on it
+        assert steering.calls[0]["group_prompt"] == "the flow"  # the dialog receives the group context
+        assert not events_named(fixture.recorder, "on_step_failed")  # healed — the step passed
+
+    def test_strict_group_step_takes_the_classification_path_not_the_recovery(self, tmp_path: Path) -> None:
+        """Strict mode wins over the group routing — the classification-only path as today (SC7's strict half)."""
+        healed = CachedStep(
+            identity=StepIdentity(
+                cache_key="login-flow",
+                step_type="assertion",
+                normalized_text=normalize_step_text("the status shows order confirmed"),
+            ),
+            code=CACHED_CODE,
+            created_at="2026-09-08",
+        )
+        provider = ScriptedProvider(
+            verdict=FailureClassification(category="rot", explanation="expl", recommendation="rec")
+        )
+        recovery = RecordingRecovery(healed=healed)  # would heal — strict must never ask
+        fixture = strict_fixture(tmp_path, RecordingGenerator(), RecordingHealer(), provider, recovery=recovery)
+        seed_cached_step(fixture, "the status shows order confirmed", code=BROKEN_CODE, step_type="assertion")
+        group = FakeGroup(prompt="the flow")
+
+        with pytest.raises(IncurableStepError):
+            fixture.executor.execute(
+                "the status shows order confirmed", "assertion", FakePage(), group=group, tries=None, delay=None
+            )
+
+        assert recovery.calls == []  # the strict branch wins — no recovery, no framing
+        assert provider.classification_calls == 1  # the classification is the only LLM call, as today
+        assert group.traces == []  # the strict failure path never traces
+
+    def test_step_delay_pauses_quietly_after_started_event(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """SC5: the declared delay passes quietly — the started event, the seconds, then the code runs."""
+        fixture = ExecutorFixture(tmp_path, RecordingGenerator(), RecordingHealer())
+        identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="open the inbox")
+        fixture.cache.save(CachedStep(identity=identity, code=CACHED_CODE, created_at="2026-09-08"))
+        page = FakePage()
+
+        recorded: list[tuple[str, float | str]] = []
+        fixture.reporter.hooks.append(EventNameHook(recorded))
+
+        def recording_sleep(seconds: float) -> None:
+            recorded.append(("sleep", seconds))
+
+        monkeypatch.setattr(time, "sleep", recording_sleep)
+
+        with caplog.at_level(logging.INFO, logger="prettyplay"):
+            fixture.executor.execute("open the inbox", "action", page, group=None, tries=None, delay=1.5)
+
+        assert recorded == [
+            ("event", "on_step_started"),
+            ("sleep", 1.5),  # the only sleep — the pause sits between the started event and the code
+            ("event", "on_step_passed"),
+            ("event", "on_step_finished"),
+        ]
+        assert [record.msg for record in caplog.records] == [
+            "on_step_started",
+            "on_step_passed",
+            "on_step_finished",
+        ]  # only the lifecycle events — the pause leaves no log record
+
+    def test_tries_threads_into_the_cached_replay_and_generation_windows(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A declared tries owns the window: the cached replay gets its own full count, the generation shares it."""
+        fixture = ExecutorFixture(tmp_path, RecordingGenerator(), RecordingHealer())
+        seed_cached_step(fixture, "нажать войти")
+        page = FakePage()
+
+        transient = PlaywrightError("Timeout 10000ms exceeded")
+        monkeypatch.setattr(
+            "prettyplay.executor.run_step_code",
+            mock.Mock(side_effect=[transient, None]),  # fails once, passes on the counted re-execution
+        )
+
+        with caplog.at_level(logging.INFO, logger="prettyplay"):
+            fixture.executor.execute("нажать войти", "action", page, tries=2)  # the count-bounded window
+
+        assert [event for event, _payload in fixture.recorder.events] == [
+            "on_step_started",
+            "on_step_passed",
+            "on_step_finished",
+        ]
+        retries = [record for record in caplog.records if record.getMessage() == "settle_retry"]
+        assert len(retries) == 1  # the second execution of the declared count went green
+
+        generator = RecordingGenerator()
+        miss = ExecutorFixture(tmp_path, generator, RecordingHealer())
+        # a cache miss — the generator gets the window
+        miss.executor.execute("новый шаг", "action", FakePage(), tries=3)
+
+        assert miss.generator.calls[0]["window"].tries == 3  # the declared count built the window
+        assert miss.generator.calls[0]["window"].count_bounded
+
+    def test_group_step_trace_records_bracket_every_group_step(self, tmp_path: Path) -> None:
+        """A failed group step traces the URL pair read on the failure; a passed one the closing read."""
+        recovery = RecordingRecovery(
+            healed=CachedStep(
+                identity=StepIdentity(
+                    cache_key="login-flow", step_type="assertion", normalized_text=normalize_step_text("the status")
+                ),
+                code=CACHED_CODE,
+                created_at="2026-09-08",
+            )
+        )
+        fixture = ExecutorFixture(tmp_path, RecordingGenerator(), RecordingHealer(), recovery=recovery)
+        seed_cached_step(fixture, "the status", step_type="assertion")
+        group = FakeGroup(prompt="the flow")
+
+        # the failed group step — the pair brackets the failed replay
+        fixture.executor.execute(
+            "the status", "assertion", FakePage(urls=["https://before.example", "https://after.example"]), group=group
+        )
+
+        assert len(group.traces) == 1
+        failed = group.traces[0]
+        assert failed.outcome == "failed"
+        assert failed.url_before == "https://before.example"
+        assert failed.url_after == "https://after.example"
+        assert failed.tries is None  # the declared parameters ride the record
+        assert failed.delay is None
+
+        # the passed group step — the closing read lands after the execution; no failed record was appended
+        fixture.cache.save(
+            CachedStep(
+                identity=StepIdentity(
+                    cache_key="login-flow", step_type="action", normalized_text=normalize_step_text("open the tool")
+                ),
+                code=CACHED_CODE,
+                created_at="2026-09-08",
+            )
+        )
+        fixture.executor.execute(
+            "open the tool", "action", FakePage(urls=["https://one.example", "https://two.example"]), group=group
+        )
+
+        assert len(group.traces) == 2  # one record per executed group step
+        passed = group.traces[1]
+        assert passed.sentence == "open the tool"
+        assert passed.outcome == "passed"
+        assert passed.url_before == "https://one.example"
+        assert passed.url_after == "https://two.example"
+
+        # an ordinary step never touches the group's trace list
+        fixture.executor.execute("an ordinary step", "action", FakePage())
+
+        assert len(group.traces) == 2
+
+    def test_group_generation_failure_routes_to_the_recovery_without_record_zero(self, tmp_path: Path) -> None:
+        """A group step that fails generation traces itself and delegates — nothing was cached to anchor."""
+        # the engine's unclassified group verdict — the recovery decides
+        terminal = IncurableStepError(
+            "click Pay", "group step generation budget exhausted — the group recovery decides"
+        )
+        generator = FlakyGenerator(None, terminal)  # the first step generates, the second misses terminally
+        healed = CachedStep(
+            identity=StepIdentity(
+                cache_key="login-flow", step_type="action", normalized_text=normalize_step_text("click Pay")
+            ),
+            code=CACHED_CODE,
+            created_at="2026-09-08",
+        )
+        recovery = RecordingRecovery(healed=healed)
+        fixture = ExecutorFixture(tmp_path, generator, RecordingHealer(), recovery=recovery)
+        group = FakeGroup(prompt="the flow")
+        page = FakePage(urls=["https://x.example", "https://y.example", "https://z.example", "https://w.example"])
+
+        fixture.executor.execute("шаг один", "action", page, group=group)
+        fixture.executor.execute("click Pay", "action", page, group=group, tries=2, delay=0.25)
+
+        assert len(recovery.calls) == 1
+        call = recovery.calls[0]
+        assert call["group_prompt"] == "the flow"
+        assert len(call["traces"]) == 2  # the passed first step, then the failed generation — the failed record last
+        assert [trace.outcome for trace in call["traces"]] == ["passed", "failed"]
+        failed = call["traces"][1]
+        assert failed.sentence == "click Pay"
+        assert failed.tries == 2  # the declared parameters ride the failed record
+        assert failed.delay == 0.25
+        assert failed.url_before == "https://z.example"  # the bracket opened before the cycle
+        assert failed.url_after == "https://w.example"  # and closed on the failure
+        assert call["attempt_history"] == []  # no record 0 — the generation loop grew nothing on the fake
+        assert call["previous_steps"] == [ScenarioStep(sentence="шаг один", group_prompt="the flow")]
+        assert fixture.executor._scenario == [
+            ScenarioStep(sentence="шаг один", group_prompt="the flow"),
+            ScenarioStep(sentence="click Pay", group_prompt="the flow"),
+        ]

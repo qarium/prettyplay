@@ -1204,16 +1204,16 @@ self._runtime.budgets, self._reporter)` and pass it to `StepExecutor` in the con
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: in `tests/test_executor.py` — `StepExecutor` accepts `recovery`;
+- [x] **Contract tests**: in `tests/test_executor.py` — `StepExecutor` accepts `recovery`;
   `execute` accepts `group`, `tries`, `delay`; the typed `_scenario` grows `ScenarioStep`
   records (expected to fail at this stage)
-- [ ] **Code**: `prettyplay/executor.py` — the constructor param, the rewired `execute` per the
+- [x] **Code**: `prettyplay/executor.py` — the constructor param, the rewired `execute` per the
   trace above (the quiet delay, the window with `tries`, the group URL bracket, the trace-record
   appends on failure and success, the group routing with record-0 anchoring before the recovery
   delegation, the widened `_steer_or_raise`, the typed `_scenario` append);
   `prettyplay/scenario.py` — construct and wire `GroupRecovery` into `StepExecutor`
-- [ ] **Interface verification**: `pytest tests/test_executor.py -q` — all pass
-- [ ] **Logic tests** — the two design scenarios, verbatim, plus the C13 pins:
+- [x] **Interface verification**: `pytest tests/test_executor.py -q` — all pass
+- [x] **Logic tests** — the two design scenarios, verbatim, plus the C13 pins:
   - `test_executor_routes_group_failure_to_recovery_before_steering`: Setup — an executor with:
     a cache hit whose code fails (pollable-exhausted), a recovery fake returning a healed step,
     a steering fake that must stay uncalled; group object with traces. Input — `execute("the
@@ -1248,11 +1248,11 @@ self._runtime.budgets, self._reporter)` and pass it to `StepExecutor` in the con
   - The group trace records: a failed group step appends `outcome=failed` with the URL pair
     read on the failure; a passed group step appends `outcome=passed` with the closing read
     after execution; ordinary steps never touch a trace list.
-- [ ] **Debugging**: `pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code)
-- [ ] **Contract re-verification**: `python -c "from prettyplay import StepExecutor"`;
+- [x] **Debugging**: `pytest tests/ -x` — fix implementation code until all tests pass (do NOT fix test code)
+- [x] **Contract re-verification**: `python -c "from prettyplay import StepExecutor"`;
   `python -c "import prettyplay"` (the composition wiring imports cleanly); the scenario
   context lives per test as typed records
-- [ ] **Lint**: `ruff check prettyplay tests && ruff format --check prettyplay tests`
+- [x] **Lint**: `ruff check prettyplay tests && ruff format --check prettyplay tests`
 
 ### Task 14: `StepGroup` + the facade authoring surface — `tries`/`delay`, `group()` (facade)
 

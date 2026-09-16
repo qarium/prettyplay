@@ -19,7 +19,7 @@ from prettyplay import BrowserConfig, PrettyPlay
 from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step_text
 from prettyplay.config import Config, load_config
 from prettyplay.failures import IncurableStepError, ProductDefectError
-from prettyplay.llm import ComplianceFinding, FailureClassification, LLMProvider
+from prettyplay.llm import ComplianceFinding, FailureClassification, LLMProvider, ScenarioStep
 from prettyplay.reporting import StepHooks, StepReporter
 
 OPEN_LOGIN_CODE = "def step(page) -> None:\n    page.goto('https://login.example.com')\n"
@@ -427,7 +427,10 @@ def test_scenario_context_feeds_next_generation(tmp_path: Path) -> None:
         test.step("шаг два")
         test.close()
 
-    assert [request["previous_steps"] for request in provider.generation_requests] == [[], ["шаг один"]]
+    assert [request["previous_steps"] for request in provider.generation_requests] == [
+        [],
+        [ScenarioStep(sentence="шаг один")],  # typed records — the sentence plus its empty group membership
+    ]
     assert [event for event, _payload in hook.events if event == "on_step_passed"] == [
         "on_step_passed",
         "on_step_passed",
