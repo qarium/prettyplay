@@ -17,6 +17,7 @@ _ALL_ENV_FIELDS = (
     "BROWSER_HEADLESS",
     "BROWSER_ENDPOINT",
     "BROWSER_ACCEPT_DIALOGS",
+    "BROWSER_SPEED",
     "MODEL",
     "GENERATION_MODEL",
     "CLASSIFICATION_MODEL",
@@ -128,14 +129,21 @@ class TestLoadConfigContract:
             "PRETTYPLAY_BROWSER_HEADLESS",
             "PRETTYPLAY_BROWSER_ENDPOINT",
             "PRETTYPLAY_BROWSER_ACCEPT_DIALOGS",
+            "PRETTYPLAY_BROWSER_SPEED",
         }
 
         values = set(_loader._ENV_NAMES.values())
 
-        assert expected <= values  # every setting present — all five browser variables included
+        assert expected <= values  # every setting present — all six browser variables included
         # one entry per top-level scalar field (the group itself excluded) plus per group field
         wired = [name for name in Config.model_fields if name != "browser"]
         assert len(_loader._ENV_NAMES) == len(wired) + len(BrowserConfig.model_fields)
+
+    def test_browser_speed_env_name_and_allowed_text(self) -> None:
+        """Contract: the pace reads PRETTYPLAY_BROWSER_SPEED; its validation line is authored."""
+        assert _loader._ENV_NAMES["browser.speed"] == "PRETTYPLAY_BROWSER_SPEED"
+        assert _loader._ALLOWED_TEXT["browser.speed"] == "an integer 0-100 inclusive"
+        assert "browser.speed" in _loader._INT_ENV_SETTINGS
 
     def test_loader_accepts_generation_approve_env(self, write_pyproject, monkeypatch) -> None:
         """Contract: the gate switch reads PRETTYPLAY_GENERATION_APPROVE — set, load, no crash."""
@@ -781,4 +789,44 @@ class TestLoadConfigNewEnvNames:
         assert str(excinfo.value).splitlines() == [
             "generation_approve: received 'yes' — allowed: a boolean (true/false/1/0)"
         ]
+        assert isinstance(excinfo.value, PrettyplayError)
+
+
+class TestBrowserSpeedEnv:
+    """The pace setting loads from every layer and fails loudly on bad env values."""
+
+    def test_browser_speed_loads_from_every_layer(self, tmp_path, monkeypatch) -> None:
+        """SC2 — the pace is an ordinary layered setting: file → env → programmatic."""
+        path = write_section(tmp_path, "[tool.prettyplay.browser]\nspeed = 40\n")
+
+        # file only — the pace reads straight from the TOML group
+        assert load_config(pyproject_path=path).browser.speed == 40
+
+        # file + env — the set variable wins over the file value (parsed as a decimal integer)
+        monkeypatch.setenv("PRETTYPLAY_BROWSER_SPEED", "70")
+        assert load_config(pyproject_path=path).browser.speed == 70
+
+        # file + env + overlay — the explicitly set programmatic value wins last
+        config = load_config(path, PrettyConfig(browser=BrowserConfig(speed=90)))
+
+        assert config.browser.speed == 90  # the merge reaches inside the browser group
+
+    def test_env_speed_out_of_range_fails_at_load(self, tmp_path, monkeypatch) -> None:
+        """SC2's loud-failure half — the pace never silently ignores a bad value."""
+        path = write_section(tmp_path, '[tool.prettyplay]\nmodel = "gpt-5"\n')
+
+        # out of range: parses at the env layer, fails at the pydantic field_validator
+        monkeypatch.setenv("PRETTYPLAY_BROWSER_SPEED", "101")
+        with pytest.raises(ConfigurationError) as excinfo:
+            load_config(pyproject_path=path)
+
+        assert str(excinfo.value).splitlines() == ["browser.speed: received 101 — allowed: an integer 0-100 inclusive"]
+        assert isinstance(excinfo.value, PrettyplayError)
+
+        # unparseable: fails at the env layer's decimal-integer parse
+        monkeypatch.setenv("PRETTYPLAY_BROWSER_SPEED", "abc")
+        with pytest.raises(ConfigurationError) as excinfo:
+            load_config(pyproject_path=path)
+
+        assert str(excinfo.value).splitlines() == ["browser.speed: received 'abc' — allowed: a decimal integer"]
         assert isinstance(excinfo.value, PrettyplayError)

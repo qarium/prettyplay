@@ -6,9 +6,10 @@ whenever the variable is set — including when it is set to an empty string:
 ``PRETTYPLAY_<SETTING_UPPER>`` for every scalar setting (including
 ``PRETTYPLAY_STRICT``, ``PRETTYPLAY_CLASSIFICATION_PROMPT`` and
 ``PRETTYPLAY_GENERATION_APPROVE``) and the flat
-group names ``PRETTYPLAY_BROWSER_{NAME|SCREEN|HEADLESS|ENDPOINT|ACCEPT_DIALOGS}``
+group names ``PRETTYPLAY_BROWSER_{NAME|SCREEN|HEADLESS|ENDPOINT|ACCEPT_DIALOGS|SPEED}``
 for the nested browser group. Scalar env values parse by the field type — booleans
-accept true/false/1/0 case-insensitively, integers parse as decimal, floats
+accept true/false/1/0 case-insensitively, integers (``generation_attempts``,
+``healing_attempts``, the browser ``speed`` pace) parse as decimal, floats
 (``polling_timeout``/``polling_delay``) as decimal floats — and an
 unparseable value fails loudly naming the setting, the received value and the
 accepted form. The removed legacy name ``PRETTYPLAY_BROWSER`` and the removed
@@ -80,7 +81,7 @@ _BOOL_ENV_SETTINGS = frozenset(
 )
 
 #: The settings whose env values parse as decimal integers.
-_INT_ENV_SETTINGS = frozenset({"generation_attempts", "healing_attempts"})
+_INT_ENV_SETTINGS = frozenset({"generation_attempts", "healing_attempts", "browser.speed"})
 
 #: The settings whose env values parse as decimal floats.
 _FLOAT_ENV_SETTINGS = frozenset({"polling_timeout", "polling_delay"})
@@ -115,6 +116,7 @@ _ALLOWED_TEXT: dict[str, str] = {
     "classification_prompt": "a non-empty string",
     "browser.endpoint": "a valid ws/wss URL",
     "browser.screen": "an empty value, WxH (must be positive integers), fullscreen or a Playwright device name",
+    "browser.speed": "an integer 0-100 inclusive",
 }
 
 
@@ -300,7 +302,7 @@ def load_config(pyproject_path: str | None = None, overrides: Config | None = No
     The section is optional: a missing ``[tool.prettyplay]`` yields defaults.
     Environment variables override the file value whenever they are set, empty
     string included: the browser group reads the flat
-    ``PRETTYPLAY_BROWSER_{NAME|SCREEN|HEADLESS|ENDPOINT|ACCEPT_DIALOGS}``
+    ``PRETTYPLAY_BROWSER_{NAME|SCREEN|HEADLESS|ENDPOINT|ACCEPT_DIALOGS|SPEED}``
     names, ``strict`` reads ``PRETTYPLAY_STRICT``, ``classification_prompt`` reads
     ``PRETTYPLAY_CLASSIFICATION_PROMPT``, ``generation_approve`` reads
     ``PRETTYPLAY_GENERATION_APPROVE`` — booleans parse true/false/1/0

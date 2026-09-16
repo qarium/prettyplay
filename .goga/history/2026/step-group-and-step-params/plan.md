@@ -446,15 +446,15 @@ one-line-per-setting validation render idioms the loader already has.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests**: in `tests/config/test_loader.py` — the env name is recognized
+- [x] **Contract tests**: in `tests/config/test_loader.py` — the env name is recognized
   (`PRETTYPLAY_BROWSER_SPEED`), the dotted name `browser.speed` is admitted by the loader's
   validation render vocabulary (expected to fail at this stage)
-- [ ] **Code**: extend the env override table and `_ALLOWED_TEXT` in `prettyplay/config/loader.py`
+- [x] **Code**: extend the env override table and `_ALLOWED_TEXT` in `prettyplay/config/loader.py`
   with `browser.speed` → "an integer 0-100 inclusive"; parse `PRETTYPLAY_BROWSER_SPEED` as a
   decimal integer (int parse-and-raise idiom, mirroring the polling-delay scalar parse); update
   the loader docstring/env-name listing
-- [ ] **Interface verification**: `pytest tests/config/test_loader.py -q` — all pass
-- [ ] **Logic tests** — the two design scenarios, verbatim:
+- [x] **Interface verification**: `pytest tests/config/test_loader.py -q` — all pass
+- [x] **Logic tests** — the two design scenarios, verbatim:
   - `test_browser_speed_loads_from_every_layer`: Setup — `tmp_path` pyproject with
     `[tool.prettyplay.browser] speed = 40`; monkeypatch env `PRETTYPLAY_BROWSER_SPEED=70`; a
     `PrettyConfig(browser=BrowserConfig(speed=90))` overlay. Input — three `load_config` calls
@@ -469,10 +469,10 @@ one-line-per-setting validation render idioms the loader already has.
     pace never silently ignores a bad value. Implementation note (design-pinned): an out-of-range
     value parses at the env layer and fails at the pydantic `field_validator`, rendering through
     the one-line-per-setting validation path.
-- [ ] **Debugging**: `pytest tests/config/ -q` — fix implementation code until all tests pass (do NOT fix test code)
-- [ ] **Contract re-verification**: existing loader behaviors unchanged (removed-flat-key
+- [x] **Debugging**: `pytest tests/config/ -q` — fix implementation code until all tests pass (do NOT fix test code)
+- [x] **Contract re-verification**: existing loader behaviors unchanged (removed-flat-key
   rejection, overlay merge, other env names); `python -c "from prettyplay.config import load_config"`
-- [ ] **Lint**: `ruff check prettyplay/config tests/config && ruff format --check prettyplay/config tests/config`
+- [x] **Lint**: `ruff check prettyplay/config tests/config && ruff format --check prettyplay/config tests/config`
 
 ### Task 3: `DriverSession._launch_engine` — `slow_mo` at both launch and connect (driver)
 
