@@ -19,7 +19,15 @@ Constraints:
 
 class AllureStepHooks(StepHooks):
     def __init__(self):
+        self._group = None
         self._step = None
+
+    def on_group_started(self, group_prompt: str) -> None:
+        self._group = allure.step("[group] " + group_prompt)
+        self._group.__enter__()
+
+    def on_group_finished(self, group_prompt: str) -> None:  # noqa: ARG002 — the hook contract fixes the signature
+        self._group.__exit__(None, None, None)
 
     def on_step_started(self, step_text: str, step_type: str) -> None:
         self._step = allure.step(f"[{step_type}] " + step_text)
