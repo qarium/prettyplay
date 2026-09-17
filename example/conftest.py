@@ -63,7 +63,7 @@ class AllureStepHooks(StepHooks):
         self._step = AllureStepWrapper(f"[{step_type}] " + step_text)
         self._step_stack.enter_context(self._step)
 
-    def on_step_failed(self, step_text: str, step_type: str, error: str) -> None:
+    def on_step_failed(self, step_text: str, step_type: str, error: str) -> None:  # noqa: ARG002 — the hook contract fixes the signature
         self._step.fail(error)
 
         try:
