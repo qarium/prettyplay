@@ -28,8 +28,8 @@ class AllureStepWrapper:
         self.step.__enter__()
         return self
 
-    def fail(self, reason):
-        self.failed_exception = AssertionError(reason)
+    def fail(self, reason, *, cls=AssertionError):
+        self.failed_exception = cls(reason)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         error_to_raise = exc_type or self.failed_exception
@@ -63,7 +63,7 @@ class AllureStepHooks(StepHooks):
         self._step_stack.enter_context(self._step)
 
     def on_step_failed(self, step_text: str, step_type: str, error: str) -> None:  # noqa: ARG002 — the hook contract fixes the signature
-        self._step.fail(error)
+        self._step.fail(error, cls=AssertionError if step_type == "assertion" else Exception)
 
         try:
             screenshot_bytes = self._play.get_screenshot()
