@@ -1,10 +1,9 @@
-from pathlib import Path
 from contextlib import ExitStack
+from pathlib import Path
 
 import allure
 import pytest
 from playwright.sync_api import Error as PlaywrightError
-
 from prettyplay import BrowserConfig, PrettyConfig, PrettyPlay, StepHooks
 
 CLASSIFICATION_INSTRUCTIONS = "Write explanations and recommendations in English"
