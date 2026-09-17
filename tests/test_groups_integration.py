@@ -424,6 +424,11 @@ def _git(*arguments: str) -> str:
     return subprocess.run(["git", *arguments], cwd=REPO_ROOT, check=True, capture_output=True, text=True).stdout
 
 
+def _is_shallow_repository() -> bool:
+    """Whether the working clone carries the full git history."""
+    return _git("rev-parse", "--is-shallow-repository").strip() == "true"
+
+
 def _rename_record(practice: Path) -> tuple[str, str, str]:
     """The (score, old path, commit) of the rename git recorded for the practice file.
 
@@ -443,6 +448,10 @@ def _rename_record(practice: Path) -> tuple[str, str, str]:
     raise AssertionError(f"no rename record found for {practice}")
 
 
+@pytest.mark.skipif(
+    _is_shallow_repository(),
+    reason="the rename record lives in the full git history; a shallow checkout cannot see it",
+)
 def test_prompt_mirrors_after_rename() -> None:
     """C13: the frozen mirrors never drift from the practice files; the rename changed no byte."""
     generation_practice = GENERATION_PRACTICE.read_text(encoding="utf-8")

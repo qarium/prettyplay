@@ -15,10 +15,10 @@ never runs recovery — the classification-only path stays.
 ```python
 healed = recovery.recover(
     group_prompt="accept cookies, fill and submit the order form",
-    traces=group_traces,          # GroupStepOutcome per group step, execution order
+    traces=group_traces,  # GroupStepOutcome per group step, execution order
     step_text="the status shows order confirmed",
     step_type="assertion",
-    previous_steps=scenario,      # the typed scenario records of the test, execution order
+    previous_steps=scenario,  # the typed scenario records of the test, execution order
     identity=identity,
     attempt_history=history,
     page=page,
