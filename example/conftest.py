@@ -3,6 +3,8 @@ from contextlib import ExitStack
 
 import allure
 import pytest
+from playwright.sync_api import Error as PlaywrightError
+
 from prettyplay import BrowserConfig, PrettyConfig, PrettyPlay, StepHooks
 
 CLASSIFICATION_INSTRUCTIONS = "Write explanations and recommendations in English"
@@ -18,34 +20,66 @@ Constraints:
 """
 
 
+class AllureStepWrapper:
+    def __init__(self, title):
+        self.step = allure.step(title)
+        self.failed_exception = None
+
+    def __enter__(self):
+        self.step.__enter__()
+        return self
+
+    def fail(self, reason):
+        self.failed_exception = AssertionError(reason)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        error_to_raise = exc_type or self.failed_exception
+
+        if error_to_raise:
+            return self.step.__exit__(AssertionError, error_to_raise, exc_tb)
+
+        return self.step.__exit__(None, None, None)
+
+
 class AllureStepHooks(StepHooks):
-    def __init__(self):
-        self._is_group = False
-        self._stack = ExitStack()
+    def __init__(self, play: PrettyPlay):
+        self._play = play
+
+        self._step = None
+
+        self._step_stack = ExitStack()
+        self._group_stack = ExitStack()
 
     def on_group_started(self, group_prompt: str) -> None:
-        self._is_group = True
-
-        self._stack.enter_context(
+        self._group_stack.enter_context(
             allure.step("[group] " + group_prompt),
         )
 
     def on_group_finished(self, group_prompt: str) -> None:  # noqa: ARG002 — the hook contract fixes the signature
-        if self._is_group:
-            self._is_group = False
-
-            self._stack.close()
-            self._stack = ExitStack()
+        self._group_stack.close()
+        self._group_stack = ExitStack()
 
     def on_step_started(self, step_text: str, step_type: str) -> None:
-        self._stack.enter_context(
-            allure.step(f"[{step_type}] " + step_text),
-        )
+        self._step = AllureStepWrapper(f"[{step_type}] " + step_text)
+        self._step_stack.enter_context(self._step)
+
+    def on_step_failed(self, step_text: str, step_type: str, error: str) -> None:
+        self._step.fail(error)
+
+        try:
+            screenshot_bytes = self._play.get_screenshot()
+
+            allure.attach(
+                screenshot_bytes,
+                name="screenshot.png",
+                attachment_type=allure.attachment_type.PNG,
+            )
+        except PlaywrightError:
+            pass
 
     def on_step_finished(self, step_text: str, step_type: str, outcome: str) -> None:  # noqa: ARG002 — the hook contract fixes the signature
-        if not self._is_group:
-            self._stack.close()
-            self._stack = ExitStack()
+        self._step_stack.close()
+        self._step_stack = ExitStack()
 
 
 def pytest_addoption(parser):
@@ -87,5 +121,8 @@ def play(request):
         generation_prompt=GENERATION_INSTRUCTIONS,
     )
 
-    with PrettyPlay(request.node.name, str(cache_path), hooks=[AllureStepHooks()], config=config) as pretty:
+    prettyplay = PrettyPlay(request.node.name, str(cache_path), config=config)
+    prettyplay.add_hooks(AllureStepHooks(prettyplay))
+
+    with prettyplay as pretty:
         yield pretty
