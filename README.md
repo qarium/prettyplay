@@ -27,19 +27,24 @@ from prettyplay import PrettyPlay
 
 
 def test_login():
-    t = PrettyPlay("login-flow")
-    t.step("open the login page")
-    t.step("enter the login and password")
-    t.step("click the Sign in button")
-    t.expect("the Welcome message appears")
-    t.close()
+    play = PrettyPlay("login-flow")
+    play.step("open the login page")
+    play.step("enter the login and password")
+    play.step("click the Sign in button")
+    play.expect("the Welcome message appears")
+    play.close()
 ```
 
 Or with the context manager:
 
 ```python
-with PrettyPlay("login-flow") as t:
-    t.step("open the login page")
+with PrettyPlay("login-flow") as play:
+    play.step("open the login page")
+
+    with play.group('Fill login form') as form:
+        form.step("enter the login and password")
+        form.step("click the Sign in button")
+        form.expect("the Welcome message appears")
 ```
 
 Each `PrettyPlay` is fully self-contained: it owns its settings, its attempt
