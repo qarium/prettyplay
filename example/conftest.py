@@ -1,4 +1,5 @@
 from pathlib import Path
+from contextlib import ExitStack
 
 import allure
 import pytest
@@ -19,23 +20,32 @@ Constraints:
 
 class AllureStepHooks(StepHooks):
     def __init__(self):
-        self._group = None
-        self._step = None
+        self._is_group = False
+        self._stack = ExitStack()
 
     def on_group_started(self, group_prompt: str) -> None:
-        self._group = allure.step("[group] " + group_prompt)
-        self._group.__enter__()
+        self._is_group = True
+
+        self._stack.enter_context(
+            allure.step("[group] " + group_prompt),
+        )
 
     def on_group_finished(self, group_prompt: str) -> None:  # noqa: ARG002 — the hook contract fixes the signature
-        self._group.__exit__(None, None, None)
+        if self._is_group:
+            self._is_group = False
+
+            self._stack.close()
+            self._stack = ExitStack()
 
     def on_step_started(self, step_text: str, step_type: str) -> None:
-        self._step = allure.step(f"[{step_type}] " + step_text)
-        self._step.__enter__()
+        self._stack.enter_context(
+            allure.step(f"[{step_type}] " + step_text),
+        )
 
     def on_step_finished(self, step_text: str, step_type: str, outcome: str) -> None:  # noqa: ARG002 — the hook contract fixes the signature
-        if self._step is not None:
-            self._step.__exit__(None, None, None)
+        if not self._is_group:
+            self._stack.close()
+            self._stack = ExitStack()
 
 
 def pytest_addoption(parser):
