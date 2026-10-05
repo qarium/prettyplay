@@ -12,35 +12,19 @@ stages:
     reflect:
       file: architecture.md
   architecture-review:
-    approve: auto
     agent: reviewer
   apply-architecture:
-    approve: auto
     agent: architector
   code-design:
-    approve: auto
     agent: architector
     reflect:
       file: code-design.md
       mode: r
   design-review:
-    approve: auto
     agent: reviewer
   coding-plan:
-    approve: auto
     agent: architector
   plan-review:
-    approve: auto
     agent: reviewer
   accept-result:
     agent: tester
-    manual: false
-
-extend:
-  build:
-    title: "Build implementation"
-    after:
-      - commit-changes
-    timeout: "8h"
-    script: python3 -m goga.build "$(goga history path -f plan.md)"
-    after_script: rm -rf .ralphex

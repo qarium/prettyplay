@@ -10,9 +10,8 @@ dockerfile: .goga/Dockerfile
   ANTHROPIC_BASE_URL: "https://api.z.ai/api/anthropic"
 
 build:
-  task_executor:
-    agent: developer
-  review_executor:
+  agent: developer
+  review:
     agent: reviewer
     base_ref: *base-ref
 
@@ -21,6 +20,10 @@ pipeline:
   env:
     <<: *claude-env
     ANTHROPIC_DEFAULT_OPUS_MODEL: "glm-5.3[1m]"
+
+tools:
+  autonomous: latest
+  basic-build: latest
 
 topics:
   base_ref: *base-ref
