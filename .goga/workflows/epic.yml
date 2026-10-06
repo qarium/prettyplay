@@ -11,4 +11,3 @@ stages:
     agent: manager
   review:
     agent: reviewer
-    loop: 3
