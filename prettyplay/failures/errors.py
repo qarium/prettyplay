@@ -1,13 +1,4 @@
-"""The failure taxonomy of prettyplay: four distinct kinds, one library base.
-
-Every failure the library raises derives from :class:`PrettyplayError`, so a
-test suite catches any prettyplay failure with a single ``except`` clause at
-its boundary. Each kind carries actionable fields instead of an opaque string.
-A terminal failure renders one structured message — composed once, at
-exception construction, through :func:`render_terminal_message` — and that
-single render feeds the exception text, the log record and the
-``on_step_failed`` hook payload; consumers never re-compose it.
-"""
+"""The failure taxonomy of prettyplay: four distinct kinds, one library base."""
 
 import re
 from dataclasses import dataclass
@@ -26,7 +17,7 @@ _SHAPE_PREFIXES = ("Actual value:", "Caused by:", "Call log:")
 
 
 class PrettyplayError(Exception):
-    """The common base of every library failure.
+    """The common base of every library failure — one except clause catches them all.
 
     Args:
         message: the failure description.
@@ -40,12 +31,7 @@ class PrettyplayError(Exception):
 
 @dataclass(frozen=True)
 class FailureVerdict:
-    """The verdict of a terminal step failure, carried by the errors that stop the run.
-
-    Built by the engines from a :class:`~prettyplay.llm.FailureClassification`;
-    the failure types never request it themselves. A plain frozen value object,
-    not a pydantic model — the source classification already validated the data,
-    and failure paths stay cheap.
+    """The engine-built verdict of a terminal step failure, carried by the errors that stop the run.
 
     Args:
         category: the classification label: rot, product_defect, fixable or incurable.
@@ -60,16 +46,10 @@ class FailureVerdict:
     def render(self) -> str:
         """Render the verdict block of the structured terminal message.
 
-        The labels sit at column zero — no alignment padding anywhere in the
-        render; embedded newlines in a value indent two spaces on every
-        continuation line. The category is dropped — it travels in the
-        structured fields of the ``on_step_verdict`` event, never in the
-        render. An empty field yields no line.
-
         Returns:
             The rendered verdict block — one line per non-empty field at
-            column zero, joined with newlines; empty when both fields are
-            empty.
+            column zero; empty when both fields are empty. The category
+            travels in the ``on_step_verdict`` event fields, never here.
         """
         lines = []
 
@@ -82,12 +62,7 @@ class FailureVerdict:
 
 
 class ErrorParts(BaseModel):
-    """The decomposed parts of a terminal failure's underlying error.
-
-    The data shape :func:`render_terminal_message` renders: the class prefix
-    and headline of the error text plus the detail parts recognized by their
-    fixed shapes (see the ``playwright`` practice). No behavior beyond the
-    data shape.
+    """The decomposed parts of a terminal failure's underlying error — the data shape of the single render.
 
     Args:
         class_name: the exception class prefix of the underlying error; empty —
@@ -111,16 +86,13 @@ class ErrorParts(BaseModel):
 def _consume_actual_value(lines: list[str], start: int) -> tuple[str, int]:
     """Collect the received detail starting at an ``Actual value:`` line.
 
-    The value is the text after the prefix plus the continuation lines that
-    follow — consumed while they are non-blank and not a recognized shape
-    line, joined verbatim.
-
     Args:
         lines: the full text, split into lines.
         start: the index of the ``Actual value:`` line.
 
     Returns:
-        The received detail and the index of the first unconsumed line.
+        The received detail — the text after the prefix plus the following
+        non-blank lines, verbatim — and the first unconsumed index.
     """
     collected = [lines[start][len("Actual value:") :].strip()]
     index = start + 1
@@ -138,16 +110,13 @@ def _consume_actual_value(lines: list[str], start: int) -> tuple[str, int]:
 def _consume_call_log(lines: list[str], start: int) -> tuple[str, int]:
     """Collect the Call log block starting at a ``Call log:`` line.
 
-    The block is every following line that is blank or indented, kept
-    verbatim with the trailing blanks trimmed; it ends at a non-indented
-    non-blank line or the end of the text.
-
     Args:
         lines: the full text, split into lines.
         start: the index of the ``Call log:`` line.
 
     Returns:
-        The Call log block and the index of the first unconsumed line.
+        The Call log block — the following blank or indented lines, verbatim
+        — and the first unconsumed index.
     """
     block = []
     index = start + 1
@@ -168,18 +137,13 @@ def _consume_call_log(lines: list[str], start: int) -> tuple[str, int]:
 def decompose_error_text(error: str) -> ErrorParts:
     """Decompose the full underlying error text of a failed step into the render parts.
 
-    Pure recognition of the playwright failure-message anatomy (see the
-    ``playwright`` practice): the dotted-identifier class prefix of the first
-    line, then — in the remainder — the detail shapes by their fixed prefixes
-    only, never by position. An empty text yields all-empty parts;
-    unrecognized shapes leave their parts empty. Never raises on any input.
-
     Args:
         error: the full underlying error text as formatted by the engine
             error-text policy; empty — all parts empty.
 
     Returns:
-        The decomposed parts.
+        The decomposed parts — the class prefix of the first line plus the
+        detail shapes by fixed prefix, never by position; never raises.
     """
     if error == "":
         return ErrorParts()
@@ -230,13 +194,6 @@ def render_terminal_message(
 ) -> str:
     """Compose the single structured render of a terminal failure.
 
-    The one text used by the exception message, the log record and the
-    ``on_step_failed`` hook payload — consumers never re-compose it. The
-    ``error`` text is decomposed once (:func:`decompose_error_text`) into the
-    headline and the detail parts; the headline reconstructs the typed-error
-    class prefix (``TimeoutError: …``, ``Page.reload: …``) while a failed
-    check carries no prefix — its headline is the expectation text alone.
-
     Args:
         error_class: the short class name of the terminal failure — the first
             line's prefix; ``type(self).__qualname__`` at the call site.
@@ -249,14 +206,9 @@ def render_terminal_message(
             render — no verdict block.
 
     Returns:
-        The rendered message with the fixed block order: the
-        ``error_class: reason`` first line (the class name alone when the
-        reason is empty), then the ``---`` separated ``step:``/``error:`` block
-        when either field is non-empty, then the ``---`` separated details
-        section (``received:``/``cause:``/``Call log:`` — omitted entirely
-        when no detail part is present), then the ``---`` separated verdict
-        block when the verdict renders non-empty. The render never embeds the
-        step code or a page snapshot and ends without a trailing separator.
+        The one structured render of the terminal failure — the fixed block
+        order, shared by the exception text, the log record and the
+        ``on_step_failed`` payload; never re-composed.
     """
     parts = decompose_error_text(error)
     lines = [f"{error_class}: {reason}" if reason else error_class]
@@ -287,13 +239,7 @@ def render_terminal_message(
 
 
 class ProductDefectError(PrettyplayError, AssertionError):
-    """A real functional product defect: the expectation of an assertion step did not hold.
-
-    The signal the test suite exists for: no retry, no healing — propagates to
-    the test runner as a failing test. Derives from both :class:`PrettyplayError`
-    and ``AssertionError``, so any runner counts it as a failure, never an error.
-    The render's first line carries the raised class name followed by the
-    primary reason.
+    """A real functional product defect — the assertion expectation did not hold: no retry, no healing.
 
     Args:
         step_text: the sentence of the failed step.
@@ -324,15 +270,7 @@ class ProductDefectError(PrettyplayError, AssertionError):
 
 
 class IncurableStepError(PrettyplayError):
-    """An incurable step: regeneration cannot produce working code.
-
-    Raised when the attempt budget is exhausted, the step text no longer
-    matches the application reality, the intent is ambiguous, or strict mode
-    forbids generation. An execution failure, not a failed check — derives
-    from :class:`PrettyplayError` only, never from ``AssertionError``. The
-    render's first line carries the raised class name followed by the primary
-    reason; without a verdict the render falls back to the built-in path
-    guidance.
+    """An incurable step: regeneration cannot produce working code — an execution failure, never a failed check.
 
     Args:
         step_text: the sentence of the failed step.
@@ -391,10 +329,7 @@ class IncurableStepError(PrettyplayError):
 
 
 class LLMUnavailableError(PrettyplayError):
-    """LLM infrastructure failure: the provider service is unreachable or rejects the request.
-
-    Blocks only code generation and healing; cached steps keep running. No
-    retries.
+    """LLM infrastructure failure: the provider is unreachable or rejects the request — cached steps keep running.
 
     Args:
         message: the failure description naming the provider.
@@ -407,9 +342,7 @@ class LLMUnavailableError(PrettyplayError):
 
 
 class ComplianceVerdictError(PrettyplayError):
-    """The compliance gate could not obtain a usable verdict: the provider answer did not
-    parse into findings. The successfully executed candidate stays unchecked and is never
-    cached — a loud hard failure, never a silent pass.
+    """The compliance gate verdict did not parse into findings — the executed candidate stays unchecked, never cached.
 
     Args:
         message: the rendered actionable text — names the compliance gate, the

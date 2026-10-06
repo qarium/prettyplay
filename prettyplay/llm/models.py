@@ -23,9 +23,6 @@ DEGRADED_GROUP_RECOMMENDATION = "re-run the group step or check the provider ans
 class FailureClassification(BaseModel):
     """The verdict of a failure classification.
 
-    Says what kind of failure a failed cached step hit and what the engineer
-    should do about it.
-
     Attributes:
         category: the classification label: rot, product_defect, fixable or
             incurable — fixable: the step code is at fault (an ambiguous or
@@ -66,7 +63,7 @@ class ComplianceFinding(BaseModel):
 
 
 class GroupFailureClassification(BaseModel):
-    """The verdict of a group diagnosis: what kind of failure it is, why, where it stems from and what to do.
+    """The verdict of a group diagnosis.
 
     Attributes:
         category: the diagnosis label: recoverable (the affected steps of
@@ -143,33 +140,19 @@ def _malformed(verdict_text: str) -> ComplianceVerdictError:
 def parse_compliance_verdict(verdict_text: str) -> list[ComplianceFinding]:
     """Parse the raw answer of the compliance verdict request into findings.
 
-    The strict single parsing point of the gate: the answer must resolve to
-    a JSON list of objects carrying a str instruction, a high|medium|low
-    priority, a str explanation and an instruction|adequacy dimension. A
-    JSON syntax failure is salvaged once through the ``json_repair``
-    library — a verdict model glitching a quote, a comma or a bracket does
-    not kill the run (see ``.goga/usages/cooks/json_repair.md``). Anything
-    the salvage still cannot shape into the required list of objects, and
-    any semantically invalid finding — a missing field, a non-string field,
-    an unknown priority or dimension label, an answer of the old shape —
-    is a malformed verdict raised loudly, never waved through. An empty
-    findings list passes only from an explicitly valid JSON ``[]`` answer:
-    an emptiness synthesized by the salvage is malformed too, so no
-    unchecked candidate ever rides a repaired-to-empty verdict.
-
     Args:
         verdict_text: the raw text answer of the verdict model;
             whitespace-padded JSON is tolerated.
 
     Returns:
-        The parsed findings; an empty list means compliant.
+        The parsed findings; an empty list means compliant — only from an
+        explicitly valid JSON ``[]``; a syntax failure is salvaged once
+        through ``json_repair``.
 
     Raises:
         ComplianceVerdictError: the answer resolves to neither the required
-            shape nor a repairable equivalent — not a list, an item misses a
-            field, carries a non-string field or names an unknown priority
-            or dimension — the candidate stays unchecked and is never
-            cached.
+            shape nor a repairable equivalent — raised loudly, never waved
+            through; the candidate stays unchecked and is never cached.
     """
     text = verdict_text.strip()
     try:
@@ -240,28 +223,15 @@ def _degraded_diagnosis(text: str) -> GroupFailureClassification:
 def parse_group_failure_classification(verdict_text: str) -> GroupFailureClassification:
     """Parse the raw answer of the group diagnosis request into the verdict.
 
-    The strict single parsing point of the group diagnosis with the
-    conservative degradation: the answer must resolve to a JSON object
-    carrying a str category of the recoverable|product_defect|incurable set
-    and str root_cause, earliest_step and recommendation fields. A JSON
-    syntax failure is salvaged once through the ``json_repair`` library —
-    a diagnosis model glitching a quote, a comma or a fence does not kill
-    the run (see ``.goga/usages/cooks/json_repair.md``); the salvage
-    repairs syntax only, the semantic validation applies to a salvaged
-    answer identically. Anything else — prose, a non-object shape, a
-    missing or non-string field, an unknown category label, a failure of
-    the salvage library itself — never raises and never grants
-    regeneration: it degrades conservatively to the incurable verdict with
-    the raw answer carried in ``root_cause`` and the ``degraded`` flag set,
-    so the calling engine can log its WARNING.
-
     Args:
         verdict_text: the raw text answer of the diagnosis model;
             whitespace-padded JSON is tolerated.
 
     Returns:
-        The parsed verdict; ``degraded`` is False on every parsed answer
-        and True only on the degradation path.
+        The parsed verdict; ``degraded`` is True only on the degradation
+        path — an unusable answer never raises and never grants
+        regeneration: it degrades to the conservative incurable; a syntax
+        failure is salvaged once through ``json_repair``.
     """
     text = verdict_text.strip()
     data: object = None

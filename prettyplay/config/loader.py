@@ -1,25 +1,4 @@
-"""Loading of the ``[tool.prettyplay]`` section of pyproject.toml with layered overrides.
-
-The pyproject.toml path is either given explicitly or auto-searched upward from
-the current working directory. Environment overrides win over the file
-whenever the variable is set — including when it is set to an empty string:
-``PRETTYPLAY_<SETTING_UPPER>`` for every scalar setting (including
-``PRETTYPLAY_STRICT``, ``PRETTYPLAY_CLASSIFICATION_PROMPT`` and
-``PRETTYPLAY_GENERATION_APPROVE``) and the flat
-group names ``PRETTYPLAY_BROWSER_{NAME|SCREEN|HEADLESS|ENDPOINT|ACCEPT_DIALOGS|SPEED}``
-for the nested browser group. Scalar env values parse by the field type — booleans
-accept true/false/1/0 case-insensitively, integers (``generation_attempts``,
-``healing_attempts``, the browser ``speed`` pace) parse as decimal, floats
-(``polling_timeout``/``polling_delay``) as decimal floats — and an
-unparseable value fails loudly naming the setting, the received value and the
-accepted form. The removed legacy name ``PRETTYPLAY_BROWSER`` and the removed
-flat keys ``browser``/``headless``/``browser_endpoint`` of the
-``[tool.prettyplay]`` level fail loudly before merging. Explicitly set
-programmatic values (``PrettyConfig`` fields passed at construction, not
-None, non-empty for strings) win over the pyproject+env layer — the merge
-reaches inside the browser group. LLM API keys are never read here: they come
-only from the provider clients themselves.
-"""
+"""Loading of the ``[tool.prettyplay]`` section of pyproject.toml with layered overrides."""
 
 import os
 import sys
@@ -122,11 +101,6 @@ _ALLOWED_TEXT: dict[str, str] = {
 
 class ConfigurationError(PrettyplayError):
     """An invalid prettyplay configuration: the loaded settings failed validation.
-
-    Raised by :func:`load_config` with the original pydantic
-    ``ValidationError`` chained; catchable with the single library except
-    clause. Never carries a verdict — a configuration failure is not a step
-    failure.
 
     Args:
         message: the rendered actionable text — one line per invalid setting
@@ -299,36 +273,15 @@ def _apply_overrides(file_config: Config, overrides: Config) -> Config:
 def load_config(pyproject_path: str | None = None, overrides: Config | None = None) -> Config:
     """Load validated settings layered pyproject → env → explicit programmatic values.
 
-    The section is optional: a missing ``[tool.prettyplay]`` yields defaults.
-    Environment variables override the file value whenever they are set, empty
-    string included: the browser group reads the flat
-    ``PRETTYPLAY_BROWSER_{NAME|SCREEN|HEADLESS|ENDPOINT|ACCEPT_DIALOGS|SPEED}``
-    names, ``strict`` reads ``PRETTYPLAY_STRICT``, ``classification_prompt`` reads
-    ``PRETTYPLAY_CLASSIFICATION_PROMPT``, ``generation_approve`` reads
-    ``PRETTYPLAY_GENERATION_APPROVE`` — booleans parse true/false/1/0
-    case-insensitively; an unparseable value raises the loud actionable
-    ``ConfigurationError`` — and every other setting reads
-    ``PRETTYPLAY_<SETTING_UPPER>``. Scalar env values parse by the field type
-    and an unparseable value fails loudly. The removed legacy name
-    ``PRETTYPLAY_BROWSER`` and the removed flat keys of the
-    ``[tool.prettyplay]`` level fail loudly before merging. An empty
-    ``cache_root`` resolves to ``<cwd>/.prettyplay/cache`` — the working
-    directory of the run, wherever the pyproject.toml was found.
-
-    The programmatic layer wins last: a field of ``overrides`` participates
-    when it was passed at construction (``model_fields_set``), is not None and
-    is non-empty for strings — explicitly set values win, untouched model
-    defaults, None and empty strings never overwrite the pyproject+env values.
-    The merge reaches inside the browser group: explicitly set fields of a
-    passed :class:`~prettyplay.config.models.BrowserConfig` win over the file
-    group, untouched group defaults never overwrite it.
-
     Args:
         pyproject_path: explicit pyproject.toml path; ``None`` auto-searches
             upward from the current working directory.
         overrides: the programmatic layer, typically a ``PrettyConfig`` built
             by the integrator; ``None`` (or an instance with no explicitly set
-            fields) returns the validated file layer as is.
+            fields) returns the validated file layer as is — an explicitly set
+            field (``model_fields_set``, non-None, non-empty for strings)
+            wins over the pyproject+env layer, the merge reaching inside the
+            browser group.
 
     Returns:
         Validated configuration.

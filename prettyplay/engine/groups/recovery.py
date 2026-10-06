@@ -30,22 +30,6 @@ _OUTSIDE_ROOT = "the root lives outside the group"
 class GroupRecovery:
     """The diagnosis-driven recovery engine of step groups.
 
-    One diagnosis looks at the whole interaction — the group prompt, every
-    step trace and the failed step's attempt history — and its verdict drives
-    a group-scoped recovery: a product defect fails the test loudly, an
-    incurable root ends the run honestly, and a recoverable root names the
-    earliest affected step of the group whose regeneration the row replays —
-    forward, on the current page, through the same per-step regeneration,
-    gate and cache write-back as every caching path. A repeat failure of a
-    row step re-enters a fresh diagnosis and a new cycle: every cycle grants
-    each row step a fresh full healing counter, while the number of cycles
-    per group per test is capped by the healing limit — the loop is never
-    infinite. The row never leaves the group's own steps: a diagnosis naming
-    a root outside the group ends the run in the honest terminal failure
-    naming that step, and no doomed cycle is spent. Ordinary per-step pools
-    of non-group steps are never consumed — the row refreshes only its own
-    identities.
-
     Attributes:
         _config: project settings; the polling settings build every row
             step's window.
@@ -102,23 +86,6 @@ class GroupRecovery:
     ) -> CachedStep:
         """Diagnose a failed group step and recover the affected row of the group.
 
-        The cycle: open one recovery cycle of the group — a refused cycle
-        raises the authored cap verdict; diagnose through the shared routine
-        — its verdict maps onto the failure taxonomy for every terminal
-        raise (the category as is, the explanation from the root cause plus
-        the earliest-step quote when it named a group step, the
-        recommendation as answered); resolve the earliest affected step — an
-        exact match of the quote against a group step sentence names the row
-        start, an exact match against a step of the test outside the group
-        ends the run in the honest terminal failure naming that step, and no
-        match degrades to the failed step itself. The row — from the earliest
-        affected step through the failed step, the group's own steps only —
-        regenerates sequentially, each step as its own unit under a fresh
-        full healing counter. A repeat failure of a row step re-enters the
-        cycle from the top with the fresh failure state while cycles remain;
-        on success the healed cached step of the failed step returns and the
-        group continues normally.
-
         Args:
             group_prompt: the group prompt of the failed step's group,
                 verbatim — reaches the diagnosis and every row request.
@@ -146,7 +113,10 @@ class GroupRecovery:
 
         Returns:
             The healed cached step of the failed step — written back to the
-            cache by the regeneration of its row entry.
+            cache by the regeneration of its row entry; the row replays the
+            group's own steps from the earliest affected one, each under a
+            fresh full healing counter; a repeat failure re-enters the
+            cap-checked cycle.
 
         Raises:
             ProductDefectError: the diagnosis says the application is
@@ -232,19 +202,6 @@ class GroupRecovery:
     ) -> CachedStep:
         """Regenerate the row sequentially and return the failed step's healed step.
 
-        Every row step regenerates as its own per-step unit: the declared
-        delay of its trace passes quietly first, then the regeneration
-        carries the diagnosis recommendation, the group framing, the typed
-        scenario records, its own history — the failed step's passed-in
-        grown history for the last row entry, a fresh list anchored by
-        record 0 (the cached code of its trace identity, empty when none is
-        cached) for every earlier one — and its own window built from its
-        trace. The candidate executes immediately on the current page
-        inside the regeneration loop, the two-dimension compliance gate
-        guards the write-back and the cache stores the step per step. Every
-        recovered step reports ``on_healing_started`` and ``on_healed`` and
-        logs one ``group_row_recovered`` record.
-
         Args:
             row: the row trace records, the failed step's last.
             group_prompt: the group prompt of the recovered group, verbatim
@@ -259,7 +216,10 @@ class GroupRecovery:
                 current page.
 
         Returns:
-            The healed cached step of the failed step.
+            The healed cached step of the failed step — every row step
+            regenerates as its own per-step unit; the failed step's entry
+            reuses its grown history, an earlier one anchors a fresh list
+            by record 0.
 
         Raises:
             IncurableStepError: a row step's regeneration exhausted its
@@ -302,16 +262,13 @@ class GroupRecovery:
     def _anchored_history(self, trace: GroupStepOutcome) -> list[StepAttempt]:
         """Compose the fresh per-step history of an earlier row step, anchored by record 0.
 
-        Record 0 carries the cached code loaded via the trace identity —
-        empty when no cached step exists — with the outcome label of the
-        anchored original and the URL pair of the trace; the regeneration
-        request renders it as the HISTORY the regeneration grows on.
-
         Args:
             trace: the trace record of the earlier row step.
 
         Returns:
-            The one-record history list the regeneration appends into.
+            The one-record history list the regeneration appends into —
+            record 0 carries the cached code of the trace identity, empty
+            when none is cached.
         """
         cached = self._cache.load(trace.identity)
 
@@ -347,12 +304,6 @@ def _outside_root(
 ) -> str | None:
     """Resolve the earliest-step quote against the sentences of the steps outside the group.
 
-    A record whose permanent membership is another group or an ordinary
-    step is outside this group — a root there is out of the recovery's
-    mandate. Records of this group never match: an in-group sentence that
-    is not among the traces degrades to the failed-step row, never to the
-    terminal outside raise.
-
     Args:
         verdict: the diagnosis verdict of the cycle.
         previous_steps: the typed scenario records of the test, in execution
@@ -376,16 +327,14 @@ def _outside_root(
 def _mapped_explanation(verdict: GroupFailureClassification, quoted_in_group: bool) -> str:
     """Map the diagnosis explanation onto the failure taxonomy.
 
-    The root cause as answered, plus the earliest-step quote in parentheses
-    when the quote named a group step — an outside or missing quote adds
-    nothing here.
-
     Args:
         verdict: the diagnosis verdict of the cycle.
         quoted_in_group: whether the quote matched a group step sentence.
 
     Returns:
-        The mapped explanation of the terminal failure.
+        The mapped explanation of the terminal failure — the root cause
+        plus the earliest-step quote in parentheses when it named a group
+        step.
     """
     if quoted_in_group:
         return f"{verdict.root_cause} (earliest affected step: {verdict.earliest_step})"
@@ -395,10 +344,6 @@ def _mapped_explanation(verdict: GroupFailureClassification, quoted_in_group: bo
 
 def _last_facts(history: list[StepAttempt]) -> tuple[str, str]:
     """Derive the terminal-failure facts from the last record of the failed step's history.
-
-    The cell-local twin of the engine helper: the code and the error of the
-    last record — the failed step's underlying error and its code — the
-    empty pair when the history holds no record.
 
     Args:
         history: the per-step attempt history of the failed step.

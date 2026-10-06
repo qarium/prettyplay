@@ -1,8 +1,4 @@
-"""Validated project settings of prettyplay.
-
-The single source of the immutable configuration part. Secrets (LLM API keys)
-never live here: they come only from environment variables.
-"""
+"""Validated project settings of prettyplay — secrets never live here, LLM API keys come only from the environment."""
 
 import math
 import re
@@ -19,10 +15,7 @@ _SPEED_RANGE = range(0, 101)
 
 
 class BrowserConfig(BaseModel):
-    """The nested browser group of the project settings.
-
-    Every field has an empty or neutral default so the group validates before
-    a ``[tool.prettyplay.browser]`` section exists; ``load_config`` fills it.
+    """The nested browser group of the project settings — every field defaults empty, load_config fills it.
 
     Attributes:
         name: browser of the {chromium, firefox, webkit, chrome, msedge} set;
@@ -162,10 +155,7 @@ class BrowserConfig(BaseModel):
 
 
 class Config(BaseModel):
-    """Validated project settings loaded from ``[tool.prettyplay]``.
-
-    Every field has an empty default so the model can be constructed before a
-    pyproject.toml section exists; ``load_config`` fills and resolves it.
+    """Validated project settings loaded from ``[tool.prettyplay]`` — fields default empty, load_config fills them.
 
     Attributes:
         provider: the LLM provider of the {openai, anthropic} set; default openai.

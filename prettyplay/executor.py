@@ -33,16 +33,12 @@ _STRICT_NO_VERDICT_REASON = "the step failed in strict mode without an llm verdi
 def _read_url(page: PageFacade) -> str:
     """Read the page URL for the replay bracket; never kills the step.
 
-    The guarded read of the cached-replay bracket — the cell-local twin of
-    the engine helper: a dead page or a driver failure on the read degrades
-    honestly to the empty string on that side; the replay itself proceeds
-    normally.
-
     Args:
         page: the page facade handle of the current test.
 
     Returns:
-        The current URL of the page, or the empty string when the read fails.
+        The current URL of the page, or the empty string when the read
+        fails — the step itself proceeds normally.
     """
     try:
         return page.url
@@ -52,35 +48,6 @@ def _read_url(page: PageFacade) -> str:
 
 class StepExecutor:
     """The owner of the step cycle of one test.
-
-    One step goes through the full cycle: a cache hit executes the cached
-    code under the settle window with no LLM involvement whatsoever; a miss
-    delegates to the generator, which stores the step after the candidate
-    has actually worked; a failed cached step of an ordinary test delegates
-    to the healer, whose verdict decides between a loud product defect, an
-    incurable step, and rot regeneration. A failed step of a group
-    delegates to the group recovery instead: one diagnosis looks at the
-    whole interaction and its verdict drives the group-scoped recovery row
-    — the healer never sees a group step. In strict replay-only mode
-    nothing is ever (re)generated: a cache miss is incurable outright, and
-    a failed cached step is at most classified — the only LLM call — then
-    raised by its category; the settle window still applies to the cached
-    code. A terminal ``IncurableStepError`` of a non-strict interactive run
-    makes one detour through the steering dialog — a healed return
-    continues the step as a success. The executor owns the per-step attempt
-    history: one empty ``StepAttempt`` record list created per execution —
-    it dies with the step, never persisted, never carried across steps —
-    anchored on a failed cached hit by record 0 (the original cached code
-    with its replay error and the URL pair of the replay) and threaded by
-    reference into every engine call, which append the records of their own
-    attempts. The scenario context — the typed records of the previous
-    steps of this test, each the raw sentence plus its permanent group
-    membership — feeds every generation, healing and recovery request; the
-    raw step sentence and the step type reach every engine call verbatim,
-    the casefolded normalization stays an addressing key only. Every group
-    step is bracketed by the URL pair and leaves exactly one verbatim trace
-    record in its group's traces — failed when the cycle routed it to the
-    recovery, passed when the step went green on its own execution.
 
     Attributes:
         cache_key: the context key of the owning test object.
@@ -153,26 +120,19 @@ class StepExecutor:
     ) -> None:
         """Run one step through the full cycle.
 
-        The declared ``delay`` passes quietly right after the started event
-        — the step never pauses before its event fires; the declared
-        ``tries`` switches the settle window of this execution to the
-        count-bounded mode. A group step (a non-null ``group``) is executed
-        with the group framing: its generation requests carry the group
-        prompt, its internal classification points are suppressed, and its
-        failures route to the group recovery instead of the healer — strict
-        mode keeps the classification-only path for every step alike.
-
         Args:
             step_text: the sentence of the step as written by the engineer.
             step_type: the kind of the step sentence ({action, assertion}).
             page: the live page facade of the current test.
             group: the authoring group the step executes inside; ``None`` —
-                an ordinary step, every path byte-identical to the cycle
-                without groups.
+                an ordinary step. A group step carries the group framing and
+                its failures route to the group recovery; strict mode keeps
+                the classification-only path for every step alike.
             tries: the declared retry count of this execution; ``None`` —
-                the time-bounded settle mode of the polling settings.
+                the time-bounded settle mode; a declared count switches the
+                settle window to the count-bounded mode.
             delay: the declared quiet start pause in seconds; ``None`` — no
-                pause.
+                pause; passes quietly right after the started event.
 
         Raises:
             ProductDefectError: the healed step verdict says the expectation
@@ -281,13 +241,6 @@ class StepExecutor:
     ) -> None:
         """Append this step's verbatim trace record to the traces of its group.
 
-        Exactly one record per executed group step: ``failed`` when the
-        cycle routed the step to the recovery, ``passed`` when the step went
-        green on its own execution — the sentence, the step type, the
-        declared ``tries``/``delay``, the URL pair bracketing the execution
-        and the cache identity the recovery resolves its row from. The
-        record is immutable once appended.
-
         Args:
             group: the authoring group the step executes inside.
             step_text: the raw sentence of the step, verbatim.
@@ -300,7 +253,8 @@ class StepExecutor:
             url_before: the page URL read before the execution.
             url_after: the page URL read after the execution — on the
                 failure or the green completion.
-            outcome_label: passed or failed.
+            outcome_label: passed or failed — exactly one immutable record
+                per executed group step.
         """
         group.traces.append(
             GroupStepOutcome(
@@ -333,14 +287,6 @@ class StepExecutor:
     ) -> bool:
         """React to a failed cached execution by mode: strict classifies, a group recovers, ordinary heals.
 
-        The routing precedence of a failed replay: the strict branch always
-        wins — classification only, the terminal verdict raised by kind; a
-        group step is traced once with its failed record, anchored by
-        record 0 (the original cached code, the formatted replay error and
-        the replay URL pair) and delegated to the group recovery; an
-        ordinary step keeps the heal path of today — the same record 0,
-        then the healer, with the steering dialog as the terminal gate.
-
         Args:
             step: the cached step whose code failed.
             error_text: the full formatted error text of the failure.
@@ -359,9 +305,8 @@ class StepExecutor:
             window: the settle window of this step's execution.
 
         Returns:
-            Whether this step's group trace record was appended — always
-            ``False`` on the strict and ordinary paths; the strict path
-            never returns, it raises.
+            Whether this step's group trace record was appended; the strict
+            path never returns, it raises.
 
         Raises:
             ProductDefectError: the strict classification or the healed
@@ -428,13 +373,6 @@ class StepExecutor:
     ) -> bool:
         """Generate a missing step; a group step's terminal failure routes to the recovery.
 
-        The generation request of a group step carries its group prompt as
-        the framing input; its generation failures arrive unclassified (the
-        engine suppresses its classification points) — the ordinary step's
-        terminal failure goes to the steering gate as today, the group
-        step's failed record is traced first and the group recovery
-        decides.
-
         Args:
             step_text: the raw sentence of the step, verbatim.
             step_type: action or assertion.
@@ -451,7 +389,10 @@ class StepExecutor:
             window: the settle window of this step's execution.
 
         Returns:
-            Whether this step's group trace record was appended.
+            Whether this step's group trace record was appended. A group
+            step's generation failures arrive unclassified — the recovery
+            decides; an ordinary step's terminal failure goes to the
+            steering gate.
 
         Raises:
             ProductDefectError: a generation failure classified as a
@@ -499,16 +440,7 @@ class StepExecutor:
         page: PageFacade,
         window: SettleWindow,
     ) -> None:
-        """Delegate a failed group step to the recovery; route a still-terminal failure to steering.
-
-        The recovery receives the whole interaction — the group prompt, the
-        group's traces with this step's failed record last, the typed
-        scenario context, the anchored history and the window — and its
-        healed return continues the step as a success: the row re-executed
-        everything forward and the cache write-back already happened per
-        step. A terminal ``IncurableStepError`` of the recovery makes the
-        one detour through the steering dialog with the group context; the
-        other kinds propagate structurally untouched.
+        """Delegate a failed group step to the recovery; a healed return continues the step as a success.
 
         Args:
             group: the authoring group of the failed step.
@@ -551,15 +483,6 @@ class StepExecutor:
     ) -> CachedStep:
         """Offer a terminal step failure to the steering dialog before it propagates.
 
-        The interactive gate first: only a non-strict interactive run opens
-        the dialog — replay-strict and interactive-off propagate the failure
-        unchanged, as do the other kinds structurally (the intercept wraps
-        exactly ``IncurableStepError``; ``ProductDefectError`` and
-        ``LLMUnavailableError`` are not ``IncurableStepError``). A healed
-        return continues the step as a success — the cache write-back and the
-        ``on_healed`` event already happened inside the dialog; a declined
-        dialog propagates the original failure object unchanged.
-
         Args:
             failure: the terminal failure about to propagate.
             identity: the address of the stuck step — the healed step is
@@ -582,7 +505,9 @@ class StepExecutor:
 
         Raises:
             IncurableStepError: the dialog was declined or never opened —
-                the original failure object, unchanged.
+                the original failure object, unchanged. Only a non-strict
+                interactive run opens the dialog; the intercept wraps
+                exactly ``IncurableStepError``.
         """
         if not (self._config.interactive and not self._config.strict):
             raise failure
@@ -605,14 +530,6 @@ class StepExecutor:
     ) -> NoReturn:
         """Turn the failure of a cached step into a terminal error by classification only.
 
-        Strict mode never regenerates and never heals: the classification is
-        the only LLM call, and its category picks the error kind — a product
-        defect fails loudly, everything else is incurable (rot included: the
-        healer never runs). When the LLM is unavailable the verdict is
-        skipped quietly and the step type alone picks the kind: a failed
-        assertion is the signal the suite exists for, a failed action merely
-        did not run.
-
         Args:
             step_text: the sentence of the failed step.
             step_type: the kind of the step sentence ({action, assertion}).
@@ -622,7 +539,10 @@ class StepExecutor:
 
         Raises:
             Always: ProductDefectError or IncurableStepError — the strict
-                terminal verdict of the failed cached step.
+                terminal verdict. Strict mode never regenerates and never
+                heals: the classification is the only LLM call; an
+                unavailable LLM is skipped quietly and the step type alone
+                picks the kind.
         """
         try:
             classification = classify_step_failure(self._config, self._provider, step_text, step.code, error_text, page)

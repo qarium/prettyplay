@@ -5,15 +5,7 @@ from .models import ComplianceFinding, FailureClassification, GroupFailureClassi
 
 
 class LLMProvider:
-    """The single LLM port: step code generation, failure classification, the group diagnosis and the verdict.
-
-    One contract, two interchangeable SDK implementations selected by
-    configuration — the provider choice is never a capability difference.
-    The port itself is never instantiated at runtime; implementations own
-    one completion request per attempt (attempt budgets live in the calling
-    engine) and map every service failure to
-    :class:`~prettyplay.failures.LLMUnavailableError` naming the provider.
-    """
+    """The single LLM port: step code generation, failure classification, the group diagnosis and the verdict."""
 
     def generate_step_code(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
@@ -146,16 +138,6 @@ class LLMProvider:
     ) -> GroupFailureClassification:
         """Diagnose a failed group step with the whole interaction in view.
 
-        The fourth port operation, in absolute parity across the
-        implementations: one request per diagnosis carrying the group
-        prompt, the group step traces, the failed step's sentence and
-        attempt history, the page snapshot and the optional screenshot —
-        sent through the effective classification model; the answer parses
-        strictly through
-        :func:`~prettyplay.llm.parse_group_failure_classification`; a
-        degraded answer is the conservative incurable, never a granted
-        regeneration.
-
         Args:
             prompt: the group diagnosis system prompt supplied by the calling
                 engine; applied verbatim as the system message.
@@ -179,7 +161,10 @@ class LLMProvider:
                 the project enables screenshots.
 
         Returns:
-            The diagnosis verdict.
+            The diagnosis verdict — parsed strictly through
+            :func:`~prettyplay.llm.parse_group_failure_classification`; a
+            degraded answer is the conservative incurable, never a granted
+            regeneration.
 
         Raises:
             NotImplementedError: the port itself carries no implementation.
@@ -196,14 +181,6 @@ class LLMProvider:
         attempt_history: list[str],
     ) -> list[ComplianceFinding]:
         """Check the successfully executed candidate code in two dimensions.
-
-        One verdict request per successfully executed candidate, judging
-        instruction compliance and step adequacy in one request — the third
-        port operation, in absolute parity across the implementations. The
-        user content carries four blocks in the fixed order INSTRUCTIONS,
-        STEP (with its STEP TYPE line), ATTEMPT HISTORY and CODE,
-        identically in both implementations; the request goes through the
-        effective classification model.
 
         Args:
             prompt: the gate system prompt text supplied by the calling
@@ -224,7 +201,9 @@ class LLMProvider:
                 no collapsing, no size limits; empty — no block.
 
         Returns:
-            The parsed findings; an empty list means compliant.
+            The parsed findings; an empty list means compliant — one verdict
+            request per executed candidate; the block order INSTRUCTIONS,
+            STEP, ATTEMPT HISTORY, CODE.
 
         Raises:
             NotImplementedError: the port itself carries no implementation.
@@ -233,7 +212,7 @@ class LLMProvider:
 
 
 def create_provider(config: Config) -> LLMProvider:
-    """Select and construct the LLM provider from configuration.
+    """Select and construct the LLM provider from configuration — the implementations are interchangeable.
 
     Args:
         config: project settings; the provider setting selects the SDK

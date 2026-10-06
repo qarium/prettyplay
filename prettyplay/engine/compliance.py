@@ -77,14 +77,6 @@ def check_step_compliance(  # noqa: PLR0913, PLR0917 — the parameter list is f
 ) -> list[ComplianceFinding]:
     """Gate a successfully executed candidate on the two compliance dimensions.
 
-    The single compliance check of every caching path — generation, healing and
-    steering alike call it before a green candidate is stored, judging both the
-    instruction compliance and the step adequacy in one verdict request. The
-    gate never runs on replayed cached code. An off switch or empty
-    instructions restores the old behavior with zero provider calls; the hard
-    failures of the verdict request propagate untouched — this routine never
-    swallows, never logs, never caches, and consumes no attempt budget.
-
     Args:
         config: project settings — ``generation_approve`` is the gate switch
             and ``generation_prompt`` supplies the checked user instructions.
@@ -98,7 +90,9 @@ def check_step_compliance(  # noqa: PLR0913, PLR0917 — the parameter list is f
 
     Returns:
         The verdict findings of both dimensions; an empty list — compliant
-        and adequate, or the gate is off.
+        and adequate, or the gate is off. The single check of every caching
+        path — generation, healing and steering alike; never runs on
+        replayed cached code.
 
     Raises:
         LLMUnavailableError: the provider service failed; the calling path

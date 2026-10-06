@@ -4,13 +4,7 @@ import time
 
 
 class SettleWindow:
-    """The settle horizon of one step execution.
-
-    Decides when re-executing the same step code may still help and how long
-    to pause between re-executions. Pure bookkeeping — no I/O, no logging;
-    the window gates repetitions, never kills a running attempt. Two bound
-    modes live side by side: the time window of a positive ``timeout`` and
-    the count bound of a declared ``tries``.
+    """The settle horizon of one step execution — pure bookkeeping: gates repetitions, never kills a running attempt.
 
     Attributes:
         timeout: the total window in seconds; ``None`` — polling disabled;
@@ -61,28 +55,17 @@ class SettleWindow:
         return (self.timeout is not None and self.timeout > 0) or self.count_bounded
 
     def start(self) -> None:
-        """Mark the window start at the first execution of the step code.
-
-        Idempotent: only the first call wins — later executions of the same
-        step never shift the start.
-        """
+        """Mark the window start at the first execution of the step code; idempotent."""
         if self._started_at is None:
             self._started_at = time.monotonic()
 
     def has_remaining(self) -> bool:
         """Whether the window still allows a repetition.
 
-        Time-bounded mode alone: the count-bounded loop checks its own
-        execution counter and never calls this — a count-bounded window
-        with polling disabled has no time horizon.
-
-        Checked only before a repetition: the window never interrupts a
-        running attempt.
-
         Returns:
-            True when time remains and the window is enabled and started;
-            False when disabled, not started or expired — the first
-            execution may consume the whole window.
+            True when time remains and the window is enabled and started.
+            Time-bounded mode alone — the count-bounded loop checks its own
+            counter; checked only before a repetition, never mid-attempt.
         """
         if not self.enabled or self._started_at is None or self.timeout is None:
             return False

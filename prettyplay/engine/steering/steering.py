@@ -187,27 +187,7 @@ _HEALED_EXPLANATION = "healed interactively by engineer guidance"
 
 
 class StepSteering:
-    """Steers a terminally stuck step back to green through engineer-approved turns.
-
-    The opt-in human-in-the-loop escape hatch opened by the step executor at
-    the exact moment an ``IncurableStepError`` would propagate. The dialog
-    shows the full failure context — the terminal render, the current URL, a
-    screenshot file — then takes one guidance line at a time and turns each
-    into a regeneration request whose complete generated code shows at a
-    strict approval gate: nothing executes unseen, only a bare ``y`` runs
-    the candidate against the live page. The dialog joins the one shared
-    per-step attempt history the executor passes in — the same record list
-    the engine loops grew, anchored by the original failure — and appends
-    one verbatim record per completed turn: a rejection (the same URL on
-    both sides, the code never ran), a red execution, a compliance block
-    alike. Every turn ends green — the candidate passes the two-dimension
-    compliance gate judging from the step type and the shared history, then
-    the healed step is written back to the cache and reported — or the
-    prompt reopens with the grown history. Local commands serve the context
-    without the LLM; quit, EOF, SIGINT and an unreadable stdin at either
-    prompt end the dialog declined, a provider failure and a gate hard
-    failure end it, and no budget is ever consumed: the human in the loop
-    is the bound.
+    """Steers a terminally stuck step back to green through engineer-approved turns; no budget is ever consumed.
 
     Attributes:
         _config: project settings; the generation instructions and the
@@ -257,26 +237,6 @@ class StepSteering:
     ) -> CachedStep | None:
         """Run the steering dialog over a terminal failure.
 
-        The dialog renders the context banner once, then takes one guidance
-        line at a time: local commands serve the context without the LLM,
-        and every guidance message becomes one regeneration request whose
-        complete generated code shows at the strict ``run? [y/N]``
-        approval gate — only a bare ``y`` executes it against the live
-        page, nothing runs unseen. Every request carries the honest inputs
-        — the raw step sentence, the step type — plus the rendered shared
-        attempt history in place of any dialog-local turn history. A
-        rejected turn, a failed turn and a blocked turn each append one
-        complete record into the shared history — the URL pair brackets the
-        turn, identical on both sides when the engineer rejected the
-        candidate without execution — and the prompt reopens with the grown
-        history. A green turn passes the two-dimension compliance gate
-        before the write-back: an empty findings list heals; medium and low
-        findings pass with a WARNING; a high finding of either dimension
-        never reaches the cache — the violation joins the history and the
-        prompt reopens; a gate hard failure (the provider unavailable or a
-        malformed verdict) ends the dialog declined after the gate failure
-        line.
-
         Args:
             failure: the terminal failure about to propagate — the source of
                 the failed code, the underlying error and the verdict.
@@ -298,14 +258,16 @@ class StepSteering:
                 by the provider).
             page: the live page facade of the test.
             attempt_history: the shared per-step attempt history grown by
-                the engine loops and anchored by record 0 — the dialog
-                appends every completed turn to it; the history survives
-                the dialog.
+                the engine loops and anchored by record 0 — rendered into
+                every guided request; the dialog appends every completed
+                turn to it.
 
         Returns:
             The healed cached step on a successful approved turn; ``None`` —
             the dialog was declined or died: the caller propagates the
-            original failure.
+            original failure. Every completed turn appends one record into
+            the shared history; a green turn passes the compliance gate
+            before the write-back — a high finding never reaches the cache.
 
         Raises:
             KeyboardInterrupt: a SIGINT outside the prompts and the approval
@@ -392,14 +354,6 @@ class StepSteering:
     def _render_banner(self, failure: IncurableStepError, step_text: str, page: PageFacade) -> None:
         """Render the context banner of the dialog.
 
-        The step header, the failed code, the full terminal render of the
-        failure, the current URL and the path of a full screenshot written
-        to a temporary file — no snapshot fragment: the ``snapshot``
-        command prints the whole tree on demand, and the render already
-        carries the verdict explanation and recommendation. Every page
-        interaction is guarded: a failed one prints its own failure text
-        and the banner continues.
-
         Args:
             failure: the terminal failure the dialog opens over — the source
                 of the failed code and the terminal render.
@@ -426,16 +380,13 @@ class StepSteering:
     def _confirm_run(self, code: str) -> bool:
         """Show the complete generated code and read the strict approval answer.
 
-        The approval gate of every turn: the candidate reaches the live page
-        only after this returns ``True`` — a bare ``y``, nothing else
-        executes.
-
         Args:
             code: the complete generated step code of this turn.
 
         Returns:
-            ``True`` — the engineer approved the execution; ``False`` — any
-            other answer.
+            ``True`` — a bare ``y`` approved the execution; ``False`` — any
+            other answer: the candidate reaches the live page only through
+            this gate.
 
         Raises:
             EOFError: the approval prompt hit the end of the input.
@@ -466,10 +417,6 @@ class StepSteering:
     def _await_guidance(self, failure: IncurableStepError, step_text: str, page: PageFacade) -> str | None:
         """Read guidance lines until one is a real guidance message.
 
-        Blank lines re-prompt — no LLM request, no history entry — and the
-        local commands serve the context before the prompt reopens; only a
-        genuine guidance message returns to the turn loop.
-
         Args:
             failure: the terminal failure the dialog opens over.
             step_text: the raw sentence of the stuck step — the decline log
@@ -478,7 +425,8 @@ class StepSteering:
 
         Returns:
             The raw guidance message; ``None`` — quit, EOF, SIGINT or an
-            unreadable stdin ended the dialog declined.
+            unreadable stdin ended the dialog declined. Blank lines
+            re-prompt; local commands serve the context.
         """
         while True:
             message = self._read_guidance(step_text)
@@ -554,17 +502,6 @@ class StepSteering:
     ) -> str:
         """Run one guided regeneration request against the provider.
 
-        The fresh page state — the snapshot, the screenshot when the project
-        sends them, the current URL read fresh per request — plus the honest
-        inputs (the raw step sentence, the step type) and the rendered
-        shared attempt history compose the request: record 0 anchors the
-        original failure the engineer guidance refers to, every completed
-        turn of the dialog rides its record after it, and the message
-        itself rides the USER GUIDANCE block. A group step's request
-        carries the group framing: the typed scenario records and the group
-        prompt ride the port call, the provider renders the GROUP PROMPT
-        block and the marked entries.
-
         Args:
             step_text: the raw sentence of the stuck step — carried
                 verbatim.
@@ -576,10 +513,13 @@ class StepSteering:
             page: the live page facade of the test.
             guidance: the engineer guidance message of this turn.
             attempt_history: the shared per-step attempt history — rendered
-                record by record into the HISTORY block of the request.
+                record by record into the HISTORY block of the request;
+                record 0 anchors the original failure.
 
         Returns:
-            The generated step code of the fixed form.
+            The generated step code of the fixed form — the fresh page state
+            plus the raw sentence and the step type compose the request; the
+            guidance message rides the USER GUIDANCE block.
 
         Raises:
             LLMUnavailableError: the provider request failed; the caller ends
@@ -650,15 +590,12 @@ class StepSteering:
     def _screenshot_file(self, page: PageFacade) -> str | None:
         """Write a full PNG to the one temporary file of the dialog; return its path.
 
-        One file per dialog: the banner screenshot and every ``screenshot``
-        command overwrite it — a dialog never accumulates temporary PNGs.
-
         Args:
             page: the live page facade of the test.
 
         Returns:
-            The path of the written file; ``None`` when the interaction
-            failed — its failure text was printed.
+            The path of the written file — one file per dialog, overwritten
+            by every later screenshot; ``None`` when the interaction failed.
         """
         path = self._screenshot_path
         fresh = path is None  # the first screenshot of the dialog allocates the one file
@@ -702,9 +639,6 @@ class StepSteering:
 def _record(code: str, error: str, outcome: str, url_before: str, url_after: str) -> StepAttempt:
     """Compose one verbatim attempt record — the shape every turn-append site shares.
 
-    The cell-local twin of the engine helper — the record shape is uniform
-    across the engine loops and the dialog (resolved design decision 2).
-
     Args:
         code: the complete candidate code of the turn.
         error: the complete failure text of the turn; empty on no error.
@@ -721,18 +655,14 @@ def _record(code: str, error: str, outcome: str, url_before: str, url_after: str
 def _banner_line(label: str, text: str) -> str:
     """Align one banner label with its value text.
 
-    The label pads to the banner label column — the banner's own
-    presentation padding; the render text inside stays unpadded. Multi-line
-    values indent every continuation line to the value column.
-
     Args:
         label: the banner label including its colon.
         text: the value text of the line; its continuation lines indent to
             the value column.
 
     Returns:
-        The aligned banner line with its continuation lines, joined with
-        newlines.
+        The aligned banner line with its continuation lines — the label pads
+        to the label column, multi-line values indent to the value column.
     """
     value_column = " " * (_BANNER_LABEL_WIDTH + 1)
     head, *tail = text.splitlines() or [""]  # an empty value renders its label alone

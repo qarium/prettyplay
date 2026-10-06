@@ -20,17 +20,14 @@ if TYPE_CHECKING:
 def _validate_tries(tries: int | None) -> None:
     """Validate the declared retry count of one step; ``None`` — the global polling settings.
 
-    The shared validator of the authoring surface: the facade step methods
-    and the group step methods validate identically. The loud failure names
-    the parameter, the received value and the allowed form — a bad value
-    never reaches the executor.
-
     Args:
         tries: the declared total number of executions of the step's code,
             the first execution included.
 
     Raises:
-        PrettyplayError: the value is a bool, not an integer or below one.
+        PrettyplayError: the value is a bool, not an integer or below one —
+            the loud failure names the parameter, the received value and the
+            allowed form; a bad value never reaches the executor.
     """
     if tries is None:
         return
@@ -45,16 +42,14 @@ def _validate_tries(tries: int | None) -> None:
 def _validate_delay(delay: float | None) -> None:
     """Validate the declared quiet pause of one step or group; ``None`` — no pause.
 
-    The shared validator of the authoring surface: steps declare their start
-    pause in seconds, groups their entry pause — non-negative, fractional
-    allowed, bools never coerced. The loud failure names the parameter, the
-    received value and the allowed form.
-
     Args:
-        delay: the declared pause in seconds.
+        delay: the declared pause in seconds — non-negative, fractional
+            allowed, bools never coerced.
 
     Raises:
-        PrettyplayError: the value is a bool, not a number, not finite or negative.
+        PrettyplayError: the value is a bool, not a number, not finite or
+            negative — the loud failure names the parameter, the received
+            value and the allowed form.
     """
     if delay is None:
         return
@@ -64,20 +59,11 @@ def _validate_delay(delay: float | None) -> None:
 
 
 class StepGroup:
-    """The authoring group object: one coherent mini-scenario with a shared goal.
-
-    Yielded by :meth:`PrettyPlay.group` — never constructed by the integrator.
-    Every step delegated inside the block executes with this group as its
-    context: the generation requests carry the group prompt as the framing
-    input, the internal classification points are suppressed and a failed
-    step routes to the group recovery instead of the per-step heal — that
-    routing belongs to the executor; this object owns the authoring surface,
-    the pauses, the traces and the block lifecycle events. The pauses are
-    plain library-level waits — never ``slow_mo``, which is fixed at browser
-    start and cannot change mid-run.
+    """The authoring group object yielded by :meth:`PrettyPlay.group`: one coherent mini-scenario with a shared goal.
 
     Attributes:
-        _speed: the group pace, 0-100; ``None`` — no between-step pauses.
+        _speed: the group pace, 0-100; ``None`` — no between-step pauses;
+            the pace pause is a plain library wait, never ``slow_mo``.
         _delay: the quiet pause before the group's first step, seconds;
             ``None`` — no entry pause.
         _executor: the step cycle executor of the owning test — every step
@@ -131,23 +117,16 @@ class StepGroup:
 
     @property
     def traces(self) -> list[GroupStepOutcome]:
-        """The verbatim trace records of the group's steps, in execution order.
-
-        One record per executed group step, appended by the executor — the
-        input the executor passes to the group recovery; a record is never
-        rewritten afterwards.
-        """
+        """The verbatim trace records of the group's steps, in execution order — never rewritten."""
         return self._traces
 
     def __enter__(self) -> StepGroup:
         """Enter the group block: the on_group_started event with the group prompt verbatim.
 
-        The entry pause is not slept here — it is applied lazily immediately
-        before the group's first executed step, so a zero-step group is a
-        quiet no-op: the lifecycle events and nothing else.
-
         Returns:
-            This group object.
+            This group object. The entry pause is applied lazily immediately
+            before the group's first executed step — a zero-step group is a
+            quiet no-op: the lifecycle events and nothing else.
         """
         self._reporter.emit("on_group_started", {"group_prompt": self._prompt})
 
@@ -161,15 +140,6 @@ class StepGroup:
     ) -> None:
         """Leave the group block: the outcome event, then the closing event; never suppresses.
 
-        The outcome event is ``on_group_failed`` when the block exits
-        through an exception — a terminally failed step, a refused recovery
-        or an author exception inside the block alike — and
-        ``on_group_passed`` when the block completes without one: a group
-        step healed by the recovery continues as success, so the recovered
-        group reports passed here while its traces keep the verbatim failed
-        record. ``on_group_finished`` closes the group exactly once — the
-        exception path included.
-
         Args:
             exc_type: the type of the block exception, if any.
             exc_value: the block exception, if any.
@@ -177,6 +147,10 @@ class StepGroup:
 
         Returns:
             Nothing — a falsy return keeps the exception propagating.
+            ``on_group_failed`` fires when the block exits through an
+            exception, ``on_group_passed`` when it completes without one —
+            a healed step counts as success; ``on_group_finished`` closes
+            exactly once.
         """
         outcome_event = "on_group_failed" if exc_type is not None else "on_group_passed"
 
@@ -185,11 +159,6 @@ class StepGroup:
 
     def step(self, text: str, *, tries: int | None = None, delay: float | None = None) -> None:
         """Execute the action step ``text`` inside the group.
-
-        Validates like the facade methods — the shared validators — then
-        applies the group's pauses and delegates to the executor with this
-        group as the context; the trace recording and the failure routing
-        belong to the executor.
 
         Args:
             text: the sentence of the action as written by the engineer.
@@ -226,13 +195,6 @@ class StepGroup:
 
     def _delegate(self, text: str, step_type: str, tries: int | None, delay: float | None) -> None:
         """Validate, pause and delegate one group step to the executor.
-
-        The pause of a call: the group entry pause immediately before the
-        group's first executed step (lazy — a zero-step group never pauses),
-        or the between-step pace pause before every following step when the
-        group declares a speed — the same percent-to-ms mapping as the
-        browser speed setting, as a plain library wait. The delegation flag
-        is set before the executor call, never read from the traces.
 
         Args:
             text: the raw sentence of the step, verbatim.

@@ -1,16 +1,4 @@
-"""The internal runtime plumbing handle of a single test page.
-
-Not the API of generated step code: a step function runs against the genuine
-Playwright sync ``Page`` inside the driver worker thread, and :meth:`PageFacade.run`
-is the only crossing point of that worker boundary. Besides the run primitive
-the handle carries exactly the runtime plumbing the library itself needs —
-the current URL, the accessibility snapshot for the LLM inputs, the full-page
-screenshot and the context close. No member proxies, delegates or re-exports
-of page capabilities exist. When the page belongs to a live driver session,
-every Playwright-touching operation is marshalled into the session's driver
-thread; a handle built without a worker (hand-built in tests) calls Playwright
-inline in the constructing thread.
-"""
+"""The internal runtime plumbing handle of a single test page."""
 
 from __future__ import annotations
 
@@ -34,11 +22,7 @@ _RESOLVE_PASS_LIMIT = 128
 
 
 class PageFacade:
-    """The internal runtime plumbing handle of a single test page.
-
-    Wraps one isolated browser context created by
-    :class:`~prettyplay.driver.session.DriverSession`; ``close`` closes the
-    context and leaves the browser of the test running.
+    """The internal runtime plumbing handle of a single test page — plumbing only, no proxies of page capabilities.
 
     Attributes:
         _page: the wrapped Playwright page; never exposed to the calling thread.
@@ -66,65 +50,46 @@ class PageFacade:
     def url(self) -> str:
         """The current URL of the page — an immediate read.
 
-        Executes inside the driver worker thread as one unit: ``_call`` is the
-        one-unit machinery behind :meth:`run` — with a worker it queues one
-        unit on the driver thread and re-raises the outcome as-is; without a
-        worker (hand-built in tests) it runs inline; the unit's ``finally``
-        runs the deferred dialog pass. A plain string crosses back — no
-        Playwright object leaves the worker thread.
-
         Returns:
-            The current URL of the page.
+            The current URL of the page, read as one driver-thread unit; a
+            plain string crosses back, no Playwright object.
         """
         return self._call(lambda: self._page.url)
 
     def run(self, action: Callable[[Page], _T]) -> _T:
-        """Execute the callable wholly inside the driver worker thread.
-
-        The only crossing point of the worker boundary: the action receives
-        the genuine sync ``Page`` of this test and its outcome returns as-is;
-        an exception inside the action propagates to the caller untouched.
-        After the action completes or raises, the resolver-of-last-resort pass
-        resolves every dialog left unclaimed by in-step captures — it never
-        raises and never masks the action's outcome.
+        """Execute the callable wholly inside the driver worker thread — the only crossing point of the boundary.
 
         Args:
             action: the callable to execute; receives the genuine sync Page.
 
         Returns:
-            Whatever ``action`` returns — plain data only; Playwright objects
-            never cross back through the boundary.
+            Whatever ``action`` returns — plain data only; Playwright
+            objects never cross back. The leftover-dialog pass runs after
+            the action — it never raises and never masks the outcome; an
+            exception inside the action propagates untouched.
         """
 
         return self._call(lambda: action(self._page))
 
     def _resolve_leftovers(self) -> None:
-        """Run the deferred dialog pass of the driver-thread unit; never raises.
-
-        A handle without a session carries no registered handler, hence
-        nothing pending — the no-op is correct.
-        """
+        """Run the deferred dialog pass of the driver-thread unit; never raises."""
         if self._router is not None:
             self._router.resolve_pending()
 
     def _call(self, fn: Callable[[], _T]) -> _T:
         """Run one callable in the driver thread with the leftover pass.
 
-        Every unit crossing the worker boundary — a run action and a
-        plumbing call alike — pumps the driver event loop, so a dialog can
-        be recorded while the callable executes; after it completes or
-        raises, the resolver-of-last-resort pass drains every dialog left
-        unclaimed by in-step captures, so no pending dialog survives the
-        boundary.
-
         Args:
             fn: the callable touching the wrapped Playwright objects.
 
         Returns:
-            Whatever ``fn`` returns.
+            Whatever ``fn`` returns — the deferred dialog pass drains every
+            unclaimed dialog after the callable, so no pending dialog
+            survives the boundary.
         """
 
         def unit() -> _T:
+            """Run fn and resolve the dialog leftovers afterwards."""
             try:
                 return fn()
             finally:
@@ -157,20 +122,13 @@ class PageFacade:
 
 
 class _DialogRouter:
-    """The single dialog routing state of one browser context.
-
-    One router serves every page of the context: the session registers the
-    ``record`` handler on each page through the context page event before any
-    step code runs. Registering a ``dialog`` listener disables Playwright's
-    implicit auto-dismiss, so the router is the resolver of last resort —
-    every dialog no in-step stock capture claims is resolved exactly once at
-    the tail of every driver-thread unit, the run action and the plumbing
-    calls alike: accept on the ``accept_dialogs`` setting, else an explicit
-    dismiss restoring the Playwright default.
+    """The single dialog routing state of one browser context — the resolver of last resort at every unit tail.
 
     Attributes:
         accept_dialogs: the ``browser.accept_dialogs`` setting read once at
-            context creation; ``True`` accepts unclaimed dialogs.
+            context creation; ``True`` accepts unclaimed dialogs — the
+            router is the resolver of last resort at every unit tail:
+            accept on this setting, else an explicit dismiss.
         _pending: the dialogs recorded by the routing handlers and not yet
             resolved; only the single worker thread touches it.
     """
@@ -188,35 +146,15 @@ class _DialogRouter:
     def record(self, dialog: Dialog) -> None:
         """Record a dialog fired on any page of the context — pure bookkeeping.
 
-        The per-page handler registered on ``page.on("dialog", ...)``; no
-        Playwright call happens inside event dispatch, so the step's own
-        in-step capture stays free to claim the dialog.
-
         Args:
-            dialog: the raw Playwright dialog fired on the page.
+            dialog: the raw Playwright dialog fired on the page; no
+                Playwright call happens inside the event dispatch, so the
+                step's own in-step capture stays free to claim it.
         """
         self._pending.append(dialog)
 
     def resolve_pending(self) -> None:
-        """Resolve recorded dialogs; never raises.
-
-        The tail pass of every driver-thread unit, executed inside the
-        worker thread. A dialog already resolved by an in-step stock
-        capture raises the driver's already-handled error on the resolution
-        attempt — it is skipped silently; any other resolution failure is
-        logged and dropped so the pass never masks the outcome of the
-        action. A chained dialog — the page firing the next one while the
-        loop advances inside a resolution call — joins the back of the
-        pending list and the same pass drains it: the pass drains until
-        none is left.
-
-        The drain is bounded: a page that fires a fresh dialog for every
-        resolution would drain forever, holding the unit — and the calling
-        thread waiting on it — alive with no timeout left to fire. The pass
-        resolves at most ``_RESOLVE_PASS_LIMIT`` dialogs, then leaves the
-        rest pending for the next unit tail and logs a warning: every unit
-        terminates, and the failure surfaces through the engine timeouts.
-        """
+        """Resolve recorded dialogs — the bounded tail pass of every driver-thread unit; never raises."""
         resolved = 0
         while self._pending and resolved < _RESOLVE_PASS_LIMIT:
             dialog = self._pending.pop(0)  # FIFO — the unstarted tail stays ordered for the next unit tail

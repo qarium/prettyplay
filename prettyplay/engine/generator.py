@@ -167,25 +167,7 @@ plus a count assert on the same locator verifies one fact twice.
 
 
 class StepGenerator:
-    """Generates working step code by executing LLM candidates against the live page.
-
-    Each attempt is one provider request: the generator snapshots the page,
-    asks for code of the fixed form — carrying the raw step sentence, the
-    step type and the rendered per-step attempt history — and immediately
-    executes the candidate under the settle window of the current step
-    execution, the URL pair bracketing the whole attempt. Every attempt that
-    does not produce a cached step appends one verbatim record into the
-    shared history owned by the executor, and the retry request carries the
-    grown history. A failed check no longer burns the whole budget: the
-    classification decides, and a rot or fixable verdict grants exactly one
-    healing-funded regeneration carrying the recommendation (also at budget
-    exhaustion). A green candidate passes the two-dimension compliance gate
-    before it is cached; a high finding of either dimension fails the
-    attempt. Only a proven candidate is cached — failures are never stored.
-    A group step (a non-empty group framing input) carries the framing on
-    every request and suppresses the internal classification points — its
-    failed checks and budget exhaustions raise the unclassified incurable
-    the calling executor routes to the group recovery.
+    """Generates working step code by executing LLM candidates against the live page; only proven candidates are cached.
 
     Attributes:
         _config: project settings; the screenshot flag feeds the requests.
@@ -288,15 +270,6 @@ class StepGenerator:
     ) -> CachedStep:
         """Regenerate step code starting from the anchored history and the diagnosis.
 
-        The loop is the generation loop with four differences: attempts draw
-        from the healing budget pool, every request carries the raw sentence,
-        the step type, the rendered anchored history and the classification
-        recommendation, and every failed attempt — a failed check included —
-        takes the retry branch with the grown history: the entry
-        classification already guards the anti-masking, so no per-attempt
-        classification happens inside the loop. Exhaustion derives the
-        terminal-failure facts from the last record of the history.
-
         Args:
             identity: the address of the step.
             step_text: the raw sentence of the step — carried into every
@@ -313,7 +286,9 @@ class StepGenerator:
                 loop appends after every attempt that does not produce a
                 cached step; the original is never lost to a re-binding.
             recommendation: the diagnosis of the classification that launched
-                the healing; rendered into every request.
+                the healing; rendered into every request — the entry
+                classification guards the anti-masking, no per-attempt
+                classification happens inside the loop.
             window: the settle window of the current step execution.
 
         Returns:
@@ -343,24 +318,6 @@ class StepGenerator:
         window: SettleWindow,
     ) -> CachedStep:
         """Run the generation pool loop until a candidate works or the budget runs out.
-
-        A failed check — a candidate ``AssertionError`` that survived the
-        settle window — goes through the bounded-healing decision table: the
-        classification decides between a terminal kind and exactly one
-        healing-funded regeneration carrying the recommendation and the grown
-        history. Any other candidate failure appends its record and retries
-        with the grown history. A green candidate is gated through
-        ``check_step_compliance`` before it is cached: a high finding of
-        either dimension fails the attempt and the retry carries the grown
-        history, medium and low findings pass with a WARNING, the gate hard
-        failures propagate. Budget exhaustion classifies the last candidate
-        and follows the same table — the rot and fixable verdicts grant one
-        extra funded regeneration there too; a standing high finding raises
-        carrying the verdict built from the finding, with no classification.
-        A group step (a non-empty ``group_prompt``) suppresses the internal
-        classification points: its failed check and its budget exhaustion
-        raise the unclassified incurable carrying the underlying error — the
-        calling executor routes them to the group recovery.
 
         Args:
             identity: the address of the step.
@@ -469,19 +426,6 @@ class StepGenerator:
     ) -> CachedStep:
         """Run the healing pool loop until a candidate works or the budget runs out.
 
-        Every failed attempt — a failed check included — appends its record
-        and retries with the fresh failure description, the fresh snapshot
-        and the grown history while attempts remain: the entry classification
-        already guards the anti-masking, so no per-attempt classification
-        happens inside the loop. Every green candidate is gated through
-        ``check_step_compliance`` before it is cached — the same semantics as
-        the generation loop minus the standing state: a high finding of
-        either dimension fails the attempt and the retry carries the grown
-        history, the gate hard failures propagate. Exhaustion raises without
-        a classification — the terminal-failure facts derive from the last
-        record of the history and the calling healer attaches the verdict it
-        already holds.
-
         Args:
             identity: the address of the step.
             step_text: the raw sentence of the step.
@@ -493,7 +437,8 @@ class StepGenerator:
                 framing; None — an ordinary regeneration.
             page: the live page facade the candidates run against.
             history: the anchored per-step attempt history — record 0 stays
-                untouched at index 0 through every retry.
+                untouched at index 0; every failed attempt, a failed check
+                included, appends its record and retries.
             recommendation: the diagnosis of the classification that launched
                 the healing; rendered into every request.
             window: the settle window of the current step execution.
@@ -502,7 +447,9 @@ class StepGenerator:
             The cached step holding the proven code.
 
         Raises:
-            IncurableStepError: the healing attempt budget is exhausted.
+            IncurableStepError: the healing attempt budget is exhausted; no
+                classification inside the loop — the calling healer attaches
+                the verdict it already holds.
             LLMUnavailableError: the provider service failed; no retry.
             ComplianceVerdictError: the compliance verdict of a green
                 candidate did not parse; nothing is cached.
@@ -561,16 +508,6 @@ class StepGenerator:
     ) -> CachedStep:
         """Decide the bounded-healing outcome of a failed candidate check.
 
-        The uniform decision table: product_defect raises at once, incurable
-        raises carrying the verdict, and rot or fixable grants exactly one
-        healing-funded regeneration carrying the recommendation and the grown
-        history — a refused funding is terminal, and a repeat failure gets
-        one final classification that decides only the terminal kind, never
-        another regeneration. The loop already appended the failed check's
-        record before this table runs. A group step takes no table at all:
-        the unclassified incurable raise carries the underlying failure —
-        the group recovery supplies the verdict and the regeneration.
-
         Args:
             identity: the address of the step — the healing funding key.
             step_text: the raw sentence of the failed step.
@@ -595,8 +532,9 @@ class StepGenerator:
             ProductDefectError: the entry or final verdict says product defect.
             IncurableStepError: the verdict says incurable, the healing
                 funding is refused, or the repeat failure stays terminal —
-                the code field carries the failed step code; a group step
-                raises the unclassified variant — the group recovery decides.
+                one final classification decides the terminal kind only; a
+                group step raises the unclassified variant — the group
+                recovery decides.
         """
         if group_prompt:
             # a group step suppresses the classification and the funded regeneration — the
@@ -665,22 +603,6 @@ class StepGenerator:
     ) -> CachedStep:
         """Decide the outcome of a refused generation attempt.
 
-        A group step (a non-empty ``group_prompt``) raises the unclassified
-        incurable carrying the last record's facts — the empty pair when no
-        candidate ever ran — with no classification and no funded
-        regeneration: the group recovery decides. The ordinary table follows:
-        a standing high compliance finding raises first, carrying the verdict
-        built from the finding itself — no LLM classification, no
-        healing-funded regeneration: the standing violation already consumed
-        the failed attempt and the pool is exhausted. Otherwise: no candidate
-        ever existed — the plain budget failure with an empty error; else the
-        last record of the history carries the last candidate's facts and is
-        classified through the decision table: the rot and fixable verdicts
-        grant one extra healing-funded regeneration carrying the
-        recommendation and the grown history; a repeat failure is terminal
-        without reclassification, carrying the verdict of the entry
-        classification.
-
         Args:
             identity: the address of the step — the healing funding key.
             step_text: the raw sentence of the failed step.
@@ -705,10 +627,10 @@ class StepGenerator:
         Raises:
             ProductDefectError: the verdict says product defect.
             IncurableStepError: the generation attempt budget is exhausted —
-                with the finding named when a high one stands, the verdict
-                says incurable, or the healing funding is refused — the code
-                field carries the failed step code; a group step raises the
-                unclassified variant — the group recovery decides.
+                the finding named when a high one stands, the verdict says
+                incurable, or the healing funding is refused; a repeat
+                failure is terminal without reclassification; a group step
+                raises the unclassified variant — the group recovery decides.
         """
         if group_prompt:
             # a group step suppresses the exhaustion classification and the funded regeneration —
@@ -786,19 +708,6 @@ class StepGenerator:
     ) -> tuple[CachedStep | None, str, str, bool]:
         """Run the one healing-funded regeneration request of the bounded healing.
 
-        A single inline request — never a call to the retrying regenerate
-        loop. It is an LLM attempt: the ordinal continues the pool run's
-        count and ``on_generation_started`` fires. The request carries the
-        grown history — the failed attempt that funded it rides its record.
-        A provider failure propagates immediately — no retry, no final
-        classification; only the execution of the funded candidate can fail
-        softly, appending its record into the history and yielding the failed
-        code and its formatted error for the caller's terminal handling. A
-        green candidate is gated through ``check_step_compliance`` before it
-        is stored; a high finding is a repeat failure of the funded attempt —
-        a candidate failure, never a check — so the caller runs its one final
-        classification on the violation text.
-
         Args:
             identity: the address of the step — the identity of the stored step.
             step_text: the raw sentence of the step.
@@ -816,7 +725,9 @@ class StepGenerator:
         Returns:
             The stored healed step with empty failure facts on success; None
             with the failed code, the formatted failure text and whether the
-            failure was a failed check on a failed execution.
+            failure was a failed check. A single inline request — never the
+            retrying regenerate loop; a high compliance finding counts as a
+            candidate failure, never a check.
 
         Raises:
             LLMUnavailableError: the provider request failed; no retry, no
@@ -903,10 +814,7 @@ class StepGenerator:
         )
 
     def _emit_generation_started(self, step_text: str, attempt: int) -> None:
-        """Report the start of one LLM attempt.
-
-        Fires once per provider request, never per settle re-execution inside
-        it.
+        """Report the start of one LLM attempt — once per provider request, never per settle re-execution.
 
         Args:
             step_text: the sentence of the step.
@@ -936,10 +844,6 @@ class StepGenerator:
     def _classify(self, step_text: str, code: str, error: str, page: PageFacade) -> FailureVerdict | None:
         """Classify a failure through the shared routine with the quiet skip.
 
-        Every classification inside the loop enriches an already-decided
-        failure, so an unavailable LLM yields no verdict — the failure never
-        waits for it and never turns into an infrastructure error.
-
         Args:
             step_text: the sentence of the failed step.
             code: the code of the last candidate.
@@ -948,7 +852,8 @@ class StepGenerator:
 
         Returns:
             The verdict of the classification, or ``None`` when the LLM was
-            unavailable — the quiet skip logs a WARNING.
+            unavailable — the quiet skip logs a WARNING; an already-decided
+            failure never waits for the LLM.
         """
         try:
             classification = classify_step_failure(self._config, self._provider, step_text, code, error, page)

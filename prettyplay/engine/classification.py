@@ -38,13 +38,6 @@ def classify_step_failure(  # noqa: PLR0913, PLR0917 — the parameter list is f
 ) -> FailureClassification:
     """Classify a step failure: collect the page state and ask the provider.
 
-    The single classification call for both engines — the generator failed-check
-    stop and exhaustion, the healer verdict. Provider unavailability propagates
-    to the caller: this routine never swallows it — the calling path decides
-    whether it is a terminal infrastructure failure or a quiet verdict skip.
-    The port method carries the renamed name ``classify_step_failure``; group
-    steps never reach this routine — the group diagnosis is a separate path.
-
     Args:
         config: project settings; ``send_screenshots`` attaches page images
             and ``classification_prompt`` supplies the user instructions.
@@ -59,8 +52,8 @@ def classify_step_failure(  # noqa: PLR0913, PLR0917 — the parameter list is f
         The classification verdict.
 
     Raises:
-        LLMUnavailableError: the provider service failed; the calling path
-            decides the handling.
+        LLMUnavailableError: the provider service failed — propagates
+            untouched, the calling path decides the handling.
     """
     snapshot = page.aria_snapshot()
     screenshot = page.screenshot() if config.send_screenshots else None

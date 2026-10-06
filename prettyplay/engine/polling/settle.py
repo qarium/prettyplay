@@ -16,21 +16,16 @@ def settle(
     page: PageFacade,
     window: SettleWindow,
 ) -> None:
-    """Execute step code under the settle window.
-
-    Absorb transient page-state failures by re-executing the same code,
-    propagate everything else as-is. Each repetition writes a
-    ``settle_retry`` record at INFO — the attempt counter and the failure
-    text; no hook events, no LLM budget. The window carries one of two
-    bound modes: a declared ``tries`` count bounds the loop by executions
-    (a counter local to this call — the cached code and every candidate
-    each get their own full count); otherwise the time window applies.
+    """Execute step code under the settle window — absorbing transient page-state failures by re-executing.
 
     Args:
         execute: the step-code execution routine passed by the caller.
         code: the step code text.
         page: the page facade of the current test.
-        window: the settle window of the current step execution.
+        window: the settle window of the current step execution — a declared
+            ``tries`` count bounds the loop by executions (the counter is
+            local to this call), otherwise the time window applies; each
+            repetition logs ``settle_retry`` at INFO.
     """
     window.start()
 
@@ -67,18 +62,13 @@ def _settle_by_count(
 ) -> None:
     """Execute step code up to the window's declared tries count.
 
-    The count bound replaces the time bound for this loop: re-execute iff
-    the window is enabled, the failure is pollable and fewer executions
-    have run than the window declares; exhaustion propagates the failure
-    object as-is. The counter is local to this call and never consults the
-    clock. Each repetition writes a ``settle_retry`` record at INFO — the
-    attempt counter and the failure text — uniform with the time mode.
-
     Args:
         execute: the step-code execution routine passed by the caller.
         code: the step code text.
         page: the page facade of the current test.
-        window: the count-bounded settle window of this step execution.
+        window: the count-bounded settle window — re-execute iff enabled,
+            pollable and under the declared count; exhaustion propagates
+            the failure as-is.
     """
     executed = 0
 

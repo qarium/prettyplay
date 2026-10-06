@@ -60,15 +60,6 @@ def classify_group_failure(  # noqa: PLR0913, PLR0917 — the parameter list is 
 ) -> GroupFailureClassification:
     """Diagnose a failed group step with the whole interaction in view.
 
-    The single diagnosis call of the recovery: the group prompt, every group
-    step trace and the failed step's attempt history reach the request
-    verbatim, the page state is collected fresh, and the answer is one
-    verdict of the frozen answer form — parsed strictly inside the provider
-    implementation, so a garbage answer arrives here as the conservative
-    incurable carrying the raw answer, never as a granted regeneration.
-    Provider unavailability propagates to the caller: this routine never
-    retries and never swallows it.
-
     Args:
         config: project settings; ``send_screenshots`` attaches the page
             image and ``classification_prompt`` supplies the user
@@ -85,7 +76,8 @@ def classify_group_failure(  # noqa: PLR0913, PLR0917 — the parameter list is 
         page: the page facade of the current test.
 
     Returns:
-        The diagnosis verdict.
+        The diagnosis verdict — a garbage answer arrives as the
+        conservative incurable, never as a granted regeneration.
 
     Raises:
         LLMUnavailableError: the provider service failed; an explicit

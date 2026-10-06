@@ -31,11 +31,6 @@ _REPLACE_BACKOFF_SECONDS = 0.1
 class StepCache:
     """The repository store of cache steps: addressing, atomic writes and the read-only mode.
 
-    The cache is always read: any structural error of a cache file is a
-    protective miss (``None``), never a failed run — the step is simply
-    regenerated. Writes are best-effort: a read-only cache or a busy target
-    skips the write loudly through the reporter and the run continues.
-
     Attributes:
         _root: the cache root from the settings (absolute after ``load_config``).
         _subdir: the optional subdirectory; part of the address, so steps of
@@ -76,8 +71,10 @@ class StepCache:
     def writable(self) -> bool:
         """Return whether the cache directory accepts writes.
 
-        Probed lazily once: the target directory is created (parents included)
-        and checked with ``os.access``; any ``OSError`` counts as read-only.
+        Returns:
+            Whether writes are accepted — probed lazily once: the target
+            directory is created, ``os.access`` checked; any ``OSError``
+            counts as read-only.
         """
         if self._writable is None:
             try:

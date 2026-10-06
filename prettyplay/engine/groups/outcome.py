@@ -6,12 +6,7 @@ from ...cache import StepIdentity
 
 
 class GroupStepOutcome(BaseModel):
-    """One verbatim trace record of a group step's execution.
-
-    The unit the GROUP STEPS block of the diagnosis request renders: the
-    executor appends one record per executed group step — passed or failed —
-    and the record is never rewritten or truncated afterwards; the recovery
-    resolves its row steps by the recorded identity.
+    """One verbatim trace record of a group step's execution — never rewritten or truncated.
 
     Attributes:
         sentence: the raw sentence of the group step, verbatim.
@@ -43,12 +38,8 @@ class GroupStepOutcome(BaseModel):
     def render(self) -> str:
         """Render the complete verbatim trace — the unit the GROUP STEPS block renders.
 
-        The pinned three-line format: the sentence line — the raw sentence
-        verbatim; the outcome line — the outcome label; the URL line — the
-        URL pair with an arrow. No collapsing, no size limits, no truncation
-        of any field; the identity never renders.
-
         Returns:
-            The multi-line trace text.
+            The multi-line trace text — the pinned three-line format:
+            sentence, outcome label, URL pair; the identity never renders.
         """
         return f"{self.sentence}\noutcome: {self.outcome}\nurl: {self.url_before} -> {self.url_after}"

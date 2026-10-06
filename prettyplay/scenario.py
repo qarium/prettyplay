@@ -31,21 +31,13 @@ _SPEED_RANGE = range(0, 101)
 def _raise_folded(error: PrettyplayError) -> types.NoReturn:
     """Re-raise a library failure with its traceback folded to this boundary.
 
-    The head link of the caught traceback is the facade method's own frame;
-    the folded traceback keeps exactly that link, so the internal library
-    frames (engine, healing, provider) never appear in what the runner shows.
-    The same exception object is re-raised — never a copy — keeping identity
-    for hook consumers and ``except`` clauses, and adding no context nesting.
-    The chained exceptions (``__context__``/``__cause__``) keep their identity
-    and messages — the original step failure stays visible for debugging —
-    but their tracebacks are folded away too: a runner that renders the chain
-    shows no internal frames either.
-
     Args:
         error: the library failure leaving ``step``/``expect``.
 
     Raises:
-        Always: the given error with the folded traceback attached.
+        Always: the given error with the folded traceback attached — the
+        same object, never a copy; only the facade boundary frame stays,
+        the chained tracebacks fold away too.
     """
     tb = error.__traceback__
     _fold_chain_tracebacks(error)
@@ -86,15 +78,14 @@ def _fold_chain_tracebacks(error: BaseException) -> None:
 def _validate_group_speed(speed: int | None) -> None:
     """Validate the declared group pace; ``None`` — no between-step pauses.
 
-    The group-level twin of the browser ``speed`` setting: an integer
-    0-100 inclusive, bools never coerced. The loud failure names the
-    parameter, the received value and the allowed form.
-
     Args:
-        speed: the group pace — an integer 0-100 inclusive.
+        speed: the group pace — an integer 0-100 inclusive, bools never
+            coerced.
 
     Raises:
-        PrettyplayError: the value is a bool, not an integer or outside 0-100.
+        PrettyplayError: the value is a bool, not an integer or outside
+            0-100 — the loud failure names the parameter, the received
+            value and the allowed form.
     """
     if speed is None:
         return
@@ -106,21 +97,10 @@ def _validate_group_speed(speed: int | None) -> None:
 class PrettyPlay:
     """The main object of the integrator: one instance per UI test.
 
-    The test writes its scenario in plain sentences — :meth:`step` and
-    :meth:`expect`, framed into coherent mini-scenarios by :meth:`group` —
-    and this object does the rest: addressing of the
-    cached steps by the context key, the isolated page of the test, and the
-    full step cycle delegated to the executor (in strict replay-only mode:
-    cached code only, classification at most). Construction is cheap: the
-    page opens lazily on the first step and no LLM credential is needed —
-    the runtime provider handed to the executor is a lightweight object,
-    its SDK client stays lazy until the first request.
-    Every test composes its own runtime here — no process-wide state, no
-    state leaks between tests; two tests in one process hold two runtimes,
-    two attempt registries and two browser sessions.
-
     Attributes:
-        _runtime: the composition root owned by this one test.
+        _runtime: the composition root owned by this one test — no
+            process-wide state: two tests hold two runtimes, two attempt
+            registries and two browser sessions.
         _reporter: the visibility point of this test.
         _cache: the step cache of this test.
         _generator: the generation engine of this test.
@@ -143,7 +123,7 @@ class PrettyPlay:
         hooks: list[StepHooks] | None = None,
         config: PrettyConfig | None = None,
     ) -> None:
-        """Compose the per-test objects over the runtime this test owns.
+        """Compose the per-test objects over the runtime this test owns; the page and the SDK client stay lazy.
 
         Args:
             cache_key: the context key of the test; the addressing part of
@@ -227,10 +207,6 @@ class PrettyPlay:
     def step(self, text: str, *, tries: int | None = None, delay: float | None = None) -> None:
         """Execute one action step sentence through the step cycle.
 
-        A library failure leaving this method carries its traceback folded to
-        this boundary: the runner sees the test frame and the boundary frame
-        with the rendered message, never the internal engine frames.
-
         Args:
             text: the sentence of the action as written by the engineer.
             tries: keyword-only — the total number of executions of the
@@ -245,7 +221,8 @@ class PrettyPlay:
         Raises:
             PrettyplayError: ``tries`` or ``delay`` is invalid — the loud
                 failure names the parameter, the received value and the
-                allowed form.
+                allowed form; every library failure leaving this method
+                carries its traceback folded to this boundary.
             ProductDefectError: the step expectation is genuinely broken in the product.
             IncurableStepError: the step never generated successfully, or the verdict
                 says regeneration cannot help.
@@ -263,9 +240,6 @@ class PrettyPlay:
     def expect(self, text: str, *, tries: int | None = None, delay: float | None = None) -> None:
         """Execute one assertion step sentence through the step cycle.
 
-        A library failure leaving this method carries its traceback folded to
-        this boundary, exactly as :meth:`step` does.
-
         Args:
             text: the sentence of the assertion as written by the engineer.
             tries: keyword-only — the total number of executions of the
@@ -278,9 +252,8 @@ class PrettyPlay:
                 non-negative, fractional allowed; ``None`` — no pause.
 
         Raises:
-            PrettyplayError: ``tries`` or ``delay`` is invalid — the loud
-                failure names the parameter, the received value and the
-                allowed form.
+            PrettyplayError: ``tries`` or ``delay`` is invalid; the traceback
+                folding is exactly as :meth:`step`.
             ProductDefectError: the step expectation is genuinely broken in the product.
             IncurableStepError: the step never generated successfully, or the verdict
                 says regeneration cannot help.
@@ -298,15 +271,6 @@ class PrettyPlay:
     def group(self, prompt: str, *, speed: int | None = None, delay: float | None = None) -> StepGroup:
         """Open the group authoring block — one coherent mini-scenario with a shared goal.
 
-        The returned group object carries the ordinary step surface —
-        ``step``/``expect`` with the ``tries``/``delay`` parameters — and
-        used as a context manager it frames the block with the group
-        lifecycle events: ``on_group_started`` on entry, then
-        ``on_group_passed`` or ``on_group_failed`` and the closing
-        ``on_group_finished`` on exit. There is no ambient rerouting of this
-        test object: steps outside the block are ordinary steps, and group
-        membership changes no step's cache address.
-
         Args:
             prompt: the group prompt, verbatim — the shared goal of the
                 block, reaching the generation and diagnosis requests;
@@ -319,7 +283,10 @@ class PrettyPlay:
                 step, seconds, non-negative; ``None`` — no pause.
 
         Returns:
-            The authoring group object — yield it from a ``with`` block.
+            The authoring group object — yield it from a ``with`` block: it
+            carries the ordinary step surface and frames the block with the
+            group lifecycle events; group membership changes no step's cache
+            address.
 
         Raises:
             PrettyplayError: ``prompt`` is empty, ``speed`` is malformed or
@@ -344,18 +311,11 @@ class PrettyPlay:
     def run_on_page(self, action: Callable[[Page], _T]) -> _T:
         """Execute the author action wholly inside the driver worker thread.
 
-        The author escape hatch: the action runs against the genuine sync
-        ``Page`` of the test, sequentially with every step — the stateful
-        actions excluded from generated code (``page.route``, ``page.clock``,
-        ``add_init_script``, tracing, HAR, CDP) are the author's explicit
-        tools here. The prompt rules of generated code do not bind the author.
-        The action must use the page API only: calling back into the test
-        object (a step, a screenshot, a nested ``run_on_page``) marshals into
-        the same worker thread the action itself runs on and is rejected with
-        a loud error instead of a deadlock.
-
         Args:
-            action: the callable to execute; receives the genuine sync Page.
+            action: the callable to execute; receives the genuine sync Page,
+                runs sequentially with every step — the stateful actions
+                excluded from generated code are the author's explicit tools
+                here.
 
         Returns:
             The outcome of ``action`` as-is — plain data only; Playwright
@@ -364,7 +324,8 @@ class PrettyPlay:
         Raises:
             PrettyplayError: no test page exists yet — run a step first.
             Exception: whatever ``action`` raises propagates to the caller
-                as-is — the same object, no wrapping, no folding.
+                as-is; a call back into the test object from inside the
+                action is rejected with a loud error instead of a deadlock.
         """
         if self._page is None:
             raise PrettyplayError("no test page yet: run a step first — the page opens lazily on the first step")
@@ -374,11 +335,10 @@ class PrettyPlay:
     def get_screenshot(self) -> bytes:
         """Return a full-page PNG screenshot of the current test page.
 
-        The decision to take a screenshot belongs to the author: nothing is
-        captured automatically on step failures.
-
         Returns:
-            The PNG image bytes of the page.
+            The PNG image bytes of the page — the decision to capture
+            belongs to the author: nothing is captured automatically on
+            step failures.
 
         Raises:
             PrettyplayError: no test page exists yet — run a step first.
@@ -391,15 +351,14 @@ class PrettyPlay:
     def save_screenshot(self, filepath: str) -> None:
         """Save a full-page PNG screenshot of the current test page to a file.
 
-        Parent directories are not created: nothing is created silently —
-        a missing directory is a loud failure.
-
         Args:
             filepath: the destination path of the PNG file.
 
         Raises:
             PrettyplayError: no test page exists yet, or the file cannot be
-                written; the original ``OSError`` is chained.
+                written — parent directories are never created silently, a
+                missing directory is a loud failure; the original
+                ``OSError`` is chained.
         """
         if self._page is None:
             raise PrettyplayError("no test page yet: run a step first — the page opens lazily on the first step")
@@ -421,18 +380,7 @@ class PrettyPlay:
         self._reporter.hooks.append(hooks)
 
     def close(self) -> None:
-        """Close the page and the whole runtime of this test.
-
-        The isolated page context closes first, then the runtime stops
-        unconditionally — a failing page close (e.g. after a browser crash)
-        never keeps the browser of the test alive; its error still propagates.
-        The browser of this test does not outlive the test.
-
-        Idempotent and safe before the first step: nothing was opened —
-        nothing is closed beyond the no-op runtime close. The page reference
-        drops before its close runs, so even a failing page close never
-        repeats on a retried ``close``.
-        """
+        """Close the page, then unconditionally the whole runtime of this test; idempotent."""
         page = self._page
         self._page = None
 

@@ -1,10 +1,4 @@
-"""In-memory models of the step cache: step addressing and a cached unit.
-
-``StepIdentity`` is the address of a step: the triple (cache key, step type,
-normalized sentence) plus the filename derived from it. ``CachedStep`` is one
-unit of the cache in memory: the identity, the generated code, and the date
-of its creation.
-"""
+"""In-memory models of the step cache: step addressing and a cached unit."""
 
 import hashlib
 
@@ -33,11 +27,10 @@ class StepIdentity(BaseModel):
     def filename(self) -> str:
         """Return the cache filename deterministically derived from the triple.
 
-        The three parts are joined with the Unit Separator (so no pair of
-        values can collide with another pair), hashed with sha256, and given
-        the ``.py`` extension. The name does not have to be a Python
-        identifier: the cache loader parses the file text and never imports
-        the module by name.
+        Returns:
+            The filename — the parts joined with the Unit Separator,
+            sha256-hashed, ``.py``-extended; the cache loader parses the
+            text and never imports the module by name.
         """
         identity_string = _IDENTITY_SEPARATOR.join((self.cache_key, self.step_type, self.normalized_text))
         digest = hashlib.sha256(identity_string.encode("utf-8")).hexdigest()

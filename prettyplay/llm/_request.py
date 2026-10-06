@@ -25,17 +25,13 @@ _FENCED_BLOCK = re.compile(r"```[a-zA-Z0-9_+-]*[ \t]*\r?\n(.*?)```", re.DOTALL)
 def extract_code_block(answer: str) -> str:
     """Return the step code of a completion, unwrapping the markdown fence.
 
-    Models answer generation requests with a fenced python block even when told
-    to output only code, so the first fenced block of `answer` is the code; an
-    answer with no closed fence is passed through verbatim — an unfenced code
-    answer stays executable, an unparsable one keeps failing downstream.
-
     Args:
         answer: the non-empty completion text of a generation request.
 
     Returns:
-        The code of the fixed form: the body of the first fenced block, or the
-        answer itself when it carries no closed fence.
+        The code of the fixed form: the body of the first fenced block, or
+        the answer itself when it carries no closed fence — an unfenced
+        code answer stays executable.
     """
     match = _FENCED_BLOCK.search(answer)
 
@@ -345,13 +341,7 @@ def parse_classification_line(answer: str) -> tuple[str, str, str] | None:
 
 
 def _format_previous_steps(previous_steps: list[ScenarioStep]) -> str:
-    """Render the scenario context section; an empty history stays explicit.
-
-    The group membership is a property of the record: an entry carrying a
-    group prompt renders marked as a group step, an ordinary entry renders
-    its sentence alone — identically whether or not the surrounding request
-    carries a group framing.
-    """
+    """Render the scenario context section; an empty history stays explicit."""
     if not previous_steps:
         return "PREVIOUS STEPS:\n(none)"
 

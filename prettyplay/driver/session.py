@@ -42,16 +42,7 @@ class _Task:
 
 
 class PlaywrightWorker:
-    """The dedicated thread where the Playwright sync session lives.
-
-    The Playwright sync API runs its private asyncio loop on a greenlet fiber
-    of the thread that started it, and that thread keeps the loop's running
-    marker until the session stops — which breaks any asyncio-driven host
-    (IPython, Jupyter) that executed a step in its own thread. The worker
-    keeps the fiber and the marker inside its own background thread instead;
-    calls still happen strictly sequentially through :meth:`run`, which
-    rejects a call made from the pump thread itself — a re-entrant unit could
-    never be served and would deadlock both threads.
+    """The dedicated thread where the Playwright sync session lives — keeping the asyncio marker off the caller thread.
 
     Attributes:
         _tasks: the queue feeding the pump thread; ``None`` is the stop sentinel.
@@ -111,10 +102,7 @@ class PlaywrightWorker:
         return cast(_T, task.result)
 
     def close(self) -> None:
-        """Stop the pump thread and wait for its exit.
-
-        Idempotent: a call before start and repeated calls are no-ops.
-        """
+        """Stop the pump thread and wait for its exit; idempotent."""
         thread = self._thread
         if thread is None:
             return
@@ -141,14 +129,6 @@ class PlaywrightWorker:
 class DriverSession:
     """Owns the Playwright sync driver and one browser process for one test.
 
-    The constructor starts nothing: the driver and the browser start lazily on
-    the first :meth:`open_context` call and then serve every step of the test.
-    Every call opens a fresh isolated browser context wrapped into a
-    :class:`PageFacade` — no state is shared between tests through the library.
-    The whole Playwright session lives inside the thread of a
-    :class:`PlaywrightWorker`, so the thread executing the steps never keeps a
-    running asyncio loop.
-
     Attributes:
         _config: project settings; the ``browser`` group selects the engine of
             the matrix, its ``screen`` sets the size mode of every context,
@@ -172,26 +152,11 @@ class DriverSession:
     def open_context(self) -> PageFacade:
         """Open a fresh isolated context with one page wrapped into the handle.
 
-        The driver and the browser start lazily on the first call exactly once
-        per test; each subsequent call only creates a new isolated context.
-        The context opens with the parameters the ``screen`` setting of the
-        browser group resolves to — the resolution itself runs inside the
-        driver thread, because the device registry belongs to the running
-        Playwright session.
-
-        Before any step code runs, the single dialog routing handler of the
-        context is registered through the context page event: the wiring goes
-        up before ``new_page()``, so the open_context page itself and every
-        later popup or new tab registers exactly one handler — never two.
-        The handler is record-only; registering a ``dialog`` listener disables
-        Playwright's implicit auto-dismiss, so the routing handler subsystem
-        resolves every unclaimed dialog at the tail of every driver-thread
-        unit of the page handle — accept by the ``accept_dialogs`` setting of
-        the browser group, else an explicit dismiss (the same observable
-        default).
-
         Returns:
-            The page handle of a fresh isolated context.
+            The page handle of a fresh isolated context — the driver and the
+            browser start lazily on the first call; the dialog router is
+            registered before ``new_page()``: every page of the context,
+            popups included, registers exactly one handler.
 
         Raises:
             Error: the ``screen`` value names a device absent from the
@@ -204,6 +169,12 @@ class DriverSession:
         browser = self._browser
 
         def open_isolated() -> tuple[Page, BrowserContext, _DialogRouter]:
+            """Open one fresh isolated context with one page in the driver thread.
+
+            Returns:
+                The page, its context and the dialog router registered
+                before the first page event.
+            """
             params = self._screen_context_params()
             context: BrowserContext = browser.new_context(**params)
             router = _DialogRouter(self._config.browser.accept_dialogs)
@@ -222,15 +193,12 @@ class DriverSession:
     def _screen_context_params(self) -> dict[str, object]:
         """Resolve the screen setting of the browser group into context parameters.
 
-        Runs inside the driver thread: the device registry is read from the
-        running Playwright session and is never hard-coded. The empty value
-        keeps the Playwright default; ``fullscreen`` follows the window of a
-        local headed launch and pins to a fixed viewport where no window
-        exists; a WxH value is a fixed viewport; any other value is a device
-        name resolved against the registry.
-
         Returns:
-            The ``new_context`` keyword arguments of the resolved screen mode.
+            The ``new_context`` keyword arguments — resolved inside the
+            driver thread against the registry of the running Playwright:
+            empty keeps the default, ``fullscreen`` follows the window or
+            pins a viewport, a WxH value is a fixed viewport, anything else
+            is a device name.
 
         Raises:
             Error: the value names no device of the running registry; the
@@ -260,13 +228,7 @@ class DriverSession:
         raise Error(f"unknown screen device {screen!r}: not in the playwright device registry{suggestion}")
 
     def close(self) -> None:
-        """Stop the browser and the Playwright driver; safe when nothing was started.
-
-        Idempotent: repeated calls and a call before any launch are no-ops.
-        A failing browser close (e.g. after a crash) never skips the
-        Playwright stop and the worker thread join — its error still
-        propagates after both ran.
-        """
+        """Stop the browser, the Playwright driver and the worker; idempotent; a failing close never skips the rest."""
         worker = self._worker
         if worker is None:
             return
@@ -288,13 +250,11 @@ class DriverSession:
     def _launch(self) -> None:
         """Start the driver thread, the Playwright session and the browser.
 
-        Everything Playwright-touching runs inside the worker thread, so the
-        caller's thread never adopts the Playwright event loop. On a launch or
-        connect failure the driver is stopped and the worker closed before the
-        error propagates, so a retry starts from a clean state.
-
         Raises:
-            Exception: whatever the engine start raises.
+            Exception: whatever the engine start raises — on a launch or
+                connect failure the driver is stopped and the worker closed
+                before the error propagates, so a retry starts from a clean
+                state.
         """
         worker = PlaywrightWorker()
         worker.start()
@@ -320,37 +280,19 @@ class DriverSession:
     def _launch_engine(self, playwright: Playwright) -> Browser:
         """Start the browser engine selected by the browser group of the configuration.
 
-        The group ``speed`` setting maps linearly to Playwright's native pace —
-        ``slow_mo = int((100 - speed) * 30)`` ms, 100 → 0 — and rides every
-        launch mode: the local launch and the remote connect receive the same
-        one value, fixed for the whole browser process. ``slow_mo`` is a
-        browser-process start parameter, not a code wait — the fixed-delays
-        rule for generated step code is untouched.
-
-        A set group ``endpoint`` connects over the Playwright ws endpoint of
-        the selected engine instead of launching locally: the group ``name``
-        selects the engine type (``chrome``/``msedge`` map to chromium —
-        channels do not apply to a connect) and ``headless`` is ignored, because
-        window visibility belongs to the endpoint server. Playwright's raw
-        connect error carries only the OS-level cause and never the endpoint
-        URL, so a failed connect is re-raised wrapped, chained to the original.
-
-        Otherwise every engine launches with the group ``headless`` setting;
-        ``chrome``/``msedge`` name a locally installed browser launched through
-        the chromium engine with the matching channel. A channel launch without
-        the installed browser fails with Playwright's own actionable error,
-        propagated as-is. A chromium-family fullscreen on a local headed launch
-        starts the window maximized (``--start-maximized``) so the viewport-free
-        context follows the real screen; firefox/webkit keep their plain launch.
-
         Args:
             playwright: the started Playwright session of the worker thread.
 
         Returns:
-            The connected or launched browser process of the test.
+            The connected or launched browser process — the group ``speed``
+            maps to the native ``slow_mo``, fixed at process start and never
+            a code wait; a set ``endpoint`` connects instead of launching,
+            with ``headless`` ignored; ``chrome``/``msedge`` launch through
+            the chromium engine with the matching channel.
 
         Raises:
-            Error: a connect failure, wrapped with the endpoint in the message.
+            Error: a connect failure — re-raised wrapped with the endpoint,
+                chained to the original.
         """
         group = self._config.browser
         name = group.name

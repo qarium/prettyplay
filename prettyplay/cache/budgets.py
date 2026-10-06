@@ -1,23 +1,10 @@
-"""Per-test attempt registry: how many tries a step still has in this test.
-
-One registry lives for the lifetime of one test, owned by the test's runtime
-(see the runtime composition root), so every test starts with full limits —
-a step reused across tests gets a fresh budget in each test. Generation and
-healing draw from separate pools, and each step is accounted by its
-deterministic address.
-"""
+"""Per-test attempt registry: how many tries a step still has in this test."""
 
 from .models import StepIdentity
 
 
 class RunBudgets:
-    """The per-test registry of generation and healing attempts per step.
-
-    Both pools are keyed by ``identity.filename`` — the deterministic digest
-    of the step triple — so accounting survives without hashing the pydantic
-    model. Recovery cycles are keyed by the group prompt instead: the cap
-    counts recovery cycles per group per test, never per step. Nothing is
-    persisted: the registry is process memory only.
+    """The per-test registry of generation and healing attempts per step — nothing persisted, process memory only.
 
     Attributes:
         _generation_limit: how many generation attempts a step may take per test.
@@ -79,20 +66,15 @@ class RunBudgets:
     def refresh_healing(self, identity: StepIdentity) -> None:
         """Grant the step a fresh full healing counter.
 
-        The recovery engine calls this at every new recovery cycle for every
-        row step, so a second attempt is never starved by the first cycle.
-        Ordinary per-step pools of other steps are untouched.
-
         Args:
-            identity: the address of the row step.
+            identity: the address of the row step — the recovery refreshes
+                every row step at each new cycle; other steps' pools stay
+                untouched.
         """
         self._healing_used[identity.filename] = 0
 
     def open_group_cycle(self, group_key: str) -> bool:
-        """Spend one recovery cycle of the group or refuse on exhaustion.
-
-        The cap counts recovery cycles per group per test, never per step —
-        the recovery loop is never infinite.
+        """Spend one recovery cycle of the group or refuse on exhaustion — the loop is never infinite.
 
         Args:
             group_key: the key of the group — its group prompt.

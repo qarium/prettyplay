@@ -15,14 +15,6 @@ from .polling import SettleWindow
 class StepHealer:
     """Heals a failed cached step according to the classification verdict.
 
-    The healer never heals blindly. It first asks the provider to classify
-    the failure of the cached code, then follows the verdict: a product
-    defect propagates loudly as the signal the test suite exists for
-    (the cache stays untouched — nothing to regenerate), an incurable step
-    propagates with the verdict fields, and rot or fixable delegates to the
-    generator, which regenerates the code and rewrites the cache only after
-    the healed candidate has actually worked on the page.
-
     Attributes:
         _config: project settings; the screenshot flag feeds the requests.
         _provider: the LLM port implementation classifying the failure.
@@ -69,10 +61,6 @@ class StepHealer:
     ) -> CachedStep:
         """Heal a failed cached step according to the classification verdict.
 
-        The healer serves ordinary steps only — a group step never reaches
-        it (the executor routes group failures to the group recovery), so
-        the regeneration request always carries ``group_prompt=None``.
-
         Args:
             step: the cached step whose code failed.
             error: the failure description of the cached code.
@@ -94,7 +82,10 @@ class StepHealer:
                 regenerated candidates absorb transient failures inside it.
 
         Returns:
-            The healed step with proven code, already cached by the generator.
+            The healed step with proven code, already cached by the
+            generator — the healer serves ordinary steps only: a group step
+            never reaches it, the regeneration request always carries
+            ``group_prompt=None``.
 
         Raises:
             ProductDefectError: the expectation of the step is genuinely

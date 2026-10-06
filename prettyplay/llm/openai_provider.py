@@ -45,25 +45,15 @@ def _first_choice_text(response: object) -> str | None:
 
 
 class OpenAIProvider(LLMProvider):
-    """The LLMProvider implementation served by the openai SDK.
-
-    Full parity with :class:`AnthropicProvider`: the same four operations
-    (generation, classification, group diagnosis, compliance verdict), the
-    same inputs, the same output shapes. The constructor reads no
-    environment and
-    constructs no client; the SDK client is created lazily on the first
-    request, so the library starts without LLM credentials. Every service
-    failure maps to :class:`~prettyplay.failures.LLMUnavailableError`
-    naming the provider; the API key is read from the environment only and
-    never logged.
-    """
+    """The LLMProvider implementation served by the openai SDK — full parity with :class:`AnthropicProvider`."""
 
     def __init__(self, config: Config) -> None:
         """Keep the config; the SDK client stays unconstructed until the first request.
 
         Args:
             config: project settings; the effective models and the optional
-                base_url endpoint override come from it.
+                base_url endpoint override come from it. The API key is
+                read from the environment only and never logged.
         """
         self._config = config
         self._client: OpenAI | None = None
@@ -269,17 +259,6 @@ class OpenAIProvider(LLMProvider):
     ) -> GroupFailureClassification:
         """Diagnose a failed group step with the whole interaction in view.
 
-        The group diagnosis request of the recovery: the user content
-        carries the GROUP PROMPT, GROUP STEPS, STEP, HISTORY (when
-        non-empty) and PAGE SNAPSHOT blocks in this fixed order with the
-        optional USER INSTRUCTIONS block last; the screenshot rides the
-        openai image part exactly like every attached image; sent as one
-        request through the effective classification model; the text answer
-        parses strictly through ``parse_group_failure_classification`` — an
-        unusable answer degrades to the conservative incurable inside the
-        provider, never raising across the port. Identically to the
-        anthropic implementation.
-
         Args:
             prompt: the group diagnosis system prompt supplied by the calling
                 engine; applied verbatim as the system message.
@@ -304,7 +283,10 @@ class OpenAIProvider(LLMProvider):
 
         Returns:
             The diagnosis verdict; a degraded answer carries the
-            conservative incurable with the raw answer in root_cause.
+            conservative incurable with the raw answer in root_cause — the
+            block order GROUP PROMPT, GROUP STEPS, STEP, HISTORY, PAGE
+            SNAPSHOT; an unusable answer degrades inside the provider,
+            never raising across the port.
 
         Raises:
             LLMUnavailableError: the SDK client is unavailable or the
@@ -344,16 +326,6 @@ class OpenAIProvider(LLMProvider):
     ) -> list[ComplianceFinding]:
         """Check the successfully executed candidate code in two dimensions.
 
-        The compliance verdict request of the gate: the user content carries
-        the INSTRUCTIONS, STEP (with its STEP TYPE line), ATTEMPT HISTORY
-        and CODE blocks in this fixed order as a plain string (no screenshot
-        input on this operation), sent as one request through the effective
-        classification model; the text answer parses strictly through
-        ``parse_compliance_verdict`` — no fence unwrapping, a malformed
-        verdict raises
-        :class:`~prettyplay.failures.ComplianceVerdictError`, never a
-        silent pass. Identically to the anthropic implementation.
-
         Args:
             prompt: the gate system prompt text supplied by the calling
                 engine; applied verbatim as the system message.
@@ -374,7 +346,9 @@ class OpenAIProvider(LLMProvider):
                 identically to the anthropic implementation.
 
         Returns:
-            The parsed findings; an empty list means compliant.
+            The parsed findings; an empty list means compliant — the block
+            order INSTRUCTIONS, STEP, ATTEMPT HISTORY, CODE; no fence
+            unwrapping: a malformed verdict raises, never a silent pass.
 
         Raises:
             LLMUnavailableError: the SDK client is unavailable or the

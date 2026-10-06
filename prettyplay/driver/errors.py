@@ -1,11 +1,4 @@
-"""The fixed pollable map of the prettyplay.driver error surface.
-
-The single recognition point deciding which failed step-code exceptions a
-settle window may absorb: :func:`is_pollable_failure` reads the exception
-type and message alone — no state, no I/O, no settings, no LLM. The map is
-fixed in code and mirrors the driver error-kind table of the ``playwright``
-usage one-to-one.
-"""
+"""The fixed pollable map of the prettyplay.driver error surface."""
 
 from __future__ import annotations
 
@@ -56,22 +49,15 @@ def _matches_pollable(text: str) -> bool:
 def is_pollable_failure(exc: Exception) -> bool:
     """Decide whether a failed step-code exception is transient page state.
 
-    The fixed pollable map of the step-code error surface — recognition only.
-    True means the settle window may re-execute the same code; False means
-    the failure is deterministic or unknown and goes straight to
-    classification.
-
     Args:
         exc: the exception raised by the failed step code.
 
     Returns:
-        True when the kind is transient — a failed check (a failed
-        ``expect(...)`` chain or a plain Python assert on an immediate read
-        alike — an AssertionError that is not the locator-ambiguity
-        violation) or a Playwright driver error of the timeout,
-        element-state or navigation/context family; False for locator
-        ambiguity, Python-level errors of the step code and unrecognized
-        kinds.
+        True when the kind is transient — the settle window may re-execute
+        the same code; False — deterministic or unknown, it goes straight
+        to classification. True covers a failed check and the
+        timeout/element-state/navigation driver families; False covers
+        locator ambiguity and Python-level errors.
     """
     text = str(exc)
 

@@ -26,12 +26,7 @@ OUTCOME_REJECTED = "rejected by the engineer, not executed"
 
 
 class StepAttempt(BaseModel):
-    """One immutable verbatim record of the per-step attempt history.
-
-    The unit the provider HISTORY block and the gate ATTEMPT HISTORY block
-    render: every attempt of a step — generation, healing and steering alike —
-    that does not produce a cached step appends one record, and the record is
-    never rewritten or truncated afterwards.
+    """One immutable verbatim record of the per-step attempt history — never rewritten or truncated.
 
     Attributes:
         code: the complete candidate code of the attempt, verbatim.
@@ -56,17 +51,10 @@ class StepAttempt(BaseModel):
     def render(self) -> str:
         """Render the complete verbatim record text.
 
-        The pinned four-part format: the outcome label line; the URL pair
-        line; the code part — the ``code:`` marker followed by the complete
-        code, untouched; a non-empty error renders the error part — the
-        ``error:`` marker followed by the complete error text — on its own
-        line after the code text, a separating newline inserted when the code
-        text does not end with one; the two markers separate the two
-        free-text parts. An empty error renders no error part at all. No
-        collapsing, no size limits, no truncation of any field.
-
         Returns:
-            The multi-line record text.
+            The multi-line record text — the pinned four-part format:
+            outcome line, URL pair, the ``code:`` part and, when non-empty,
+            the ``error:`` part; no collapsing, no truncation.
         """
         record = f"{self.outcome}\nurl: {self.url_before} -> {self.url_after}\ncode:\n{self.code}"
         if self.error:
@@ -79,15 +67,12 @@ class StepAttempt(BaseModel):
 def _read_url(page: PageFacade) -> str:
     """Read the page URL for an attempt bracket; never kills the attempt.
 
-    The guarded read of every URL bracket: a dead page or a driver failure on
-    the read degrades honestly to the empty string on that side — the attempt
-    itself proceeds normally.
-
     Args:
         page: the page facade handle of the current test.
 
     Returns:
-        The current URL of the page, or the empty string when the read fails.
+        The current URL of the page, or the empty string when the read
+        fails — the attempt itself proceeds normally.
     """
     try:
         return page.url
