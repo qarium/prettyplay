@@ -1136,3 +1136,22 @@ class TestSendWithRetriesEdges:
         assert all("secret-token" not in record.getMessage() for record in caplog.records)
         expected_fields = {"provider", "operation", "attempt", "category", "delay"}
         assert all(expected_fields <= set(record.__dict__) for record in caplog.records)
+
+
+class TestFacadeExports:
+    """Contract tests: the cell facade exposes the transport machinery; the root facade does not."""
+
+    def test_facade_exports_the_transport_machinery(self) -> None:
+        import prettyplay  # noqa: PLC0415 — cell facade check
+        from prettyplay import llm  # noqa: PLC0415 — cell facade check
+
+        names = [
+            "TransportFailureClassification",
+            "classify_openai_failure",
+            "classify_anthropic_failure",
+            "compute_transport_pause",
+            "send_with_retries",
+        ]
+
+        assert all(name in llm.__all__ and getattr(llm, name) is not None for name in names)
+        assert not (set(names) & set(prettyplay.__all__))

@@ -987,33 +987,46 @@ updated, alphabetical order per the existing facade style); the root facade
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Declaration (STEP 0)**: task 7 — facade exposure of the five names
-- [ ] **Contract test** (in `tests/llm/test_request.py`; expected to fail): the design
-  scenario `test_facade_exports_the_transport_machinery` — `import prettyplay.llm as llm`;
-  Assertion: `all(name in llm.__all__ and getattr(llm, name) is not None for name in
-  ["TransportFailureClassification", "classify_openai_failure",
-  "classify_anthropic_failure", "compute_transport_pause", "send_with_retries"])`; negative
-  assertion: the names are absent from `prettyplay.__all__` (root facade unchanged)
-- [ ] **REPL cycle** (M4): in the venv interpreter — after editing the facade,
-  `importlib.reload(prettyplay.llm)` and import the five names directly from the package;
-  confirm `__all__` is complete and alphabetically ordered
-- [ ] **Code**: extend the `from ._request import (...)` import in
-  `prettyplay/llm/__init__.py` with the five names and insert them into `__all__`
-  (alphabetical: after `"ScenarioStep"` comes `"TransportFailureClassification"`, then
-  `"classify_anthropic_failure"`, `"classify_openai_failure"`, `"compute_transport_pause"`,
-  then the existing `"create_provider"`, and `"send_with_retries"` after
-  `"parse_group_failure_classification"`)
-- [ ] Verify facade accessibility: `.venv/bin/python -c "from prettyplay.llm import
-  TransportFailureClassification, classify_openai_failure, classify_anthropic_failure,
-  compute_transport_pause, send_with_retries; print('facade ok')"`
-- [ ] Negative facade check: `.venv/bin/python -c "import prettyplay; names =
-  {'TransportFailureClassification','classify_openai_failure','classify_anthropic_failure',
-  'compute_transport_pause','send_with_retries'}; assert not (names &
-  set(prettyplay.__all__)); print('root facade unchanged')"`
-- [ ] Run the contract test: `.venv/bin/python -m pytest tests/llm/test_request.py -q`
-- [ ] Lint (STEP 7): ruff check + ruff format on `prettyplay/llm/__init__.py`,
-  `tests/llm/test_request.py`
-- [ ] **Completion (STEP 8)**: mark checkboxes; → review → approval → next task. Commit gate.
+- [x] **Declaration (STEP 0)**: task 7 — facade exposure of the five names
+- [x] **Contract test** (in `tests/llm/test_request.py`; expected to fail): the design
+      scenario `test_facade_exports_the_transport_machinery` — `import prettyplay.llm as llm`;
+      Assertion: `all(name in llm.__all__ and getattr(llm, name) is not None for name in
+      ["TransportFailureClassification", "classify_openai_failure",
+      "classify_anthropic_failure", "compute_transport_pause", "send_with_retries"])`; negative
+      assertion: the names are absent from `prettyplay.__all__` (root facade unchanged)
+      (written first in class `TestFacadeExports` — failed red on the missing `__all__`
+      entries, green after the facade edit; ruff PLR0402 rewrote the alias import to
+      `from prettyplay import llm` — same object, same assertion)
+- [x] **REPL cycle** (M4): in the venv interpreter — after editing the facade,
+      `importlib.reload(prettyplay.llm)` and import the five names directly from the package;
+      confirm `__all__` is complete and alphabetically ordered
+      (scratch driver under /tmp with `python -i`: reload + direct five-name import +
+      `__all__ == sorted(__all__)` over 15 entries + live `classify_openai_failure` call;
+      root facade reloaded and re-checked untouched; driver deleted, never committed)
+- [x] **Code**: extend the `from ._request import (...)` import in
+      `prettyplay/llm/__init__.py` with the five names and insert them into `__all__`
+      (alphabetical: after `"ScenarioStep"` comes `"TransportFailureClassification"`, then
+      `"classify_anthropic_failure"`, `"classify_openai_failure"`, `"compute_transport_pause"`,
+      then the existing `"create_provider"`, and `"send_with_retries"` after
+      `"parse_group_failure_classification"`)
+      (the facade had no prior `._request` import — the block was added new; ruff I001 places
+      it first in the import block, underscore before letters)
+- [x] Verify facade accessibility: `.venv/bin/python -c "from prettyplay.llm import
+      TransportFailureClassification, classify_openai_failure, classify_anthropic_failure,
+      compute_transport_pause, send_with_retries; print('facade ok')"`
+      (facade ok)
+- [x] Negative facade check: `.venv/bin/python -c "import prettyplay; names =
+      {'TransportFailureClassification','classify_openai_failure','classify_anthropic_failure',
+      'compute_transport_pause','send_with_retries'}; assert not (names &
+      set(prettyplay.__all__)); print('root facade unchanged')"`
+      (root facade unchanged)
+- [x] Run the contract test: `.venv/bin/python -m pytest tests/llm/test_request.py -q`
+      (103 passed; tests/llm/ 286, full suite 1131)
+- [x] Lint (STEP 7): ruff check + ruff format on `prettyplay/llm/__init__.py`,
+      `tests/llm/test_request.py`
+      (two auto-fixed findings — I001 import order, PLR0402 alias — code fixed,
+      configuration untouched; `ruff check prettyplay/ tests/` clean afterwards)
+- [x] **Completion (STEP 8)**: mark checkboxes; → review → approval → next task. Commit gate.
 
 ### Task 8: Provider rewiring — `max_retries=0`, `send_with_retries` wrapping (TDD coding)
 
