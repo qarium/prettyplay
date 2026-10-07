@@ -7,7 +7,7 @@ memory:
   commit: true
 
 stages:
-  brainstorm:
+  prototype-architecture:
     agent: architector
     reflect:
       file: architecture.md
