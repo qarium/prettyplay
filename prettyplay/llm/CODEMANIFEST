@@ -27,13 +27,14 @@ Annotations: |
   The attempt-history input participates in both provider implementations with identical semantics: the HISTORY block renders every attempt-history record verbatim — each record a complete multi-line record (the attempt outcome, the URL before -> after line, the complete candidate code, the complete error) composed by the calling engine; the record list carries the whole attempt history of the step, the anchored original cached code first when it exists; no collapsing, no size limits; the block takes the place of the former CODE and ERROR request inputs and the former steering-only history block; a parity requirement, not a capability difference.
   The scenario-context input participates in both provider implementations with identical semantics: every generation request renders the PREVIOUS STEPS block from the typed scenario records — the raw sentence of each entry verbatim, the entries carrying group membership marked as group steps; a parity requirement, not a capability difference.
   The group-framing input participates in both provider implementations with identical semantics: a non-empty group_prompt of a generation request renders as its own GROUP PROMPT block immediately before the PREVIOUS STEPS block; None — no block; a parity requirement, not a capability difference.
-  The group diagnosis operation is the fourth operation of the port with the same absolute parity: one request per diagnosis carrying the group prompt, the group step traces, the failed step's sentence and attempt history, the page snapshot and the optional screenshot — sent through the effective classification model; the answer parses strictly through `parse_group_failure_classification`; a degraded answer is the conservative incurable, never a granted regeneration.
-  The classification operation classify_step_failure is the former classify_failure — the rename is nominal, the behavior identical. The one-request-per-attempt rule covers the diagnosis request too.
+  The group diagnosis operation is the fourth operation of the port with the same absolute parity: one logical request per diagnosis, with bounded resends of the identical SDK request inside it, carrying the group prompt, the group step traces, the failed step's sentence and attempt history, the page snapshot and the optional screenshot — sent through the effective classification model; the answer parses strictly through `parse_group_failure_classification`; a degraded answer is the conservative incurable, never a granted regeneration.
+  The shared transport retry mechanism lives in _request.py: every SDK call of all four operations of both provider implementations passes through `send_with_retries`. Retryable transport failures — connection failures, timeouts, HTTP 408/429 and any status 500 through 599 — resend the identical request; permanent failures — authentication, authorization, invalid requests, an explicitly exhausted quota — fail immediately, an explicit permanent cause taking precedence over a retryable status (see `openai` and `anthropic` for the per-SDK exception rules). SDK built-in retries are disabled: both clients are constructed with max_retries=0, so the configured budget is also the maximum number of request sends. Delays are fixed policy: base 1, 2, 4, 8, 10, 10… seconds plus a 0–25 percent jitter of the base, capped at 10 seconds; a valid Retry-After of at most 10 seconds raises the pause to the indicated wait, above 10 seconds the request terminates with an actionable `LLMUnavailableError` instead of retrying, malformed values are ignored. KeyboardInterrupt during a wait interrupts it without another retry. Exhaustion and permanent rejections raise `LLMUnavailableError` with the original cause chained. Every retry emits one WARNING record to the logger prettyplay — provider, operation, attempt number, error category, delay; never secrets, never request or response contents.
+  The request-attempt setting is llm_request_attempts / PRETTYPLAY_LLM_REQUEST_ATTEMPTS. These names supersede any older transport_attempts / PRETTYPLAY_TRANSPORT_ATTEMPTS wording in the imported `openai` and `anthropic` practices; do not implement the old names. The practices must be resynced from their corrected source before implementation.
+  The classification operation classify_step_failure is the former classify_failure — the rename is nominal, the behavior identical.
   API keys come only from environment variables; never log keys or payloads containing secrets.
-  One completion request per attempt: attempt budgets are owned by the calling engine, never by a provider.
+  One logical LLM attempt per engine attempt: inside it the shared transport retry mechanism of this cell may resend the identical request up to the configured request-attempt budget (llm_request_attempts of `Config`, default 3, initial send included); attempt budgets are owned by the calling engine, never by a provider — transport retries consume none of them.
   Cached step code never depends on the provider: the provider serves generation, classification and the compliance verdict only.
-  The compliance verdict operation is the third operation of the port with the same absolute parity: one verdict request per successfully executed candidate judging two dimensions in one request — instruction compliance and step adequacy — the answer parsed strictly through `parse_compliance_verdict`; a malformed verdict raises the hard compliance failure, never a silent pass.
-  The one-request-per-attempt rule covers the verdict request too: attempt budgets are owned by the calling engine, never by a provider.
+  The compliance verdict operation is the third operation of the port with the same absolute parity: one logical verdict request per successfully executed candidate, with bounded resends of the identical SDK request inside it, judging two dimensions in one request — instruction compliance and step adequacy — the answer parsed strictly through `parse_compliance_verdict`; a malformed verdict raises the hard compliance failure, never a silent pass.
 
 ---
 
@@ -61,7 +62,7 @@ Annotations: |
       `code`: the generated step code of the fixed form, working through the standard Playwright sync API — imports from playwright.sync_api and the Python standard library only, global at the top level of the code block; the first markdown-fenced block of the answer is unwrapped — an answer with no closed fence returns verbatim.
 
       Requirements:
-      - A provider service failure (connectivity, timeout, rate limit, authentication) raises `LLMUnavailableError` naming the provider
+      - A provider transport failure is retried inside this operation up to the configured request-attempt budget; exhaustion, a permanent rejection or an over-cap Retry-After raises `LLMUnavailableError` naming the provider with the original cause chained
       - The generated code contains no provider-specific constructs
       - The block order of a generation request is fixed: CHEAT SHEET, user instructions, HISTORY, RECOMMENDATION, USER GUIDANCE — a non-empty input renders its named block, identically in both implementations
       - the GROUP PROMPT block renders immediately before the PREVIOUS STEPS block of the scenario part, identically in both implementations
@@ -81,7 +82,7 @@ Annotations: |
       `classification`: the `FailureClassification` verdict.
 
       Requirements:
-      - A provider service failure raises `LLMUnavailableError` naming the provider
+      - A provider transport failure is retried inside this operation up to the configured request-attempt budget; exhaustion, a permanent rejection or an over-cap Retry-After raises `LLMUnavailableError` naming the provider with the original cause chained
     "classify_group_failure(prompt: str, user_instructions: str, group_prompt: str, group_steps: list[str], step_text: str, attempt_history: list[str], snapshot: str, screenshot: bytes | None) -> diagnosis: GroupFailureClassification": |
       Send one group diagnosis request — the diagnosis of a failed step with the whole interaction
       in view.
@@ -111,8 +112,8 @@ Annotations: |
          the verdict
 
       Requirements:
-      - A provider service failure raises `LLMUnavailableError` naming the provider
-      - One request per diagnosis — attempt budgets belong to the calling engine
+      - A provider transport failure is retried inside this operation up to the configured request-attempt budget; exhaustion, a permanent rejection or an over-cap Retry-After raises `LLMUnavailableError` naming the provider with the original cause chained
+      - One logical diagnosis attempt with bounded transport retries inside it — attempt budgets belong to the calling engine
       - The input takes no part in step addressing
     "check_instruction_compliance(prompt: str, user_instructions: str, step_text: str, step_type: str, code: str, attempt_history: list[str]) -> verdict: list[ComplianceFinding]": |
       Check the successfully executed candidate code on two dimensions — instruction compliance and step adequacy — the compliance verdict request of the gate.
@@ -126,7 +127,7 @@ Annotations: |
       `verdict`: the parsed findings of both dimensions; an empty list means compliant and adequate.
 
       Requirements:
-      - A provider service failure raises `LLMUnavailableError` naming the provider
+      - A provider transport failure is retried inside this operation up to the configured request-attempt budget; exhaustion, a permanent rejection or an over-cap Retry-After raises `LLMUnavailableError` naming the provider with the original cause chained
       - The answer parses strictly through `parse_compliance_verdict`; a malformed verdict raises `ComplianceVerdictError` — unchecked code is never waved through
       - The user content carries four blocks in the fixed order INSTRUCTIONS, STEP, ATTEMPT HISTORY, CODE — with the STEP TYPE line immediately before the STEP line — identically in both implementations
       - The gate model is the effective classification model of the provider settings
@@ -139,13 +140,15 @@ Annotations: |
 
     `config`: project settings; the generation model is the effective_generation_model of `config`, the classification model is the effective_classification_model of `config`; the base_url setting of `config` overrides the endpoint when set.
 
-    Algorithm (all three operations):
-    1. Build the request: the prompt text as the system message, the user content carrying the inputs — the STEP TYPE line renders immediately before the STEP line; the CHEAT SHEET block renders after the scenario inputs; a non-empty page_url renders as its own PAGE URL line immediately after the PAGE SNAPSHOT block; a non-empty user_instructions of a generation request renders as a separate USER INSTRUCTIONS block placed immediately after the CHEAT SHEET block; the attempt-history records render as the HISTORY block placed after the USER INSTRUCTIONS block — every record verbatim, complete multi-line records, no collapsing; the remaining regeneration-only blocks render in the fixed order RECOMMENDATION, USER GUIDANCE; a non-empty input renders its named block, identically in both implementations; a non-empty user_instructions of a classification request renders as the separate USER INSTRUCTIONS block placed last in the user content, after all classification inputs (STEP, CODE, ERROR, PAGE SNAPSHOT)
-    2. Send one completion request via the SDK
-    3. Extract the text answer; a generation answer unwraps its first markdown-fenced block — an unfenced answer passes through verbatim
-    4. An SDK error maps to `LLMUnavailableError` (see `openai`)
+    Construction: the SDK client is constructed with max_retries=0 — the SDK never resends on its own (see `openai`).
 
-    The compliance operation: the prompt as the system message, the user content carrying the INSTRUCTIONS, STEP (with its STEP TYPE line), ATTEMPT HISTORY and CODE blocks in this fixed order; sent as one request through the effective classification model; the text answer parses strictly through `parse_compliance_verdict` — a malformed verdict (an answer of the old shape included) raises `ComplianceVerdictError`; an SDK error maps to `LLMUnavailableError` (see `openai`)
+    Algorithm (all four operations):
+    1. Build the request: the prompt text as the system message, the user content carrying the inputs — the STEP TYPE line renders immediately before the STEP line; the CHEAT SHEET block renders after the scenario inputs; a non-empty page_url renders as its own PAGE URL line immediately after the PAGE SNAPSHOT block; a non-empty user_instructions of a generation request renders as a separate USER INSTRUCTIONS block placed immediately after the CHEAT SHEET block; the attempt-history records render as the HISTORY block placed after the USER INSTRUCTIONS block — every record verbatim, complete multi-line records, no collapsing; the remaining regeneration-only blocks render in the fixed order RECOMMENDATION, USER GUIDANCE; a non-empty input renders its named block, identically in both implementations; a non-empty user_instructions of a classification request renders as the separate USER INSTRUCTIONS block placed last in the user content, after all classification inputs (STEP, CODE, ERROR, PAGE SNAPSHOT)
+    2. Send the single SDK call wrapped in `send_with_retries` with the provider label openai, the operation label, attempts taken from config llm_request_attempts and `classify_openai_failure` as the classifier
+    3. Extract the text answer; a generation answer unwraps its first markdown-fenced block — an unfenced answer passes through verbatim
+    4. An SDK error classifies through `classify_openai_failure`; permanent categories and exhaustion map to `LLMUnavailableError` through the retry mechanism (see `openai`)
+
+    The compliance operation: the prompt as the system message, the user content carrying the INSTRUCTIONS, STEP (with its STEP TYPE line), ATTEMPT HISTORY and CODE blocks in this fixed order; sent as one request through the effective classification model; the text answer parses strictly through `parse_compliance_verdict` — a malformed verdict (an answer of the old shape included) raises `ComplianceVerdictError`; an SDK error classifies through `classify_openai_failure`; permanent categories and exhaustion map to `LLMUnavailableError` through the shared transport retry mechanism (see `openai`)
 
 "LLMProvider::AnthropicProvider(config: Config)":
   location: anthropic_provider.py
@@ -154,13 +157,15 @@ Annotations: |
 
     `config`: the same settings semantics as the openai implementation.
 
-    Algorithm (all three operations):
-    1. Build the request: the prompt text as the system message, the user content carrying the inputs — the STEP TYPE line renders immediately before the STEP line; the CHEAT SHEET block renders after the scenario inputs; a non-empty page_url renders as its own PAGE URL line immediately after the PAGE SNAPSHOT block; a non-empty user_instructions of a generation request renders as a separate USER INSTRUCTIONS block placed immediately after the CHEAT SHEET block; the attempt-history records render as the HISTORY block placed after the USER INSTRUCTIONS block — every record verbatim, complete multi-line records, no collapsing; the remaining regeneration-only blocks render in the fixed order RECOMMENDATION, USER GUIDANCE; a non-empty input renders its named block, identically in both implementations; a non-empty user_instructions of a classification request renders as the separate USER INSTRUCTIONS block placed last in the user content, after all classification inputs (STEP, CODE, ERROR, PAGE SNAPSHOT)
-    2. Send one message request via the SDK
-    3. Extract the text answer; a generation answer unwraps its first markdown-fenced block — an unfenced answer passes through verbatim
-    4. An SDK error maps to `LLMUnavailableError` (see `anthropic`)
+    Construction: the SDK client is constructed with max_retries=0 — the SDK never resends on its own (see `anthropic`).
 
-    The compliance operation: the prompt as the system message, the user content carrying the INSTRUCTIONS, STEP (with its STEP TYPE line), ATTEMPT HISTORY and CODE blocks in this fixed order; sent as one request through the effective classification model; the text answer parses strictly through `parse_compliance_verdict` — a malformed verdict (an answer of the old shape included) raises `ComplianceVerdictError`; an SDK error maps to `LLMUnavailableError` (see `anthropic`)
+    Algorithm (all four operations):
+    1. Build the request: the prompt text as the system message, the user content carrying the inputs — the STEP TYPE line renders immediately before the STEP line; the CHEAT SHEET block renders after the scenario inputs; a non-empty page_url renders as its own PAGE URL line immediately after the PAGE SNAPSHOT block; a non-empty user_instructions of a generation request renders as a separate USER INSTRUCTIONS block placed immediately after the CHEAT SHEET block; the attempt-history records render as the HISTORY block placed after the USER INSTRUCTIONS block — every record verbatim, complete multi-line records, no collapsing; the remaining regeneration-only blocks render in the fixed order RECOMMENDATION, USER GUIDANCE; a non-empty input renders its named block, identically in both implementations; a non-empty user_instructions of a classification request renders as the separate USER INSTRUCTIONS block placed last in the user content, after all classification inputs (STEP, CODE, ERROR, PAGE SNAPSHOT)
+    2. Send the single SDK call wrapped in `send_with_retries` with the provider label anthropic, the operation label, attempts taken from config llm_request_attempts and `classify_anthropic_failure` as the classifier
+    3. Extract the text answer; a generation answer unwraps its first markdown-fenced block — an unfenced answer passes through verbatim
+    4. An SDK error classifies through `classify_anthropic_failure`; permanent categories and exhaustion map to `LLMUnavailableError` through the retry mechanism (see `anthropic`)
+
+    The compliance operation: the prompt as the system message, the user content carrying the INSTRUCTIONS, STEP (with its STEP TYPE line), ATTEMPT HISTORY and CODE blocks in this fixed order; sent as one request through the effective classification model; the text answer parses strictly through `parse_compliance_verdict` — a malformed verdict (an answer of the old shape included) raises `ComplianceVerdictError`; an SDK error classifies through `classify_anthropic_failure`; permanent categories and exhaustion map to `LLMUnavailableError` through the shared transport retry mechanism (see `anthropic`)
 
 "create_provider(config: Config) -> provider: LLMProvider":
   location: provider.py
@@ -177,6 +182,154 @@ Annotations: |
 
     Requirements:
     - An unknown provider value fails loudly with an actionable message listing the supported providers
+
+"TransportFailureClassification(category: str, retry_after: float | None)":
+  location: _request.py
+  annotations: |
+    The verdict of one transport failure classification: what kind of transport failure it is and
+    the retry wait the provider asked for.
+
+    `category`: one of the closed nine-label set — retryable family: connection, timeout,
+    rate_limit, server_error; permanent family: authentication, permission_denied,
+    invalid_request, not_found, quota_exhausted.
+    `retry_after`: the parsed Retry-After seconds carried by the failure; None — the explicit
+    absence (no header or a malformed value).
+
+    Requirements:
+    - pydantic v2, kw_only, empty defaults (see `conventions`)
+    - `category` is always one of the nine labels — an unrecognized failure classifies permanent
+      before reaching this type
+  properties:
+    "category -> str": |
+      The transport failure label of the closed nine-label set.
+    "retry_after -> float | None": |
+      The parsed Retry-After seconds; None — absent or malformed.
+    "retryable -> bool": |
+      Whether the category belongs to the retryable family — the retry-or-raise decision of the
+      retry loop.
+
+"classify_openai_failure(error: Exception) -> failure: TransportFailureClassification":
+  location: _request.py
+  annotations: |
+    Classify one openai SDK exception into the transport verdict — the single classification
+    point of the openai implementation (see `openai`).
+
+    `error`: the exception raised by the openai SDK call.
+    `failure`: the transport verdict.
+
+    Algorithm:
+    1. Match the permanent signals first: an explicitly exhausted quota — even when the status
+       looks retryable, e.g. 429 — authentication failure, permission denial, invalid request,
+       not found; an explicit permanent cause always wins over a retryable status
+    2. Otherwise match the retryable signals: connection failure, timeout, HTTP 408 and 429, any
+       HTTP status 500 through 599
+    3. Extract Retry-After from the failure response when present and parse it to seconds; a
+       missing or malformed value yields None
+    4. An exception matching no known signal classifies permanent — a never-recognized failure
+       is never blindly retried
+
+    Requirements:
+    - Pure classification: no I/O, no logging, no state
+    - The label set and the permanent-precedence rule mirror `classify_anthropic_failure`
+      exactly — provider parity
+
+    Constraints:
+    - Never raise: every input classifies to a verdict
+
+"classify_anthropic_failure(error: Exception) -> failure: TransportFailureClassification":
+  location: _request.py
+  annotations: |
+    Classify one anthropic SDK exception into the transport verdict — the single classification
+    point of the anthropic implementation (see `anthropic`); full parity with the openai
+    classification: the same nine-label set, the same permanent-precedence rule, the same
+    Retry-After handling mirrored onto the anthropic exception hierarchy.
+
+    `error`: the exception raised by the anthropic SDK call.
+    `failure`: the transport verdict.
+
+    Algorithm:
+    1. Match the permanent signals first: an explicitly exhausted quota — even when the status
+       looks retryable — authentication failure, permission denial, invalid request, not found;
+       an explicit permanent cause always wins over a retryable status
+    2. Otherwise match the retryable signals: connection failure, timeout, HTTP 408 and 429, any
+       HTTP status 500 through 599
+    3. Extract Retry-After from the failure response when present and parse it to seconds; a
+       missing or malformed value yields None
+    4. An exception matching no known signal classifies permanent — a never-recognized failure
+       is never blindly retried
+
+    Requirements:
+    - Pure classification: no I/O, no logging, no state
+    - The label set and the permanent-precedence rule mirror `classify_openai_failure` exactly
+      — provider parity
+
+    Constraints:
+    - Never raise: every input classifies to a verdict
+
+"compute_transport_pause(failed_attempt: int, retry_after: float | None) -> pause: float":
+  location: _request.py
+  annotations: |
+    Compute the backoff pause after one failed transport attempt — the fixed delay policy of
+    the port.
+
+    `failed_attempt`: the 1-based number of the attempt that just failed.
+    `retry_after`: the parsed Retry-After seconds of the failure; None — absent or malformed.
+    `pause`: the pause in seconds before the next send.
+
+    Algorithm:
+    1. Base: one second doubled per prior failure, capped at ten — the sequence 1, 2, 4, 8, 10,
+       10… seconds
+    2. Add a random jitter of 0–25 percent of the base
+    3. Cap the result at 10 seconds
+    4. A valid retry_after — positive and at most 10 — raises the pause to the indicated wait
+       when it exceeds the computed delay
+
+    Requirements:
+    - Pure function: no I/O, no sleeps; deterministic on the inputs aside from the random jitter
+
+    Constraints:
+    - A retry_after above 10 seconds never reaches this routine as a wait: the retry loop
+      terminates before computing a pause
+
+"send_with_retries(provider: str, operation: str, attempts: int, classify: Callable[[Exception], TransportFailureClassification], send: Callable[[], T]) -> response: T":
+  location: _request.py
+  annotations: |
+    Send one LLM request with the bounded transport retry loop — the shared retry mechanism of
+    the port wrapping every SDK call of all four operations of both provider implementations.
+
+    `provider`: the provider label for logs and errors — openai, anthropic.
+    `operation`: the operation label for logs — generation, classification, group diagnosis,
+    compliance verdict.
+    `attempts`: the total send budget, initial send included — llm_request_attempts of `Config`;
+    1 disables retries.
+    `classify`: the provider-specific classifier of the caught exception.
+    `send`: the closure performing exactly one SDK request.
+    `response`: the successful response of `send`.
+
+    Algorithm:
+    1. Run send; a success returns its response as is
+    2. On an exception: classify through `classify` into a `TransportFailureClassification`
+    3. A permanent category raises `LLMUnavailableError` naming `provider` with the original
+       cause chained — immediately, no retry
+    4. A retry_after above 10 seconds raises `LLMUnavailableError` with an actionable message
+       naming the provider and the indicated wait — before any pause is computed
+    5. The attempt was the last of `attempts`: raise `LLMUnavailableError` naming `provider`
+       with the original cause chained
+    6. Otherwise compute the pause through `compute_transport_pause`, emit one WARNING record to
+       the logger prettyplay — provider, operation, attempt number, error category, delay; never
+       secrets, never request or response contents — then wait the pause and run the next attempt
+
+    Requirements:
+    - At most `attempts` sends of the identical request — the loop is the only retry authority
+      of the port
+    - KeyboardInterrupt during a wait propagates without another retry
+    - One WARNING record per retry — no other log records, no hook events
+
+    Constraints:
+    - Never retry a permanent category; never consult engine attempt budgets — those belong to
+      the calling engine
+    - The invalid content of a successful response never enters this loop: response validation
+      and recovery stay with the operations
 
 "FailureClassification(category: str, explanation: str, recommendation: str)":
   location: models.py
@@ -323,4 +476,4 @@ Annotations: |
 Author: Goga
 CreatedAt: 10/09/26
 Description: |
-  The LLM port of prettyplay: one contract, the openai and anthropic SDK implementations in full parity — generation, classification and the two-dimension compliance verdict with identical user-instructions, cheat-sheet, step-type and attempt-history semantics — the failure classification verdict and the instruction-compliance and step-adequacy findings, the typed scenario records, the group diagnosis operation and its verdict.
+  The LLM port of prettyplay: one contract, the openai and anthropic SDK implementations in full parity — generation, classification and the two-dimension compliance verdict with identical user-instructions, cheat-sheet, step-type and attempt-history semantics — the failure classification verdict and the instruction-compliance and step-adequacy findings, the typed scenario records, the group diagnosis operation and its verdict, and the shared bounded transport retry mechanism.

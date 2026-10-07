@@ -235,7 +235,9 @@ Annotations: |
       - Every generation request carries the cheat-sheet taken from `cheat_sheet` from Usages: the model always sees the standard-API reference — guidance, never an allowlist
       - `group_prompt` None — the behavior is byte-identical to the ordinary path: the same requests, the same classification points, the same bounded healing (C13)
       - Every generation request carries the raw step sentence, the step type and the rendered attempt history — the record list grows by one after every attempt that does not produce a cached step
-      - Provider unavailability of a generation request surfaces as `LLMUnavailableError` immediately — no retry on it
+      - Provider unavailability of a generation request surfaces as `LLMUnavailableError` after the
+        bounded transport retries inside the logical LLM attempt; the engine itself adds no retries
+        above them
       - Provider unavailability of a classification is skipped quietly with a WARNING: the failure raises without a verdict — the failed check itself is the primary signal
       - Exactly one failed check drives the bounded healing rule; the attempt budget is never spent on a legitimately failing assertion beyond it
       - A verdict requested on this path fully reaches the raised error
@@ -277,7 +279,7 @@ Annotations: |
     `text`: the formatted failure text carried by reports, renders and requests.
 
     Requirements:
-    - A failed check — an AssertionError — yields its message verbatim with no prefix: the exception type already carries the assertion semantics; a message-less check yields an empty text, so the structured render omits the error line
+    - A failed check — an AssertionError — yields its message with no prefix, the trailing aria-snapshot section Playwright appends excluded: the bulky page state stays out of reports, renders and requests; the exception type already carries the assertion semantics; a message-less check yields an empty text, so the structured render omits the error line
     - Any other failure carries its type name: the action failures of step code are timeouts and driver errors whose bare messages lose the kind of failure
     - A message-less error yields the bare type name, never a dangling separator
 

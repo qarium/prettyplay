@@ -13,8 +13,10 @@ import os
 
 from openai import OpenAI
 
-client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+client = OpenAI(api_key=os.environ["OPENAI_API_KEY"], max_retries=0)
 ```
+
+`max_retries=0` is mandatory: all transport retry control is centralized in the retry mechanism of the llm cell — the SDK never resends a request on its own, so the configured attempt limit is also the actual limit of request sends.
 
 ## Completion call for step generation
 
@@ -66,8 +68,23 @@ except OpenAIError as error:
     raise LLMUnavailableError("llm unavailable: openai request failed") from error
 ```
 
+## Transport retries — bounded backoff
+
+All four operations (step generation, failure classification, group diagnosis, the compliance verdict) pass through the shared transport retry mechanism inside one logical LLM attempt; transport retries never consume generation, healing or group recovery budgets — those belong to the calling engine.
+
+Retryable failures: connection failures (`APIConnectionError`), timeouts (`APITimeoutError`), HTTP 408/429 (`RateLimitError` carries `Retry-After`) and transient 5xx (`InternalServerError` and any `APIStatusError` with a 5xx status). Permanent failures fail immediately: `AuthenticationError`, `PermissionDeniedError`, `BadRequestError`, `NotFoundError` and an explicitly exhausted quota; an explicit permanent cause takes precedence over a retryable HTTP status.
+
+Policy — fixed by the transport backoff decision (2026-10-07):
+
+- Default **3 total attempts** including the initial request; only the attempt count is configurable (`llm_request_attempts`: explicit test parameters > env `PRETTYPLAY_LLM_REQUEST_ATTEMPTS` > pyproject); a value below 1 is a configuration error
+- Delays: base grows 1, 2, 4, 8, 10, 10… seconds, jitter adds 0–25% of the base, the final pause never exceeds 10 seconds
+- A valid `Retry-After` of at most 10 seconds takes the greater of the indicated wait and the computed delay; above 10 seconds the request terminates with an actionable error instead of retrying; a malformed value is ignored
+- Cancellation (`KeyboardInterrupt`) interrupts the backoff wait and prevents another retry; SDK request timeouts stay unchanged
+- After exhaustion the operation raises `LLMUnavailableError` with the original cause chained
+- Every retry logs one WARNING to the `prettyplay` logger: provider, operation, attempt number, error category, delay — never secrets or request/response contents
+
 ## Rules
 
 - Provider parity: every capability exposed for `openai` must exist for `anthropic` and vice versa; provider selection is a configuration decision
-- One completion per attempt; attempt budgets are managed by the calling engine (ADR-8), never by the SDK client
+- One logical LLM attempt per engine attempt: bounded transport retries happen inside it and are owned by the llm cell; generation and healing attempt budgets are managed by the calling engine (ADR-8), never by the SDK client; SDK built-in retries are disabled (`max_retries=0`)
 - Never log API keys or payloads containing secrets

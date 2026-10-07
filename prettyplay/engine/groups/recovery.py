@@ -125,8 +125,9 @@ class GroupRecovery:
             IncurableStepError: the per-group cycle cap is exhausted, the
                 diagnosis is incurable, or the quoted root lives outside the
                 group — every form carries its verdict.
-            LLMUnavailableError: the provider service failed; no retry, the
-                steering dialog never intercepts it.
+            LLMUnavailableError: the provider service failed after the
+                bounded transport retries; no engine retry, the steering
+                dialog never intercepts it.
         """
         while True:
             if not self._budgets.open_group_cycle(group_prompt):
@@ -225,7 +226,8 @@ class GroupRecovery:
             IncurableStepError: a row step's regeneration exhausted its
                 fresh healing pool — caught by the caller for the cycle
                 re-entry.
-            LLMUnavailableError: the provider service failed; no retry.
+            LLMUnavailableError: the provider service failed after the
+                bounded transport retries; no engine retry.
             ComplianceVerdictError: the compliance verdict of a green row
                 candidate did not parse; nothing is cached.
         """

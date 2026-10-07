@@ -95,7 +95,8 @@ class StepHealer:
                 exhaustion reuses the verdict of this classification, no
                 second LLM request is made; the code field carries the
                 cached step code.
-            LLMUnavailableError: the provider service failed; no retry.
+            LLMUnavailableError: the provider service failed after the
+                bounded transport retries; no engine retry.
         """
         classification = classify_step_failure(self._config, self._provider, step_text, step.code, error, page)
 

@@ -21,7 +21,7 @@ step = generator.generate(
 ```
 
 - The loop: request code → execute against the live page → append the full attempt record → on failure re-request with the fresh snapshot and the grown history
-- The attempt history is one continuous verbatim list: every record carries the outcome, the `URL before -> after` line, the complete candidate code and the complete error; no collapsing, no size limits — the attempt budgets are the only bound
+- The attempt history is one continuous verbatim list: every record carries the outcome, the `URL before -> after` line, the complete candidate code and the complete error; no collapsing, no size limits — the attempt budgets are the only bound. The error text follows the engine error-text policy: the bulky aria-snapshot section Playwright appends to a failed check message is excluded — the fresh page state reaches the loop through the separately captured snapshot
 - Every request carries the honest inputs: the step type (action or assertion) and the raw step sentence as written by the engineer — never the casefolded normalization
 - The page may carry side effects of failed candidates and manual intervention — the replayability requirement of the system prompt tells the model a regeneration never rides that leftover state: an action step repeats its action; a first attempt works on the page the previous steps produced. The structural separation rides the same prompt: an action step ends at its action, an assertion step observes without changing the page
 - Every candidate execution runs under the settle window: transient failures re-execute the same code inside the window (settle_retry log records), no LLM budget consumed; deterministic failures go to the next request or classification; the URL pair brackets the whole attempt, settle re-executions included
@@ -94,6 +94,12 @@ generation_approve = false:
   the cache — purge it manually when the instructions change
 
 ## Budget exhaustion
+
+Each provider request may resend the identical SDK request up to `llm_request_attempts`
+(default 3, initial send included). These transport sends consume no additional generation
+or healing budget and emit no additional generation-started hooks. If the provider raises
+`LLMUnavailableError` after its retry policy terminates, generation propagates it without
+another engine attempt; an optional terminal classification still uses the quiet verdict skip.
 
 Exhaustion of the generation attempts classifies the last candidate: rot or fixable grants exactly one extra
 recommendation-carrying regeneration funded from the healing budget — a repeat failure is terminal

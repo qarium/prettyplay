@@ -80,8 +80,9 @@ def classify_group_failure(  # noqa: PLR0913, PLR0917 — the parameter list is 
         conservative incurable, never as a granted regeneration.
 
     Raises:
-        LLMUnavailableError: the provider service failed; an explicit
-            infrastructure failure — no retry, the calling recovery decides.
+        LLMUnavailableError: the provider service failed after the bounded
+            transport retries; an explicit infrastructure failure — the
+            calling recovery decides.
     """
     snapshot = page.aria_snapshot()
     screenshot = page.screenshot() if config.send_screenshots else None

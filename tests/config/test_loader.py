@@ -25,6 +25,7 @@ _ALL_ENV_FIELDS = (
     "CACHE_ROOT",
     "GENERATION_ATTEMPTS",
     "HEALING_ATTEMPTS",
+    "LLM_REQUEST_ATTEMPTS",
     "SEND_SCREENSHOTS",
     "GENERATION_APPROVE",
     "GENERATION_PROMPT",
@@ -829,4 +830,30 @@ class TestBrowserSpeedEnv:
             load_config(pyproject_path=path)
 
         assert str(excinfo.value).splitlines() == ["browser.speed: received 'abc' — allowed: a decimal integer"]
+        assert isinstance(excinfo.value, PrettyplayError)
+
+
+class TestLlmRequestAttemptsEnv:
+    """The transport retry budget loads from every layer and fails loudly on bad values."""
+
+    def test_loader_env_override_parses_decimal_integer(self, tmp_path, monkeypatch) -> None:
+        """Contract: PRETTYPLAY_LLM_REQUEST_ATTEMPTS parses as a decimal integer and wins over the file."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('[tool.prettyplay]\nmodel = "m"\nllm_request_attempts = 2\n', encoding="utf-8")
+        monkeypatch.setenv("PRETTYPLAY_LLM_REQUEST_ATTEMPTS", "5")
+
+        config = load_config(str(tmp_path / "pyproject.toml"))
+
+        assert config.llm_request_attempts == 5
+
+    def test_loader_unparseable_env_llm_request_attempts_fails_loudly(self, write_pyproject, monkeypatch) -> None:
+        """Negative: a non-decimal value fails loudly naming the setting, the value and the form."""
+        monkeypatch.setenv("PRETTYPLAY_LLM_REQUEST_ATTEMPTS", "three")
+
+        with pytest.raises(ConfigurationError) as excinfo:
+            load_config(pyproject_path=write_pyproject())
+
+        assert str(excinfo.value).splitlines() == [
+            "llm_request_attempts: received 'three' — allowed: a decimal integer"
+        ]
         assert isinstance(excinfo.value, PrettyplayError)

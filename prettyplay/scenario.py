@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import types
 from collections.abc import Callable
 from pathlib import Path
@@ -26,6 +27,28 @@ _T = TypeVar("_T")
 
 #: The inclusive pace range, in percent, a group's ``speed`` parameter accepts.
 _SPEED_RANGE = range(0, 101)
+
+#: The header of the bulky page-state section Playwright appends to a failed
+#: expectation message — column zero; the section runs to the message end.
+_ARIA_SNAPSHOT_HEADER = re.compile(r"^Aria snapshot:[ \t]*$", re.MULTILINE)
+
+
+def _trim_aria_snapshot(error: BaseException) -> None:
+    """Trim the bulky aria-snapshot section from a chained exception's message.
+
+    Args:
+        error: the chained exception; a single-string message carrying the
+            page-state section loses it, every other argument shape stays
+            untouched.
+    """
+    if len(error.args) != 1 or not isinstance(error.args[0], str):
+        return
+
+    text = error.args[0]
+    header = _ARIA_SNAPSHOT_HEADER.search(text)
+
+    if header is not None:
+        error.args = (text[: header.start()].rstrip(),)
 
 
 def _raise_folded(error: PrettyplayError) -> types.NoReturn:
@@ -56,7 +79,10 @@ def _fold_chain_tracebacks(error: BaseException) -> None:
     """Drop the tracebacks of the chained exceptions, keeping the chains themselves.
 
     Args:
-        error: the exception whose ``__context__``/``__cause__`` chains are folded.
+        error: the exception whose ``__context__``/``__cause__`` chains are
+            folded — every chained single-string message also loses its
+            bulky aria-snapshot section, so the page state never floods
+            the runner output.
     """
     pending = [error]
     seen: set[int] = set()
@@ -68,6 +94,7 @@ def _fold_chain_tracebacks(error: BaseException) -> None:
             continue
 
         seen.add(id(current))
+        _trim_aria_snapshot(current)
 
         for link in (current.__context__, current.__cause__):
             if link is not None:

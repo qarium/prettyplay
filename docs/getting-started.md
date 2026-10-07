@@ -187,7 +187,7 @@ Five kinds reach the runner — see [Failure taxonomy](reference/failure-taxonom
 |---|---|---|
 | `ProductDefectError` | a real regression — also an `AssertionError` | treat as a bug — this failure is the value of the suite |
 | `IncurableStepError` | the step cannot be generated or healed — in strict mode also: the cache miss | follow the carried recommendation |
-| `LLMUnavailableError` | the LLM is down | only generation and healing are blocked; cached steps keep running |
+| `LLMUnavailableError` | the LLM is down | generation, failure classification, group diagnosis and compliance checks can fail; cached steps keep running |
 | `ComplianceVerdictError` | the compliance gate could not parse the verdict model's answer | rerun the step — the candidate was never cached; a repeatedly malformed verdict points at the verdict model |
 | `ConfigurationError` | the settings are invalid | fix the named setting — the message lists the allowed values |
 

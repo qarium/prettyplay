@@ -82,7 +82,7 @@ Five kinds reach the runner:
 
 | Kind | Meaning | Reaction |
 |---|---|---|
-| ProductDefectError | a real regression — also an AssertionError: runners show a failure, not an error; the traceback is folded to the library boundary | treat as a bug — this failure is the value of the suite |
+| ProductDefectError | a real regression — also an AssertionError: runners show a failure, not an error; the traceback is folded to the library boundary; aria-snapshot tails are removed from single-string exception arguments in the chain, preserving exception identities and links; other argument shapes and custom message rendering are outside this guarantee | treat as a bug — this failure is the value of the suite |
 | IncurableStepError | the step cannot be generated or healed — in strict mode also: the cache miss | follow the carried recommendation |
 | LLMUnavailableError | the LLM is down | only generation and healing are blocked; cached steps keep running |
 | ComplianceVerdictError | the instruction compliance gate could not obtain a usable verdict — the executed candidate is never cached unchecked | rerun the step to retry generation; a repeatedly malformed verdict points at the verdict model |

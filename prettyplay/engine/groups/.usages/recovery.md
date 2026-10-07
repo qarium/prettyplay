@@ -42,6 +42,10 @@ healed = recovery.recover(
 
 ## Reporting
 
+Diagnosis and regeneration requests use the provider's bounded transport retries. Resending
+an identical request consumes no additional group cycle or per-step healing attempt. A final
+`LLMUnavailableError` propagates out of recovery; it never opens another recovery cycle.
+
 The block itself reports through the four group lifecycle hook events — `on_group_started`,
 then `on_group_passed` (a recovered group reports passed) or `on_group_failed`, closed by
 `on_group_finished`. `on_healing_started` / `on_healed` fire per recovered step; the diagnosis

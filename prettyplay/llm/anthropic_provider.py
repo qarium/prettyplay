@@ -2,7 +2,7 @@
 
 import os
 
-from anthropic import Anthropic, AnthropicError
+from anthropic import Anthropic
 
 from ..config import Config
 from ..failures import LLMUnavailableError
@@ -11,10 +11,12 @@ from ._request import (
     build_compliance_fields,
     build_fields_text,
     build_group_diagnosis_fields,
+    classify_anthropic_failure,
     encode_screenshot,
     extract_code_block,
     parse_classification_line,
     require_completion_text,
+    send_with_retries,
     unparsable_classification,
 )
 from .models import (
@@ -73,7 +75,7 @@ class AnthropicProvider(LLMProvider):
 
         Raises:
             LLMUnavailableError: the ANTHROPIC_API_KEY environment variable
-                is missing or empty — generation and healing are blocked.
+                is missing or empty — all LLM operations are blocked.
         """
         if self._client is None:
             api_key = os.environ.get("ANTHROPIC_API_KEY")
@@ -81,7 +83,7 @@ class AnthropicProvider(LLMProvider):
             if not api_key:
                 raise LLMUnavailableError("llm unavailable: anthropic: ANTHROPIC_API_KEY is not set")
 
-            self._client = Anthropic(api_key=api_key, base_url=self._config.base_url or None)
+            self._client = Anthropic(api_key=api_key, base_url=self._config.base_url or None, max_retries=0)
         return self._client
 
     def _user_content(self, text: str, screenshot: bytes | None) -> str | list[dict]:
@@ -207,15 +209,21 @@ class AnthropicProvider(LLMProvider):
             guidance=guidance,
         )
 
-        try:
-            response = self._get_client().messages.create(
-                model=self._config.effective_generation_model,
-                system=prompt,
-                max_tokens=REQUEST_MAX_TOKENS,
-                messages=[{"role": "user", "content": self._user_content(text, screenshot)}],
-            )
-        except AnthropicError as sdk_error:
-            raise LLMUnavailableError("llm unavailable: anthropic request failed") from sdk_error
+        client = self._get_client()
+        request = {
+            "model": self._config.effective_generation_model,
+            "system": prompt,
+            "max_tokens": REQUEST_MAX_TOKENS,
+            "messages": [{"role": "user", "content": self._user_content(text, screenshot)}],
+        }
+
+        response = send_with_retries(
+            "anthropic",
+            "generation",
+            self._config.llm_request_attempts,
+            classify_anthropic_failure,
+            lambda: client.messages.create(**request),
+        )
 
         return extract_code_block(require_completion_text(_first_text_block(response), "anthropic"))
 
@@ -256,15 +264,21 @@ class AnthropicProvider(LLMProvider):
         """
         text = build_classification_fields(user_instructions, step_text, code, error, snapshot)
 
-        try:
-            response = self._get_client().messages.create(
-                model=self._config.effective_classification_model,
-                system=prompt,
-                max_tokens=REQUEST_MAX_TOKENS,
-                messages=[{"role": "user", "content": self._user_content(text, screenshot)}],
-            )
-        except AnthropicError as sdk_error:
-            raise LLMUnavailableError("llm unavailable: anthropic request failed") from sdk_error
+        client = self._get_client()
+        request = {
+            "model": self._config.effective_classification_model,
+            "system": prompt,
+            "max_tokens": REQUEST_MAX_TOKENS,
+            "messages": [{"role": "user", "content": self._user_content(text, screenshot)}],
+        }
+
+        response = send_with_retries(
+            "anthropic",
+            "classification",
+            self._config.llm_request_attempts,
+            classify_anthropic_failure,
+            lambda: client.messages.create(**request),
+        )
 
         answer = require_completion_text(_first_text_block(response), "anthropic")
         parsed = parse_classification_line(answer)
@@ -330,15 +344,21 @@ class AnthropicProvider(LLMProvider):
             snapshot=snapshot,
         )
 
-        try:
-            response = self._get_client().messages.create(
-                model=self._config.effective_classification_model,
-                system=prompt,
-                max_tokens=REQUEST_MAX_TOKENS,
-                messages=[{"role": "user", "content": self._user_content(text, screenshot)}],
-            )
-        except AnthropicError as sdk_error:
-            raise LLMUnavailableError("llm unavailable: anthropic request failed") from sdk_error
+        client = self._get_client()
+        request = {
+            "model": self._config.effective_classification_model,
+            "system": prompt,
+            "max_tokens": REQUEST_MAX_TOKENS,
+            "messages": [{"role": "user", "content": self._user_content(text, screenshot)}],
+        }
+
+        response = send_with_retries(
+            "anthropic",
+            "group diagnosis",
+            self._config.llm_request_attempts,
+            classify_anthropic_failure,
+            lambda: client.messages.create(**request),
+        )
 
         return parse_group_failure_classification(require_completion_text(_first_text_block(response), "anthropic"))
 
@@ -383,14 +403,20 @@ class AnthropicProvider(LLMProvider):
         """
         text = build_compliance_fields(user_instructions, step_text, step_type, attempt_history, code)
 
-        try:
-            response = self._get_client().messages.create(
-                model=self._config.effective_classification_model,
-                system=prompt,
-                max_tokens=REQUEST_MAX_TOKENS,
-                messages=[{"role": "user", "content": text}],
-            )
-        except AnthropicError as sdk_error:
-            raise LLMUnavailableError("llm unavailable: anthropic request failed") from sdk_error
+        client = self._get_client()
+        request = {
+            "model": self._config.effective_classification_model,
+            "system": prompt,
+            "max_tokens": REQUEST_MAX_TOKENS,
+            "messages": [{"role": "user", "content": text}],
+        }
+
+        response = send_with_retries(
+            "anthropic",
+            "compliance verdict",
+            self._config.llm_request_attempts,
+            classify_anthropic_failure,
+            lambda: client.messages.create(**request),
+        )
 
         return parse_compliance_verdict(require_completion_text(_first_text_block(response), "anthropic"))

@@ -21,6 +21,7 @@ strict = false                   # true -> replay-only mode (no generation, no h
 interactive = false              # true -> the steering dialog on a terminally stuck step (local sessions)
 generation_attempts = 3
 healing_attempts = 2
+llm_request_attempts = 3       # total sends per LLM request; 1 disables request retries
 polling_timeout = 6.0            # settle window seconds; omit -> off, 0.0 -> explicit disable
 polling_delay = 0.5              # pause between settle re-executions
 send_screenshots = false
@@ -58,6 +59,7 @@ upper case; the browser group keeps flat env names:
 | cache_root | `PRETTYPLAY_CACHE_ROOT` |
 | generation_attempts | `PRETTYPLAY_GENERATION_ATTEMPTS` |
 | healing_attempts | `PRETTYPLAY_HEALING_ATTEMPTS` |
+| llm_request_attempts | `PRETTYPLAY_LLM_REQUEST_ATTEMPTS` |
 | polling_timeout | `PRETTYPLAY_POLLING_TIMEOUT` |
 | polling_delay | `PRETTYPLAY_POLLING_DELAY` |
 | interactive | `PRETTYPLAY_INTERACTIVE` |
@@ -150,6 +152,7 @@ fields, which is what makes the layered merge above possible.
 | `interactive` | bool | `False` | arm the steering dialog for terminally stuck steps (local sessions) |
 | `generation_attempts` | int | `3` | generation attempt budget per step per test |
 | `healing_attempts` | int | `2` | healing attempt budget per step per test |
+| `llm_request_attempts` | int | `3` | total sends per LLM request, including the first; `1` disables retries; must be positive |
 | `polling_timeout` | float \| None | `None` | settle window seconds per step execution; `None`/`0` — polling off |
 | `polling_delay` | float | `0.5` | pause between settle re-executions |
 | `send_screenshots` | bool | `False` | attach screenshots to LLM requests |

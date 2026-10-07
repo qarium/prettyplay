@@ -218,12 +218,19 @@ Annotations: |
 "PrettyplayError::LLMUnavailableError(message: str)":
   location: errors.py
   annotations: |
-    LLM infrastructure failure: the provider service is unreachable, times out, rate-limits or rejects authentication. Blocks only code generation and healing; cached steps keep running.
+    LLM infrastructure failure: the provider service is unreachable, times out, rate-limits or
+    rejects authentication — raised when the bounded transport retries of one logical LLM attempt
+    are exhausted, skipped by a permanent provider rejection or cut short by an over-cap
+    Retry-After. Blocks every LLM operation — code generation, step failure classification, group
+    diagnosis and the compliance verdict; cached steps keep running.
 
     `message`: the failure description naming the provider.
 
     Requirements:
-    - Raised only on generation or healing paths; never on a cached step execution path
+    - Raised only on the LLM operation paths — generation, healing classification, group diagnosis
+      and the compliance verdict, after the transport retries of the logical attempt; never on a
+      cached step execution path
+    - The original transport cause stays chained by the raiser (raise ... from)
   properties:
     "message -> str": |
       The failure description naming the provider.

@@ -1,0 +1,18 @@
+# Bounded backoff for LLM backend requests
+
+Transient LLM backend failures currently terminate operations under an explicit no-retry contract. We will replace that rule with bounded transport retries of the same request, independently of generation and healing budgets, so temporary outages can recover without replaying the task or browser actions. The user confirmed this decision on 2026-10-07.
+
+- Apply the same policy to OpenAI and Anthropic, including custom base URLs, for generation, failure classification, group diagnosis, and compliance checks. Transport retries remain within one logical LLM attempt and consume no additional generation, healing, or group recovery attempts.
+- Retry connection failures, timeouts, HTTP 408/429, and transient 5xx failures. Authentication, authorization, invalid requests, and explicitly exhausted quota fail immediately; explicit permanent causes take precedence over a retryable HTTP status. Invalid content in a successful response remains subject to existing response validation and recovery, not transport backoff.
+- Default to **3 total attempts**, including the initial request. Only the attempt count is configurable, using the existing precedence: explicit test parameters > environment > pyproject. One attempt disables retries; values below one are configuration errors. Disable SDK retries so the configured limit also limits request sends.
+- Fix the minimum and maximum delays at **1 and 10 seconds**. Base delays grow as 1, 2, 4, 8, 10, 10… seconds. Add a random 0–25% of the base delay, then cap the final delay at 10 seconds. With the default attempt count, the two pauses are 1–1.25 and 2–2.5 seconds.
+- Honor a valid `Retry-After` by taking the greater of its indicated wait and the computed delay, provided the indicated wait is at most 10 seconds. If it exceeds 10 seconds, terminate with an actionable error instead of retrying earlier than requested or exceeding the delay cap. Ignore malformed values.
+- Preserve current SDK request timeouts; adding timeout configuration or an overall deadline is outside this change. Cancellation interrupts backoff waiting and prevents another retry.
+- After exhaustion, retain existing `LLMUnavailableError` handling and the original cause. Required operations fail the current test through normal error handling and resource cleanup. Optional terminal-failure classification logs a warning and preserves the original failure; steering likewise preserves its original terminal failure. Retry only the compliance request after browser actions have run, and never cache a candidate without a successful compliance verdict. Preserve modes that make no LLM requests.
+- Log retries with provider, operation, attempt number, error category, and delay. Exclude secrets and request/response contents. Introduce no new public monitoring events.
+
+## Consequences
+
+Transport recovery deliberately replaces the existing immediate-failure rule and must remain distinct from browser polling, which repeats browser code. Central control of retries avoids multiplying SDK and application attempts. Bounded attempts and capped pauses trade outage tolerance for predictable retry counts, but do not provide a total wall-clock bound because request timeouts are unchanged. When a response is lost after server-side processing, retrying may duplicate provider work and increase usage costs; exactly-once provider execution is not guaranteed.
+
+This decision is based on architecture contracts and usage documentation, not an implementation audit. Implementation must reconcile the existing no-retry rules and verify actual SDK retry settings. Cell design, signatures, and contract layout are outside this ADR; no behavioral decision remains open.

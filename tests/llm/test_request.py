@@ -1,18 +1,31 @@
 """Tests for the shared request-field helpers of the prettyplay.llm cell."""
 
 import inspect
-from typing import ClassVar
+import logging
+from collections.abc import Callable
+from types import ModuleType, SimpleNamespace
+from typing import ClassVar, TypeVar
 
+import anthropic
+import openai
 import pytest
+from prettyplay.failures import LLMUnavailableError
 from prettyplay.llm import ScenarioStep
 from prettyplay.llm._request import (
     CATEGORIES,
+    PERMANENT_TRANSPORT_CATEGORIES,
+    RETRYABLE_TRANSPORT_CATEGORIES,
+    TransportFailureClassification,
     build_classification_fields,
     build_compliance_fields,
     build_fields_text,
     build_group_diagnosis_fields,
+    classify_anthropic_failure,
+    classify_openai_failure,
+    compute_transport_pause,
     extract_code_block,
     parse_classification_line,
+    send_with_retries,
     unparsable_classification,
 )
 
@@ -21,6 +34,13 @@ USER_INSTRUCTIONS = "prefer data-test-id"
 CHEAT_SHEET = "expect(locator).to_be_visible()"
 STEP_CODE = "def step(page) -> None:\n    pass\n"
 ATTEMPT_RECORD = "execution failed\nurl: https://a.example -> https://b.example\ncode:\n...\nerror:\nboom"
+
+
+def make_status_error(error_class: type[Exception], status: int, headers: dict | None = None) -> Exception:
+    """Build an SDK status error over a faked response for the classification tests."""
+    response = SimpleNamespace(status_code=status, headers=headers or {}, request=SimpleNamespace())
+
+    return error_class("boom", response=response, body=None)
 
 
 class TestExtractCodeBlock:
@@ -571,3 +591,683 @@ class TestParseClassificationFixableLabel:
     def test_unrecognized_label_still_falls_back_to_incurable(self) -> None:
         assert parse_classification_line("mystery | why | do something") is None
         assert unparsable_classification()["category"] == "incurable"
+
+
+class TestTransportFailureClassificationContract:
+    """Contract tests: the verdict model shape — two keyword fields, one computed property."""
+
+    def test_constructible_with_keyword_category_and_retry_after(self) -> None:
+        failure = TransportFailureClassification(category="rate_limit", retry_after=7.5)
+
+        assert failure.category == "rate_limit"
+        assert failure.retry_after == 7.5
+
+    def test_both_fields_carry_empty_defaults(self) -> None:
+        failure = TransportFailureClassification()
+
+        assert failure.category == ""
+        assert failure.retry_after is None
+
+    def test_retryable_is_a_property_not_a_constructor_field(self) -> None:
+        assert isinstance(TransportFailureClassification.retryable, property)
+        assert "retryable" not in TransportFailureClassification.model_fields
+        assert "retryable" not in inspect.signature(TransportFailureClassification).parameters
+
+    def test_module_exposes_the_transport_label_constants(self) -> None:
+        assert frozenset({"connection", "timeout", "rate_limit", "server_error"}) == RETRYABLE_TRANSPORT_CATEGORIES
+        assert (
+            frozenset({"authentication", "permission_denied", "invalid_request", "not_found", "quota_exhausted"})
+            == PERMANENT_TRANSPORT_CATEGORIES
+        )
+        assert not RETRYABLE_TRANSPORT_CATEGORIES & PERMANENT_TRANSPORT_CATEGORIES  # the families are disjoint
+
+
+class TestTransportFailureClassification:
+    """Logic tests: the retryable truth table of the closed nine-label set."""
+
+    @pytest.mark.parametrize(
+        ("category", "expected"),
+        [
+            pytest.param("connection", True, id="connection"),
+            pytest.param("timeout", True, id="timeout"),
+            pytest.param("rate_limit", True, id="rate_limit"),
+            pytest.param("server_error", True, id="server_error"),
+            pytest.param("authentication", False, id="authentication"),
+            pytest.param("permission_denied", False, id="permission_denied"),
+            pytest.param("invalid_request", False, id="invalid_request"),
+            pytest.param("not_found", False, id="not_found"),
+            pytest.param("quota_exhausted", False, id="quota_exhausted"),
+        ],
+    )
+    def test_transport_failure_classification_model_shape_and_retryable_truth_table(
+        self, category: str, expected: bool
+    ) -> None:
+        failure = TransportFailureClassification(category=category)
+
+        assert failure.retryable is expected
+
+    def test_empty_default_category_is_not_retryable(self) -> None:
+        failure = TransportFailureClassification()
+
+        assert failure.category == ""
+        assert failure.retryable is False  # the empty default sits outside the retryable family
+
+    def test_positional_construction_fails_before_field_validation(self) -> None:
+        with pytest.raises(TypeError):
+            TransportFailureClassification("connection")
+
+
+CLASSIFIERS: list[pytest.param] = [
+    pytest.param(classify_openai_failure, id="openai"),
+    pytest.param(classify_anthropic_failure, id="anthropic"),
+]
+
+
+class TestClassifiersContract:
+    """Contract tests: one exception in, one verdict out — the classifiers never raise."""
+
+    @pytest.mark.parametrize("classifier", CLASSIFIERS)
+    def test_classifier_signature_is_error_to_verdict(
+        self, classifier: Callable[[Exception], TransportFailureClassification]
+    ) -> None:
+        parameters = inspect.signature(classifier).parameters
+
+        assert list(parameters) == ["error"]
+        assert parameters["error"].annotation is Exception
+        assert classifier.__annotations__["return"] is TransportFailureClassification
+
+    @pytest.mark.parametrize("classifier", CLASSIFIERS)
+    def test_classifier_returns_a_verdict_for_an_arbitrary_exception(
+        self, classifier: Callable[[Exception], TransportFailureClassification]
+    ) -> None:
+        failure = classifier(ValueError("boom"))
+
+        assert isinstance(failure, TransportFailureClassification)
+
+
+class TestClassifyFailures:
+    """Logic tests: the transport classification ladders of both providers."""
+
+    @pytest.mark.parametrize(
+        ("error", "expected"),
+        [
+            pytest.param(openai.APIConnectionError(request=SimpleNamespace()), "connection", id="connection"),
+            pytest.param(openai.APITimeoutError(request=SimpleNamespace()), "timeout", id="sdk-timeout"),
+            pytest.param(make_status_error(openai.RateLimitError, 429), "rate_limit", id="rate-limit"),
+            pytest.param(make_status_error(openai.APIStatusError, 408), "timeout", id="http-408-timeout"),
+            pytest.param(
+                make_status_error(openai.InternalServerError, 500), "server_error", id="http-500-server-error"
+            ),
+            pytest.param(make_status_error(openai.APIStatusError, 599), "server_error", id="http-599-server-error"),
+        ],
+    )
+    def test_classify_openai_failure_maps_the_retryable_family(self, error: Exception, expected: str) -> None:
+        failure = classify_openai_failure(error)
+
+        assert failure.category == expected
+        assert failure.retryable is True
+        assert failure.retry_after is None
+
+    @pytest.mark.parametrize(
+        ("classifier", "sdk"),
+        [
+            pytest.param(classify_openai_failure, openai, id="openai"),
+            pytest.param(classify_anthropic_failure, anthropic, id="anthropic"),
+        ],
+    )
+    @pytest.mark.parametrize(
+        ("error_class", "status", "expected"),
+        [
+            pytest.param("AuthenticationError", 401, "authentication", id="authentication"),
+            pytest.param("PermissionDeniedError", 403, "permission_denied", id="permission-denied"),
+            pytest.param("BadRequestError", 400, "invalid_request", id="invalid-request"),
+            pytest.param("NotFoundError", 404, "not_found", id="not-found"),
+        ],
+    )
+    def test_classify_failures_map_the_permanent_family(
+        self,
+        classifier: Callable[[Exception], TransportFailureClassification],
+        sdk: object,
+        error_class: str,
+        status: int,
+        expected: str,
+    ) -> None:
+        failure = classifier(make_status_error(getattr(sdk, error_class), status))
+
+        assert failure.category == expected
+        assert failure.retryable is False
+
+    def test_classify_openai_failure_quota_beats_retryable_status(self) -> None:
+        error = make_status_error(openai.RateLimitError, 429)
+        error.code = "insufficient_quota"  # the body evidence the SDK parses onto the exception
+
+        failure = classify_openai_failure(error)
+
+        assert failure.category == "quota_exhausted"
+        assert failure.retryable is False
+
+    @pytest.mark.parametrize(
+        ("classifier", "sdk"),
+        [
+            pytest.param(classify_openai_failure, openai, id="openai"),
+            pytest.param(classify_anthropic_failure, anthropic, id="anthropic"),
+        ],
+    )
+    def test_generic_http_429_is_retryable(
+        self, classifier: Callable[[Exception], TransportFailureClassification], sdk: object
+    ) -> None:
+        failure = classifier(make_status_error(sdk.APIStatusError, 429))
+
+        assert failure.category == "rate_limit"
+        assert failure.retryable is True
+
+    def test_classify_anthropic_failure_billing_error_is_permanent_quota(self) -> None:
+        error = make_status_error(anthropic.RateLimitError, 429)
+        error.type = "billing_error"  # the explicit anthropic quota signal, under a retryable status
+
+        failure = classify_anthropic_failure(error)
+
+        assert failure.category == "quota_exhausted"
+        assert failure.retryable is False
+
+    @pytest.mark.parametrize(
+        ("classifier", "rate_limit_class"),
+        [
+            pytest.param(classify_openai_failure, openai.RateLimitError, id="openai"),
+            pytest.param(classify_anthropic_failure, anthropic.RateLimitError, id="anthropic"),
+        ],
+    )
+    @pytest.mark.parametrize(
+        ("header_value", "expected"),
+        [
+            pytest.param("7", 7.0, id="integer-seconds"),
+            pytest.param("2.5", 2.5, id="decimal-seconds"),
+            pytest.param("0", 0.0, id="zero-seconds"),
+            pytest.param("-3", -3.0, id="negative-seconds"),
+            pytest.param("Wed, 21 Oct 2015 07:28:00 GMT", None, id="http-date"),
+            pytest.param(None, None, id="missing-header"),
+        ],
+    )
+    def test_classify_failures_parse_retry_after_seconds(
+        self,
+        classifier: Callable[[Exception], TransportFailureClassification],
+        rate_limit_class: type[Exception],
+        header_value: str | None,
+        expected: float | None,
+    ) -> None:
+        headers = {} if header_value is None else {"retry-after": header_value}
+
+        failure = classifier(make_status_error(rate_limit_class, 429, headers))
+
+        assert failure.retry_after == expected
+        assert failure.category == "rate_limit"
+        assert failure.retryable is True
+
+    @pytest.mark.parametrize("classifier", CLASSIFIERS)
+    @pytest.mark.parametrize(
+        "error_factory",
+        [
+            pytest.param(lambda: ValueError("boom"), id="plain-value-error"),
+            pytest.param(lambda: make_status_error(openai.ConflictError, 409), id="openai-conflict-409"),
+        ],
+    )
+    def test_classify_failures_unrecognized_exception_is_permanent_invalid_request(
+        self,
+        classifier: Callable[[Exception], TransportFailureClassification],
+        error_factory: Callable[[], Exception],
+    ) -> None:
+        failure = classifier(error_factory())
+
+        assert failure.category == "invalid_request"
+        assert failure.retryable is False
+
+
+@pytest.mark.parametrize(
+    ("classifier", "sdk", "quota_label"),
+    [
+        pytest.param(classify_openai_failure, openai, "insufficient_quota", id="openai"),
+        pytest.param(classify_anthropic_failure, anthropic, "billing_error", id="anthropic"),
+    ],
+)
+class TestQuotaBodyEvidence:
+    """Quota evidence in SDK response bodies must survive SDK version differences."""
+
+    @pytest.mark.parametrize("status", [429, 503])
+    @pytest.mark.parametrize("field", ["code", "type"])
+    @pytest.mark.parametrize("nested", [False, True])
+    def test_body_quota_wins_without_sdk_convenience_attributes(  # noqa: PLR0913, PLR0917 — parameterized SDK/body matrix
+        self,
+        classifier: Callable[[Exception], TransportFailureClassification],
+        sdk: ModuleType,
+        quota_label: str,
+        status: int,
+        field: str,
+        nested: bool,
+    ) -> None:
+        response = SimpleNamespace(status_code=status, headers={}, request=SimpleNamespace())
+        evidence = {field: quota_label}
+        body = {"error": evidence} if nested else evidence
+        error = sdk.APIStatusError("quota exhausted", response=response, body=body)
+
+        # Older SDKs expose body without parsed code/type attributes.
+        for attribute in ("code", "type"):
+            if hasattr(error, attribute):
+                delattr(error, attribute)
+
+        failure = classifier(error)
+
+        assert failure.category == "quota_exhausted"
+        assert failure.retryable is False
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            None,
+            "billing_error",
+            [],
+            {},
+            {"error": []},
+            {"error": "insufficient_quota"},
+            {"code": []},
+            {"error": {"type": {}}},
+            {"error": {"type": "unknown"}},
+        ],
+    )
+    def test_malformed_or_unknown_body_preserves_status_classification(
+        self,
+        classifier: Callable[[Exception], TransportFailureClassification],
+        sdk: ModuleType,
+        quota_label: str,
+        body: object,
+    ) -> None:
+        error = make_status_error(sdk.APIStatusError, 429)
+        error.body = body
+
+        failure = classifier(error)
+
+        assert failure.category == "rate_limit"
+        assert failure.retryable is True
+
+    def test_body_quota_stops_the_retry_loop_without_sleep_or_logs(
+        self,
+        classifier: Callable[[Exception], TransportFailureClassification],
+        sdk: ModuleType,
+        quota_label: str,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        error = make_status_error(sdk.APIStatusError, 429)
+        error.body = {"error": {"type": quota_label}}
+        calls: list[int] = []
+        sleeps: list[float] = []
+
+        def send() -> object:
+            calls.append(1)
+            raise error
+
+        monkeypatch.setattr("time.sleep", sleeps.append)
+
+        with pytest.raises(LLMUnavailableError, match="failed permanently: quota_exhausted") as excinfo:
+            send_with_retries(sdk.__name__, "generation", 3, classifier, send)
+
+        assert excinfo.value.__cause__ is error
+        assert calls == [1]
+        assert sleeps == []
+        assert caplog.records == []
+
+
+class TestComputeTransportPauseContract:
+    """Contract tests: the delay-policy signature — two scalars in, one float out."""
+
+    def test_signature_is_failed_attempt_and_retry_after_to_float(self) -> None:
+        parameters = inspect.signature(compute_transport_pause).parameters
+
+        assert list(parameters) == ["failed_attempt", "retry_after"]
+        assert parameters["failed_attempt"].annotation is int
+        assert parameters["retry_after"].annotation == float | None
+        assert compute_transport_pause.__annotations__["return"] is float
+
+    def test_returns_a_float_for_the_first_failed_attempt(self) -> None:
+        assert isinstance(compute_transport_pause(1, None), float)
+
+
+class TestComputeTransportPause:
+    """Logic tests: the base sequence, the jitter bounds and the Retry-After lift."""
+
+    def test_compute_transport_pause_base_sequence_jitter_and_cap(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("random.uniform", lambda _a, _b: 0.0)
+
+        assert [compute_transport_pause(n, None) for n in range(1, 8)] == [1.0, 2.0, 4.0, 8.0, 10.0, 10.0, 10.0]
+
+    def test_compute_transport_pause_remains_capped_for_large_attempt_budget(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("random.uniform", lambda _a, _b: 0.0)
+
+        assert compute_transport_pause(1026, None) == 10.0
+
+    def test_compute_transport_pause_jitter_bounds_and_final_cap(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("random.uniform", lambda _a, b: b)
+
+        assert compute_transport_pause(1, None) == 1.25  # base plus the full quarter jitter
+        assert compute_transport_pause(5, None) == 10.0  # the cap dominates the jittered 12.5
+
+    def test_compute_transport_pause_retry_after_lifts_within_cap(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("random.uniform", lambda _a, _b: 0.0)
+
+        lifts = [
+            compute_transport_pause(1, 5.0),
+            compute_transport_pause(3, 2.0),
+            compute_transport_pause(1, 0.0),
+            compute_transport_pause(1, None),
+        ]
+
+        assert lifts == [5.0, 4.0, 1.0, 1.0]  # zero Retry-After is ignored, a smaller one never shortens
+
+
+class TestSendWithRetriesContract:
+    """Contract tests: the retry-loop signature — five parameters, generic pass-through."""
+
+    def test_signature_is_provider_operation_attempts_classify_send(self) -> None:
+        parameters = inspect.signature(send_with_retries).parameters
+        returned = send_with_retries.__annotations__["return"]
+
+        assert list(parameters) == ["provider", "operation", "attempts", "classify", "send"]
+        assert parameters["provider"].annotation is str
+        assert parameters["operation"].annotation is str
+        assert parameters["attempts"].annotation is int
+        assert parameters["classify"].annotation == Callable[[Exception], TransportFailureClassification]
+        assert parameters["send"].annotation == Callable[[], returned]
+        assert isinstance(returned, TypeVar)  # generic — the response type of send passes through
+
+    def test_generic_passthrough_returns_the_send_response(self) -> None:
+        def never_classify(error: Exception) -> TransportFailureClassification:
+            pytest.fail("a successful send is never classified")
+
+        assert send_with_retries("openai", "generation", 3, never_classify, lambda: "ok") == "ok"
+
+
+class TestSendWithRetries:
+    """Logic tests (positive): the pass-through and the retry-then-succeed cycle."""
+
+    def test_send_with_retries_success_returns_response_without_side_effects(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        sent: list[int] = []
+        sleeps: list[float] = []
+
+        def send() -> str:
+            sent.append(1)
+            return "ok"
+
+        def never_classify(error: Exception) -> TransportFailureClassification:
+            pytest.fail("must not classify")
+
+        monkeypatch.setattr("time.sleep", sleeps.append)
+
+        result = send_with_retries("openai", "generation", 3, never_classify, send)
+
+        assert result == "ok"
+        assert sent == [1]
+        assert sleeps == []
+        assert caplog.records == []
+
+    def test_send_with_retries_retries_then_succeeds_with_two_warnings(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        response = object()
+        outcomes: list[object] = [
+            anthropic.APIConnectionError(request=SimpleNamespace()),
+            anthropic.APIConnectionError(request=SimpleNamespace()),
+            response,
+        ]
+        calls: list[int] = []
+        sleeps: list[float] = []
+
+        def send() -> object:
+            calls.append(1)
+            outcome = outcomes.pop(0)
+
+            if isinstance(outcome, Exception):
+                raise outcome
+
+            return outcome
+
+        monkeypatch.setattr("time.sleep", sleeps.append)
+        monkeypatch.setattr("random.uniform", lambda _a, _b: 0.0)
+        caplog.set_level(logging.WARNING, logger="prettyplay")
+
+        result = send_with_retries("anthropic", "group diagnosis", 3, classify_anthropic_failure, send)
+
+        assert result is response
+        assert len(calls) == 3
+        assert sleeps == [1.0, 2.0]
+        assert len(caplog.records) == 2
+        first, second = caplog.records
+        assert first.name == "prettyplay"
+        assert first.levelname == "WARNING"
+        assert first.provider == "anthropic"
+        assert first.operation == "group diagnosis"
+        assert first.attempt == 1
+        assert first.category == "connection"
+        assert first.delay == 1.0
+        assert second.attempt == 2
+        assert second.delay == 2.0
+
+
+class TestSendWithRetriesTerminal:
+    """Logic tests (negative): the three terminal branches and the wait interrupt."""
+
+    def test_send_with_retries_permanent_failure_terminates_immediately(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        error = make_status_error(openai.AuthenticationError, 401)
+        calls: list[int] = []
+        sleeps: list[float] = []
+
+        def send() -> object:
+            calls.append(1)
+            raise error
+
+        monkeypatch.setattr("time.sleep", sleeps.append)
+
+        with pytest.raises(LLMUnavailableError) as excinfo:
+            send_with_retries("openai", "generation", 3, classify_openai_failure, send)
+
+        assert "openai" in str(excinfo.value)
+        assert "authentication" in str(excinfo.value)
+        assert excinfo.value.__cause__ is error
+        assert len(calls) == 1
+        assert sleeps == []
+        assert caplog.records == []
+
+    def test_send_with_retries_over_cap_retry_after_terminates_before_any_pause(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        error = make_status_error(openai.RateLimitError, 429, {"retry-after": "30"})
+        calls: list[int] = []
+        sleeps: list[float] = []
+
+        def send() -> object:
+            calls.append(1)
+            raise error
+
+        monkeypatch.setattr("time.sleep", sleeps.append)
+
+        with pytest.raises(LLMUnavailableError) as excinfo:
+            send_with_retries("openai", "generation", 3, classify_openai_failure, send)
+
+        assert "10 second retry cap" in str(excinfo.value)
+        assert excinfo.value.__cause__ is error
+        assert len(calls) == 1
+        assert sleeps == []
+        assert caplog.records == []
+
+    def test_send_with_retries_exhaustion_raises_with_cause_and_attempt_count(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        calls: list[int] = []
+        sleeps: list[float] = []
+        errors: list[Exception] = []
+
+        def send() -> object:
+            calls.append(1)
+            error = anthropic.APIConnectionError(request=SimpleNamespace())
+            errors.append(error)
+            raise error
+
+        monkeypatch.setattr("time.sleep", sleeps.append)
+        monkeypatch.setattr("random.uniform", lambda _a, _b: 0.0)
+        caplog.set_level(logging.WARNING, logger="prettyplay")
+
+        with pytest.raises(LLMUnavailableError) as excinfo:
+            send_with_retries("anthropic", "generation", 3, classify_anthropic_failure, send)
+
+        assert "after 3 attempts" in str(excinfo.value)
+        assert excinfo.value.__cause__ is errors[-1]
+        assert len(calls) == 3
+        assert sleeps == [1.0, 2.0]
+        assert len(caplog.records) == 2  # the terminal attempt logs nothing
+
+    def test_send_with_retries_single_attempt_disables_retries(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        calls: list[int] = []
+        sleeps: list[float] = []
+
+        def send() -> object:
+            calls.append(1)
+            raise anthropic.APIConnectionError(request=SimpleNamespace())
+
+        monkeypatch.setattr("time.sleep", sleeps.append)
+
+        with pytest.raises(LLMUnavailableError):
+            send_with_retries("anthropic", "generation", 1, classify_anthropic_failure, send)
+
+        assert len(calls) == 1
+        assert sleeps == []
+        assert caplog.records == []
+
+    def test_send_with_retries_keyboard_interrupt_during_wait_propagates(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls: list[int] = []
+
+        def send() -> object:
+            calls.append(1)
+            raise anthropic.APIConnectionError(request=SimpleNamespace())
+
+        def interrupted(pause: float) -> None:
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr("time.sleep", interrupted)
+
+        with pytest.raises(KeyboardInterrupt):
+            send_with_retries("anthropic", "generation", 3, classify_anthropic_failure, send)
+
+        assert len(calls) == 1
+
+
+class TestSendWithRetriesEdges:
+    """Logic tests (edge): the budget ceiling, the branch precedence and the log hygiene."""
+
+    def test_send_with_retries_never_sends_more_than_the_budget(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        calls: list[int] = []
+        sleeps: list[float] = []
+
+        def send() -> object:
+            calls.append(1)
+            raise anthropic.APIConnectionError(request=SimpleNamespace())
+
+        monkeypatch.setattr("time.sleep", sleeps.append)
+        monkeypatch.setattr("random.uniform", lambda _a, _b: 0.0)
+        caplog.set_level(logging.WARNING, logger="prettyplay")
+
+        with pytest.raises(LLMUnavailableError):
+            send_with_retries("anthropic", "generation", 5, classify_anthropic_failure, send)
+
+        assert len(calls) == 5
+        assert sleeps == [1.0, 2.0, 4.0, 8.0]
+        assert len(caplog.records) == 4
+
+    def test_send_with_retries_over_cap_retry_after_wins_over_exhaustion(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        error = make_status_error(openai.RateLimitError, 429, {"retry-after": "15"})
+        calls: list[int] = []
+
+        def send() -> object:
+            calls.append(1)
+            raise error
+
+        monkeypatch.setattr("time.sleep", lambda _pause: None)
+
+        with pytest.raises(LLMUnavailableError) as excinfo:
+            send_with_retries("openai", "generation", 1, classify_openai_failure, send)
+
+        assert "retry cap" in str(excinfo.value)
+        assert "after 1 attempts" not in str(excinfo.value)
+
+    def test_send_with_retries_zero_retry_after_is_ignored_not_fatal(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        response = object()
+        outcomes: list[object] = [make_status_error(anthropic.RateLimitError, 429, {"retry-after": "0"}), response]
+        sleeps: list[float] = []
+
+        def send() -> object:
+            outcome = outcomes.pop(0)
+
+            if isinstance(outcome, Exception):
+                raise outcome
+
+            return outcome
+
+        monkeypatch.setattr("time.sleep", sleeps.append)
+        monkeypatch.setattr("random.uniform", lambda _a, _b: 0.0)
+
+        result = send_with_retries("anthropic", "generation", 2, classify_anthropic_failure, send)
+
+        assert result is response
+        assert sleeps == [1.0]
+
+    def test_logging_carries_no_request_payloads(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        request_kwargs = {"api_key": "secret-token", "messages": [{"role": "user", "content": "secret-token"}]}
+        outcomes: list[object] = [anthropic.APIConnectionError(request=SimpleNamespace()), "ok"]
+
+        def send() -> str:
+            _ = request_kwargs  # the closure carries the payload; the retry record must never see it
+            outcome = outcomes.pop(0)
+
+            if isinstance(outcome, Exception):
+                raise outcome
+
+            return str(outcome)
+
+        monkeypatch.setattr("time.sleep", lambda _pause: None)
+        monkeypatch.setattr("random.uniform", lambda _a, _b: 0.0)
+        caplog.set_level(logging.WARNING, logger="prettyplay")
+
+        assert send_with_retries("anthropic", "generation", 2, classify_anthropic_failure, send) == "ok"
+
+        assert len(caplog.records) == 1
+        assert all("secret-token" not in record.getMessage() for record in caplog.records)
+        expected_fields = {"provider", "operation", "attempt", "category", "delay"}
+        assert all(expected_fields <= set(record.__dict__) for record in caplog.records)
+
+
+class TestFacadeExports:
+    """Contract tests: the cell facade exposes the transport machinery; the root facade does not."""
+
+    def test_facade_exports_the_transport_machinery(self) -> None:
+        import prettyplay  # noqa: PLC0415 — cell facade check
+        from prettyplay import llm  # noqa: PLC0415 — cell facade check
+
+        names = [
+            "TransportFailureClassification",
+            "classify_openai_failure",
+            "classify_anthropic_failure",
+            "compute_transport_pause",
+            "send_with_retries",
+        ]
+
+        assert all(name in llm.__all__ and getattr(llm, name) is not None for name in names)
+        assert not (set(names) & set(prettyplay.__all__))

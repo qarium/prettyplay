@@ -18,19 +18,19 @@ The provider is a project setting: openai or anthropic; env override PRETTYPLAY_
 
 | Setting | Purpose | Fallback |
 |---|---|---|
-| model | the main model for both operations | — |
+| model | the default model for all four operations | — |
 | generation_model | code generation only | model |
-| classification_model | failure classification and the compliance gate | model |
+| classification_model | failure classification, group diagnosis and the compliance gate | model |
 
 The instruction compliance gate runs on the effective classification model (classification_model
-or model) — never on the generation model, so the verdict never comes from the model that
-wrote the candidate.
+or model). Set classification_model to a different model when the verdict should come from
+a model other than the one that wrote the candidate; the defaults can select the same model.
 
 base_url overrides the provider endpoint when set.
 
 ## Parity
 
-Both providers expose the same four operations — generate_step_code, classify_step_failure, classify_group_failure and check_instruction_compliance — with identical inputs, identical output shapes and the identical failure taxonomy: a provider service failure raises LLMUnavailableError; cached step code never depends on the provider. One request per attempt; attempt budgets belong to the calling engine.
+Both providers expose the same four operations — generate_step_code, classify_step_failure, classify_group_failure and check_instruction_compliance — with identical inputs, identical output shapes and the identical failure taxonomy: a provider transport failure resends the identical request inside one logical attempt (bounded transport retries) and raises LLMUnavailableError only on exhaustion, a permanent rejection or an over-cap Retry-After; cached step code never depends on the provider. One logical attempt per engine attempt; attempt budgets belong to the calling engine and are never consumed by transport retries.
 
 The classification operation is named `classify_step_failure` — the former `classify_failure`, a nominal rename.
 
@@ -47,6 +47,26 @@ Page-URL parity: a generation request with a non-empty page URL renders it as it
 Cheat-sheet parity: every generation request renders the CHEAT SHEET block after the scenario inputs and
 immediately before the USER INSTRUCTIONS block — the compact standard Playwright sync API reference supplied by the
 calling engine; guidance, not an allowlist. Both providers render it identically at the same position.
+
+## Transport retries
+
+Transient provider outages no longer kill a logical attempt: every SDK call of all four
+operations passes through the shared bounded retry mechanism inside the port.
+
+- Retryable: connection failures, timeouts, HTTP 408/429 and any 5xx — the identical request is
+  resent after a computed pause (base 1, 2, 4, 8, 10, 10… s + 0–25% jitter, cap 10 s; a valid
+  Retry-After ≤ 10 s lifts the pause to the asked wait)
+- Permanent — authentication, authorization, invalid request, an explicitly exhausted quota —
+  fails immediately; an explicit permanent cause wins over a retryable status
+- Retry-After above 10 s terminates with an actionable LLMUnavailableError — never an early
+  resend, never a cap-breaking wait
+- The send budget per logical attempt: llm_request_attempts (default 3, initial send included,
+  1 disables retries); SDK built-in retries are off (max_retries=0) — the budget is also the
+  maximum number of physical sends
+- Each retry logs one WARNING (provider, operation, attempt, category, delay) to the logger
+  prettyplay — no secrets, no payloads; KeyboardInterrupt during a wait stops the retrying
+- Generation, healing and group budgets are untouched: one logical LLM attempt per budget
+  attempt, with or without transport retries
 
 ## The compliance operation
 
@@ -76,7 +96,8 @@ STEP TYPE line), ATTEMPT HISTORY, CODE; the answer is a JSON list of findings:
 
 ## The group diagnosis operation
 
-The fourth port operation `classify_group_failure` — one request per diagnosis through the
+The fourth port operation `classify_group_failure` — one logical request per diagnosis, with
+bounded resends of the identical SDK request inside it, through the
 effective classification model, both providers in full parity:
 
 - inputs: the group prompt (verbatim), the group step traces (sentence, outcome, URL transition —
@@ -88,7 +109,8 @@ effective classification model, both providers in full parity:
   recoverable | product_defect | incurable
 - a garbage or incomplete answer degrades conservatively to incurable with the raw answer logged —
   never a granted regeneration
-- provider unavailability raises LLMUnavailableError; one request per diagnosis, budgets belong to
+- provider unavailability raises LLMUnavailableError; one logical request per diagnosis, with
+  bounded resends of the identical SDK request inside it, budgets belong to
   the calling engine
 
 ## Answer shape

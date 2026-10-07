@@ -77,7 +77,7 @@ Annotations: |
     "speed -> int": |
       The pace setting of the run: a percentage 0–100; 100 — full speed, 0 — the slowest supported pace.
 
-"Config(provider: str, browser: BrowserConfig, model: str, generation_model: str, classification_model: str, base_url: str, cache_root: str, generation_prompt: str, classification_prompt: str, strict: bool, polling_timeout: float | None, polling_delay: float, interactive: bool, generation_attempts: int, healing_attempts: int, send_screenshots: bool, generation_approve: bool)":
+"Config(provider: str, browser: BrowserConfig, model: str, generation_model: str, classification_model: str, base_url: str, cache_root: str, generation_prompt: str, classification_prompt: str, strict: bool, polling_timeout: float | None, polling_delay: float, interactive: bool, generation_attempts: int, healing_attempts: int, llm_request_attempts: int, send_screenshots: bool, generation_approve: bool)":
   location: models.py
   annotations: |
     Validated project settings — the single source of the immutable configuration part.
@@ -97,6 +97,7 @@ Annotations: |
     `interactive`: the opt-in interactive steering switch; True — the terminal REPL opens at a terminally stuck step; default False — an accidentally enabled REPL must never hang CI.
     `generation_attempts`: generation attempt budget per step per test; default 3.
     `healing_attempts`: healing attempt budget per step per test; default 2.
+    `llm_request_attempts`: the total attempt budget of one LLM request — the maximum number of physical request sends of one logical LLM attempt of the port (generation, failure classification, group diagnosis, compliance verdict alike), the initial request included; default 3; 1 — request retries disabled, fully the single-send behavior; the retry delays themselves are fixed policy, never configurable; participates in the layered merge like every other scalar setting.
     `send_screenshots`: optional screenshot input to the LLM; default False.
     `generation_approve`: the instruction compliance gate switch; True — every successfully
     executed generation and regeneration candidate is verified against the user
@@ -108,6 +109,7 @@ Annotations: |
     - kw_only construction; every field has an empty default
     - provider validated against {openai, anthropic}; the name inside `browser` against the five-value set; invalid values — loud actionable error
     - attempts are positive integers
+    - llm_request_attempts is a positive integer — a value below 1 fails loudly with the received value named
     - a non-empty endpoint inside `browser` is a valid ws/wss URL — otherwise a loud actionable error
     - `strict`, `classification_prompt` and the `browser` group participate in the layered merge of `load_config` like every other setting
     - polling_timeout is None or a non-negative number — a negative value fails loudly with the received value; polling_delay is non-negative (0 allowed)
@@ -150,6 +152,8 @@ Annotations: |
       The generation attempt budget per step per test.
     "healing_attempts -> int": |
       The healing attempt budget per step per test.
+    "llm_request_attempts -> int": |
+      The total attempt budget of one LLM request; 1 disables request retries.
     "send_screenshots -> bool": |
       Whether screenshots are attached to LLM requests.
     "generation_approve -> bool": |
@@ -174,7 +178,7 @@ Annotations: |
     3. Extract the tool.prettyplay section; a missing section is an empty section
     4. Reject the removed legacy env name: PRETTYPLAY_BROWSER set in the environment raises `ConfigurationError` before merging — the message names PRETTYPLAY_BROWSER_NAME as the replacement
     5. Reject the removed old flat keys: browser, headless or browser_endpoint present at the [tool.prettyplay] level raise `ConfigurationError` immediately — one line per key naming its new home inside [tool.prettyplay.browser] (browser → name, headless → headless, browser_endpoint → endpoint)
-    6. Apply environment overrides: each setting is overridden by PRETTYPLAY_<SETTING_UPPERCASE> when the variable is set; the browser group reads PRETTYPLAY_BROWSER_NAME, PRETTYPLAY_BROWSER_SCREEN, PRETTYPLAY_BROWSER_HEADLESS, PRETTYPLAY_BROWSER_ENDPOINT, PRETTYPLAY_BROWSER_ACCEPT_DIALOGS, PRETTYPLAY_BROWSER_SPEED; strict reads PRETTYPLAY_STRICT; classification_prompt reads PRETTYPLAY_CLASSIFICATION_PROMPT; polling_timeout reads PRETTYPLAY_POLLING_TIMEOUT (a decimal float; 0 — an explicit disable), polling_delay reads PRETTYPLAY_POLLING_DELAY, interactive reads PRETTYPLAY_INTERACTIVE; generation_approve reads PRETTYPLAY_GENERATION_APPROVE — booleans parse true/false/1/0 case-insensitively; an unparseable value raises the loud actionable `ConfigurationError` naming the setting, the received value and the accepted form
+    6. Apply environment overrides: each setting is overridden by PRETTYPLAY_<SETTING_UPPERCASE> when the variable is set; the browser group reads PRETTYPLAY_BROWSER_NAME, PRETTYPLAY_BROWSER_SCREEN, PRETTYPLAY_BROWSER_HEADLESS, PRETTYPLAY_BROWSER_ENDPOINT, PRETTYPLAY_BROWSER_ACCEPT_DIALOGS, PRETTYPLAY_BROWSER_SPEED; strict reads PRETTYPLAY_STRICT; classification_prompt reads PRETTYPLAY_CLASSIFICATION_PROMPT; polling_timeout reads PRETTYPLAY_POLLING_TIMEOUT (a decimal float; 0 — an explicit disable), polling_delay reads PRETTYPLAY_POLLING_DELAY, interactive reads PRETTYPLAY_INTERACTIVE; llm_request_attempts reads PRETTYPLAY_LLM_REQUEST_ATTEMPTS (a decimal integer; an unparseable value raises the loud actionable `ConfigurationError` naming the setting, the received value and the accepted form); generation_approve reads PRETTYPLAY_GENERATION_APPROVE — booleans parse true/false/1/0 case-insensitively; an unparseable value raises the loud actionable `ConfigurationError` naming the setting, the received value and the accepted form
     7. Resolve the empty cache_root: empty after the file+env merge — set to the absolute default <cwd>/.prettyplay/cache/ — the working directory of the run, wherever the pyproject.toml was found; a value set by the file or env layer stays verbatim
     8. Construct `Config`; on a validation failure render the actionable text — one line per invalid setting: the setting name, the received value, the allowed values — and raise `ConfigurationError` with the original ValidationError chained
     9. `overrides` is None — return the file layer as is

@@ -248,7 +248,8 @@ class StepGenerator:
                 carries the failed step code; a group step raises the
                 unclassified variant at its failed check and its budget
                 exhaustion — the group recovery decides.
-            LLMUnavailableError: the provider service failed; no retry.
+            LLMUnavailableError: the provider service failed after the
+                bounded transport retries; no engine retry.
             ComplianceVerdictError: the compliance verdict of a green
                 candidate did not parse; nothing is cached.
         """
@@ -298,7 +299,8 @@ class StepGenerator:
             IncurableStepError: the healing attempt budget is exhausted; the
                 verdict stays None — the calling healer attaches its entry
                 verdict — and the code field carries the last record's code.
-            LLMUnavailableError: the provider service failed; no retry.
+            LLMUnavailableError: the provider service failed after the
+                bounded transport retries; no engine retry.
             ComplianceVerdictError: the compliance verdict of a green
                 candidate did not parse; nothing is cached.
         """
@@ -343,7 +345,8 @@ class StepGenerator:
                 genuine product defect.
             IncurableStepError: the generation attempt budget is exhausted,
                 or a failure classified incurable.
-            LLMUnavailableError: the provider service failed; no retry.
+            LLMUnavailableError: the provider service failed after the
+                bounded transport retries; no engine retry.
             ComplianceVerdictError: the compliance verdict of a green
                 candidate did not parse; nothing is cached.
         """
@@ -377,7 +380,9 @@ class StepGenerator:
                 # failed check survived the window — the decision table, never blind retries
                 url_after = _read_url(page)
                 # full text, no prefix — the type is the semantics
-                history.append(_record(code, str(check_failure), OUTCOME_FAILED_CHECK, url_before, url_after))
+                history.append(
+                    _record(code, format_step_error(check_failure), OUTCOME_FAILED_CHECK, url_before, url_after)
+                )
                 return self._failed_check_outcome(
                     identity,
                     step_text,
@@ -387,7 +392,7 @@ class StepGenerator:
                     page,
                     history,
                     code,
-                    str(check_failure),
+                    format_step_error(check_failure),
                     window,
                     attempt,
                 )
@@ -450,7 +455,8 @@ class StepGenerator:
             IncurableStepError: the healing attempt budget is exhausted; no
                 classification inside the loop — the calling healer attaches
                 the verdict it already holds.
-            LLMUnavailableError: the provider service failed; no retry.
+            LLMUnavailableError: the provider service failed after the
+                bounded transport retries; no engine retry.
             ComplianceVerdictError: the compliance verdict of a green
                 candidate did not parse; nothing is cached.
         """
@@ -472,7 +478,9 @@ class StepGenerator:
                 settle(run_step_code, code, page, window)
             except AssertionError as check_failure:  # failed checks included — the entry classification guards
                 url_after = _read_url(page)
-                history.append(_record(code, str(check_failure), OUTCOME_FAILED_CHECK, url_before, url_after))
+                history.append(
+                    _record(code, format_step_error(check_failure), OUTCOME_FAILED_CHECK, url_before, url_after)
+                )
                 continue
             except Exception as candidate_error:
                 url_after = _read_url(page)
@@ -730,8 +738,9 @@ class StepGenerator:
             candidate failure, never a check.
 
         Raises:
-            LLMUnavailableError: the provider request failed; no retry, no
-                final classification.
+            LLMUnavailableError: the provider request failed after the
+                bounded transport retries; no engine retry, no final
+                classification.
             ComplianceVerdictError: the compliance verdict of a green funded
                 candidate did not parse; nothing is cached.
         """
@@ -745,8 +754,8 @@ class StepGenerator:
             settle(run_step_code, code, page, window)
         except AssertionError as check_failure:
             url_after = _read_url(page)
-            history.append(_record(code, str(check_failure), OUTCOME_FAILED_CHECK, url_before, url_after))
-            return None, code, str(check_failure), True
+            history.append(_record(code, format_step_error(check_failure), OUTCOME_FAILED_CHECK, url_before, url_after))
+            return None, code, format_step_error(check_failure), True
         except Exception as failure:
             url_after = _read_url(page)
             history.append(_record(code, format_step_error(failure), OUTCOME_EXECUTION_FAILED, url_before, url_after))

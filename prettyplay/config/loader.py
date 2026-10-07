@@ -36,6 +36,7 @@ _ENV_NAMES: dict[str, str] = {
         "interactive",
         "generation_attempts",
         "healing_attempts",
+        "llm_request_attempts",
         "send_screenshots",
         "generation_approve",
         "browser.name",
@@ -60,7 +61,7 @@ _BOOL_ENV_SETTINGS = frozenset(
 )
 
 #: The settings whose env values parse as decimal integers.
-_INT_ENV_SETTINGS = frozenset({"generation_attempts", "healing_attempts", "browser.speed"})
+_INT_ENV_SETTINGS = frozenset({"generation_attempts", "healing_attempts", "llm_request_attempts", "browser.speed"})
 
 #: The settings whose env values parse as decimal floats.
 _FLOAT_ENV_SETTINGS = frozenset({"polling_timeout", "polling_delay"})
@@ -78,6 +79,7 @@ _ALLOWED_TEXT: dict[str, str] = {
     "browser.name": "chromium, firefox, webkit, chrome, msedge",
     "generation_attempts": "a positive integer",
     "healing_attempts": "a positive integer",
+    "llm_request_attempts": "a positive integer",
     "browser.headless": "a boolean",
     "browser.accept_dialogs": "a boolean",
     "strict": "a boolean",

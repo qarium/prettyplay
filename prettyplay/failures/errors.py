@@ -329,7 +329,11 @@ class IncurableStepError(PrettyplayError):
 
 
 class LLMUnavailableError(PrettyplayError):
-    """LLM infrastructure failure: the provider is unreachable or rejects the request — cached steps keep running.
+    """LLM infrastructure failure: the provider service is unreachable, times out, rate-limits or
+    rejects authentication — raised when the bounded transport retries of one logical LLM attempt
+    are exhausted, skipped by a permanent provider rejection or cut short by an over-cap
+    Retry-After. Blocks every LLM operation — code generation, step failure classification, group
+    diagnosis and the compliance verdict; cached steps keep running.
 
     Args:
         message: the failure description naming the provider.

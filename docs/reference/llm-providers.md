@@ -39,8 +39,19 @@ Both providers expose the same four operations — `generate_step_code`,
 `check_instruction_compliance` — with identical inputs,
 identical output shapes and the identical failure taxonomy: a provider service
 failure raises `LLMUnavailableError`; cached step code never depends on the
-provider. One request per attempt; attempt budgets belong to the calling
-engine.
+provider. Each engine attempt makes one logical LLM request; transient
+transport failures can resend that request without consuming generation or
+healing attempts.
+
+`llm_request_attempts` defaults to three total sends, including the initial
+send. Connection failures, timeouts, HTTP 408/429 and 5xx responses are
+retried. Authentication, authorization, invalid requests and explicitly
+exhausted quota fail immediately. Pauses use a fixed 1, 2, 4, 8, 10… second
+base plus up to 25% jitter, capped at 10 seconds. A valid `Retry-After` up to
+10 seconds can lengthen the pause; a longer value ends the request with an
+actionable `LLMUnavailableError`. Exhaustion also raises that error with the
+original SDK failure chained. Set the attempt count to `1` to disable
+transport retries. This policy applies to custom `base_url` endpoints too.
 
 User instructions parity: each operation carries its own instructions —
 generation requests render the `generation_prompt` setting, classification
@@ -175,6 +186,8 @@ findings = provider.check_instruction_compliance(
   silent pass. Only a `high`
   finding — in either dimension — blocks the candidate, and that decision
   belongs to the calling engine, not the provider
-- SDK errors map to `LLMUnavailableError` exactly like the other operations —
-  `llm unavailable: {provider} request failed`
-- one request per call, no retry inside the provider
+- SDK transport errors follow the same bounded retry policy as the other
+  operations; a permanent rejection or exhausted request raises
+  `LLMUnavailableError`
+- one logical verdict request per candidate; resends do not rerun the
+  candidate's browser actions
