@@ -2,6 +2,7 @@
 
 import base64
 import math
+import random
 import re
 from typing import NamedTuple
 
@@ -279,6 +280,42 @@ def _extract_retry_after(error: Exception) -> float | None:
         return None
 
     return seconds if math.isfinite(seconds) else None
+
+
+#: The inclusive cap of one transport retry pause, in seconds.
+_TRANSPORT_PAUSE_CAP = 10.0
+
+#: The jitter fraction of the base delay — random.uniform draws up to this share on top.
+_TRANSPORT_JITTER_FRACTION = 0.25
+
+
+def compute_transport_pause(failed_attempt: int, retry_after: float | None) -> float:
+    """Compute the wait before the next transport retry of one LLM request.
+
+    The base delay is one second doubled per prior failure, capped at ten —
+    the sequence 1, 2, 4, 8, 10, 10… seconds; a random jitter of up to a
+    quarter of the base is added and the result is capped back at ten
+    seconds. A valid Retry-After — positive and at most ten seconds —
+    raises the pause to the indicated wait when it exceeds the computed
+    delay; a value above ten never reaches this routine as a wait — the
+    retry loop terminates before computing a pause.
+
+    Args:
+        failed_attempt: the one-based number of the send that just failed.
+        retry_after: the parsed Retry-After seconds of the failure
+            response; None or a non-positive value — no indicated wait.
+
+    Returns:
+        The pause in seconds — a float in the interval (0, 10].
+    """
+    base = min(2.0 ** (failed_attempt - 1), _TRANSPORT_PAUSE_CAP)
+
+    pause = min(base + random.uniform(0.0, base * _TRANSPORT_JITTER_FRACTION), _TRANSPORT_PAUSE_CAP)
+
+    if retry_after is not None and 0.0 < retry_after <= _TRANSPORT_PAUSE_CAP:
+        pause = max(pause, retry_after)
+
+    return pause
 
 
 #: Field count of the one-line classification verdict.

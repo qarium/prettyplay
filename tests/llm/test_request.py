@@ -20,6 +20,7 @@ from prettyplay.llm._request import (
     build_group_diagnosis_fields,
     classify_anthropic_failure,
     classify_openai_failure,
+    compute_transport_pause,
     extract_code_block,
     parse_classification_line,
     unparsable_classification,
@@ -801,3 +802,45 @@ class TestClassifyFailures:
 
         assert failure.category == "invalid_request"
         assert failure.retryable is False
+
+
+class TestComputeTransportPauseContract:
+    """Contract tests: the delay-policy signature — two scalars in, one float out."""
+
+    def test_signature_is_failed_attempt_and_retry_after_to_float(self) -> None:
+        parameters = inspect.signature(compute_transport_pause).parameters
+
+        assert list(parameters) == ["failed_attempt", "retry_after"]
+        assert parameters["failed_attempt"].annotation is int
+        assert parameters["retry_after"].annotation == float | None
+        assert compute_transport_pause.__annotations__["return"] is float
+
+    def test_returns_a_float_for_the_first_failed_attempt(self) -> None:
+        assert isinstance(compute_transport_pause(1, None), float)
+
+
+class TestComputeTransportPause:
+    """Logic tests: the base sequence, the jitter bounds and the Retry-After lift."""
+
+    def test_compute_transport_pause_base_sequence_jitter_and_cap(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("random.uniform", lambda _a, _b: 0.0)
+
+        assert [compute_transport_pause(n, None) for n in range(1, 8)] == [1.0, 2.0, 4.0, 8.0, 10.0, 10.0, 10.0]
+
+    def test_compute_transport_pause_jitter_bounds_and_final_cap(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("random.uniform", lambda _a, b: b)
+
+        assert compute_transport_pause(1, None) == 1.25  # base plus the full quarter jitter
+        assert compute_transport_pause(5, None) == 10.0  # the cap dominates the jittered 12.5
+
+    def test_compute_transport_pause_retry_after_lifts_within_cap(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("random.uniform", lambda _a, _b: 0.0)
+
+        lifts = [
+            compute_transport_pause(1, 5.0),
+            compute_transport_pause(3, 2.0),
+            compute_transport_pause(1, 0.0),
+            compute_transport_pause(1, None),
+        ]
+
+        assert lifts == [5.0, 4.0, 1.0, 1.0]  # zero Retry-After is ignored, a smaller one never shortens

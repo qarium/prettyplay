@@ -782,20 +782,25 @@ negative / `None` → ignored (the lift guard excludes non-positive values).
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Declaration (STEP 0)**: task 5 — the delay policy
-- [ ] **Contract tests** (in `tests/llm/test_request.py`; expected to fail): name
+- [x] **Declaration (STEP 0)**: task 5 — the delay policy
+- [x] **Contract tests** (in `tests/llm/test_request.py`; expected to fail): name
   importable; signature `(failed_attempt: int, retry_after: float | None) -> float`; returns
   a `float` for `(1, None)`
-- [ ] **REPL cycle** (M4): in the venv interpreter — evaluate
+- [x] **REPL cycle** (M4): in the venv interpreter — evaluate
   `[compute_transport_pause(n, None) for n in range(1, 8)]` with
   `random.uniform = lambda a, b: 0.0` patched in the session (restore afterwards); verify
   the sequence 1, 2, 4, 8, 10, 10, 10 and the lift/cap arithmetic live; reload after each
   edit; migrate the verified function into `_request.py`
-- [ ] **Code**: implement `compute_transport_pause(failed_attempt: int, retry_after:
+  (scratch driver under /tmp — phase 1 proved the inline arithmetic: the sequence, the lift
+  cases incl. negative/10.0-boundary Retry-After, the jitter band; phase 2 re-verified the
+  migrated function via importlib.reload in the same session)
+- [x] **Code**: implement `compute_transport_pause(failed_attempt: int, retry_after:
   float | None) -> float` exactly per the algorithm (`import random` — stdlib absolute);
   Google docstring with `Args`/`Returns`
-- [ ] **Interface verification (STEP 3)**: `.venv/bin/python -m pytest tests/llm/test_request.py -q`
-- [ ] **Logic tests (STEP 4)** — the three design scenarios:
+  (house-style `_TRANSPORT_PAUSE_CAP = 10.0` / `_TRANSPORT_JITTER_FRACTION = 0.25`
+  constants beside the function, mirroring the `_STATUS_*` precedent)
+- [x] **Interface verification (STEP 3)**: `.venv/bin/python -m pytest tests/llm/test_request.py -q`
+- [x] **Logic tests (STEP 4)** — the three design scenarios:
   - `test_compute_transport_pause_base_sequence_jitter_and_cap` —
     `monkeypatch.setattr("random.uniform", lambda a, b: 0.0)`; Input
     `compute_transport_pause(n, None)` for n in 1..7; Assertion:
@@ -805,13 +810,18 @@ negative / `None` → ignored (the lift guard excludes non-positive values).
     `compute_transport_pause(1, None) == 1.25` and `compute_transport_pause(5, None) == 10.0`
   - `test_compute_transport_pause_retry_after_lifts_within_cap` — jitter off; Inputs
     `(1, 5.0)`, `(3, 2.0)`, `(1, 0.0)`, `(1, None)`; Assertion: results `== [5.0, 4.0, 1.0, 1.0]`
-- [ ] **Debugging (STEP 5)**: `.venv/bin/python -m pytest tests/llm/ -q` — fix
+- [x] **Debugging (STEP 5)**: `.venv/bin/python -m pytest tests/llm/ -q` — fix
   implementation until green
-- [ ] **Contract re-verification (STEP 6)**: pure function — no sleep, no logging; the cap
+  (272 passed in tests/llm/; full suite 1117 passed)
+- [x] **Contract re-verification (STEP 6)**: pure function — no sleep, no logging; the cap
   and the lift guard match the CODEMANIFEST algorithm
-- [ ] **Lint (STEP 7)**: ruff check + ruff format on `prettyplay/llm/_request.py`,
+  (verified via inspect.getsource: no sleep/logging/logger references; the only external
+  touch is random.uniform — the permitted randomness boundary)
+- [x] **Lint (STEP 7)**: ruff check + ruff format on `prettyplay/llm/_request.py`,
   `tests/llm/test_request.py`
-- [ ] **Completion (STEP 8)**: mark checkboxes; → review → approval → next task. Commit gate.
+  (one fix round: ARG005 unused lambda args → underscore-prefixed `_a`/`_b` per the
+  existing tests/test_integration.py style — code fixed, configuration untouched)
+- [x] **Completion (STEP 8)**: mark checkboxes; → review → approval → next task. Commit gate.
 
 ### Task 6: `send_with_retries` — the bounded retry loop (TDD coding)
 
