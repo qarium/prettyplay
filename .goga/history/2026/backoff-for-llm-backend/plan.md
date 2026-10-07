@@ -1067,31 +1067,48 @@ enters the loop). `ComplianceVerdictError` semantics untouched. The parsers and 
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Declaration (STEP 0)**: task 8 — provider rewiring, both providers, all four operations
-- [ ] **Contract tests** (extend `tests/llm/test_openai_provider.py` /
+- [x] **Declaration (STEP 0)**: task 8 — provider rewiring, both providers, all four operations
+- [x] **Contract tests** (extend `tests/llm/test_openai_provider.py` /
   `tests/llm/test_anthropic_provider.py`; expected to fail): the four operations of both
   providers route their single SDK call through `send_with_retries` (assert via a patched
   `prettyplay.llm._request.send_with_retries` recorder or by retry behavior);
   `_get_client` constructs the SDK client with `max_retries=0`
-- [ ] **REPL cycle** (M4): in the venv interpreter — patch the provider module's `OpenAI` /
+  (written first in `TestOpenAIProviderTransportWiring` /
+  `TestAnthropicProviderTransportWiring` — a recorder patched at the import point
+  (`mock.patch.object(openai_provider, "send_with_retries", …)`) captures the label,
+  attempts and classifier of each of the four operations, plus the both-providers
+  max_retries constructor test; all three failed red before the rewiring)
+- [x] **REPL cycle** (M4): in the venv interpreter — patch the provider module's `OpenAI` /
   `Anthropic` constructor with a fake returning a client whose `create` raises
   `APIConnectionError` once then answers; call `provider.generate_step_code(...)` live with
   sleep patched; observe the WARNING, the resend, the parsed code; verify the missing-key
   path by deleting the env var (`os.environ.pop`) and calling an operation — the exact old
   message surfaces before any classification; reload the provider modules after each edit;
   migrate the verified wiring into both provider files
-- [ ] **Code**: `_get_client` of both providers gains `max_retries=0` in the SDK
+  (scratch drivers under /tmp — phase 1 proved the closure shape live against the real
+  retry loop: recovery, sleep [1.0], one WARNING with the five fields, no payload leakage;
+  phase 2 importlib.reload-ed both migrated provider modules and drove the full ladder:
+  ctor `max_retries=0`, WARNING fields, byte-for-byte missing-key message with no
+  warning/sleep, permanent authentication terminating after one send with the cause
+  chained, the anthropic mirror, and the structural checks — no except blocks, four wraps
+  per provider; drivers deleted, never committed)
+- [x] **Code**: `_get_client` of both providers gains `max_retries=0` in the SDK
   constructor call
-- [ ] **Code**: rewire all four operations of `OpenAIProvider` — resolve
+- [x] **Code**: rewire all four operations of `OpenAIProvider` — resolve
   `client = self._get_client()` before the loop, build kwargs once, replace the direct
   `client.chat.completions.create(...)` + `except OpenAIError` block with
   `send_with_retries("openai", <operation label>, self._config.llm_request_attempts,
   classify_openai_failure, <one-call closure>)`; delete the four except blocks
-- [ ] **Code**: rewire all four operations of `AnthropicProvider` identically
+  (kwargs live in a `request` dict built once before the loop; the closure is a single
+  `lambda: client.chat.completions.create(**request)`; the `OpenAIError` import is gone)
+- [x] **Code**: rewire all four operations of `AnthropicProvider` identically
   (`"anthropic"` label, `classify_anthropic_failure`, `client.messages.create` closure,
   `max_tokens=4096` kept); delete its four except blocks
-- [ ] **Interface verification (STEP 3)**: `.venv/bin/python -m pytest tests/llm/ -q`
-- [ ] **Logic tests (STEP 4)** — the four design scenarios:
+  (`lambda: client.messages.create(**request)`; the `AnthropicError` import is gone)
+- [x] **Interface verification (STEP 3)**: `.venv/bin/python -m pytest tests/llm/ -q`
+  (the three new contract tests green; the only four failures were the old
+  exact-message tests updated in STEP 4, as predicted)
+- [x] **Logic tests (STEP 4)** — the four design scenarios:
   - `test_providers_construct_clients_with_max_retries_zero` — Setup:
     `monkeypatch.setenv("OPENAI_API_KEY", "test")` / `monkeypatch.setenv("ANTHROPIC_API_KEY",
     "test")`; separately patch `prettyplay.llm.openai_provider.OpenAI` /
@@ -1123,16 +1140,30 @@ enters the loop). `ComplianceVerdictError` semantics untouched. The parsers and 
     `sleep_calls == []`; `caplog.records == []`
   - Update any existing provider tests that assert the old single-send error mapping or the
     constructor kwargs — behavior-only assertions, no contract relaxation
-- [ ] **Debugging (STEP 5)**: `.venv/bin/python -m pytest tests/ -x` — the whole suite;
+  (all four scenarios implemented with their exact names; the three openai-shaped ones
+  mirrored for anthropic parity (`test_anthropic_transient_failure_recovers…`,
+  `test_anthropic_permanent_failure_maps…`,
+  `test_anthropic_missing_api_key_still_surfaces…`); four old exact-message tests updated
+  to the new permanent-fallback shape — a plain SDK error now maps to
+  `llm unavailable: {provider} request failed permanently: invalid_request`, still with
+  exact-equality strictness and the cause-chain assertions)
+- [x] **Debugging (STEP 5)**: `.venv/bin/python -m pytest tests/ -x` — the whole suite;
   fix implementation until green (engine tests exercise the propagation paths unchanged)
-- [ ] **Contract re-verification (STEP 6)**: all four operations of both providers wrapped;
+  (1140 passed — nothing needed fixing beyond the four STEP 4 test updates)
+- [x] **Contract re-verification (STEP 6)**: all four operations of both providers wrapped;
   exactly one SDK call per closure; kwargs built once; no `except OpenAIError` /
   `except AnthropicError` blocks remain in the provider files; missing-key message
   byte-for-byte
-- [ ] **Lint (STEP 7)**: ruff check + ruff format on `prettyplay/llm/openai_provider.py`,
+  (verified by grep + the routing contract tests: 0 except blocks, 4 wraps per provider,
+  `client = self._get_client()` before every loop entry, both missing-key messages
+  byte-for-byte, all four operation labels under both provider labels)
+- [x] **Lint (STEP 7)**: ruff check + ruff format on `prettyplay/llm/openai_provider.py`,
   `prettyplay/llm/anthropic_provider.py`, `tests/llm/test_openai_provider.py`,
   `tests/llm/test_anthropic_provider.py`
-- [ ] **Completion (STEP 8)**: mark checkboxes; → review → approval → next task. Commit gate.
+  (one fix round: I001 import order, C408 dict() → literal, E501 line split — code fixed,
+  configuration untouched; `ruff check prettyplay/ tests/` clean,
+  `ruff format --check` clean over all 109 files, full suite re-run green afterwards)
+- [x] **Completion (STEP 8)**: mark checkboxes; → review → approval → next task. Commit gate.
 
 ### Task 9: Docstring alignment — `failures` and engine cells (wording only)
 

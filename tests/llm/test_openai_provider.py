@@ -1,14 +1,22 @@
 """Tests for the OpenAIProvider implementation of the prettyplay.llm cell."""
 
 import inspect
+import logging
 from types import SimpleNamespace
 from unittest import mock
 
 import pytest
-from openai import OpenAIError
+from openai import APIConnectionError, AuthenticationError, OpenAIError
 from prettyplay.config import Config
 from prettyplay.failures import ComplianceVerdictError, LLMUnavailableError, PrettyplayError
-from prettyplay.llm import LLMProvider, OpenAIProvider, ScenarioStep
+from prettyplay.llm import (
+    AnthropicProvider,
+    LLMProvider,
+    OpenAIProvider,
+    ScenarioStep,
+    classify_openai_failure,
+    openai_provider,
+)
 
 GENERATE_STEP_CODE_PARAMS = [
     "self",
@@ -78,6 +86,13 @@ def make_client_create(answer: str = WORKING_CODE) -> tuple[object, list[dict]]:
 def completion_answer(answer: str) -> object:
     """Build a fake chat completion response carrying the answer text."""
     return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=answer))])
+
+
+def make_status_error(error_class: type[Exception], status: int, headers: dict | None = None) -> Exception:
+    """Build an SDK status error over a faked response for the transport wiring tests."""
+    response = SimpleNamespace(status_code=status, headers=headers or {}, request=SimpleNamespace())
+
+    return error_class("boom", response=response, body=None)
 
 
 class TestOpenAIProviderContract:
@@ -716,7 +731,7 @@ class TestOpenAIProviderLogic:
                 attempt_history=[],
             )
 
-        assert str(excinfo.value) == "llm unavailable: openai request failed"
+        assert str(excinfo.value) == "llm unavailable: openai request failed permanently: invalid_request"
         assert not isinstance(excinfo.value, ComplianceVerdictError)  # the SDK error is never a verdict failure
         assert isinstance(excinfo.value.__cause__, OpenAIError)
 
@@ -823,7 +838,7 @@ class TestOpenAIGroupDiagnosis:
                 screenshot=None,
             )
 
-        assert str(excinfo.value) == "llm unavailable: openai request failed"
+        assert str(excinfo.value) == "llm unavailable: openai request failed permanently: invalid_request"
         assert isinstance(excinfo.value.__cause__, OpenAIError)
 
     def test_openai_diagnosis_with_screenshot_uses_openai_image_block(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -849,3 +864,228 @@ class TestOpenAIGroupDiagnosis:
         image_block = user_content[1]
         assert image_block["type"] == "image_url"  # parity: the diagnosis attaches the same image shape
         assert image_block["image_url"]["url"].startswith("data:image/png;base64,")
+
+
+class TestOpenAIProviderTransportWiring:
+    """Contract tests: every SDK call of every operation rides the bounded retry loop."""
+
+    def test_all_four_operations_route_the_sdk_call_through_send_with_retries(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "test")
+        cell: dict[str, str] = {"answer": WORKING_CODE}
+        create = mock.MagicMock(side_effect=lambda **_kwargs: completion_answer(cell["answer"]))
+        client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+        provider = OpenAIProvider(Config(model="gpt-5"))
+
+        calls: list[tuple[str, str, int, object]] = []
+
+        def recorder(provider_label: str, operation: str, attempts: int, classify: object, send: object) -> object:
+            calls.append((provider_label, operation, attempts, classify))
+
+            return send()
+
+        with (
+            mock.patch.object(openai_provider, "send_with_retries", recorder),
+            mock.patch.object(provider, "_get_client", return_value=client),
+        ):
+            provider.generate_step_code(
+                prompt="p",
+                user_instructions="",
+                step_text="s",
+                step_type="action",
+                previous_steps=[],
+                group_prompt=None,
+                snapshot="- snap",
+                page_url=None,
+                screenshot=None,
+                cheat_sheet="expect(locator).to_be_visible()",
+                attempt_history=[],
+                recommendation=None,
+                guidance=None,
+            )
+            cell["answer"] = "rot | e | r"
+            provider.classify_step_failure(
+                prompt="p",
+                user_instructions="",
+                step_text="s",
+                code="c",
+                error="e",
+                snapshot="- snap",
+                screenshot=None,
+            )
+            cell["answer"] = DIAGNOSIS_ANSWER
+            provider.classify_group_failure(
+                prompt="p",
+                user_instructions="",
+                group_prompt="the checkout flow",
+                group_steps=GROUP_STEPS,
+                step_text="the status shows order confirmed",
+                attempt_history=[],
+                snapshot="- snap",
+                screenshot=None,
+            )
+            cell["answer"] = "[]"
+            provider.check_instruction_compliance(
+                prompt="p",
+                user_instructions="Prefer id attributes",
+                step_text="s",
+                step_type="action",
+                code="c",
+                attempt_history=[],
+            )
+
+        assert [(label, operation) for label, operation, _attempts, _classify in calls] == [
+            ("openai", "generation"),
+            ("openai", "classification"),
+            ("openai", "group diagnosis"),
+            ("openai", "compliance verdict"),
+        ]  # every operation enters the loop exactly once, under its fixed label
+        assert all(attempts == 3 for _label, _operation, attempts, _classify in calls)  # config default budget
+        assert all(classify is classify_openai_failure for _label, _operation, _attempts, classify in calls)
+
+    def test_providers_construct_clients_with_max_retries_zero(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "test")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+        openai_client, _openai_requests = make_client_create()
+        anthropic_client = SimpleNamespace(
+            messages=SimpleNamespace(
+                create=mock.MagicMock(
+                    return_value=SimpleNamespace(content=[SimpleNamespace(type="text", text=WORKING_CODE)])
+                )
+            )
+        )
+        openai_llm = OpenAIProvider(Config(model="gpt-5"))
+        anthropic_llm = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+        generate_kwargs = {
+            "prompt": "p",
+            "user_instructions": "",
+            "step_text": "s",
+            "step_type": "action",
+            "previous_steps": [],
+            "group_prompt": None,
+            "snapshot": "- snap",
+            "page_url": None,
+            "screenshot": None,
+            "cheat_sheet": "expect(locator).to_be_visible()",
+            "attempt_history": [],
+            "recommendation": None,
+            "guidance": None,
+        }
+
+        with (
+            mock.patch("prettyplay.llm.openai_provider.OpenAI", return_value=openai_client) as openai_ctor,
+            mock.patch("prettyplay.llm.anthropic_provider.Anthropic", return_value=anthropic_client) as anthropic_ctor,
+        ):
+            openai_llm.generate_step_code(**generate_kwargs)
+            anthropic_llm.generate_step_code(**generate_kwargs)
+
+        assert openai_ctor.call_args.kwargs["max_retries"] == 0  # the SDK never resends on its own
+        assert anthropic_ctor.call_args.kwargs["max_retries"] == 0
+
+    def test_provider_transient_failure_recovers_inside_one_logical_attempt(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "test")
+        outcomes: list[object] = [APIConnectionError(request=SimpleNamespace()), WORKING_CODE]
+        calls: list[int] = []
+
+        def create(**_kwargs: object) -> object:
+            calls.append(1)
+            outcome = outcomes.pop(0)
+
+            if isinstance(outcome, Exception):
+                raise outcome
+
+            return completion_answer(outcome)
+
+        client = SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=mock.MagicMock(side_effect=create)))
+        )
+        provider = OpenAIProvider(Config(model="gpt-5", llm_request_attempts=2))
+        sleeps: list[float] = []
+
+        monkeypatch.setattr("time.sleep", sleeps.append)
+        monkeypatch.setattr("random.uniform", lambda _a, _b: 0.0)
+        caplog.set_level(logging.WARNING, logger="prettyplay")
+
+        with mock.patch.object(provider, "_get_client", return_value=client):
+            code = provider.generate_step_code(
+                prompt="p",
+                user_instructions="",
+                step_text="s",
+                step_type="action",
+                previous_steps=[],
+                group_prompt=None,
+                snapshot="- snap",
+                page_url=None,
+                screenshot=None,
+                cheat_sheet="expect(locator).to_be_visible()",
+                attempt_history=[],
+                recommendation=None,
+                guidance=None,
+            )
+
+        assert code == WORKING_CODE
+        assert client.chat.completions.create.call_count == 2  # the resend stayed inside one logical attempt
+        assert sleeps == [1.0]
+        assert len(caplog.records) == 1
+        assert caplog.records[0].operation == "generation"
+
+    def test_provider_permanent_failure_maps_to_llm_unavailable_immediately(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "test")
+        error = make_status_error(AuthenticationError, 401)
+        create = mock.MagicMock(side_effect=error)
+        client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+        provider = OpenAIProvider(Config(model="gpt-5"))
+        sleeps: list[float] = []
+
+        monkeypatch.setattr("time.sleep", sleeps.append)
+
+        with (
+            mock.patch.object(provider, "_get_client", return_value=client),
+            pytest.raises(LLMUnavailableError) as excinfo,
+        ):
+            provider.classify_step_failure(
+                prompt="p",
+                user_instructions="",
+                step_text="s",
+                code="c",
+                error="e",
+                snapshot="- snap",
+                screenshot=None,
+            )
+
+        assert "openai" in str(excinfo.value)
+        assert "authentication" in str(excinfo.value)
+        assert excinfo.value.__cause__ is error
+        assert create.call_count == 1  # a permanent rejection never resends
+        assert sleeps == []
+        assert caplog.records == []
+
+    def test_missing_api_key_still_surfaces_before_the_retry_loop(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+        provider = OpenAIProvider(Config())
+        sleeps: list[float] = []
+
+        monkeypatch.setattr("time.sleep", sleeps.append)
+
+        with pytest.raises(LLMUnavailableError) as excinfo:
+            provider.classify_step_failure(
+                prompt="p",
+                user_instructions="",
+                step_text="s",
+                code="c",
+                error="e",
+                snapshot="- snap",
+                screenshot=None,
+            )
+
+        assert "OPENAI_API_KEY" in str(excinfo.value)
+        assert sleeps == []  # the missing-key error never enters the retry loop
+        assert caplog.records == []

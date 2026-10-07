@@ -2,7 +2,7 @@
 
 import os
 
-from openai import OpenAI, OpenAIError
+from openai import OpenAI
 
 from ..config import Config
 from ..failures import LLMUnavailableError
@@ -11,10 +11,12 @@ from ._request import (
     build_compliance_fields,
     build_fields_text,
     build_group_diagnosis_fields,
+    classify_openai_failure,
     extract_code_block,
     openai_user_content,
     parse_classification_line,
     require_completion_text,
+    send_with_retries,
     unparsable_classification,
 )
 from .models import (
@@ -74,7 +76,7 @@ class OpenAIProvider(LLMProvider):
             if not api_key:
                 raise LLMUnavailableError("llm unavailable: openai: OPENAI_API_KEY is not set")
 
-            self._client = OpenAI(api_key=api_key, base_url=self._config.base_url or None)
+            self._client = OpenAI(api_key=api_key, base_url=self._config.base_url or None, max_retries=0)
         return self._client
 
     def generate_step_code(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
@@ -178,13 +180,19 @@ class OpenAIProvider(LLMProvider):
             {"role": "user", "content": openai_user_content(text, screenshot)},
         ]
 
-        try:
-            response = self._get_client().chat.completions.create(
-                model=self._config.effective_generation_model,
-                messages=messages,
-            )
-        except OpenAIError as sdk_error:
-            raise LLMUnavailableError("llm unavailable: openai request failed") from sdk_error
+        client = self._get_client()
+        request = {
+            "model": self._config.effective_generation_model,
+            "messages": messages,
+        }
+
+        response = send_with_retries(
+            "openai",
+            "generation",
+            self._config.llm_request_attempts,
+            classify_openai_failure,
+            lambda: client.chat.completions.create(**request),
+        )
 
         return extract_code_block(require_completion_text(_first_choice_text(response), "openai"))
 
@@ -229,13 +237,19 @@ class OpenAIProvider(LLMProvider):
             {"role": "user", "content": openai_user_content(text, screenshot)},
         ]
 
-        try:
-            response = self._get_client().chat.completions.create(
-                model=self._config.effective_classification_model,
-                messages=messages,
-            )
-        except OpenAIError as sdk_error:
-            raise LLMUnavailableError("llm unavailable: openai request failed") from sdk_error
+        client = self._get_client()
+        request = {
+            "model": self._config.effective_classification_model,
+            "messages": messages,
+        }
+
+        response = send_with_retries(
+            "openai",
+            "classification",
+            self._config.llm_request_attempts,
+            classify_openai_failure,
+            lambda: client.chat.completions.create(**request),
+        )
 
         answer = require_completion_text(_first_choice_text(response), "openai")
         parsed = parse_classification_line(answer)
@@ -305,13 +319,19 @@ class OpenAIProvider(LLMProvider):
             {"role": "user", "content": openai_user_content(text, screenshot)},
         ]
 
-        try:
-            response = self._get_client().chat.completions.create(
-                model=self._config.effective_classification_model,
-                messages=messages,
-            )
-        except OpenAIError as sdk_error:
-            raise LLMUnavailableError("llm unavailable: openai request failed") from sdk_error
+        client = self._get_client()
+        request = {
+            "model": self._config.effective_classification_model,
+            "messages": messages,
+        }
+
+        response = send_with_retries(
+            "openai",
+            "group diagnosis",
+            self._config.llm_request_attempts,
+            classify_openai_failure,
+            lambda: client.chat.completions.create(**request),
+        )
 
         return parse_group_failure_classification(require_completion_text(_first_choice_text(response), "openai"))
 
@@ -360,12 +380,18 @@ class OpenAIProvider(LLMProvider):
             {"role": "user", "content": text},
         ]
 
-        try:
-            response = self._get_client().chat.completions.create(
-                model=self._config.effective_classification_model,
-                messages=messages,
-            )
-        except OpenAIError as sdk_error:
-            raise LLMUnavailableError("llm unavailable: openai request failed") from sdk_error
+        client = self._get_client()
+        request = {
+            "model": self._config.effective_classification_model,
+            "messages": messages,
+        }
+
+        response = send_with_retries(
+            "openai",
+            "compliance verdict",
+            self._config.llm_request_attempts,
+            classify_openai_failure,
+            lambda: client.chat.completions.create(**request),
+        )
 
         return parse_compliance_verdict(require_completion_text(_first_choice_text(response), "openai"))
