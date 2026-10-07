@@ -1,10 +1,13 @@
 """Shared request-field building and transport failure classification for the LLM providers."""
 
 import base64
+import logging
 import math
 import random
 import re
-from typing import NamedTuple
+import time
+from collections.abc import Callable
+from typing import NamedTuple, TypeVar
 
 import anthropic
 import openai
@@ -12,6 +15,11 @@ from pydantic import BaseModel, ConfigDict
 
 from ..failures import LLMUnavailableError
 from .models import ScenarioStep
+
+logger = logging.getLogger("prettyplay")
+
+#: The response type of one SDK request send — the generic pass-through type of the retry loop.
+T = TypeVar("T")
 
 #: The labels a classification category may take.
 CATEGORY_ROT = "rot"
@@ -316,6 +324,87 @@ def compute_transport_pause(failed_attempt: int, retry_after: float | None) -> f
         pause = max(pause, retry_after)
 
     return pause
+
+
+def send_with_retries(
+    provider: str,
+    operation: str,
+    attempts: int,
+    classify: Callable[[Exception], TransportFailureClassification],
+    send: Callable[[], T],
+) -> T:
+    """Send one LLM request through the bounded transport retry loop.
+
+    One logical LLM attempt of the port — generation, classification,
+    group diagnosis or compliance verdict alike — resends the identical
+    SDK request through this loop up to the send budget, the initial
+    send included. A success returns the send response as is. A failure
+    is classified first: a permanent category terminates immediately
+    with the cause chained; a Retry-After above the ten second cap
+    terminates before any pause is computed; the last send of the budget
+    terminates with the cause chained. Otherwise the loop computes the
+    pause, emits exactly one WARNING record per retry — provider,
+    operation, attempt number, error category and delay; never secrets,
+    never request or response contents — waits, and runs the next
+    attempt. KeyboardInterrupt during a wait propagates without another
+    retry; the engine attempt budgets are never consulted.
+
+    Args:
+        provider: the provider label for logs and errors — openai or
+            anthropic.
+        operation: the operation label for logs — generation,
+            classification, group diagnosis or compliance verdict.
+        attempts: the total send budget, the initial send included;
+            1 disables retries.
+        classify: the provider-specific transport failure classifier.
+        send: the closure performing exactly one SDK request.
+
+    Returns:
+        The successful response of ``send``, passed through untouched.
+
+    Raises:
+        LLMUnavailableError: a permanent provider rejection, a
+            Retry-After above the ten second cap, or the exhaustion of
+            the send budget — always chained to the original SDK error.
+    """
+    for attempt in range(1, attempts + 1):
+        try:
+            return send()
+        except Exception as error:
+            failure = classify(error)
+
+            if not failure.retryable:
+                raise LLMUnavailableError(
+                    f"llm unavailable: {provider} request failed permanently: {failure.category}"
+                ) from error
+
+            if failure.retry_after is not None and failure.retry_after > _TRANSPORT_PAUSE_CAP:
+                raise LLMUnavailableError(
+                    f"llm unavailable: {provider} asked to wait {failure.retry_after:g} seconds"
+                    " — above the 10 second retry cap, not retrying"
+                ) from error
+
+            if attempt == attempts:
+                raise LLMUnavailableError(
+                    f"llm unavailable: {provider} request failed after {attempts} attempts"
+                ) from error
+
+            pause = compute_transport_pause(attempt, failure.retry_after)
+
+            logger.warning(
+                "llm request retry",
+                extra={
+                    "provider": provider,
+                    "operation": operation,
+                    "attempt": attempt,
+                    "category": failure.category,
+                    "delay": pause,
+                },
+            )
+
+            time.sleep(pause)
+
+    raise AssertionError(f"the retry loop of {provider} {operation} always returns or raises")
 
 
 #: Field count of the one-line classification verdict.

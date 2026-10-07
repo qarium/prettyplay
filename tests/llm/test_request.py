@@ -1,13 +1,15 @@
 """Tests for the shared request-field helpers of the prettyplay.llm cell."""
 
 import inspect
+import logging
 from collections.abc import Callable
 from types import SimpleNamespace
-from typing import ClassVar
+from typing import ClassVar, TypeVar
 
 import anthropic
 import openai
 import pytest
+from prettyplay.failures import LLMUnavailableError
 from prettyplay.llm import ScenarioStep
 from prettyplay.llm._request import (
     CATEGORIES,
@@ -23,6 +25,7 @@ from prettyplay.llm._request import (
     compute_transport_pause,
     extract_code_block,
     parse_classification_line,
+    send_with_retries,
     unparsable_classification,
 )
 
@@ -844,3 +847,292 @@ class TestComputeTransportPause:
         ]
 
         assert lifts == [5.0, 4.0, 1.0, 1.0]  # zero Retry-After is ignored, a smaller one never shortens
+
+
+class TestSendWithRetriesContract:
+    """Contract tests: the retry-loop signature — five parameters, generic pass-through."""
+
+    def test_signature_is_provider_operation_attempts_classify_send(self) -> None:
+        parameters = inspect.signature(send_with_retries).parameters
+        returned = send_with_retries.__annotations__["return"]
+
+        assert list(parameters) == ["provider", "operation", "attempts", "classify", "send"]
+        assert parameters["provider"].annotation is str
+        assert parameters["operation"].annotation is str
+        assert parameters["attempts"].annotation is int
+        assert parameters["classify"].annotation == Callable[[Exception], TransportFailureClassification]
+        assert parameters["send"].annotation == Callable[[], returned]
+        assert isinstance(returned, TypeVar)  # generic — the response type of send passes through
+
+    def test_generic_passthrough_returns_the_send_response(self) -> None:
+        def never_classify(error: Exception) -> TransportFailureClassification:
+            pytest.fail("a successful send is never classified")
+
+        assert send_with_retries("openai", "generation", 3, never_classify, lambda: "ok") == "ok"
+
+
+class TestSendWithRetries:
+    """Logic tests (positive): the pass-through and the retry-then-succeed cycle."""
+
+    def test_send_with_retries_success_returns_response_without_side_effects(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        sent: list[int] = []
+        sleeps: list[float] = []
+
+        def send() -> str:
+            sent.append(1)
+            return "ok"
+
+        def never_classify(error: Exception) -> TransportFailureClassification:
+            pytest.fail("must not classify")
+
+        monkeypatch.setattr("time.sleep", sleeps.append)
+
+        result = send_with_retries("openai", "generation", 3, never_classify, send)
+
+        assert result == "ok"
+        assert sent == [1]
+        assert sleeps == []
+        assert caplog.records == []
+
+    def test_send_with_retries_retries_then_succeeds_with_two_warnings(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        response = object()
+        outcomes: list[object] = [
+            anthropic.APIConnectionError(request=SimpleNamespace()),
+            anthropic.APIConnectionError(request=SimpleNamespace()),
+            response,
+        ]
+        calls: list[int] = []
+        sleeps: list[float] = []
+
+        def send() -> object:
+            calls.append(1)
+            outcome = outcomes.pop(0)
+
+            if isinstance(outcome, Exception):
+                raise outcome
+
+            return outcome
+
+        monkeypatch.setattr("time.sleep", sleeps.append)
+        monkeypatch.setattr("random.uniform", lambda _a, _b: 0.0)
+        caplog.set_level(logging.WARNING, logger="prettyplay")
+
+        result = send_with_retries("anthropic", "group diagnosis", 3, classify_anthropic_failure, send)
+
+        assert result is response
+        assert len(calls) == 3
+        assert sleeps == [1.0, 2.0]
+        assert len(caplog.records) == 2
+        first, second = caplog.records
+        assert first.name == "prettyplay"
+        assert first.levelname == "WARNING"
+        assert first.provider == "anthropic"
+        assert first.operation == "group diagnosis"
+        assert first.attempt == 1
+        assert first.category == "connection"
+        assert first.delay == 1.0
+        assert second.attempt == 2
+        assert second.delay == 2.0
+
+
+class TestSendWithRetriesTerminal:
+    """Logic tests (negative): the three terminal branches and the wait interrupt."""
+
+    def test_send_with_retries_permanent_failure_terminates_immediately(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        error = make_status_error(openai.AuthenticationError, 401)
+        calls: list[int] = []
+        sleeps: list[float] = []
+
+        def send() -> object:
+            calls.append(1)
+            raise error
+
+        monkeypatch.setattr("time.sleep", sleeps.append)
+
+        with pytest.raises(LLMUnavailableError) as excinfo:
+            send_with_retries("openai", "generation", 3, classify_openai_failure, send)
+
+        assert "openai" in str(excinfo.value)
+        assert "authentication" in str(excinfo.value)
+        assert excinfo.value.__cause__ is error
+        assert len(calls) == 1
+        assert sleeps == []
+        assert caplog.records == []
+
+    def test_send_with_retries_over_cap_retry_after_terminates_before_any_pause(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        error = make_status_error(openai.RateLimitError, 429, {"retry-after": "30"})
+        calls: list[int] = []
+        sleeps: list[float] = []
+
+        def send() -> object:
+            calls.append(1)
+            raise error
+
+        monkeypatch.setattr("time.sleep", sleeps.append)
+
+        with pytest.raises(LLMUnavailableError) as excinfo:
+            send_with_retries("openai", "generation", 3, classify_openai_failure, send)
+
+        assert "10 second retry cap" in str(excinfo.value)
+        assert excinfo.value.__cause__ is error
+        assert len(calls) == 1
+        assert sleeps == []
+        assert caplog.records == []
+
+    def test_send_with_retries_exhaustion_raises_with_cause_and_attempt_count(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        calls: list[int] = []
+        sleeps: list[float] = []
+        errors: list[Exception] = []
+
+        def send() -> object:
+            calls.append(1)
+            error = anthropic.APIConnectionError(request=SimpleNamespace())
+            errors.append(error)
+            raise error
+
+        monkeypatch.setattr("time.sleep", sleeps.append)
+        monkeypatch.setattr("random.uniform", lambda _a, _b: 0.0)
+        caplog.set_level(logging.WARNING, logger="prettyplay")
+
+        with pytest.raises(LLMUnavailableError) as excinfo:
+            send_with_retries("anthropic", "generation", 3, classify_anthropic_failure, send)
+
+        assert "after 3 attempts" in str(excinfo.value)
+        assert excinfo.value.__cause__ is errors[-1]
+        assert len(calls) == 3
+        assert sleeps == [1.0, 2.0]
+        assert len(caplog.records) == 2  # the terminal attempt logs nothing
+
+    def test_send_with_retries_single_attempt_disables_retries(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        calls: list[int] = []
+        sleeps: list[float] = []
+
+        def send() -> object:
+            calls.append(1)
+            raise anthropic.APIConnectionError(request=SimpleNamespace())
+
+        monkeypatch.setattr("time.sleep", sleeps.append)
+
+        with pytest.raises(LLMUnavailableError):
+            send_with_retries("anthropic", "generation", 1, classify_anthropic_failure, send)
+
+        assert len(calls) == 1
+        assert sleeps == []
+        assert caplog.records == []
+
+    def test_send_with_retries_keyboard_interrupt_during_wait_propagates(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls: list[int] = []
+
+        def send() -> object:
+            calls.append(1)
+            raise anthropic.APIConnectionError(request=SimpleNamespace())
+
+        def interrupted(pause: float) -> None:
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr("time.sleep", interrupted)
+
+        with pytest.raises(KeyboardInterrupt):
+            send_with_retries("anthropic", "generation", 3, classify_anthropic_failure, send)
+
+        assert len(calls) == 1
+
+
+class TestSendWithRetriesEdges:
+    """Logic tests (edge): the budget ceiling, the branch precedence and the log hygiene."""
+
+    def test_send_with_retries_never_sends_more_than_the_budget(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        calls: list[int] = []
+        sleeps: list[float] = []
+
+        def send() -> object:
+            calls.append(1)
+            raise anthropic.APIConnectionError(request=SimpleNamespace())
+
+        monkeypatch.setattr("time.sleep", sleeps.append)
+        monkeypatch.setattr("random.uniform", lambda _a, _b: 0.0)
+        caplog.set_level(logging.WARNING, logger="prettyplay")
+
+        with pytest.raises(LLMUnavailableError):
+            send_with_retries("anthropic", "generation", 5, classify_anthropic_failure, send)
+
+        assert len(calls) == 5
+        assert sleeps == [1.0, 2.0, 4.0, 8.0]
+        assert len(caplog.records) == 4
+
+    def test_send_with_retries_over_cap_retry_after_wins_over_exhaustion(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        error = make_status_error(openai.RateLimitError, 429, {"retry-after": "15"})
+        calls: list[int] = []
+
+        def send() -> object:
+            calls.append(1)
+            raise error
+
+        monkeypatch.setattr("time.sleep", lambda _pause: None)
+
+        with pytest.raises(LLMUnavailableError) as excinfo:
+            send_with_retries("openai", "generation", 1, classify_openai_failure, send)
+
+        assert "retry cap" in str(excinfo.value)
+        assert "after 1 attempts" not in str(excinfo.value)
+
+    def test_send_with_retries_zero_retry_after_is_ignored_not_fatal(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        response = object()
+        outcomes: list[object] = [make_status_error(anthropic.RateLimitError, 429, {"retry-after": "0"}), response]
+        sleeps: list[float] = []
+
+        def send() -> object:
+            outcome = outcomes.pop(0)
+
+            if isinstance(outcome, Exception):
+                raise outcome
+
+            return outcome
+
+        monkeypatch.setattr("time.sleep", sleeps.append)
+        monkeypatch.setattr("random.uniform", lambda _a, _b: 0.0)
+
+        result = send_with_retries("anthropic", "generation", 2, classify_anthropic_failure, send)
+
+        assert result is response
+        assert sleeps == [1.0]
+
+    def test_logging_carries_no_request_payloads(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        request_kwargs = {"api_key": "secret-token", "messages": [{"role": "user", "content": "secret-token"}]}
+        outcomes: list[object] = [anthropic.APIConnectionError(request=SimpleNamespace()), "ok"]
+
+        def send() -> str:
+            _ = request_kwargs  # the closure carries the payload; the retry record must never see it
+            outcome = outcomes.pop(0)
+
+            if isinstance(outcome, Exception):
+                raise outcome
+
+            return str(outcome)
+
+        monkeypatch.setattr("time.sleep", lambda _pause: None)
+        monkeypatch.setattr("random.uniform", lambda _a, _b: 0.0)
+        caplog.set_level(logging.WARNING, logger="prettyplay")
+
+        assert send_with_retries("anthropic", "generation", 2, classify_anthropic_failure, send) == "ok"
+
+        assert len(caplog.records) == 1
+        assert all("secret-token" not in record.getMessage() for record in caplog.records)
+        expected_fields = {"provider", "operation", "attempt", "category", "delay"}
+        assert all(expected_fields <= set(record.__dict__) for record in caplog.records)

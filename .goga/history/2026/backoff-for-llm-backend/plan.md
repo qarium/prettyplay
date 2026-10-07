@@ -873,12 +873,13 @@ terminal failures beyond the exceptions themselves.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Declaration (STEP 0)**: task 6 — the retry loop
-- [ ] **Contract tests** (in `tests/llm/test_request.py`; expected to fail): name
+- [x] **Declaration (STEP 0)**: task 6 — the retry loop
+- [x] **Contract tests** (in `tests/llm/test_request.py`; expected to fail): name
   importable; signature `(provider: str, operation: str, attempts: int, classify, send)`;
   generic pass-through — `send_with_retries("openai", "generation", 3, classify, lambda: "ok")`
   returns `"ok"` with a never-classifying classifier
-- [ ] **REPL cycle** (M4): in the venv interpreter — drive the loop live with scripted
+  (written first — failed red on the missing import, green after implementation)
+- [x] **REPL cycle** (M4): in the venv interpreter — drive the loop live with scripted
   closures: a `send` that raises `anthropic.APIConnectionError(request=…)` twice then
   returns an object; `time.sleep` replaced in-session by a recorder
   (`time.sleep = lambda p: sleeps.append(p)`, restored afterwards) and
@@ -886,14 +887,19 @@ terminal failures beyond the exceptions themselves.
   `logging.getLogger("prettyplay")` (attach a handler in the session); repeat for the
   permanent / over-cap / exhaustion scripts; reload after each edit; migrate the verified
   loop into `_request.py`
-- [ ] **Code**: add to `prettyplay/llm/_request.py` — `T = TypeVar("T")` (module level),
+  (scratch drivers under /tmp — phase 1 proved the loop live over seven scripted scenarios
+  with in-session sleep/uniform patches and a capture handler on the prettyplay logger;
+  phase 2 re-verified the migrated function via importlib.reload: messages byte-for-byte,
+  branch order, WARNING fields, sleep sequence, cause chaining, interrupt propagation)
+- [x] **Code**: add to `prettyplay/llm/_request.py` — `T = TypeVar("T")` (module level),
   `logger = logging.getLogger("prettyplay")` (module level), and
   `send_with_retries(provider: str, operation: str, attempts: int, classify:
   Callable[[Exception], TransportFailureClassification], send: Callable[[], T]) -> T`
   implementing the algorithm above verbatim (branch order: permanent → over-cap →
   exhaustion → pause/log/wait)
-- [ ] **Interface verification (STEP 3)**: `.venv/bin/python -m pytest tests/llm/test_request.py -q`
-- [ ] **Logic tests (STEP 4)** — eleven design scenarios (positive):
+- [x] **Interface verification (STEP 3)**: `.venv/bin/python -m pytest tests/llm/test_request.py -q`
+  (102 passed)
+- [x] **Logic tests (STEP 4)** — eleven design scenarios (positive):
   - `test_send_with_retries_success_returns_response_without_side_effects` — Setup:
     `sent = []; send = lambda: sent.append(1) or "ok"`; classifier =
     `lambda e: pytest.fail("must not classify")`; sleep recorded; Input:
@@ -909,7 +915,8 @@ terminal failures beyond the exceptions themselves.
     `records[0].name == "prettyplay"`, `records[0].provider == "anthropic"`,
     `records[0].operation == "group diagnosis"`, `records[0].attempt == 1`,
     `records[0].category == "connection"`, `records[0].delay == 1.0`
-- [ ] **Logic tests (negative)**:
+  (both scenarios implemented; the second record's attempt/delay asserted as well)
+- [x] **Logic tests (negative)**:
   - `test_send_with_retries_permanent_failure_terminates_immediately` — `send` raises an
     `AuthenticationError`-shaped exception every call; classifier =
     `classify_openai_failure`; Assertions: `pytest.raises(LLMUnavailableError)` with
@@ -934,7 +941,8 @@ terminal failures beyond the exceptions themselves.
   - `test_send_with_retries_keyboard_interrupt_during_wait_propagates` — sleep raises
     `KeyboardInterrupt`; Assertions: `pytest.raises(KeyboardInterrupt)`;
     `send_call_count == 1`
-- [ ] **Logic tests (edge)**:
+  (all five scenarios implemented)
+- [x] **Logic tests (edge)**:
   - `test_send_with_retries_never_sends_more_than_the_budget` — always retryable failure,
     `attempts = 5`, `random.uniform → 0`; Assertions: `send_call_count == 5`;
     `[sleep args] == [1.0, 2.0, 4.0, 8.0]`; `len(caplog.records) == 4`
@@ -949,14 +957,22 @@ terminal failures beyond the exceptions themselves.
     `all("secret-token" not in rec.getMessage() for rec in caplog.records)` and
     `all(set(("provider","operation","attempt","category","delay")) <= set(rec.__dict__)
     for rec in caplog.records)`
-- [ ] **Debugging (STEP 5)**: `.venv/bin/python -m pytest tests/llm/ -q` — fix
+  (all four scenarios implemented)
+- [x] **Debugging (STEP 5)**: `.venv/bin/python -m pytest tests/llm/ -q` — fix
   implementation until green
-- [ ] **Contract re-verification (STEP 6)**: at most `attempts` sends; branch order
+  (285 passed in tests/llm/; full suite 1130 passed — nothing needed fixing)
+- [x] **Contract re-verification (STEP 6)**: at most `attempts` sends; branch order
   permanent → over-cap → exhaustion; one WARNING per retry with exactly the five fields;
   `raise … from` on all three terminal branches
-- [ ] **Lint (STEP 7)**: ruff check + ruff format on `prettyplay/llm/_request.py`,
+  (verified via inspect.getsource: branch order, three `from error` chains,
+  `except Exception` only, one logger.warning with the five extra fields, sleep after
+  the warning, no engine budget consultation; the send ceiling locked by
+  test_send_with_retries_never_sends_more_than_the_budget)
+- [x] **Lint (STEP 7)**: ruff check + ruff format on `prettyplay/llm/_request.py`,
   `tests/llm/test_request.py`
-- [ ] **Completion (STEP 8)**: mark checkboxes; → review → approval → next task. Commit gate.
+  (one format round: three test signatures collapsed to single lines by ruff format;
+  re-checked clean and re-run green afterwards)
+- [x] **Completion (STEP 8)**: mark checkboxes; → review → approval → next task. Commit gate.
 
 ### Task 7: Facade exports of the transport machinery (infrastructure + contract test)
 
