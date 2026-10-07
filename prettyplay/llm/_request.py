@@ -349,20 +349,6 @@ def send_with_retries(
 ) -> T:
     """Send one LLM request through the bounded transport retry loop.
 
-    One logical LLM attempt of the port — generation, classification,
-    group diagnosis or compliance verdict alike — resends the identical
-    SDK request through this loop up to the send budget, the initial
-    send included. A success returns the send response as is. A failure
-    is classified first: a permanent category terminates immediately
-    with the cause chained; a Retry-After above the ten second cap
-    terminates before any pause is computed; the last send of the budget
-    terminates with the cause chained. Otherwise the loop computes the
-    pause, emits exactly one WARNING record per retry — provider,
-    operation, attempt number, error category and delay; never secrets,
-    never request or response contents — waits, and runs the next
-    attempt. KeyboardInterrupt during a wait propagates without another
-    retry; the engine attempt budgets are never consulted.
-
     Args:
         provider: the provider label for logs and errors — openai or
             anthropic.
