@@ -62,6 +62,9 @@ PERMANENT_TRANSPORT_CATEGORIES = frozenset(
 #: The HTTP status of a request timeout — neither SDK carries a 408 subclass.
 _STATUS_REQUEST_TIMEOUT = 408
 
+#: The HTTP status of a rate-limited request.
+_STATUS_RATE_LIMIT = 429
+
 #: The inclusive bounds of the HTTP server-error family.
 _STATUS_SERVER_ERROR_FLOOR = 500
 _STATUS_SERVER_ERROR_CEILING = 599
@@ -242,7 +245,7 @@ def _permanent_transport_category(error: Exception, ladder: _TransportLadder) ->
 def _retryable_transport_category(error: Exception, ladder: _TransportLadder) -> str | None:
     """Match the retryable evidence; None — the exception carries no retryable signal."""
     if isinstance(error, ladder.status_error):
-        if isinstance(error, ladder.rate_limit_error):
+        if isinstance(error, ladder.rate_limit_error) or getattr(error, "status_code", None) == _STATUS_RATE_LIMIT:
             return TRANSPORT_RATE_LIMIT
 
         status = getattr(error, "status_code", None)
@@ -293,6 +296,9 @@ def _extract_retry_after(error: Exception) -> float | None:
 #: The inclusive cap of one transport retry pause, in seconds.
 _TRANSPORT_PAUSE_CAP = 10.0
 
+#: Attempt five is the first whose uncapped base delay exceeds the pause cap.
+_TRANSPORT_BASE_CAP_ATTEMPT = 5
+
 #: The jitter fraction of the base delay — random.uniform draws up to this share on top.
 _TRANSPORT_JITTER_FRACTION = 0.25
 
@@ -316,7 +322,7 @@ def compute_transport_pause(failed_attempt: int, retry_after: float | None) -> f
     Returns:
         The pause in seconds — a float in the interval (0, 10].
     """
-    base = min(2.0 ** (failed_attempt - 1), _TRANSPORT_PAUSE_CAP)
+    base = _TRANSPORT_PAUSE_CAP if failed_attempt >= _TRANSPORT_BASE_CAP_ATTEMPT else 2.0 ** (failed_attempt - 1)
 
     pause = min(base + random.uniform(0.0, base * _TRANSPORT_JITTER_FRACTION), _TRANSPORT_PAUSE_CAP)
 

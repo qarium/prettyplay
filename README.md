@@ -253,6 +253,7 @@ strict = false                   # true -> replay-only mode (no generation, no h
 interactive = false              # true -> the steering dialog on a terminally stuck step (local sessions)
 generation_attempts = 3
 healing_attempts = 2
+llm_request_attempts = 3       # total sends per LLM request; 1 disables transport retries
 polling_timeout = 6.0            # settle window seconds; omit -> off, 0.0 -> explicit disable
 polling_delay = 0.5              # pause between settle re-executions
 send_screenshots = false
@@ -265,6 +266,13 @@ endpoint = ""                    # ws:// endpoint of a remote browser; empty -> 
 accept_dialogs = false           # true -> accept (else dismiss) dialogs no in-step capture claims
 speed = 100                      # pace of the run, 0-100 %; 100 -> full speed (default)
 ```
+
+`llm_request_attempts` applies to generation, classification, group diagnosis
+and compliance requests. Its default is 3 total sends, including the first;
+`1` disables retries. Set `PRETTYPLAY_LLM_REQUEST_ATTEMPTS` in the environment
+or pass `PrettyConfig(llm_request_attempts=...)` for one test. Explicit test
+values override the environment, which overrides pyproject.toml. Values must
+be positive integers.
 
 The old flat keys `browser`, `headless` and `browser_endpoint` at the
 `[tool.prettyplay]` level are gone — a pre-1.0 hard break: the loader rejects

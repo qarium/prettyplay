@@ -75,7 +75,7 @@ class AnthropicProvider(LLMProvider):
 
         Raises:
             LLMUnavailableError: the ANTHROPIC_API_KEY environment variable
-                is missing or empty — generation and healing are blocked.
+                is missing or empty — all LLM operations are blocked.
         """
         if self._client is None:
             api_key = os.environ.get("ANTHROPIC_API_KEY")

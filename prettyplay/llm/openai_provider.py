@@ -68,7 +68,7 @@ class OpenAIProvider(LLMProvider):
 
         Raises:
             LLMUnavailableError: the OPENAI_API_KEY environment variable is
-                missing or empty — generation and healing are blocked.
+                missing or empty — all LLM operations are blocked.
         """
         if self._client is None:
             api_key = os.environ.get("OPENAI_API_KEY")

@@ -191,8 +191,9 @@ against the live page:
   `WARNING`, a malformed
   verdict is a loud `ComplianceVerdictError`. See
   [Configuration](../configuration.md#the-compliance-gate)
-- Provider unavailability of a generation request raises
-  `LLMUnavailableError` immediately — no retry on it
+- Transient provider unavailability of a generation request is retried within
+  that request, up to `llm_request_attempts` total sends. A permanent rejection
+  or exhausted request raises `LLMUnavailableError`.
 
 A non-empty `generation_prompt` setting adds a `USER INSTRUCTIONS` block to
 every generation and regeneration request — the project's code style guidance

@@ -746,6 +746,21 @@ class TestClassifyFailures:
         assert failure.category == "quota_exhausted"
         assert failure.retryable is False
 
+    @pytest.mark.parametrize(
+        ("classifier", "sdk"),
+        [
+            pytest.param(classify_openai_failure, openai, id="openai"),
+            pytest.param(classify_anthropic_failure, anthropic, id="anthropic"),
+        ],
+    )
+    def test_generic_http_429_is_retryable(
+        self, classifier: Callable[[Exception], TransportFailureClassification], sdk: object
+    ) -> None:
+        failure = classifier(make_status_error(sdk.APIStatusError, 429))
+
+        assert failure.category == "rate_limit"
+        assert failure.retryable is True
+
     def test_classify_anthropic_failure_billing_error_is_permanent_quota(self) -> None:
         error = make_status_error(anthropic.RateLimitError, 429)
         error.type = "billing_error"  # the explicit anthropic quota signal, under a retryable status
@@ -829,6 +844,13 @@ class TestComputeTransportPause:
         monkeypatch.setattr("random.uniform", lambda _a, _b: 0.0)
 
         assert [compute_transport_pause(n, None) for n in range(1, 8)] == [1.0, 2.0, 4.0, 8.0, 10.0, 10.0, 10.0]
+
+    def test_compute_transport_pause_remains_capped_for_large_attempt_budget(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("random.uniform", lambda _a, _b: 0.0)
+
+        assert compute_transport_pause(1026, None) == 10.0
 
     def test_compute_transport_pause_jitter_bounds_and_final_cap(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("random.uniform", lambda _a, b: b)

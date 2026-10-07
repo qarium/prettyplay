@@ -18,6 +18,7 @@ from prettyplay.cache import RunBudgets, StepCache, StepIdentity
 from prettyplay.config import Config
 from prettyplay.engine import StepGenerator
 from prettyplay.engine.polling import SettleWindow
+from prettyplay.failures import LLMUnavailableError
 from prettyplay.llm import OpenAIProvider
 from prettyplay.reporting import StepHooks, StepReporter
 
@@ -146,3 +147,62 @@ class TestTransportRetriesBudgetNeutrality:
         assert caplog.records[0].category == "connection"
         assert recorder.generation_started == [1]  # no second engine attempt occurred
         assert recorder.cache_saved == [identity.filename]
+
+    @pytest.mark.parametrize("recovers", [True, False], ids=["recovers", "exhausts"])
+    def test_compliance_retry_does_not_repeat_candidate_or_cache_without_verdict(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, recovers: bool
+    ) -> None:
+        """Only the verdict request is resent after the browser action has run."""
+        generation = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=WORKING_CODE))])
+        verdict = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="[]"))])
+        outcomes: list[object] = [
+            generation,
+            APIConnectionError(request=SimpleNamespace()),
+            verdict if recovers else APIConnectionError(request=SimpleNamespace()),
+        ]
+
+        def create(**_kwargs: object) -> object:
+            outcome = outcomes.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        sdk_client = SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=mock.MagicMock(side_effect=create)))
+        )
+        config = Config(
+            cache_root=str(tmp_path),
+            model="gpt-5",
+            generation_prompt="Only navigate to the requested page.",
+            llm_request_attempts=2,
+            generation_attempts=1,
+        )
+        provider = OpenAIProvider(config)
+        recorder = RecorderHook()
+        reporter = StepReporter(hooks=[recorder])
+        cache = StepCache(config, None, reporter)
+        budgets = RunBudgets(generation_limit=1, healing_limit=2)
+        generator = StepGenerator(config, provider, cache, budgets, reporter)
+        identity = StepIdentity(
+            cache_key="tests/test_compliance_retry.py", step_type="action", normalized_text="open the shop page"
+        )
+        page = FakePage()
+        window = SettleWindow(None, 0.5)
+        sleeps: list[float] = []
+        monkeypatch.setattr("time.sleep", sleeps.append)
+        monkeypatch.setattr("random.uniform", lambda _a, _b: 0.0)
+
+        with mock.patch.object(provider, "_get_client", return_value=sdk_client):
+            if recovers:
+                cached_step = generator.generate(identity, "open the shop page", "action", [], None, page, [], window)
+                assert cached_step.code == WORKING_CODE
+            else:
+                with pytest.raises(LLMUnavailableError):
+                    generator.generate(identity, "open the shop page", "action", [], None, page, [], window)
+
+        assert sdk_client.chat.completions.create.call_count == 3
+        assert page.calls == [("goto", "https://example.com")]
+        assert budgets._generation_used[identity.filename] == 1
+        assert sleeps == [1.0]
+        assert recorder.cache_saved == ([identity.filename] if recovers else [])
+        assert (cache.load(identity) is not None) is recovers
