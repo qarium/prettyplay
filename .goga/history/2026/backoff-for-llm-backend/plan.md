@@ -1184,26 +1184,41 @@ the `LLMUnavailableError` class docstring with the widened CODEMANIFEST annotati
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Declaration (STEP 0)**: task 9 — docstring alignment, zero behavior change
-- [ ] **Code**: replace the "no retry" phrasing with the after-the-bounded-transport-retries
+- [x] **Declaration (STEP 0)**: task 9 — docstring alignment, zero behavior change
+- [x] **Code**: replace the "no retry" phrasing with the after-the-bounded-transport-retries
   wording on the provider-unavailability paths of `prettyplay/engine/generator.py` (≈ lines
   251, 301, 346, 453, 733), `prettyplay/engine/healer.py` (≈ 98),
   `prettyplay/engine/groups/recovery.py` (≈ 128, 228),
   `prettyplay/engine/groups/diagnosis.py` (≈ 83), `prettyplay/engine/compliance.py` (≈ 98)
-- [ ] **Code**: align the `LLMUnavailableError` class docstring in
+  (all ten sites now read "the provider service/request failed after the bounded transport
+  retries; no engine retry …" with each site's existing extra clauses kept; the compliance
+  site never said "no retry" — aligned to the same after-the-retries wording; grep confirms
+  no "no retry" phrasing remains in any touched engine module)
+- [x] **Code**: align the `LLMUnavailableError` class docstring in
   `prettyplay/failures/errors.py` (line 331) with the widened annotation quoted above
   (keep the `Args:` section)
-- [ ] **REPL cycle** (M4): in the venv interpreter — reload
+  (rendered verbatim in the manifest's own line wrapping, byte-for-byte against
+  `prettyplay/failures/CODEMANIFEST` annotations; `Args:` section preserved unchanged)
+- [x] **REPL cycle** (M4): in the venv interpreter — reload
   `prettyplay.failures.errors` and the touched engine modules; confirm `import
   prettyplay.engine.generator` (and the other modules) still succeeds and
   `LLMUnavailableError.__doc__` renders the new wording
-- [ ] **Verification**: `.venv/bin/python -m pytest tests/failures tests/engine -q` — all
+  (scratch driver under /tmp with `python -i`: importlib.reload on all six modules, direct
+  symbol imports (StepGenerator, StepHealer, check_step_compliance, classify_group_failure,
+  GroupRecovery, LLMUnavailableError), `__doc__` printed and asserted, live construction
+  follow-up; wrap-normalized wording checks for the two line-split sites; driver deleted,
+  never committed)
+- [x] **Verification**: `.venv/bin/python -m pytest tests/failures tests/engine -q` — all
   existing behavior green (the quiet WARNING skip, the terminal propagation, the verdict
   paths are unchanged); `git diff --stat` shows only docstring lines in the touched files
-- [ ] **Contract re-verification (STEP 6)**: no signature, control flow or message changes —
+  (350 passed; full suite 1140 passed; diff stat: 6 files, 28 insertions / 15 deletions,
+  every hunk inside a docstring)
+- [x] **Contract re-verification (STEP 6)**: no signature, control flow or message changes —
   diff contains docstrings only
-- [ ] **Lint (STEP 7)**: ruff check + ruff format on the touched files
-- [ ] **Completion (STEP 8)**: mark checkboxes; → review → approval → next task. Commit gate.
+- [x] **Lint (STEP 7)**: ruff check + ruff format on the touched files
+  (all checks passed; 6 files already formatted; full-tree `ruff check prettyplay/ tests/`
+  clean)
+- [x] **Completion (STEP 8)**: mark checkboxes; → review → approval → next task. Commit gate.
 
 ### Task 10: Integration test — transport retries stay inside one logical engine attempt (integration tests)
 

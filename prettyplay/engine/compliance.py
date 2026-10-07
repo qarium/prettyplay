@@ -95,8 +95,8 @@ def check_step_compliance(  # noqa: PLR0913, PLR0917 — the parameter list is f
         replayed cached code.
 
     Raises:
-        LLMUnavailableError: the provider service failed; the calling path
-            never caches the candidate.
+        LLMUnavailableError: the provider service failed after the bounded
+            transport retries; the calling path never caches the candidate.
         ComplianceVerdictError: the provider answer did not parse into
             findings; the calling path never caches the candidate.
     """
