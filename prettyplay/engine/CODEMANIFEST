@@ -279,7 +279,7 @@ Annotations: |
     `text`: the formatted failure text carried by reports, renders and requests.
 
     Requirements:
-    - A failed check — an AssertionError — yields its message verbatim with no prefix: the exception type already carries the assertion semantics; a message-less check yields an empty text, so the structured render omits the error line
+    - A failed check — an AssertionError — yields its message with no prefix, the trailing aria-snapshot section Playwright appends excluded: the bulky page state stays out of reports, renders and requests; the exception type already carries the assertion semantics; a message-less check yields an empty text, so the structured render omits the error line
     - Any other failure carries its type name: the action failures of step code are timeouts and driver errors whose bare messages lose the kind of failure
     - A message-less error yields the bare type name, never a dangling separator
 

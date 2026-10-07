@@ -848,6 +848,76 @@ class TestPrettyPlayLogic:
         assert original.__traceback__ is None  # chained frames collapsed — the runner won't show them
         assert inner.__traceback__ is None
 
+    def test_folded_chain_trims_chained_aria_snapshot_messages(self, tmp_path: Path) -> None:
+        """Chained raw step exceptions keep their identity but lose the page-state section."""
+        page = FakePage()
+        terminal = IncurableStepError("s", "r", "", verdict=FailureVerdict("incurable", "e", "rec"))
+        original = AssertionError("Actual value: hidden\n\nAria snapshot:\n- navigation:\n  - alert")
+        inner = TimeoutError("wait_for_selector: timeout 3000ms exceeded\nAria snapshot:\n- banner:\n  - img")
+
+        class ChainingExecutor:
+            """Stub executor raising the terminal error from an except handler."""
+
+            cache_key = CACHE_KEY
+
+            def execute(  # noqa: PLR0913, PLR0917 — the signature is fixed by the root cell contract
+                self, step_text: str, step_type: str, page_: FakePage, group=None, tries=None, delay=None
+            ) -> None:
+                try:
+                    raise original
+                except AssertionError:
+                    # how the engine raises from the executor's except handler: context + cause
+                    raise terminal from inner
+
+        with scenario_on_tmp_cache(tmp_path):
+            test = PrettyPlay(CACHE_KEY)
+
+            with mock.patch.object(test._runtime, "open_page", return_value=page):
+                test._executor = ChainingExecutor()  # step-loop stub
+
+                with pytest.raises(IncurableStepError) as excinfo:
+                    test.step("s")
+
+        assert excinfo.value is terminal
+        assert excinfo.value.__context__ is original  # the chain itself survives the trim
+        assert excinfo.value.__cause__ is inner
+        assert str(original) == "Actual value: hidden"  # the page-state tail is gone
+        assert str(inner) == "wait_for_selector: timeout 3000ms exceeded"
+
+    def test_folded_chain_leaves_non_string_argument_shapes_untouched(self, tmp_path: Path) -> None:
+        """A chained exception with structured or no arguments never rewrites them."""
+        page = FakePage()
+        terminal = IncurableStepError("s", "r", "", verdict=FailureVerdict("incurable", "e", "rec"))
+        structured = ValueError("code", 42)
+        bare = AssertionError()
+
+        class ChainingExecutor:
+            """Stub executor raising the terminal error over structured-argument causes."""
+
+            cache_key = CACHE_KEY
+
+            def execute(  # noqa: PLR0913, PLR0917 — the signature is fixed by the root cell contract
+                self, step_text: str, step_type: str, page_: FakePage, group=None, tries=None, delay=None
+            ) -> None:
+                try:
+                    raise structured
+                except ValueError:
+                    raise terminal from bare
+
+        with scenario_on_tmp_cache(tmp_path):
+            test = PrettyPlay(CACHE_KEY)
+
+            with mock.patch.object(test._runtime, "open_page", return_value=page):
+                test._executor = ChainingExecutor()  # step-loop stub
+
+                with pytest.raises(IncurableStepError) as excinfo:
+                    test.step("s")
+
+        assert excinfo.value.__context__ is structured
+        assert excinfo.value.__cause__ is bare
+        assert structured.args == ("code", 42)  # two arguments — not a message rewrite target
+        assert bare.args == ()  # message-less check stays message-less
+
     def test_non_library_exception_passes_through_untouched(self, tmp_path: Path) -> None:
         page = FakePage()
 

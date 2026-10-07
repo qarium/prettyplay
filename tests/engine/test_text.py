@@ -32,3 +32,43 @@ class TestTextPolicyLogic:
         # an action failure carries the type; a message-less error yields the bare type name
         assert format_step_error(TimeoutError()) == "TimeoutError"
         assert format_step_error(TimeoutError("click timeout")) == "TimeoutError: click timeout"
+
+
+class TestAriaSnapshotExclusion:
+    """The bulky page-state section never reaches reports, renders or requests."""
+
+    def test_failed_check_message_loses_the_trailing_aria_snapshot(self) -> None:
+        message = (
+            'Timed out 5000ms waiting for locator("li").first\n'
+            "Actual value: hidden\n"
+            'Call log:\n  - Expect "to_be_visible" ...\n\n'
+            'Aria snapshot:\n- navigation:\n  - alert\n- banner:\n  - button "Войти"'
+        )
+
+        assert format_step_error(AssertionError(message)) == (
+            'Timed out 5000ms waiting for locator("li").first\n'
+            "Actual value: hidden\n"
+            'Call log:\n  - Expect "to_be_visible" ...'
+        )
+
+    def test_message_without_the_section_passes_through_unchanged(self) -> None:
+        message = 'Timed out 5000ms waiting for locator("li").first\nActual value: hidden'
+
+        assert format_step_error(AssertionError(message)) == message
+
+    def test_section_only_message_yields_the_empty_check_text(self) -> None:
+        assert format_step_error(AssertionError("Aria snapshot:\n- banner:\n  - img")) == ""
+
+    def test_typed_failure_also_loses_the_section(self) -> None:
+        message = "click timeout\nAria snapshot:\n- banner:\n  - img"
+
+        assert format_step_error(TimeoutError(message)) == "TimeoutError: click timeout"
+
+    def test_indented_section_header_is_not_a_section_boundary(self) -> None:
+        # an indented "Aria snapshot:" inside a Call log block is content, not the header
+        message = "Call log:\n  - waiting\n    Aria snapshot:\n    - banner"
+
+        assert format_step_error(AssertionError(message)) == message
+
+    def test_header_with_trailing_spaces_still_bounds_the_section(self) -> None:
+        assert format_step_error(AssertionError("hidden\nAria snapshot:  \n- banner")) == "hidden"
