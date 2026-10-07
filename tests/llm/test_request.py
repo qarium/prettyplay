@@ -1,8 +1,12 @@
 """Tests for the shared request-field helpers of the prettyplay.llm cell."""
 
 import inspect
+from collections.abc import Callable
+from types import SimpleNamespace
 from typing import ClassVar
 
+import anthropic
+import openai
 import pytest
 from prettyplay.llm import ScenarioStep
 from prettyplay.llm._request import (
@@ -14,6 +18,8 @@ from prettyplay.llm._request import (
     build_compliance_fields,
     build_fields_text,
     build_group_diagnosis_fields,
+    classify_anthropic_failure,
+    classify_openai_failure,
     extract_code_block,
     parse_classification_line,
     unparsable_classification,
@@ -24,6 +30,13 @@ USER_INSTRUCTIONS = "prefer data-test-id"
 CHEAT_SHEET = "expect(locator).to_be_visible()"
 STEP_CODE = "def step(page) -> None:\n    pass\n"
 ATTEMPT_RECORD = "execution failed\nurl: https://a.example -> https://b.example\ncode:\n...\nerror:\nboom"
+
+
+def make_status_error(error_class: type[Exception], status: int, headers: dict | None = None) -> Exception:
+    """Build an SDK status error over a faked response for the classification tests."""
+    response = SimpleNamespace(status_code=status, headers=headers or {}, request=SimpleNamespace())
+
+    return error_class("boom", response=response, body=None)
 
 
 class TestExtractCodeBlock:
@@ -638,3 +651,153 @@ class TestTransportFailureClassification:
     def test_positional_construction_fails_before_field_validation(self) -> None:
         with pytest.raises(TypeError):
             TransportFailureClassification("connection")
+
+
+CLASSIFIERS: list[pytest.param] = [
+    pytest.param(classify_openai_failure, id="openai"),
+    pytest.param(classify_anthropic_failure, id="anthropic"),
+]
+
+
+class TestClassifiersContract:
+    """Contract tests: one exception in, one verdict out — the classifiers never raise."""
+
+    @pytest.mark.parametrize("classifier", CLASSIFIERS)
+    def test_classifier_signature_is_error_to_verdict(
+        self, classifier: Callable[[Exception], TransportFailureClassification]
+    ) -> None:
+        parameters = inspect.signature(classifier).parameters
+
+        assert list(parameters) == ["error"]
+        assert parameters["error"].annotation is Exception
+        assert classifier.__annotations__["return"] is TransportFailureClassification
+
+    @pytest.mark.parametrize("classifier", CLASSIFIERS)
+    def test_classifier_returns_a_verdict_for_an_arbitrary_exception(
+        self, classifier: Callable[[Exception], TransportFailureClassification]
+    ) -> None:
+        failure = classifier(ValueError("boom"))
+
+        assert isinstance(failure, TransportFailureClassification)
+
+
+class TestClassifyFailures:
+    """Logic tests: the transport classification ladders of both providers."""
+
+    @pytest.mark.parametrize(
+        ("error", "expected"),
+        [
+            pytest.param(openai.APIConnectionError(request=SimpleNamespace()), "connection", id="connection"),
+            pytest.param(openai.APITimeoutError(request=SimpleNamespace()), "timeout", id="sdk-timeout"),
+            pytest.param(make_status_error(openai.RateLimitError, 429), "rate_limit", id="rate-limit"),
+            pytest.param(make_status_error(openai.APIStatusError, 408), "timeout", id="http-408-timeout"),
+            pytest.param(
+                make_status_error(openai.InternalServerError, 500), "server_error", id="http-500-server-error"
+            ),
+            pytest.param(make_status_error(openai.APIStatusError, 599), "server_error", id="http-599-server-error"),
+        ],
+    )
+    def test_classify_openai_failure_maps_the_retryable_family(self, error: Exception, expected: str) -> None:
+        failure = classify_openai_failure(error)
+
+        assert failure.category == expected
+        assert failure.retryable is True
+        assert failure.retry_after is None
+
+    @pytest.mark.parametrize(
+        ("classifier", "sdk"),
+        [
+            pytest.param(classify_openai_failure, openai, id="openai"),
+            pytest.param(classify_anthropic_failure, anthropic, id="anthropic"),
+        ],
+    )
+    @pytest.mark.parametrize(
+        ("error_class", "status", "expected"),
+        [
+            pytest.param("AuthenticationError", 401, "authentication", id="authentication"),
+            pytest.param("PermissionDeniedError", 403, "permission_denied", id="permission-denied"),
+            pytest.param("BadRequestError", 400, "invalid_request", id="invalid-request"),
+            pytest.param("NotFoundError", 404, "not_found", id="not-found"),
+        ],
+    )
+    def test_classify_failures_map_the_permanent_family(
+        self,
+        classifier: Callable[[Exception], TransportFailureClassification],
+        sdk: object,
+        error_class: str,
+        status: int,
+        expected: str,
+    ) -> None:
+        failure = classifier(make_status_error(getattr(sdk, error_class), status))
+
+        assert failure.category == expected
+        assert failure.retryable is False
+
+    def test_classify_openai_failure_quota_beats_retryable_status(self) -> None:
+        error = make_status_error(openai.RateLimitError, 429)
+        error.code = "insufficient_quota"  # the body evidence the SDK parses onto the exception
+
+        failure = classify_openai_failure(error)
+
+        assert failure.category == "quota_exhausted"
+        assert failure.retryable is False
+
+    def test_classify_anthropic_failure_billing_error_is_permanent_quota(self) -> None:
+        error = make_status_error(anthropic.RateLimitError, 429)
+        error.type = "billing_error"  # the explicit anthropic quota signal, under a retryable status
+
+        failure = classify_anthropic_failure(error)
+
+        assert failure.category == "quota_exhausted"
+        assert failure.retryable is False
+
+    @pytest.mark.parametrize(
+        ("classifier", "rate_limit_class"),
+        [
+            pytest.param(classify_openai_failure, openai.RateLimitError, id="openai"),
+            pytest.param(classify_anthropic_failure, anthropic.RateLimitError, id="anthropic"),
+        ],
+    )
+    @pytest.mark.parametrize(
+        ("header_value", "expected"),
+        [
+            pytest.param("7", 7.0, id="integer-seconds"),
+            pytest.param("2.5", 2.5, id="decimal-seconds"),
+            pytest.param("0", 0.0, id="zero-seconds"),
+            pytest.param("-3", -3.0, id="negative-seconds"),
+            pytest.param("Wed, 21 Oct 2015 07:28:00 GMT", None, id="http-date"),
+            pytest.param(None, None, id="missing-header"),
+        ],
+    )
+    def test_classify_failures_parse_retry_after_seconds(
+        self,
+        classifier: Callable[[Exception], TransportFailureClassification],
+        rate_limit_class: type[Exception],
+        header_value: str | None,
+        expected: float | None,
+    ) -> None:
+        headers = {} if header_value is None else {"retry-after": header_value}
+
+        failure = classifier(make_status_error(rate_limit_class, 429, headers))
+
+        assert failure.retry_after == expected
+        assert failure.category == "rate_limit"
+        assert failure.retryable is True
+
+    @pytest.mark.parametrize("classifier", CLASSIFIERS)
+    @pytest.mark.parametrize(
+        "error_factory",
+        [
+            pytest.param(lambda: ValueError("boom"), id="plain-value-error"),
+            pytest.param(lambda: make_status_error(openai.ConflictError, 409), id="openai-conflict-409"),
+        ],
+    )
+    def test_classify_failures_unrecognized_exception_is_permanent_invalid_request(
+        self,
+        classifier: Callable[[Exception], TransportFailureClassification],
+        error_factory: Callable[[], Exception],
+    ) -> None:
+        failure = classifier(error_factory())
+
+        assert failure.category == "invalid_request"
+        assert failure.retryable is False

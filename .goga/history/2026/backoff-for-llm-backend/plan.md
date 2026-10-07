@@ -685,12 +685,12 @@ even a non-SDK exception classifies.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Declaration (STEP 0)**: task 4 — both classifiers, provider parity
-- [ ] **Contract tests** (in `tests/llm/test_request.py`; expected to fail): both names
+- [x] **Declaration (STEP 0)**: task 4 — both classifiers, provider parity
+- [x] **Contract tests** (in `tests/llm/test_request.py`; expected to fail): both names
   importable from `prettyplay.llm._request`; signatures
   `(error: Exception) -> TransportFailureClassification`; a `ValueError` input returns a
   `TransportFailureClassification` (never raises)
-- [ ] **REPL cycle** (M4): in the venv interpreter — build fake status errors
+- [x] **REPL cycle** (M4): in the venv interpreter — build fake status errors
   (`SimpleNamespace`-response `RateLimitError`, `InternalServerError`, generic
   `APIStatusError` with 408/599, `APIConnectionError(request=…)`, `APITimeoutError`,
   attribute-patched quota/billing errors) and drive both classifiers through the whole
@@ -698,7 +698,11 @@ even a non-SDK exception classifies.
   (`import openai._exceptions, inspect; inspect.getsource(...)`) that the evidence classes
   and attributes match the table above (the design verified 3.14.1 / 1.6.0); reload after
   every edit; migrate the verified ladders into `_request.py`
-- [ ] **Code**: implement `classify_openai_failure(error: Exception) ->
+  (verified against openai 3.26.0 / anthropic 1.11.0: the full ladder driven live; note —
+  openai `_client._make_status_error` unwraps `body.get("error", body)` before
+  `APIError` parses `code`/`type`, so real quota responses do surface
+  `insufficient_quota` on the attributes)
+- [x] **Code**: implement `classify_openai_failure(error: Exception) ->
   TransportFailureClassification` in `prettyplay/llm/_request.py` — permanent ladder first
   (quota body evidence via `getattr(error, "code", None)` / `getattr(error, "type", None)`
   on `APIStatusError`; then `AuthenticationError`, `PermissionDeniedError`,
@@ -709,12 +713,12 @@ even a non-SDK exception classifies.
   response.headers.get("retry-after")` when both present; `float(raw)`; missing header,
   non-numeric value (HTTP-date included) or non-finite result → `None`), fallback
   `invalid_request`; return `TransportFailureClassification(category=…, retry_after=…)`
-- [ ] **Code**: implement `classify_anthropic_failure` with rule-by-rule parity — quota
+- [x] **Code**: implement `classify_anthropic_failure` with rule-by-rule parity — quota
   evidence `getattr(error, "type", None) == "billing_error"`; the same five permanent
   classes; the same retryable ladder; identical Retry-After extraction (the non-standard
   `retry-after-ms` header stays unread); fallback `invalid_request`
-- [ ] **Interface verification (STEP 3)**: `.venv/bin/python -m pytest tests/llm/test_request.py -q`
-- [ ] **Logic tests (STEP 4)** — the five design scenarios:
+- [x] **Interface verification (STEP 3)**: `.venv/bin/python -m pytest tests/llm/test_request.py -q`
+- [x] **Logic tests (STEP 4)** — the five design scenarios:
   - `test_classify_openai_failure_maps_the_retryable_family` — Setup: helper
     `status_error(cls_or_status, headers=None)` building an `APIStatusError` (or subclass)
     with `SimpleNamespace(status_code=…, headers=headers or {}, request=SimpleNamespace())`
@@ -739,13 +743,19 @@ even a non-SDK exception classifies.
     `ValueError("boom")` and an openai `ConflictError`-shaped status error (409), through
     both classifiers (parametrized 2×2); Assertions: `failure.category ==
     "invalid_request"`, `failure.retryable is False`
-- [ ] **Debugging (STEP 5)**: `.venv/bin/python -m pytest tests/llm/ -q` — fix
+  (all five scenarios implemented; plus a supplementary permanent-family parity table
+  parametrized over both classifiers — authentication, permission_denied,
+  invalid_request, not_found)
+- [x] **Debugging (STEP 5)**: `.venv/bin/python -m pytest tests/llm/ -q` — fix
   implementation until green
-- [ ] **Contract re-verification (STEP 6)**: both classifiers total and pure — no raise on
+- [x] **Contract re-verification (STEP 6)**: both classifiers total and pure — no raise on
   any input; the nine-label closed set; parity of ladders between the two SDKs
-- [ ] **Lint (STEP 7)**: ruff check + ruff format on `prettyplay/llm/_request.py`,
+  (never-raise verified live on attr-less objects, non-mapping headers, non-finite
+  values; the closed set flows from the `TRANSPORT_*` constants through one shared
+  ladder core used by both classifiers — parity is structural)
+- [x] **Lint (STEP 7)**: ruff check + ruff format on `prettyplay/llm/_request.py`,
   `tests/llm/test_request.py`
-- [ ] **Completion (STEP 8)**: mark checkboxes; → review → approval → next task. Commit gate.
+- [x] **Completion (STEP 8)**: mark checkboxes; → review → approval → next task. Commit gate.
 
 ### Task 5: `compute_transport_pause` (TDD coding)
 
