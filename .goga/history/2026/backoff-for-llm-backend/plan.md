@@ -1234,17 +1234,20 @@ budget. Per conventions, integration tests covering multiple packages go directl
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Declaration (STEP 0)**: task 10 — the budget-neutrality integration scenario
-- [ ] **REPL cycle** (M4): in the venv interpreter — assemble the fixtures live once (the
+- [x] **Declaration (STEP 0)**: task 10 — the budget-neutrality integration scenario
+- [x] **REPL cycle** (M4): in the venv interpreter — assemble the fixtures live once (the
   fake client raising `openai.APIConnectionError` on the first `create` and answering with
   valid `def step(page) -> None:` code on the second; `Config(model="gpt-5",
   llm_request_attempts=2, generation_attempts=1)`; a `StepGenerator` with page, cache,
   reporter and settle-window fixtures) to confirm the wiring produces a `CachedStep`;
   reload the modules after any fixture adjustment; migrate the verified fixtures into the
   test file
-- [ ] Create test file `tests/test_transport_retries_integration.py` (with the scenario
+  (scratch driver under /tmp run in the venv: CachedStep produced, create called twice,
+  `_generation_used == 1`, next grant refused, sleep [1.0], goto recorded, cache file
+  written; fixtures migrated verbatim into the test file; driver deleted, never committed)
+- [x] Create test file `tests/test_transport_retries_integration.py` (with the scenario
   below)
-- [ ] Test `test_engine_budgets_untouched_by_transport_retries` — **Setup**: real
+- [x] Test `test_engine_budgets_untouched_by_transport_retries` — **Setup**: real
   `OpenAIProvider` with `_get_client()` patched to return a fake SDK client whose
   `chat.completions.create` raises `openai.APIConnectionError` on the first call and
   returns a completion containing valid `def step(page) -> None:` code on the second; use
@@ -1263,10 +1266,18 @@ budget. Per conventions, integration tests covering multiple packages go directl
   `sdk_client.chat.completions.create.call_count == 2`;
   `budgets._generation_used[identity.filename] == 1` (transport retries consumed nothing);
   `budgets.try_generation(identity) is False` (the single logical slot is exhausted)
-- [ ] Run validation: `.venv/bin/python -m pytest tests/test_transport_retries_integration.py -q`
-- [ ] **Full-suite confirmation**: `.venv/bin/python -m pytest tests/ -x`
-- [ ] Lint (STEP 7): ruff check + ruff format on `tests/test_transport_retries_integration.py`
-- [ ] **Completion (STEP 8)**: mark checkboxes; → review → approval → done. Commit gate.
+  (all four assertions in place, plus the trace locks: page.goto executed, sleep [1.0],
+  exactly one "llm request retry" WARNING with the five metadata fields,
+  one on_generation_started, one on_cache_saved with the identity filename)
+- [x] Run validation: `.venv/bin/python -m pytest tests/test_transport_retries_integration.py -q`
+  (1 passed)
+- [x] **Full-suite confirmation**: `.venv/bin/python -m pytest tests/ -x`
+  (1141 passed)
+- [x] Lint (STEP 7): ruff check + ruff format on `tests/test_transport_retries_integration.py`
+  (one format round collapsed the Config and generate calls to single lines; re-checked
+  clean and re-run green afterwards; full-tree `ruff check prettyplay/ tests/` clean,
+  `ruff format --check` clean over every plan-touched path)
+- [x] **Completion (STEP 8)**: mark checkboxes; → review → approval → done. Commit gate.
 
 ---
 
@@ -1286,27 +1297,27 @@ All commands run in the project virtualenv (Task 1); Python 3.10+ compatibility 
 
 ## Completion Criteria
 
-- [ ] Every contract entity is implemented in the correct `location`
-- [ ] Every contract entity is accessible from the facade (the five new names from
+- [x] Every contract entity is implemented in the correct `location`
+- [x] Every contract entity is accessible from the facade (the five new names from
       `prettyplay.llm`; the root facade unchanged)
-- [ ] Properties and methods match the declared API (kw_only model, computed `retryable`,
+- [x] Properties and methods match the declared API (kw_only model, computed `retryable`,
       generic `send_with_retries`)
-- [ ] Descriptions are reflected in behavior (the classification ladders, the delay policy,
+- [x] Descriptions are reflected in behavior (the classification ladders, the delay policy,
       the terminal branch order, the message shapes, the one-WARNING-per-retry logging)
-- [ ] Contract dependencies are met (`LLMUnavailableError` chaining; `Config` feeds
+- [x] Contract dependencies are met (`LLMUnavailableError` chaining; `Config` feeds
       `attempts`)
-- [ ] All 30 design test scenarios exist and pass (15 positive, 9 negative, 6 edge)
-- [ ] Every coding task followed the TDD workflow (contract tests → code → verification →
+- [x] All 30 design test scenarios exist and pass (15 positive, 9 negative, 6 edge)
+- [x] Every coding task followed the TDD workflow (contract tests → code → verification →
       logic tests → debugging → re-verification → lint)
-- [ ] Every coding task ran its implementation phase as a REPL cycle (M4: evaluate live →
+- [x] Every coding task ran its implementation phase as a REPL cycle (M4: evaluate live →
       hot reload → migrate to source); nothing scratch was committed
-- [ ] The Mandatory Rules (M1–M4) were honored in every task: coding style, test rules,
+- [x] The Mandatory Rules (M1–M4) were honored in every task: coding style, test rules,
       ruff lint/format at every stage, and the commit gate before every local commit
-- [ ] Integration tests exist where cross-entity scenarios require them (Task 10)
-- [ ] No package boundary was expanded; no new cells
-- [ ] `CODEMANIFEST` files were not modified (contract is read-only); the supersession
+- [x] Integration tests exist where cross-entity scenarios require them (Task 10)
+- [x] No package boundary was expanded; no new cells
+- [x] `CODEMANIFEST` files were not modified (contract is read-only); the supersession
       annotation of `prettyplay/llm/CODEMANIFEST` stays verbatim
-- [ ] All validation commands pass (`pytest tests/ -x`, `ruff check`, `ruff format
+- [x] All validation commands pass (`pytest tests/ -x`, `ruff check`, `ruff format
       --check`, facade checks, `goga lint`, `goga schema`, `goga contract`)
-- [ ] Every Usages entry is exercised in at least one task (`conventions` everywhere via
+- [x] Every Usages entry is exercised in at least one task (`conventions` everywhere via
       M1–M4; `openai`/`anthropic` in Tasks 4 and 8; `json_repair` untouched in Task 8)
