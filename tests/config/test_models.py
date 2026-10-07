@@ -26,7 +26,7 @@ class TestConfigContract:
         with pytest.raises(TypeError):
             Config("openai")  # type: ignore[misc]
 
-    def test_all_nineteen_properties_accessible(self) -> None:
+    def test_all_twenty_properties_accessible(self) -> None:
         config = Config()
         expected = [
             "provider",
@@ -44,6 +44,7 @@ class TestConfigContract:
             "interactive",
             "generation_attempts",
             "healing_attempts",
+            "llm_request_attempts",
             "send_screenshots",
             "generation_approve",
             "effective_generation_model",
@@ -52,7 +53,13 @@ class TestConfigContract:
         for name in expected:
             assert hasattr(config, name), f"missing property: {name}"
 
-    def test_signature_declares_seventeen_fields_in_contract_order(self) -> None:
+    def test_config_llm_request_attempts_field_defaults_and_order(self) -> None:
+        """Contract: the transport retry budget defaults to 3 and slots after healing_attempts."""
+        assert Config().llm_request_attempts == 3
+
+        assert list(Config.model_fields)[13:16] == ["generation_attempts", "healing_attempts", "llm_request_attempts"]
+
+    def test_signature_declares_eighteen_fields_in_contract_order(self) -> None:
         fields = Config.model_fields
         assert list(fields.keys()) == [
             "provider",
@@ -70,6 +77,7 @@ class TestConfigContract:
             "interactive",
             "generation_attempts",
             "healing_attempts",
+            "llm_request_attempts",
             "send_screenshots",
             "generation_approve",
         ]
@@ -209,6 +217,22 @@ class TestConfigLogic:
             Config(generation_attempts=0)
 
         assert "generation_attempts" in str(excinfo.value)
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            pytest.param(0, id="zero"),
+            pytest.param(-1, id="negative"),
+        ],
+    )
+    def test_config_rejects_llm_request_attempts_below_one(self, value: int) -> None:
+        """Negative: a sub-one budget fails loudly naming the field and the received value."""
+        with pytest.raises(pydantic.ValidationError) as excinfo:
+            Config(llm_request_attempts=value)
+
+        message = str(excinfo.value)
+        assert "llm_request_attempts" in message
+        assert repr(value) in message
 
     @pytest.mark.parametrize(
         ("field", "value"),

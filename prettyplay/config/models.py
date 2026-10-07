@@ -193,6 +193,14 @@ class Config(BaseModel):
             False — an accidentally enabled REPL must never hang CI.
         generation_attempts: generation attempt budget per step per test; default 3.
         healing_attempts: healing attempt budget per step per test; default 2.
+        llm_request_attempts: the total attempt budget of one LLM request —
+            the maximum number of physical request sends of one logical LLM
+            attempt of the port (generation, failure classification, group
+            diagnosis, compliance verdict alike), the initial request
+            included; default 3; 1 — request retries disabled, fully the
+            single-send behavior; the retry delays themselves are fixed
+            policy, never configurable; participates in the layered merge
+            like every other scalar setting.
         send_screenshots: whether screenshots are attached to LLM requests.
         generation_approve: whether the instruction compliance gate runs before
             caching a generated step; True — every successfully executed
@@ -219,6 +227,7 @@ class Config(BaseModel):
     interactive: bool = False
     generation_attempts: PositiveInt = 3
     healing_attempts: PositiveInt = 2
+    llm_request_attempts: PositiveInt = 3
     send_screenshots: bool = False
     generation_approve: bool = True
 

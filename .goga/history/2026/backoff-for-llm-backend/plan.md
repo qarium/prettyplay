@@ -521,8 +521,8 @@ The layered merge is verified by the design: scalars merge generically
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Declaration (STEP 0)**: task 2 — `Config.llm_request_attempts` (field + docstring + loader registries)
-- [ ] **Contract tests** (in `tests/config/test_models.py`, `tests/config/test_loader.py`;
+- [x] **Declaration (STEP 0)**: task 2 — `Config.llm_request_attempts` (field + docstring + loader registries)
+- [x] **Contract tests** (in `tests/config/test_models.py`, `tests/config/test_loader.py`;
       expected to fail at this stage):
   - `test_config_llm_request_attempts_field_defaults_and_order` — `Config().llm_request_attempts == 3`;
     `list(Config.model_fields)[13:16] == ["generation_attempts", "healing_attempts", "llm_request_attempts"]`
@@ -531,23 +531,23 @@ The layered merge is verified by the design: scalars merge generically
     `monkeypatch.setenv("PRETTYPLAY_LLM_REQUEST_ATTEMPTS", "5")`; `PRETTYPLAY_*` browser/legacy
     env cleaned; `load_config(str(tmp_path / "pyproject.toml"))` →
     `config.llm_request_attempts == 5`
-- [ ] **REPL cycle** (M4): in the venv interpreter — construct `Config()` and read
+- [x] **REPL cycle** (M4): in the venv interpreter — construct `Config()` and read
   `.llm_request_attempts`; inspect `list(Config.model_fields)` around the insertion point;
   set `PRETTYPLAY_LLM_REQUEST_ATTEMPTS` in `os.environ`, call `load_config` on a scratch
   `tmp_path` TOML, observe the override and the loud error on `"three"`; after each edit,
   `importlib.reload(prettyplay.config.models)` / `...loader`; migrate the verified field and
   registry lines into the source files
-- [ ] **Code**: add to `prettyplay/config/models.py` the field
+- [x] **Code**: add to `prettyplay/config/models.py` the field
   `llm_request_attempts: PositiveInt = 3` between `healing_attempts` (line 221) and
   `send_screenshots` (line 222), and the class-docstring attribute line mirroring the
   CODEMANIFEST parameter text quoted in Contract Surface (one line, same style as the
   neighboring `healing_attempts` line)
-- [ ] **Code**: add to `prettyplay/config/loader.py` exactly three registry entries:
+- [x] **Code**: add to `prettyplay/config/loader.py` exactly three registry entries:
   `"llm_request_attempts"` in `_ENV_NAMES` (derives `PRETTYPLAY_LLM_REQUEST_ATTEMPTS`),
   `"llm_request_attempts"` in `_INT_ENV_SETTINGS`, and
   `_ALLOWED_TEXT["llm_request_attempts"] = "a positive integer"`
-- [ ] **Interface verification (STEP 3)**: `.venv/bin/python -m pytest tests/config/test_models.py tests/config/test_loader.py -q`
-- [ ] **Logic tests (STEP 4)** (design scenarios, negative and edge):
+- [x] **Interface verification (STEP 3)**: `.venv/bin/python -m pytest tests/config/test_models.py tests/config/test_loader.py -q`
+- [x] **Logic tests (STEP 4)** (design scenarios, negative and edge):
   - `test_config_rejects_llm_request_attempts_below_one` — `pytest.raises(ValidationError)`
     on `Config(llm_request_attempts=0)` and `-1` (`pytest.param` both); the rendered text
     contains `llm_request_attempts` and the received value (mirrors the existing
@@ -556,21 +556,21 @@ The layered merge is verified by the design: scalars merge generically
     with `[tool.prettyplay]`; `monkeypatch.setenv("PRETTYPLAY_LLM_REQUEST_ATTEMPTS", "three")`;
     `pytest.raises(ConfigurationError)` with the message naming the setting, the received
     value (`'three'`) and the accepted form (`a decimal integer`)
-- [ ] **Existing test updates** (field enumerations only, not behavior):
+- [x] **Existing test updates** (field enumerations only, not behavior):
   `tests/config/test_models.py::test_all_nineteen_properties_accessible` → twenty entries
   (insert `llm_request_attempts` after `healing_attempts`; adjust the count word in the test
   name to match); `test_signature_declares_seventeen_fields_in_contract_order` → rename/extend
   to eighteen fields with `llm_request_attempts` between `healing_attempts` and
   `send_screenshots`
-- [ ] **Debugging (STEP 5)**: `.venv/bin/python -m pytest tests/config -q` — fix
+- [x] **Debugging (STEP 5)**: `.venv/bin/python -m pytest tests/config -q` — fix
   implementation code until all tests pass (do NOT fix test code)
-- [ ] **Contract re-verification (STEP 6)**: field order/default match the CODEMANIFEST
+- [x] **Contract re-verification (STEP 6)**: field order/default match the CODEMANIFEST
   signature; env name is exactly `PRETTYPLAY_LLM_REQUEST_ATTEMPTS`; facade
   `prettyplay.config` still imports `Config`/`PrettyConfig`
-- [ ] **Lint (STEP 7)**: `.venv/bin/python -m ruff check prettyplay/ tests/` — zero errors;
+- [x] **Lint (STEP 7)**: `.venv/bin/python -m ruff check prettyplay/ tests/` — zero errors;
   `.venv/bin/python -m ruff format` on `prettyplay/config/models.py`,
   `prettyplay/config/loader.py`, `tests/config/test_models.py`, `tests/config/test_loader.py`
-- [ ] **Completion (STEP 8)**: mark checkboxes; → review → approval → next task. Commit gate
+- [x] **Completion (STEP 8)**: mark checkboxes; → review → approval → next task. Commit gate
   (M3) before the local commit.
 
 ### Task 3: `TransportFailureClassification` and the transport label constants (TDD coding)
