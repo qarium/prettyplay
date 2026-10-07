@@ -380,7 +380,9 @@ class StepGenerator:
                 # failed check survived the window — the decision table, never blind retries
                 url_after = _read_url(page)
                 # full text, no prefix — the type is the semantics
-                history.append(_record(code, str(check_failure), OUTCOME_FAILED_CHECK, url_before, url_after))
+                history.append(
+                    _record(code, format_step_error(check_failure), OUTCOME_FAILED_CHECK, url_before, url_after)
+                )
                 return self._failed_check_outcome(
                     identity,
                     step_text,
@@ -390,7 +392,7 @@ class StepGenerator:
                     page,
                     history,
                     code,
-                    str(check_failure),
+                    format_step_error(check_failure),
                     window,
                     attempt,
                 )
@@ -476,7 +478,9 @@ class StepGenerator:
                 settle(run_step_code, code, page, window)
             except AssertionError as check_failure:  # failed checks included — the entry classification guards
                 url_after = _read_url(page)
-                history.append(_record(code, str(check_failure), OUTCOME_FAILED_CHECK, url_before, url_after))
+                history.append(
+                    _record(code, format_step_error(check_failure), OUTCOME_FAILED_CHECK, url_before, url_after)
+                )
                 continue
             except Exception as candidate_error:
                 url_after = _read_url(page)
@@ -750,8 +754,8 @@ class StepGenerator:
             settle(run_step_code, code, page, window)
         except AssertionError as check_failure:
             url_after = _read_url(page)
-            history.append(_record(code, str(check_failure), OUTCOME_FAILED_CHECK, url_before, url_after))
-            return None, code, str(check_failure), True
+            history.append(_record(code, format_step_error(check_failure), OUTCOME_FAILED_CHECK, url_before, url_after))
+            return None, code, format_step_error(check_failure), True
         except Exception as failure:
             url_after = _read_url(page)
             history.append(_record(code, format_step_error(failure), OUTCOME_EXECUTION_FAILED, url_before, url_after))

@@ -2003,3 +2003,86 @@ class TestPromptConstants:
         assert practice == CHEAT_SHEET  # the whole file, verbatim — no extraction logic to drift
         # the dead constant name is assembled — no literal survives the series-end leftover sweep
         assert not hasattr(generator_module, "PAGE" + "_API" + "_SURFACE")  # the surface listing is gone
+
+
+class TestAriaSnapshotPropagation:
+    """Failed checks keep diagnostics while excluding page-state tails at engine boundaries."""
+
+    diagnostic = "Actual value: hidden\nCall log:\n  - waiting for visibility"
+    message = diagnostic + "\n\nAria snapshot:\n- leaked-page-state"
+
+    def test_generate_excludes_snapshot_from_history_classification_and_terminal(self, tmp_path: Path) -> None:
+        provider = StubProvider(
+            [CHECK_CODE],
+            verdict=FailureClassification(category="product_defect", explanation="hidden", recommendation="fix"),
+        )
+        fixture = GeneratorFixture(tmp_path, provider)
+        history: list[StepAttempt] = []
+
+        with pytest.raises(ProductDefectError) as raised:
+            fixture.generator.generate(
+                make_identity(),
+                "visible",
+                "assertion",
+                [],
+                None,
+                FakePage(assertion_message=self.message),
+                history,
+                fixture.window,
+            )
+
+        assert history[0].error == self.diagnostic
+        assert raised.value.error == self.diagnostic
+        assert provider.classify_step_failure_calls[0]["error"] == self.diagnostic
+        assert provider.classify_step_failure_calls[0]["snapshot"] == "- snapshot"
+
+    def test_regenerate_excludes_snapshot_from_retry_history_and_terminal(self, tmp_path: Path) -> None:
+        provider = StubProvider([CHECK_CODE, CHECK_CODE])
+        fixture = GeneratorFixture(tmp_path, provider, limits=(3, 2))
+        history: list[StepAttempt] = []
+
+        with pytest.raises(IncurableStepError) as raised:
+            fixture.generator.regenerate(
+                make_identity(),
+                "visible",
+                "assertion",
+                [],
+                None,
+                FakePage(assertion_message=self.message),
+                history,
+                "retry",
+                fixture.window,
+            )
+
+        assert [record.error for record in history] == [self.diagnostic, self.diagnostic]
+        assert raised.value.error == self.diagnostic
+        assert provider.calls[1]["attempt_history"] == [history[0].render()]
+        assert "leaked-page-state" not in str(provider.calls[1]["attempt_history"])
+        assert provider.calls[1]["snapshot"] == "- snapshot"
+
+    def test_funded_candidate_excludes_snapshot_from_requests_history_and_terminal(self, tmp_path: Path) -> None:
+        provider = StubProvider([CHECK_CODE, CHECK_CODE], verdict=ROT_VERDICT)
+        fixture = GeneratorFixture(tmp_path, provider)
+        history: list[StepAttempt] = []
+
+        with pytest.raises(IncurableStepError) as raised:
+            fixture.generator.generate(
+                make_identity(),
+                "visible",
+                "assertion",
+                [],
+                None,
+                FakePage(assertion_message=self.message),
+                history,
+                fixture.window,
+            )
+
+        assert [record.error for record in history] == [self.diagnostic, self.diagnostic]
+        assert raised.value.error == self.diagnostic
+        assert [call["error"] for call in provider.classify_step_failure_calls] == [
+            self.diagnostic,
+            self.diagnostic,
+        ]
+        assert provider.calls[1]["attempt_history"] == [history[0].render()]
+        assert "leaked-page-state" not in str(provider.calls[1]["attempt_history"])
+        assert provider.calls[1]["snapshot"] == "- snapshot"

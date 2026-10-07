@@ -58,3 +58,13 @@ Compatible. Signatures, return types, defaults, render format, file paths and ex
 - prettyplay/.usages/lifecycle.md
 - tests/engine/test_text.py
 - tests/test_scenario.py
+
+## Acceptance Follow-up — 2026-10-07
+
+Acceptance of commit 09a9caa found that the formatter fix did not cover the generator's assertion-specific branches: generate, regenerate, and the single funded candidate still used str(check_failure). A runtime reproduction retained the snapshot in attempt history, classification input and the terminal error field even though all 1190 original tests passed.
+
+With explicit user approval (accept-result autonomous_execution.q3.answer.json), all five bypass calls in those three branches now use format_step_error. Three integration regressions verify cleaned history, classification/retry payloads and terminal fields, retained Actual value/Call log diagnostics, and the separately supplied page snapshot. All three failed before the repair and passed afterward.
+
+The facade contract and lifecycle documentation were also clarified with q1 approval: trimming modifies a single string exception argument; other shapes and independent custom rendering are outside this guarantee. Exception identities and chains remain preserved.
+
+Final validation: 1193 tests passed (6.67 s), ruff check passed, 111 files passed format checking, goga lint checked 11 cells with zero errors, and git diff --check passed. Acceptance verdict: ACCEPTED_WITH_NOTES; live external services and other Python versions were not exercised in this stage.
