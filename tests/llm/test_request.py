@@ -7,6 +7,9 @@ import pytest
 from prettyplay.llm import ScenarioStep
 from prettyplay.llm._request import (
     CATEGORIES,
+    PERMANENT_TRANSPORT_CATEGORIES,
+    RETRYABLE_TRANSPORT_CATEGORIES,
+    TransportFailureClassification,
     build_classification_fields,
     build_compliance_fields,
     build_fields_text,
@@ -571,3 +574,67 @@ class TestParseClassificationFixableLabel:
     def test_unrecognized_label_still_falls_back_to_incurable(self) -> None:
         assert parse_classification_line("mystery | why | do something") is None
         assert unparsable_classification()["category"] == "incurable"
+
+
+class TestTransportFailureClassificationContract:
+    """Contract tests: the verdict model shape — two keyword fields, one computed property."""
+
+    def test_constructible_with_keyword_category_and_retry_after(self) -> None:
+        failure = TransportFailureClassification(category="rate_limit", retry_after=7.5)
+
+        assert failure.category == "rate_limit"
+        assert failure.retry_after == 7.5
+
+    def test_both_fields_carry_empty_defaults(self) -> None:
+        failure = TransportFailureClassification()
+
+        assert failure.category == ""
+        assert failure.retry_after is None
+
+    def test_retryable_is_a_property_not_a_constructor_field(self) -> None:
+        assert isinstance(TransportFailureClassification.retryable, property)
+        assert "retryable" not in TransportFailureClassification.model_fields
+        assert "retryable" not in inspect.signature(TransportFailureClassification).parameters
+
+    def test_module_exposes_the_transport_label_constants(self) -> None:
+        assert frozenset({"connection", "timeout", "rate_limit", "server_error"}) == RETRYABLE_TRANSPORT_CATEGORIES
+        assert (
+            frozenset({"authentication", "permission_denied", "invalid_request", "not_found", "quota_exhausted"})
+            == PERMANENT_TRANSPORT_CATEGORIES
+        )
+        assert not RETRYABLE_TRANSPORT_CATEGORIES & PERMANENT_TRANSPORT_CATEGORIES  # the families are disjoint
+
+
+class TestTransportFailureClassification:
+    """Logic tests: the retryable truth table of the closed nine-label set."""
+
+    @pytest.mark.parametrize(
+        ("category", "expected"),
+        [
+            pytest.param("connection", True, id="connection"),
+            pytest.param("timeout", True, id="timeout"),
+            pytest.param("rate_limit", True, id="rate_limit"),
+            pytest.param("server_error", True, id="server_error"),
+            pytest.param("authentication", False, id="authentication"),
+            pytest.param("permission_denied", False, id="permission_denied"),
+            pytest.param("invalid_request", False, id="invalid_request"),
+            pytest.param("not_found", False, id="not_found"),
+            pytest.param("quota_exhausted", False, id="quota_exhausted"),
+        ],
+    )
+    def test_transport_failure_classification_model_shape_and_retryable_truth_table(
+        self, category: str, expected: bool
+    ) -> None:
+        failure = TransportFailureClassification(category=category)
+
+        assert failure.retryable is expected
+
+    def test_empty_default_category_is_not_retryable(self) -> None:
+        failure = TransportFailureClassification()
+
+        assert failure.category == ""
+        assert failure.retryable is False  # the empty default sits outside the retryable family
+
+    def test_positional_construction_fails_before_field_validation(self) -> None:
+        with pytest.raises(TypeError):
+            TransportFailureClassification("connection")

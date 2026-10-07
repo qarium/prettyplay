@@ -602,39 +602,39 @@ never by pydantic validation.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Declaration (STEP 0)**: task 3 — `TransportFailureClassification` + label constants
-- [ ] **Contract tests** (new class in `tests/llm/test_request.py`; expected to fail):
+- [x] **Declaration (STEP 0)**: task 3 — `TransportFailureClassification` + label constants
+- [x] **Contract tests** (new class in `tests/llm/test_request.py`; expected to fail):
   constructible with keyword args `category`/`retry_after`; `retryable` is a callable
   attribute (not a constructor field — `inspect` shows no such `__init__` parameter); the
   module exposes the constants
-- [ ] **REPL cycle** (M4): in the venv interpreter — construct
+- [x] **REPL cycle** (M4): in the venv interpreter — construct
   `TransportFailureClassification(category="connection")`, check `.retryable` for all nine
   labels, attempt positional construction (expect `TypeError` before field validation);
   `importlib.reload(prettyplay.llm._request)` after each edit; migrate the verified class
   into `_request.py`
-- [ ] **Code**: add the constants block to `prettyplay/llm/_request.py` (above the model,
+- [x] **Code**: add the constants block to `prettyplay/llm/_request.py` (above the model,
   beside the existing `CATEGORY_*` block, with `#:` comments in the house style)
-- [ ] **Code**: add `TransportFailureClassification` — pydantic v2 `BaseModel`,
+- [x] **Code**: add `TransportFailureClassification` — pydantic v2 `BaseModel`,
   `model_config = ConfigDict(kw_only=True)`; fields `category: str = ""` and
   `retry_after: float | None = None`; `@property def retryable(self) -> bool` returning
   `self.category in RETRYABLE_TRANSPORT_CATEGORIES`; Google docstring
   (`from pydantic import BaseModel, ConfigDict` — the third-party absolute import)
-- [ ] **Interface verification (STEP 3)**: `.venv/bin/python -m pytest tests/llm/test_request.py -q`
-- [ ] **Logic tests (STEP 4)** — the design scenario
+- [x] **Interface verification (STEP 3)**: `.venv/bin/python -m pytest tests/llm/test_request.py -q`
+- [x] **Logic tests (STEP 4)** — the design scenario
   `test_transport_failure_classification_model_shape_and_retryable_truth_table`:
   `TransportFailureClassification(category=X).retryable is True` for connection, timeout,
   rate_limit, server_error; `is False` for authentication, permission_denied,
   invalid_request, not_found, quota_exhausted; `TransportFailureClassification().retryable
   is False` (empty default category); `pytest.raises(TypeError)` on positional construction
   `TransportFailureClassification("connection")` — parametrize the truth table
-- [ ] **Debugging (STEP 5)**: `.venv/bin/python -m pytest tests/llm/ -q` — fix
+- [x] **Debugging (STEP 5)**: `.venv/bin/python -m pytest tests/llm/ -q` — fix
   implementation until green (do NOT fix test code)
-- [ ] **Contract re-verification (STEP 6)**: model shape matches the signature
+- [x] **Contract re-verification (STEP 6)**: model shape matches the signature
   `(category: str, retry_after: float | None)`; kw_only; empty defaults; `retryable`
   under properties — no other public members added
-- [ ] **Lint (STEP 7)**: ruff check + ruff format on `prettyplay/llm/_request.py`,
+- [x] **Lint (STEP 7)**: ruff check + ruff format on `prettyplay/llm/_request.py`,
   `tests/llm/test_request.py`
-- [ ] **Completion (STEP 8)**: mark checkboxes; → review → approval → next task. Commit gate.
+- [x] **Completion (STEP 8)**: mark checkboxes; → review → approval → next task. Commit gate.
 
 ### Task 4: `classify_openai_failure` / `classify_anthropic_failure` (TDD coding)
 

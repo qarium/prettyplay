@@ -3,6 +3,8 @@
 import base64
 import re
 
+from pydantic import BaseModel, ConfigDict
+
 from ..failures import LLMUnavailableError
 from .models import ScenarioStep
 
@@ -14,6 +16,68 @@ CATEGORY_INCURABLE = "incurable"
 
 #: The frozen set of the four classification labels.
 CATEGORIES = frozenset({CATEGORY_ROT, CATEGORY_PRODUCT_DEFECT, CATEGORY_FIXABLE, CATEGORY_INCURABLE})
+
+#: The transport failure labels of the retryable family.
+TRANSPORT_CONNECTION = "connection"
+TRANSPORT_TIMEOUT = "timeout"
+TRANSPORT_RATE_LIMIT = "rate_limit"
+TRANSPORT_SERVER_ERROR = "server_error"
+
+#: The transport failure labels of the permanent family.
+TRANSPORT_AUTHENTICATION = "authentication"
+TRANSPORT_PERMISSION_DENIED = "permission_denied"
+TRANSPORT_INVALID_REQUEST = "invalid_request"
+TRANSPORT_NOT_FOUND = "not_found"
+TRANSPORT_QUOTA_EXHAUSTED = "quota_exhausted"
+
+#: The frozen set of the four retryable transport labels.
+RETRYABLE_TRANSPORT_CATEGORIES = frozenset(
+    {TRANSPORT_CONNECTION, TRANSPORT_TIMEOUT, TRANSPORT_RATE_LIMIT, TRANSPORT_SERVER_ERROR}
+)
+
+#: The frozen set of the five permanent transport labels.
+PERMANENT_TRANSPORT_CATEGORIES = frozenset(
+    {
+        TRANSPORT_AUTHENTICATION,
+        TRANSPORT_PERMISSION_DENIED,
+        TRANSPORT_INVALID_REQUEST,
+        TRANSPORT_NOT_FOUND,
+        TRANSPORT_QUOTA_EXHAUSTED,
+    }
+)
+
+
+class TransportFailureClassification(BaseModel):
+    """The verdict of one transport failure classification of an LLM request.
+
+    Attributes:
+        category: the transport failure label — one of the closed nine-label
+            set; the retryable family: connection, timeout, rate_limit and
+            server_error; the permanent family: authentication,
+            permission_denied, invalid_request, not_found and
+            quota_exhausted; the classifiers are the only producers, so the
+            label is always one of the nine — an unrecognized failure
+            classifies permanent before reaching this type.
+        retry_after: the parsed Retry-After seconds of the failure response;
+            None — the header is absent or malformed.
+    """
+
+    model_config = ConfigDict(kw_only=True)
+
+    category: str = ""
+    retry_after: float | None = None
+
+    @property
+    def retryable(self) -> bool:
+        """Return whether the category belongs to the retryable family.
+
+        Returns:
+            True for the retryable labels — the retry-or-raise decision of
+            the retry loop; False for the permanent labels and the empty
+            default category.
+        """
+        return self.category in RETRYABLE_TRANSPORT_CATEGORIES
+
 
 #: Field count of the one-line classification verdict.
 VERDICT_FIELD_COUNT = 3
