@@ -95,6 +95,12 @@ generation_approve = false:
 
 ## Budget exhaustion
 
+Each provider request may resend the identical SDK request up to `llm_request_attempts`
+(default 3, initial send included). These transport sends consume no additional generation
+or healing budget and emit no additional generation-started hooks. If the provider raises
+`LLMUnavailableError` after its retry policy terminates, generation propagates it without
+another engine attempt; an optional terminal classification still uses the quiet verdict skip.
+
 Exhaustion of the generation attempts classifies the last candidate: rot or fixable grants exactly one extra
 recommendation-carrying regeneration funded from the healing budget — a repeat failure is terminal
 IncurableStepError without reclassification; any other verdict is terminal as before. LLM unavailability at this

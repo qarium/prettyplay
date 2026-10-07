@@ -3,7 +3,7 @@
 import inspect
 import logging
 from collections.abc import Callable
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from typing import ClassVar, TypeVar
 
 import anthropic
@@ -820,6 +820,100 @@ class TestClassifyFailures:
 
         assert failure.category == "invalid_request"
         assert failure.retryable is False
+
+
+@pytest.mark.parametrize(
+    ("classifier", "sdk", "quota_label"),
+    [
+        pytest.param(classify_openai_failure, openai, "insufficient_quota", id="openai"),
+        pytest.param(classify_anthropic_failure, anthropic, "billing_error", id="anthropic"),
+    ],
+)
+class TestQuotaBodyEvidence:
+    """Quota evidence in SDK response bodies must survive SDK version differences."""
+
+    @pytest.mark.parametrize("status", [429, 503])
+    @pytest.mark.parametrize("field", ["code", "type"])
+    @pytest.mark.parametrize("nested", [False, True])
+    def test_body_quota_wins_without_sdk_convenience_attributes(  # noqa: PLR0913, PLR0917 — parameterized SDK/body matrix
+        self,
+        classifier: Callable[[Exception], TransportFailureClassification],
+        sdk: ModuleType,
+        quota_label: str,
+        status: int,
+        field: str,
+        nested: bool,
+    ) -> None:
+        response = SimpleNamespace(status_code=status, headers={}, request=SimpleNamespace())
+        evidence = {field: quota_label}
+        body = {"error": evidence} if nested else evidence
+        error = sdk.APIStatusError("quota exhausted", response=response, body=body)
+
+        # Older SDKs expose body without parsed code/type attributes.
+        for attribute in ("code", "type"):
+            if hasattr(error, attribute):
+                delattr(error, attribute)
+
+        failure = classifier(error)
+
+        assert failure.category == "quota_exhausted"
+        assert failure.retryable is False
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            None,
+            "billing_error",
+            [],
+            {},
+            {"error": []},
+            {"error": "insufficient_quota"},
+            {"code": []},
+            {"error": {"type": {}}},
+            {"error": {"type": "unknown"}},
+        ],
+    )
+    def test_malformed_or_unknown_body_preserves_status_classification(
+        self,
+        classifier: Callable[[Exception], TransportFailureClassification],
+        sdk: ModuleType,
+        quota_label: str,
+        body: object,
+    ) -> None:
+        error = make_status_error(sdk.APIStatusError, 429)
+        error.body = body
+
+        failure = classifier(error)
+
+        assert failure.category == "rate_limit"
+        assert failure.retryable is True
+
+    def test_body_quota_stops_the_retry_loop_without_sleep_or_logs(
+        self,
+        classifier: Callable[[Exception], TransportFailureClassification],
+        sdk: ModuleType,
+        quota_label: str,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        error = make_status_error(sdk.APIStatusError, 429)
+        error.body = {"error": {"type": quota_label}}
+        calls: list[int] = []
+        sleeps: list[float] = []
+
+        def send() -> object:
+            calls.append(1)
+            raise error
+
+        monkeypatch.setattr("time.sleep", sleeps.append)
+
+        with pytest.raises(LLMUnavailableError, match="failed permanently: quota_exhausted") as excinfo:
+            send_with_retries(sdk.__name__, "generation", 3, classifier, send)
+
+        assert excinfo.value.__cause__ is error
+        assert calls == [1]
+        assert sleeps == []
+        assert caplog.records == []
 
 
 class TestComputeTransportPauseContract:

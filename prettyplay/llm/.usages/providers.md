@@ -18,13 +18,13 @@ The provider is a project setting: openai or anthropic; env override PRETTYPLAY_
 
 | Setting | Purpose | Fallback |
 |---|---|---|
-| model | the main model for both operations | — |
+| model | the default model for all four operations | — |
 | generation_model | code generation only | model |
-| classification_model | failure classification and the compliance gate | model |
+| classification_model | failure classification, group diagnosis and the compliance gate | model |
 
 The instruction compliance gate runs on the effective classification model (classification_model
-or model) — never on the generation model, so the verdict never comes from the model that
-wrote the candidate.
+or model). Set classification_model to a different model when the verdict should come from
+a model other than the one that wrote the candidate; the defaults can select the same model.
 
 base_url overrides the provider endpoint when set.
 

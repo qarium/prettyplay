@@ -230,7 +230,15 @@ def _permanent_transport_category(error: Exception, ladder: _TransportLadder) ->
     if not isinstance(error, ladder.status_error):
         return None
 
-    body_evidence = (getattr(error, "code", None), getattr(error, "type", None))
+    body_evidence = [getattr(error, "code", None), getattr(error, "type", None)]
+    body = getattr(error, "body", None)
+
+    if isinstance(body, dict):
+        body_evidence.extend((body.get("code"), body.get("type")))
+        nested_error = body.get("error")
+
+        if isinstance(nested_error, dict):
+            body_evidence.extend((nested_error.get("code"), nested_error.get("type")))
 
     if any(isinstance(label, str) and label in ladder.quota_labels for label in body_evidence):
         return TRANSPORT_QUOTA_EXHAUSTED
