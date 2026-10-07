@@ -14,6 +14,7 @@ base_url = ""
 cache_root = ""            # empty -> <cwd>/.prettyplay/cache/
 generation_attempts = 3
 healing_attempts = 2
+llm_request_attempts = 3  # total sends per LLM request; 1 disables request retries
 send_screenshots = false
 strict = false             # replay-only mode; default false
 polling_timeout = 6.0      # None (default) — polling off; 0 — explicit disable; >0 — settle window seconds
@@ -52,6 +53,7 @@ Every setting has an override for CI — env variable PRETTYPLAY_<SETTING> in up
 | cache_root | PRETTYPLAY_CACHE_ROOT |
 | generation_attempts | PRETTYPLAY_GENERATION_ATTEMPTS |
 | healing_attempts | PRETTYPLAY_HEALING_ATTEMPTS |
+| llm_request_attempts | PRETTYPLAY_LLM_REQUEST_ATTEMPTS |
 | send_screenshots | PRETTYPLAY_SEND_SCREENSHOTS |
 | strict | PRETTYPLAY_STRICT |
 | polling_timeout | PRETTYPLAY_POLLING_TIMEOUT |
@@ -98,6 +100,28 @@ kind with time remaining re-executes the same code after `polling_delay` until s
 is consumed, attempts are visible as settle_retry log records. Locator ambiguity and Python-level errors of the step
 code never poll. Polling is opt-in: the default `None` (and `0`) keeps it off; polling applies in strict replay too —
 re-executing cached code is execution, not generation.
+
+## Request retries of the LLM port
+
+`llm_request_attempts` (default 3, env PRETTYPLAY_LLM_REQUEST_ATTEMPTS, per-test override) caps
+the physical sends of one LLM request — generation, failure classification, group diagnosis and
+the compliance verdict alike: the initial request included, retries of transient provider
+failures (connection, timeout, 408/429, 5xx) happen inside the request with fixed delays and
+never consume generation or healing budgets.
+
+```python
+from prettyplay import PrettyConfig, PrettyPlay
+
+test = PrettyPlay(
+    cache_key="flaky-ci",
+    config=PrettyConfig(llm_request_attempts=5),  # tolerate a longer provider outage
+)
+```
+
+- `1` disables request retries — fully the old single-send behavior
+- a value below `1` fails loudly at configuration load — never a silent ignore
+- the retry delays are fixed policy (1–10 s with jitter and the Retry-After rule) — not
+  configurable; only the attempt count is
 
 ## Pace
 

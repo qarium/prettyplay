@@ -9,7 +9,7 @@ prettyplay failure. A fifth kind — the configuration error — joins the base 
 |---|---|---|---|
 | ProductDefectError | real product regression | an assertion expectation legitimately failed | treat as a bug: file it, fix the product — this failure is the value of the suite |
 | IncurableStepError | the step cannot be (re)generated | attempt budget exhausted, step text no longer matches reality, ambiguity, strict mode forbids generation | follow the verdict `recommendation`: reword the step or refresh the cache |
-| LLMUnavailableError | LLM infrastructure down | generation or healing ran while the provider was unavailable | restore provider access or keys; cached steps are unaffected |
+| LLMUnavailableError | LLM infrastructure down | an LLM operation (generation, failure classification, group diagnosis, compliance verdict) exhausted its bounded transport retries or met a permanent provider rejection | restore provider access or keys; cached steps are unaffected |
 | ComplianceVerdictError | the compliance gate could not obtain a usable verdict | a successfully executed candidate was checked, but the verdict model answer did not parse | rerun the step to retry generation; a repeatedly malformed verdict points at the verdict model — the candidate was never cached |
 | ConfigurationError | settings are invalid | the first library use loaded an invalid [tool.prettyplay] section | fix the named setting — the message lists the allowed values |
 

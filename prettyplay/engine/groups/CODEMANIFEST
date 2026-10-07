@@ -129,7 +129,9 @@ Annotations: |
     5. Return the verdict
 
     Constraints:
-    - Provider unavailability propagates as `LLMUnavailableError` — an explicit infrastructure failure; no retry
+    - Provider unavailability propagates as `LLMUnavailableError` — an explicit infrastructure
+      failure raised after the bounded transport retries inside the logical diagnosis attempt; the
+      caller adds no retries above them
 
 "GroupRecovery(config: Config, provider: LLMProvider, generator: StepGenerator, cache: StepCache, budgets: RunBudgets, reporter: StepReporter)":
   location: recovery.py
