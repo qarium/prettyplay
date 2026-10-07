@@ -469,21 +469,28 @@ and if needed repairs — the toolchain before any coding task runs. No product 
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Declaration (STEP 0)**: task 1, infrastructure — toolchain bootstrap, no contract entities
-- [ ] Verify the toolchain: `.venv/bin/python --version`, then
+- [x] **Declaration (STEP 0)**: task 1, infrastructure — toolchain bootstrap, no contract entities
+- [x] Verify the toolchain: `.venv/bin/python --version`, then
       `.venv/bin/python -c "import pytest, ruff, openai, anthropic, pydantic; print('toolchain ok')"`
       and `.venv/bin/python -m pytest tests/config -q` (smoke run)
-- [ ] If the venv is broken or missing: recreate it
+- [x] If the venv is broken or missing: recreate it
       (`python3 -m venv .venv --clear`), install the project with the test extras
       (`.venv/bin/pip install -e '.[test]'`), and re-run the verification above
-- [ ] Record the installed SDK versions:
+      (venv was broken — macOS interpreter symlinks; recreated on Python 3.12.15)
+- [x] Record the installed SDK versions:
       `.venv/bin/python -c "import openai, anthropic; print(openai.__version__, anthropic.__version__)"`
       — the design verified the classifier evidence against openai 3.14.1 / anthropic 1.6.0;
       if the installed versions differ materially, note it for Task 4 (the evidence ladder is
       re-verified there against the installed sources in the REPL)
-- [ ] Verify the linter gate runs: `.venv/bin/python -m ruff check prettyplay/ tests/` —
+      (recorded: openai 3.26.0 / anthropic 1.11.0 — newer than the design's versions, but the
+      full evidence surface was re-verified live and is unchanged: all ten exception classes
+      present in both SDKs, `APITimeoutError` still subclasses `APIConnectionError`,
+      `APIStatusError` still carries `response`/`status_code`/`type` parsed from the body,
+      `billing_error` still in `anthropic.types.ErrorType`, `max_retries` constructor
+      parameter present in both clients — immaterial for Task 4)
+- [x] Verify the linter gate runs: `.venv/bin/python -m ruff check prettyplay/ tests/` —
       zero errors on the untouched tree (report if not)
-- [ ] Lint (STEP 7): no files were touched — confirm `git status` shows no product changes
+- [x] Lint (STEP 7): no files were touched — confirm `git status` shows no product changes
 
 ### Task 2: `Config.llm_request_attempts` — field, docstring, loader registries (TDD coding)
 
