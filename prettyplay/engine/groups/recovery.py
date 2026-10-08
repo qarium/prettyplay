@@ -141,7 +141,15 @@ class GroupRecovery:
                 )
 
             verdict = classify_group_failure(
-                self._config, self._provider, group_prompt, traces, step_text, step_type, attempt_history, page
+                self._config,
+                self._provider,
+                group_prompt,
+                traces,
+                previous_steps,
+                step_text,
+                step_type,
+                attempt_history,
+                page,
             )
 
             code, error = _last_facts(attempt_history)  # the failed step's terminal-failure facts
