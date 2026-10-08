@@ -10,6 +10,7 @@ in an earlier one.
 with t.group("accept cookies, fill and submit the order form") as g:
     g.step("accept the cookie banner")
     g.step("fill the email field", delay=0.5)
+    g.step("enter {{ vars.code }}", vars={"code": "A1"})
     g.step("submit the form")
     g.expect("the status shows order confirmed", tries=2)
 ```
@@ -19,9 +20,10 @@ with t.group("accept cookies, fill and submit the order form") as g:
   diagnosis requests verbatim as the framing — an empty prompt fails loudly
   at entry
 - `g.step` / `g.expect` — the ordinary authoring surface inside the block,
-  the `tries`/`delay` step parameters included
+  the `tries`/`delay`/`vars` step parameters included
 - `g.prompt` — the group prompt verbatim; `g.traces` — one verbatim trace
-  record per executed group step (sentence, outcome, URL transition),
+  record per executed group step (sentence, rendered instruction, call inputs,
+  outcome, URL transition),
   appended by the executor in execution order and never rewritten
 - A group with zero steps is a quiet no-op — the entry and exit framing
   records and nothing else
@@ -123,5 +125,6 @@ see [Hooks and logging](hooks.md).
 ## Limitations
 
 !!! warning
-    The group prompt and the step sentences land in the LLM requests and the
-    logs: never put secrets or personal data into them.
+    Group prompts, rendered step instructions, call-local `vars` values and
+    captured page values can land in LLM requests and diagnostic logs. Do not
+    use them for secrets or sensitive personal data.

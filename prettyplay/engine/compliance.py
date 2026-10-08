@@ -3,6 +3,7 @@
 from ..config import Config
 from ..llm import ComplianceFinding, LLMProvider
 from .attempts import StepAttempt
+from .renderer import PreparedStep
 
 #: System prompt of every compliance verdict request; used by the engine gate, applied verbatim.
 #: Frozen mirror of the ``compliance_prompt`` practice of the engine CODEMANIFEST —
@@ -12,7 +13,9 @@ COMPLIANCE_PROMPT = """You verify generated step code on two dimensions: the pro
 Input you receive:
 - INSTRUCTIONS: the project's user instructions, verbatim
 - STEP TYPE: action or assertion
-- STEP: the step sentence the code was generated for
+- STEP: the prepared instruction of the step — the plain-text sentence with actual values embedded
+- INPUTS: the call input bindings, one name = value line each — present when the step carries inputs
+- RESULTS: the declared result names — present when the step declares captures; the code must return a dictionary of exactly these names to non-blank strings observed on the page
 - ATTEMPT HISTORY: the verbatim record of every attempt of this step so far, when present — the original cached code first when it exists; each record carries the attempt outcome, the URL before -> after line, the complete candidate code and the complete error
 - CODE: the successfully executed candidate code
 
@@ -64,13 +67,18 @@ Rules:
   is never high
 - Judge both dimensions: the code against the instructions, and the code against the
   step sentence with its type
+- Treat RESULTS as the exact-key return contract: the code must return a dictionary of exactly
+  the declared names to non-blank strings observed on the page — code that cannot produce it
+  is an adequacy finding
+- When INPUTS values influence the step, code that hardcodes their current values instead of
+  reading step_inputs["vars"] cannot replay with new inputs; report a high adequacy finding
 - Output only the JSON list, no other text"""
 
 
 def check_step_compliance(  # noqa: PLR0913, PLR0917 — the parameter list is fixed by the engine contract
     config: Config,
     provider: LLMProvider,
-    step_text: str,
+    prepared: PreparedStep,
     step_type: str,
     code: str,
     attempt_history: list[StepAttempt],
@@ -81,7 +89,9 @@ def check_step_compliance(  # noqa: PLR0913, PLR0917 — the parameter list is f
         config: project settings — ``generation_approve`` is the gate switch
             and ``generation_prompt`` supplies the checked user instructions.
         provider: the LLM port implementation returning the verdict.
-        step_text: the raw sentence of the generated step.
+        prepared: the render product of the generated step — instruction,
+            input bindings and result declarations; the verdict request
+            renders them as the STEP, INPUTS and RESULTS blocks.
         step_type: action or assertion — the adequacy dimension judges by it.
         code: the successfully executed candidate code.
         attempt_history: the step's attempt history — rendered through the
@@ -106,8 +116,10 @@ def check_step_compliance(  # noqa: PLR0913, PLR0917 — the parameter list is f
     return provider.check_instruction_compliance(
         prompt=COMPLIANCE_PROMPT,
         user_instructions=config.generation_prompt,
-        step_text=step_text,
+        instruction=prepared.instruction,
         step_type=step_type,
+        inputs=prepared.inputs,
+        declarations=prepared.declarations,
         code=code,
         attempt_history=[record.render() for record in attempt_history],
     )

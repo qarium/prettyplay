@@ -11,7 +11,7 @@ from prettyplay.engine import StepAttempt
 from prettyplay.engine.groups import GroupStepOutcome, classify_group_failure
 from prettyplay.engine.groups.diagnosis import GROUP_DIAGNOSIS_PROMPT
 from prettyplay.failures import LLMUnavailableError
-from prettyplay.llm import GroupFailureClassification
+from prettyplay.llm import GroupFailureClassification, ScenarioStep
 
 GROUP_DIAGNOSIS_PRACTICE = Path(__file__).resolve().parents[3] / ".goga" / "usages" / "prompts" / "group_diagnosis.md"
 
@@ -57,15 +57,30 @@ def _identity(normalized_text: str) -> StepIdentity:
     return StepIdentity(cache_key="tests/test_checkout.py", step_type="action", normalized_text=normalized_text)
 
 
-def _trace(sentence: str, outcome: str = "passed") -> GroupStepOutcome:
+def _trace(sentence: str, outcome: str = "passed", instruction: str | None = None) -> GroupStepOutcome:
     return GroupStepOutcome(
         sentence=sentence,
+        # a template step records its prepared instruction; a non-template one the sentence itself
+        instruction=instruction if instruction is not None else sentence,
         step_type="action",
         outcome=outcome,
         url_before="https://example.com/cart",
         url_after="https://example.com/checkout",
         identity=_identity(sentence),
     )
+
+
+def _previous(sentence: str, instruction: str, group_prompt: str = "") -> ScenarioStep:
+    return ScenarioStep(sentence=sentence, instruction=instruction, group_prompt=group_prompt)
+
+
+def _scenario() -> list[ScenarioStep]:
+    """The prior scenario of the test: one ordinary step, one group step, one template step."""
+    return [
+        _previous("open the shop", "open the shop"),
+        _previous("accept the cookies", "accept the cookies", "accept cookies and submit the order"),
+        _previous("read {{ kind }}", "read novel"),
+    ]
 
 
 def _attempt(code: str = "def step(page) -> None:\n    pass\n", error: str = "AssertionError") -> StepAttempt:
@@ -112,6 +127,7 @@ class TestClassifyGroupFailureContract:
             "provider",
             "group_prompt",
             "traces",
+            "previous_steps",
             "step_text",
             "step_type",
             "attempt_history",
@@ -126,6 +142,7 @@ class TestClassifyGroupFailureContract:
             DiagnosisProvider(verdict),
             "accept cookies and submit the order",
             [_trace("accept the cookie banner"), _trace("submit the form")],
+            _scenario(),
             "submit the form",
             "action",
             [_attempt()],
@@ -133,6 +150,37 @@ class TestClassifyGroupFailureContract:
         )
 
         assert result == verdict
+
+    def test_provider_receives_previous_steps_and_the_prepared_step_text(self, tmp_path: Path) -> None:
+        """The wrapper threads the typed records and the prepared instruction — never raw Jinja."""
+        provider = DiagnosisProvider(_verdict())
+        scenario = _scenario()
+        traces = [
+            _trace("accept the cookie banner"),
+            _trace("read {{ kind }}", instruction="read novel"),
+            _trace("read {{ kind }} into {% var name %}", "failed", instruction="read novel into "),
+        ]
+
+        classify_group_failure(
+            Config(cache_root=str(tmp_path)),
+            provider,
+            "accept cookies and submit the order",
+            traces,
+            scenario,
+            "read novel into ",  # the failed step's prepared instruction — the rendered text
+            "action",
+            [_attempt()],
+            FakePage(),
+        )
+
+        kwargs = provider.calls[0]
+        assert kwargs["step_text"] == "read novel into "  # the prepared instruction verbatim
+        assert kwargs["previous_steps"] is scenario  # the typed records ride through by identity
+        assert "{{" not in kwargs["step_text"]  # never the template
+        assert "{%" not in kwargs["step_text"]
+        assert all("{{" not in record.instruction and "{%" not in record.instruction for record in scenario)
+        # the GROUP STEPS traces render their recorded instructions — the raw sentences stay local
+        assert all("{{" not in step and "{%" not in step for step in kwargs["group_steps"])
 
     def test_group_diagnosis_prompt_mirrors_the_practice(self) -> None:
         practice = GROUP_DIAGNOSIS_PRACTICE.read_text(encoding="utf-8")
@@ -142,10 +190,16 @@ class TestClassifyGroupFailureContract:
         # spot-asserts of the diagnosis contract — the equality alone would hide a both-sides edit
         assert GROUP_DIAGNOSIS_PROMPT.startswith("You diagnose a failure of one step inside a group")
         assert '"category": "recoverable | product_defect | incurable"' in GROUP_DIAGNOSIS_PROMPT
+        assert "- PREVIOUS STEPS: the prepared instructions of the prior scenario" in GROUP_DIAGNOSIS_PROMPT
+        assert "- GROUP STEPS: every step of the group in execution order — each with its recorded prepared" in (
+            GROUP_DIAGNOSIS_PROMPT
+        )
+        assert "- STEP: the failed step's prepared instruction" in GROUP_DIAGNOSIS_PROMPT
         assert "- recoverable —" in GROUP_DIAGNOSIS_PROMPT
         assert "- product_defect —" in GROUP_DIAGNOSIS_PROMPT
         assert "- incurable —" in GROUP_DIAGNOSIS_PROMPT
-        assert "earliest_step must quote a group step sentence verbatim" in GROUP_DIAGNOSIS_PROMPT
+        assert "earliest_step must quote a visible instruction verbatim" in GROUP_DIAGNOSIS_PROMPT
+        assert "raw template sentences are not\n  request content" in GROUP_DIAGNOSIS_PROMPT  # the wrapped rule tail
         assert "Output only the JSON object, no other text" in GROUP_DIAGNOSIS_PROMPT
 
 
@@ -160,6 +214,7 @@ class TestClassifyGroupFailureLogic:
             _trace("fill the email field"),
             _trace("submit the form", "failed"),
         ]
+        scenario = _scenario()
         history = [_attempt(), _attempt(code="def step(page) -> None:\n    raise AssertionError\n")]
 
         verdict = classify_group_failure(
@@ -167,6 +222,7 @@ class TestClassifyGroupFailureLogic:
             provider,
             "accept cookies and submit the order",
             traces,
+            scenario,
             "submit the form",
             "action",
             history,
@@ -181,6 +237,7 @@ class TestClassifyGroupFailureLogic:
             "user_instructions",
             "group_prompt",
             "group_steps",
+            "previous_steps",
             "step_text",
             "attempt_history",
             "snapshot",
@@ -189,6 +246,7 @@ class TestClassifyGroupFailureLogic:
         assert kwargs["prompt"] == GROUP_DIAGNOSIS_PROMPT
         assert kwargs["group_prompt"] == "accept cookies and submit the order"
         assert kwargs["group_steps"] == [trace.render() for trace in traces]
+        assert kwargs["previous_steps"] is scenario  # the typed records ride through by identity
         assert kwargs["step_text"] == "submit the form"
         assert kwargs["attempt_history"] == [record.render() for record in history]
         assert kwargs["snapshot"] == "body: main"
@@ -204,6 +262,7 @@ class TestClassifyGroupFailureLogic:
             provider,
             "g",
             [_trace("s")],
+            _scenario(),
             "s",
             "assertion",
             [],
@@ -222,6 +281,7 @@ class TestClassifyGroupFailureLogic:
             provider,
             "g",
             [_trace("s")],
+            _scenario(),
             "s",
             "action",
             [],
@@ -239,6 +299,7 @@ class TestClassifyGroupFailureLogic:
             provider,
             "g",
             [_trace("s")],
+            _scenario(),
             "s",
             "action",
             [],
@@ -247,6 +308,54 @@ class TestClassifyGroupFailureLogic:
 
         assert provider.calls[0]["user_instructions"] == ""
 
+    def test_previous_steps_render_input_rides_as_the_record_fields(self, tmp_path: Path) -> None:
+        """The records the provider receives carry the prepared instructions and the group marks.
+
+        The provider renders the PREVIOUS STEPS block from these records — the
+        wrapper hands over exactly the typed records: the instruction fields
+        (never the raw sentences) plus the group membership of the marking.
+        """
+        provider = DiagnosisProvider(_verdict())
+        scenario = _scenario()
+
+        classify_group_failure(
+            Config(cache_root=str(tmp_path)),
+            provider,
+            "accept cookies and submit the order",
+            [_trace("fill the email field")],
+            scenario,
+            "submit the form",
+            "action",
+            [_attempt()],
+            FakePage(),
+        )
+
+        received = provider.calls[0]["previous_steps"]
+        assert received == scenario
+        assert [(record.instruction, record.group_prompt) for record in received] == [
+            ("open the shop", ""),
+            ("accept the cookies", "accept cookies and submit the order"),
+            ("read novel", ""),
+        ]  # the render inputs: prepared instructions plus group marks; sentences stay unrendered
+
+    def test_empty_previous_steps_ride_as_the_empty_list(self, tmp_path: Path) -> None:
+        """The empty list rides through — the provider omits the PREVIOUS STEPS block."""
+        provider = DiagnosisProvider(_verdict())
+
+        classify_group_failure(
+            Config(cache_root=str(tmp_path)),
+            provider,
+            "g",
+            [_trace("s")],
+            [],
+            "s",
+            "action",
+            [],
+            FakePage(),
+        )
+
+        assert provider.calls[0]["previous_steps"] == []
+
     def test_landed_diagnosis_logs_the_info_record(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         with caplog.at_level(logging.INFO, logger="prettyplay"):
             classify_group_failure(
@@ -254,6 +363,7 @@ class TestClassifyGroupFailureLogic:
                 DiagnosisProvider(_verdict()),
                 "accept cookies and submit the order",
                 [_trace("fill the email field")],
+                _scenario(),
                 "submit the form",
                 "action",
                 [_attempt()],
@@ -280,6 +390,7 @@ class TestClassifyGroupFailureLogic:
                 provider,
                 "accept cookies and submit the order",
                 [_trace("fill the email field")],
+                _scenario(),
                 "submit the form",
                 "action",
                 [_attempt()],
@@ -308,6 +419,7 @@ class TestClassifyGroupFailureLogic:
                 provider,
                 "g",
                 [_trace("s")],
+                _scenario(),
                 "s",
                 "action",
                 [],
@@ -325,6 +437,7 @@ class TestClassifyGroupFailureLogic:
             provider,
             "g",
             [],
+            _scenario(),
             "s",
             "action",
             [],

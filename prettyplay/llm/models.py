@@ -96,8 +96,13 @@ class ScenarioStep(BaseModel):
     """One record of the scenario context of a test — the unit every PREVIOUS STEPS block renders.
 
     Attributes:
-        sentence: the raw step sentence as written by the engineer, verbatim
-            — never the normalized addressing form.
+        sentence: the raw step sentence (the template source) as written by
+            the engineer, verbatim — the addressing and diagnostics
+            artifact; never rendered into requests.
+        instruction: the prepared instruction recorded at the step's
+            execution — the rendered plain-text sentence; equals
+            ``sentence`` for a non-template step; the only field requests
+            render.
         group_prompt: the group prompt of the step's group; empty — an
             ordinary step; non-empty — the verbatim group prompt; the
             membership is permanent for the lifetime of the test context.
@@ -106,6 +111,7 @@ class ScenarioStep(BaseModel):
     model_config = ConfigDict(kw_only=True, frozen=True)
 
     sentence: str = ""
+    instruction: str = ""
     group_prompt: str = ""
 
 

@@ -19,11 +19,21 @@ def scenario_records() -> list[ScenarioStep]:
     The membership is a property of each record: the group entries keep
     their group prompt, the ordinary entries stay empty — exactly the shape
     the executor's ``_scenario`` appends and every engine request renders.
+    Each record carries its prepared instruction — the executed plain text,
+    equal to the sentence for these non-template steps.
     """
     return [
-        ScenarioStep(sentence="open the shop page"),
-        ScenarioStep(sentence="accept the cookie banner", group_prompt=FIXTURE_GROUP_PROMPT),
-        ScenarioStep(sentence="fill the email field", group_prompt=FIXTURE_GROUP_PROMPT),
+        ScenarioStep(sentence="open the shop page", instruction="open the shop page"),
+        ScenarioStep(
+            sentence="accept the cookie banner",
+            instruction="accept the cookie banner",
+            group_prompt=FIXTURE_GROUP_PROMPT,
+        ),
+        ScenarioStep(
+            sentence="fill the email field",
+            instruction="fill the email field",
+            group_prompt=FIXTURE_GROUP_PROMPT,
+        ),
     ]
 
 
@@ -39,6 +49,7 @@ def group_traces() -> list[GroupStepOutcome]:
     def _trace(sentence: str, step_type: str, outcome: str) -> GroupStepOutcome:
         return GroupStepOutcome(
             sentence=sentence,
+            instruction=sentence,  # non-template steps record the sentence as their instruction
             step_type=step_type,
             tries=None,
             delay=None,

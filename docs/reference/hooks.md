@@ -40,6 +40,12 @@ root, so `from prettyplay import StepHooks` works too.
 
 ## Events
 
+For a template step, lifecycle events (`on_step_started`, `on_step_passed`,
+`on_step_failed`, `on_step_verdict`, `on_step_finished`) carry the authored
+template in `step_text`. Generation and healing events carry the rendered
+instruction with current values. The `on_step_failed` error can also contain
+the rendered instruction.
+
 | Method | When | Payload |
 |---|---|---|
 | `on_step_started` | a step started executing | step_text, step_type (action or assertion) |
@@ -116,9 +122,9 @@ its log record carry the full structured render of the terminal failure;
 integrators display it verbatim.
 
 !!! warning
-    Never log secrets, credentials, tokens or personal sensitive data. Step
-    texts land in logs and hooks: never put secrets or personal data into a
-    step sentence.
+    Never log secrets, credentials, tokens or sensitive personal data. Step
+    sentences, call-local `vars` and captured page values can appear in LLM
+    prompts, logs, errors and hooks.
 
 ## Rules
 

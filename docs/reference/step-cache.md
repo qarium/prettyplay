@@ -14,10 +14,16 @@ deterministically; the cache is always read, writes are best-effort.
 |---|---|---|
 | cache_key | the main object constructor argument | a different key — a different step |
 | step type | action vs assertion | the same sentence as action and as assertion — two steps |
-| normalized sentence | NFC, trim, whitespace collapse, casefold | «Click Sign in» equals «click  sign in »; a Russian sentence and its English translation are different steps |
+| normalized sentence | ordinary text: NFC, trim, whitespace collapse, casefold; template source containing `{{`, `{%` or `{#`: NFC and trim only | «Click Sign in» equals «click  sign in »; template names, case and expression whitespace remain significant |
 
 A missing cache entry for the computed address is a cache miss — the step is
 generated, not an error.
+
+Template identity uses the authored sentence. Rendered values and call-local
+`vars` values never enter the address, so one template replays from the same
+cache entry with new values. Generated code can read current captured values
+by name from the `step_inputs` global and call-local values from
+`step_inputs["vars"]` on each execution.
 
 ### Normalize and address
 

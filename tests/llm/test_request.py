@@ -78,10 +78,12 @@ class TestBuildFieldsTextContract:
 
         assert list(parameters) == [
             "user_instructions",
-            "step_text",
+            "instruction",
             "step_type",
             "previous_steps",
             "group_prompt",
+            "inputs",
+            "declarations",
             "snapshot",
             "page_url",
             "cheat_sheet",
@@ -89,9 +91,12 @@ class TestBuildFieldsTextContract:
             "recommendation",
             "guidance",
         ]
+        assert parameters["instruction"].annotation is str
         assert parameters["step_type"].annotation is str
         assert parameters["previous_steps"].annotation == list[ScenarioStep]
         assert parameters["group_prompt"].annotation == str | None
+        assert parameters["inputs"].annotation == dict[str, str]
+        assert parameters["declarations"].annotation == list[str]
         assert parameters["attempt_history"].annotation == list[str]
 
     def test_build_fields_text_drops_the_removed_regeneration_inputs(self) -> None:
@@ -108,10 +113,12 @@ class TestBuildFieldsTextStepTypeLine:
     def test_build_fields_text_renders_step_type_line_directly_above_step(self) -> None:
         text = build_fields_text(
             user_instructions="Prefer id attributes",
-            step_text="open the page",
+            instruction="open the page",
             step_type="assertion",
             previous_steps=[],
             group_prompt=None,
+            inputs={},
+            declarations=[],
             snapshot="- snap",
             page_url=None,
             cheat_sheet="# sheet",
@@ -137,6 +144,8 @@ class TestBuildFieldsTextUserInstructions:
             "action",
             [ScenarioStep(sentence="открыть страницу")],
             group_prompt=None,
+            inputs={},
+            declarations=[],
             snapshot="- button 'Войти'",
             page_url=None,
             cheat_sheet=CHEAT_SHEET,
@@ -155,6 +164,8 @@ class TestBuildFieldsTextUserInstructions:
             "action",
             [],
             group_prompt=None,
+            inputs={},
+            declarations=[],
             snapshot="- button 'Войти'",
             page_url=None,
             cheat_sheet=CHEAT_SHEET,
@@ -173,6 +184,8 @@ class TestBuildFieldsTextUserInstructions:
             "action",
             [ScenarioStep(sentence="open the home page")],
             group_prompt=None,
+            inputs={},
+            declarations=[],
             snapshot="- tree",
             page_url=None,
             cheat_sheet="…reference…",
@@ -220,8 +233,19 @@ class TestBuildComplianceFieldsContract:
     def test_build_compliance_fields_accepts_the_port_parameter_list(self) -> None:
         parameters = inspect.signature(build_compliance_fields).parameters
 
-        assert list(parameters) == ["user_instructions", "step_text", "step_type", "attempt_history", "code"]
+        assert list(parameters) == [
+            "user_instructions",
+            "instruction",
+            "step_type",
+            "inputs",
+            "declarations",
+            "attempt_history",
+            "code",
+        ]
+        assert parameters["instruction"].annotation is str
         assert parameters["step_type"].annotation is str
+        assert parameters["inputs"].annotation == dict[str, str]
+        assert parameters["declarations"].annotation == list[str]
         assert parameters["attempt_history"].annotation == list[str]
 
 
@@ -233,6 +257,8 @@ class TestBuildComplianceFields:
             "Prefer id attributes",
             "the «Welcome back» message appears",
             "assertion",
+            {},
+            [],
             [ATTEMPT_RECORD],
             STEP_CODE,
         )
@@ -253,6 +279,8 @@ class TestBuildComplianceFields:
             "Prefer id attributes",
             "open the page",
             "action",
+            {},
+            [],
             [],
             STEP_CODE,
         )
@@ -263,9 +291,47 @@ class TestBuildComplianceFields:
         )
 
     def test_build_compliance_fields_renders_the_fixed_order_without_history(self) -> None:
-        text = build_compliance_fields("i", "s", "action", [], "c")
+        text = build_compliance_fields("i", "s", "action", {}, [], [], "c")
 
-        assert text == "INSTRUCTIONS:\ni\n\nSTEP TYPE: action\nSTEP:\ns\n\nCODE:\nc"  # one optional block
+        assert text == "INSTRUCTIONS:\ni\n\nSTEP TYPE: action\nSTEP:\ns\n\nCODE:\nc"  # every optional block omitted
+
+
+class TestBuildComplianceFieldsPreparedInputs:
+    """Logic tests: the optional INPUTS and RESULTS blocks after the STEP block."""
+
+    RESULTS_CONTRACT = (
+        "the step code returns a dictionary of exactly these names to non-blank strings observed on the page"
+    )
+
+    def test_compliance_places_inputs_and_results_after_step_before_history(self) -> None:
+        text = build_compliance_fields(
+            "Prefer id attributes",
+            "Read novel into ",
+            "action",
+            {"expected": "Details"},
+            ["name"],
+            [ATTEMPT_RECORD],
+            STEP_CODE,
+        )
+
+        assert "INPUTS:\nexpected = Details" in text
+        assert f"RESULTS:\n- name\n{self.RESULTS_CONTRACT}" in text
+        assert (
+            text.index("INSTRUCTIONS:")
+            < text.index("STEP TYPE:")
+            < text.index("STEP:\nRead novel into ")
+            < text.index("INPUTS:\nexpected = Details")
+            < text.index("RESULTS:")
+            < text.index("ATTEMPT HISTORY:")
+            < text.index("CODE:")
+        )  # the fixed compliance order with both optional blocks inserted
+
+    def test_compliance_omits_inputs_and_results_blocks_when_empty(self) -> None:
+        text = build_compliance_fields("i", "s", "action", {}, [], [ATTEMPT_RECORD], STEP_CODE)
+
+        assert "INPUTS" not in text  # empty bindings — no block, the success-without-result form
+        assert "RESULTS" not in text
+        assert text.index("STEP:\ns") < text.index("ATTEMPT HISTORY:") < text.index("CODE:")  # positions kept
 
 
 class TestBuildFieldsTextRegenerationInputs:
@@ -278,6 +344,8 @@ class TestBuildFieldsTextRegenerationInputs:
             "action",
             [ScenarioStep(sentence="открыть страницу")],
             group_prompt=None,
+            inputs={},
+            declarations=[],
             snapshot="- button 'Войти'",
             page_url=None,
             cheat_sheet=CHEAT_SHEET,
@@ -302,6 +370,8 @@ class TestBuildFieldsTextRegenerationInputs:
             "action",
             [],
             group_prompt=None,
+            inputs={},
+            declarations=[],
             snapshot="- button 'Войти'",
             page_url=None,
             cheat_sheet=CHEAT_SHEET,
@@ -322,10 +392,12 @@ class TestBuildFieldsTextPageUrl:
     def test_build_fields_places_page_url_line_after_snapshot(self) -> None:
         text = build_fields_text(
             user_instructions="",
-            step_text="s",
+            instruction="s",
             step_type="action",
             previous_steps=[],
             group_prompt=None,
+            inputs={},
+            declarations=[],
             snapshot="- body",
             page_url="https://x.test/a",
             cheat_sheet="CS",
@@ -346,10 +418,12 @@ class TestBuildFieldsTextPageUrl:
     def test_build_fields_omits_the_page_url_line_without_a_url(self, page_url: str | None) -> None:
         text = build_fields_text(
             user_instructions="",
-            step_text="s",
+            instruction="s",
             step_type="action",
             previous_steps=[],
             group_prompt=None,
+            inputs={},
+            declarations=[],
             snapshot="- body",
             page_url=page_url,
             cheat_sheet="CS",
@@ -367,10 +441,12 @@ class TestBuildFieldsTextHistoryRecords:
     def test_build_fields_text_renders_history_between_instructions_and_recommendation(self) -> None:
         text = build_fields_text(
             user_instructions="Prefer id",
-            step_text="open the page",
+            instruction="open the page",
             step_type="action",
             previous_steps=[],
             group_prompt=None,
+            inputs={},
+            declarations=[],
             snapshot="- snap",
             page_url=None,
             cheat_sheet=CHEAT_SHEET,
@@ -406,6 +482,8 @@ class TestBuildFieldsTextHistoryRecords:
             "action",
             [],
             group_prompt=None,
+            inputs={},
+            declarations=[],
             snapshot="- body",
             page_url=None,
             cheat_sheet=CHEAT_SHEET,
@@ -419,22 +497,103 @@ class TestBuildFieldsTextHistoryRecords:
             assert line in text  # every code and error line survives — no collapsing, no truncation
 
 
+class TestBuildFieldsTextPreparedInputs:
+    """Logic tests: the INPUTS and RESULTS blocks immediately after the STEP line."""
+
+    RESULTS_CONTRACT = (
+        "the step code returns a dictionary of exactly these names to non-blank strings observed on the page"
+    )
+
+    def test_build_fields_places_inputs_and_results_immediately_after_step(self) -> None:
+        text = build_fields_text(
+            user_instructions="",
+            instruction="Read novel into ",
+            step_type="action",
+            previous_steps=[],
+            group_prompt=None,
+            inputs={"expected": "Details"},
+            declarations=["name"],
+            snapshot="snap",
+            page_url="https://x",
+            cheat_sheet="cs",
+            attempt_history=[],
+            recommendation=None,
+            guidance=None,
+        )
+
+        assert text.startswith("STEP TYPE: action\nSTEP:\nRead novel into ")
+        assert "INPUTS:\nexpected = Details" in text
+        assert f"RESULTS:\n- name\n{self.RESULTS_CONTRACT}" in text
+        assert (
+            text.index("STEP:\nRead novel into ")
+            < text.index("INPUTS:\nexpected = Details")
+            < text.index("RESULTS:")
+            < text.index("PAGE SNAPSHOT:\nsnap")
+            < text.index("PAGE URL: https://x")
+            < text.index("CHEAT SHEET:\ncs")
+        )  # the fixed scenario-part order — the defect D1 lock
+
+    def test_build_fields_renders_every_binding_line_and_declared_name(self) -> None:
+        text = build_fields_text(
+            user_instructions="",
+            instruction="s",
+            step_type="action",
+            previous_steps=[],
+            group_prompt=None,
+            inputs={"a": "1", "b": "2"},
+            declarations=["x", "y"],
+            snapshot="snap",
+            page_url=None,
+            cheat_sheet="cs",
+            attempt_history=[],
+            recommendation=None,
+            guidance=None,
+        )
+
+        assert "INPUTS:\na = 1\nb = 2" in text  # one name = value line per binding
+        assert "RESULTS:\n- x\n- y\n" in text  # every declared name, in the declared order
+
+    def test_build_fields_omits_inputs_and_results_blocks_when_empty(self) -> None:
+        text = build_fields_text(
+            user_instructions="",
+            instruction="s",
+            step_type="action",
+            previous_steps=[],
+            group_prompt=None,
+            inputs={},
+            declarations=[],
+            snapshot="snap",
+            page_url=None,
+            cheat_sheet="cs",
+            attempt_history=[],
+            recommendation=None,
+            guidance=None,
+        )
+
+        assert "INPUTS" not in text  # empty bindings — no block, the success-without-result form
+        assert "RESULTS" not in text
+
+
 class TestTypedScenarioRecords:
     """Logic tests: the typed scenario records render marked and plain."""
 
     MIXED_RECORDS: ClassVar[list[ScenarioStep]] = [
-        ScenarioStep(sentence="open the login page"),
-        ScenarioStep(sentence="fill the email field", group_prompt="the order form group"),
+        ScenarioStep(sentence="open the login page", instruction="open the login page"),
+        ScenarioStep(
+            sentence="fill {{ field }}", instruction="fill the email field", group_prompt="the order form group"
+        ),
     ]
     MARKED_RENDER = "PREVIOUS STEPS:\n- open the login page\n- fill the email field [group step — the order form group]"
 
     def test_typed_scenario_records_render_marked_and_plain(self) -> None:
         plain = build_fields_text(
             user_instructions="",
-            step_text="submit the form",
+            instruction="submit the form",
             step_type="action",
             previous_steps=self.MIXED_RECORDS,
             group_prompt=None,
+            inputs={},
+            declarations=[],
             snapshot="- snap",
             page_url=None,
             cheat_sheet=CHEAT_SHEET,
@@ -449,10 +608,12 @@ class TestTypedScenarioRecords:
 
         framed = build_fields_text(
             user_instructions="",
-            step_text="submit the form",
+            instruction="submit the form",
             step_type="action",
             previous_steps=self.MIXED_RECORDS,
             group_prompt="the order form group",
+            inputs={},
+            declarations=[],
             snapshot="- snap",
             page_url=None,
             cheat_sheet=CHEAT_SHEET,
@@ -468,6 +629,7 @@ class TestTypedScenarioRecords:
         assert framed.index("PREVIOUS STEPS:") < framed.index("PAGE SNAPSHOT:")
         # the same marked entries — the framing adds the block, never rewrites the records
         assert self.MARKED_RENDER in framed
+        assert "fill {{ field }}" not in framed  # the raw template sentence never reaches the request
         assert "[group step — the order form group]" in framed  # the group prompt verbatim inside the mark
 
     def test_ordinary_records_render_byte_identical_to_the_pre_change_render(self) -> None:
@@ -479,13 +641,15 @@ class TestTypedScenarioRecords:
 
         text = build_fields_text(
             user_instructions="",
-            step_text="submit the form",
+            instruction="submit the form",
             step_type="action",
             previous_steps=[
-                ScenarioStep(sentence="open the login page"),
-                ScenarioStep(sentence="fill the email field"),
+                ScenarioStep(sentence="open the login page", instruction="open the login page"),
+                ScenarioStep(sentence="fill the email field", instruction="fill the email field"),
             ],
             group_prompt=None,
+            inputs={},
+            declarations=[],
             snapshot="- snap",
             page_url=None,
             cheat_sheet=CHEAT_SHEET,
@@ -499,10 +663,12 @@ class TestTypedScenarioRecords:
     def test_empty_scenario_history_stays_explicit(self) -> None:
         text = build_fields_text(
             user_instructions="",
-            step_text="s",
+            instruction="s",
             step_type="action",
             previous_steps=[],
             group_prompt=None,
+            inputs={},
+            declarations=[],
             snapshot="- snap",
             page_url=None,
             cheat_sheet=CHEAT_SHEET,
@@ -524,12 +690,14 @@ class TestBuildGroupDiagnosisFieldsContract:
             "user_instructions",
             "group_prompt",
             "group_steps",
+            "previous_steps",
             "step_text",
             "attempt_history",
             "snapshot",
         ]
         assert parameters["group_prompt"].annotation is str
         assert parameters["group_steps"].annotation == list[str]
+        assert parameters["previous_steps"].annotation == list[ScenarioStep]
         assert parameters["attempt_history"].annotation == list[str]
 
 
@@ -546,6 +714,7 @@ class TestBuildGroupDiagnosisFields:
             "answer strictly",
             "the checkout flow",
             self.GROUP_STEPS,
+            [ScenarioStep(sentence="open {{ shop }}", instruction="open the shop")],
             "the status shows order confirmed",
             [ATTEMPT_RECORD],
             "- heading «Order»",
@@ -553,12 +722,14 @@ class TestBuildGroupDiagnosisFields:
 
         assert (
             text.index("GROUP PROMPT:\nthe checkout flow")
+            < text.index("PREVIOUS STEPS:\n- open the shop")
             < text.index("GROUP STEPS:\n")
             < text.index("STEP:\nthe status shows order confirmed")
             < text.index("HISTORY:\n")
             < text.index("PAGE SNAPSHOT:\n- heading «Order»")
             < text.index("USER INSTRUCTIONS:\nanswer strictly")
         )
+        assert "open {{ shop }}" not in text  # the raw template sentence never reaches the request
         assert text.endswith("USER INSTRUCTIONS:\nanswer strictly")  # the block is appended last
         # every trace record verbatim — no collapsing, no truncation
         assert self.GROUP_STEPS[0] in text
@@ -566,17 +737,41 @@ class TestBuildGroupDiagnosisFields:
         assert f"HISTORY:\n{ATTEMPT_RECORD}" in text
 
     def test_omits_instructions_and_history_blocks_when_empty(self) -> None:
-        text = build_group_diagnosis_fields("", "the checkout flow", ["trace record"], "s", [], "- snap")
+        text = build_group_diagnosis_fields("", "the checkout flow", ["trace record"], [], "s", [], "- snap")
 
         assert "USER INSTRUCTIONS" not in text
         assert "HISTORY" not in text
+        assert "PREVIOUS STEPS" not in text  # the empty scenario history omits the block
         assert text.endswith("PAGE SNAPSHOT:\n- snap")  # the snapshot section stays the closing section
         assert "GROUP STEPS:\ntrace record" in text
 
     def test_empty_trace_list_stays_explicit(self) -> None:
-        text = build_group_diagnosis_fields("", "g", [], "s", [], "- snap")
+        text = build_group_diagnosis_fields("", "g", [], [], "s", [], "- snap")
 
         assert "GROUP STEPS:\n(none)" in text
+
+    def test_previous_steps_render_instructions_with_group_marking(self) -> None:
+        text = build_group_diagnosis_fields(
+            "",
+            "the checkout flow",
+            self.GROUP_STEPS,
+            [
+                ScenarioStep(sentence="open the login page", instruction="open the login page"),
+                ScenarioStep(
+                    sentence="fill {{ field }}", instruction="fill the email field", group_prompt="the order form group"
+                ),
+            ],
+            "the status shows order confirmed",
+            [],
+            "- snap",
+        )
+
+        assert (
+            "PREVIOUS STEPS:\n- open the login page\n"
+            "- fill the email field [group step — the order form group]\n\nGROUP STEPS:" in text
+        )  # the whole prior scenario visible before the group traces, group entries marked
+        assert "fill {{ field }}" not in text  # the raw template sentence never reaches the request
+        assert "open the login page" in text  # a plain record renders its instruction alone
 
 
 class TestParseClassificationFixableLabel:

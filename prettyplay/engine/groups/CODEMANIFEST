@@ -32,6 +32,15 @@ Imports:
   - Types:
       - SettleWindow
     From: prettyplay/engine/polling
+  - Types:
+      - PreparedStep
+      - StepMemory
+      - render_step
+    Usages:
+      - rendering
+      - memory
+      - validation
+    From: prettyplay/engine/renderer
 
 Usages:
   conventions: .goga/usages/conventions.md
@@ -52,38 +61,49 @@ Annotations: |
   Every successfully re-executed row step passes the two-dimension compliance gate — the same gate as every caching path — and is written back to the cache per step.
   Reporting reuses the healing events per recovered step plus structured log records for the diagnosis itself and the row composition; the block lifecycle itself reports through the four group lifecycle hook events of the reporting cell — the diagnosis records stay log-only.
   Strict mode never runs the recovery — the executor keeps the classification-only path.
-  Honest inputs: the group prompt and the step sentences reach the diagnosis and the regeneration requests verbatim; the group prompt joins the repository cache, the logs and the LLM requests — the never-put-secrets rule extends to it.
+  Honest inputs: group diagnosis renders the prepared instructions from its local scenario and trace views and the failed prepared instruction; regeneration uses each freshly rendered row instruction. Raw template sentences remain available for row re-rendering and cache addressing. The group prompt still joins requests verbatim and remains subject to the never-put-secrets rule.
+  Use `rendering` from Imports for the row re-render patterns of the recovery.
+  Use `memory` and `validation` from Imports for the per-step capture publication and the result acceptance of the row.
+  Recovery re-renders against the current context: every row step is prepared anew through `render_step` from Imports before its regeneration — from the trace's template sentence, the step's recorded inputs and the current memory; the failed step's own render product threads in from the executor.
+  Recovery keeps local copies of previous scenario records and group traces. After each accepted row step, replace that occurrence's instruction in these local views with its newly prepared instruction before building later requests or a new diagnosis; the test's stored records and appended traces remain immutable. Locate occurrences by group order, not sentence equality, because step sentences may repeat.
+  Recovery also keeps the active failure facts locally: the failing row step's prepared instruction, step type, identity, attempt history and underlying error. A failed regeneration updates those facts before another diagnosis; STEP and HISTORY always describe the failure that triggered that diagnosis, while a fully successful row returns the healed code of the originally failed step.
+  Accepted row steps publish their captures immediately through the `StepMemory` from Imports at each step's acceptance point — after validation and the compliance gate; a later row failure never rolls back the published values; steps left behind retain their last accepted values; the failed step's accepted captures publish with its acceptance and it is never executed again merely to recover them.
+  The diagnosis request and the row matcher work on prepared instructions: the traces render their instruction field and the earliest-step quote matches against instructions — what the model saw; the raw template sentences never reach a request.
 
 ---
 
-"GroupStepOutcome(sentence: str, step_type: str, tries: int | None, delay: float | None, outcome: str, url_before: str, url_after: str, identity: StepIdentity)":
+"GroupStepOutcome(sentence: str, instruction: str, step_type: str, tries: int | None, delay: float | None, vars: dict[str, str], outcome: str, url_before: str, url_after: str, identity: StepIdentity)":
   location: outcome.py
   annotations: |
     One verbatim trace record of a group step's execution — the unit the GROUP STEPS block of the diagnosis request renders.
 
-    `sentence`: the raw sentence of the step, verbatim.
+    `sentence`: the raw sentence of the step (the template source), verbatim — the re-render source of the row mechanics, never rendered into requests.
+    `instruction`: the prepared instruction recorded at the step's execution — what the GROUP STEPS block renders and the matcher matches against; equals `sentence` for a non-template step.
     `step_type`: action or assertion.
     `tries`: the declared retry count of the step; None — the step is governed by the global polling settings.
     `delay`: the declared start pause of the step in seconds; None — no pause.
+    `vars`: the call-local input bindings of the step's original call — the re-render input of the row mechanics.
     `outcome`: passed or failed.
     `url_before`: the page URL read immediately before the step's execution.
     `url_after`: the page URL read immediately after the step's execution.
-    `identity`: the cache address of the step — recorded by the executor when the trace is
-    appended; the addressing metadata of the row mechanics (regeneration and the healing-counter
-    refresh resolve row steps by it), never rendered into the GROUP STEPS block.
+    `identity`: the cache address of the step — recorded by the executor when the trace is appended; the addressing metadata of the row mechanics (regeneration and the healing-counter refresh resolve row steps by it), never rendered into the GROUP STEPS block.
 
     Requirements:
     - pydantic v2, kw_only, empty defaults (see `conventions`)
     - A record is immutable once appended: no rewriting, no truncation
   properties:
     "sentence -> str": |
-      The raw sentence of the group step, verbatim.
+      The raw sentence (the template source) of the group step, verbatim.
+    "instruction -> str": |
+      The prepared instruction recorded at execution; equals the sentence for a non-template step.
     "step_type -> str": |
       The step kind: action or assertion.
     "tries -> int | None": |
       The declared retry count; None — the global polling settings govern the step.
     "delay -> float | None": |
       The declared start pause in seconds; None — no pause.
+    "vars -> dict[str, str]": |
+      The call-local input bindings of the step's original call.
     "outcome -> str": |
       The execution outcome: passed or failed.
     "url_before -> str": |
@@ -99,39 +119,31 @@ Annotations: |
       `record`: the multi-line trace text.
 
       Algorithm:
-      1. The sentence line — the raw sentence verbatim
+      1. The instruction line — the prepared instruction verbatim
       2. The outcome line — the outcome label
       3. The URL line — url_before, an arrow, url_after
 
       Requirements:
       - No collapsing, no size limits, no truncation of any field
 
-"classify_group_failure(config: Config, provider: LLMProvider, group_prompt: str, traces: list[GroupStepOutcome], step_text: str, step_type: str, attempt_history: list[StepAttempt], page: PageFacade) -> diagnosis: GroupFailureClassification":
+"classify_group_failure(config: Config, provider: LLMProvider, group_prompt: str, traces: list[GroupStepOutcome], previous_steps: list[ScenarioStep], step_text: str, step_type: str, attempt_history: list[StepAttempt], page: PageFacade) -> diagnosis: GroupFailureClassification":
   location: diagnosis.py
   annotations: |
-    Compose and send one group diagnosis request — the single diagnosis call of the recovery.
+    Compose one group diagnosis request from the prior scenario and the group traces.
 
-    `config`: project settings — the screenshot flag and the classification instructions.
-    `provider`: the LLM port.
-    `group_prompt`: the group prompt, verbatim.
-    `traces`: the group's step traces in execution order.
-    `step_text`: the raw sentence of the failed step, verbatim.
-    `step_type`: action or assertion.
-    `attempt_history`: the per-step attempt history of the failed step — rendered records.
-    `page`: the page facade of the current test.
-    `diagnosis`: the `GroupFailureClassification` verdict.
+    `previous_steps`: the previous steps of this test, in execution order; provide their prepared instructions to the provider for outside-group root diagnosis.
+    `traces`: group records whose render method emits prepared instructions in GROUP STEPS.
+    `step_text`: the failed step's prepared instruction, passed from recovery as STEP; never the raw template sentence.
+    `diagnosis`: the parsed group verdict.
 
     Algorithm:
-    1. Collect the fresh page accessibility snapshot — plus the screenshot when the project settings enable it
-    2. Compose the GROUP STEPS traces — the render of every trace record — and the HISTORY records of the failed step
-    3. One request via the provider port classify_group_failure passing `group_diagnosis` as the system prompt and the user instructions — the effective classification_prompt — when non-empty
-    4. A degraded verdict — the conservative incurable carrying the raw answer in root_cause — logs a WARNING through the logger prettyplay naming the group and carrying the raw answer
-    5. Return the verdict
+    1. Read the current page snapshot and optional screenshot as before.
+    2. Render the traces and attempt history verbatim.
+    3. Call the provider with `previous_steps` and the prepared `step_text`, preserving the existing group prompt and classification instructions.
+    4. Preserve the existing conservative handling of degraded verdicts and unavailable providers — provider unavailability propagates as `LLMUnavailableError`.
 
-    Constraints:
-    - Provider unavailability propagates as `LLMUnavailableError` — an explicit infrastructure
-      failure raised after the bounded transport retries inside the logical diagnosis attempt; the
-      caller adds no retries above them
+    Requirements:
+    - The returned earliest_step is matched verbatim against trace and previous-scenario instruction fields; raw sentences remain only for row re-rendering and addressing.
 
 "GroupRecovery(config: Config, provider: LLMProvider, generator: StepGenerator, cache: StepCache, budgets: RunBudgets, reporter: StepReporter)":
   location: recovery.py
@@ -145,36 +157,30 @@ Annotations: |
     `budgets`: the per-test attempt registry — the cycle cap and the per-cycle refresh.
     `reporter`: the visibility point.
   methods:
-    "recover(group_prompt: str, traces: list[GroupStepOutcome], step_text: str, step_type: str, previous_steps: list[ScenarioStep], identity: StepIdentity, attempt_history: list[StepAttempt], page: PageFacade, window: SettleWindow) -> step: CachedStep": |
+    "recover(group_prompt: str, traces: list[GroupStepOutcome], prepared: PreparedStep, step_type: str, previous_steps: list[ScenarioStep], identity: StepIdentity, attempt_history: list[StepAttempt], page: PageFacade, window: SettleWindow, memory: StepMemory) -> step: CachedStep": |
       Diagnose a failed group step and recover the affected row.
 
       `group_prompt`: the group prompt, verbatim — reaches the diagnosis and every row request.
-      `traces`: the group's step traces with outcomes and URL transitions.
-      `step_text`: the raw sentence of the failed step, verbatim.
+      `traces`: the group's step traces with instructions, outcomes and URL transitions.
+      `prepared`: the render product of the failed step — threaded from the executor; its requests and failures carry the prepared instruction with its INPUTS and RESULTS blocks.
       `step_type`: action or assertion.
-      `previous_steps`: the typed scenario records of the test, in execution order — every row
-      regeneration request carries them per `group_framing`.
+      `previous_steps`: the typed scenario records of the test, in execution order — recovery copies them into a local view and updates accepted row instructions for later requests, preserving the caller's records.
       `identity`: the address of the failed step.
       `attempt_history`: the per-step attempt history grown to the failure.
       `page`: the live page facade — the row re-executes forward on the current page.
       `window`: the settle window of the failed step's execution.
+      `memory`: the test memory — the publication point of every accepted row step and the failed step (see `memory` from Imports).
       `step`: the healed cached step of the failed step.
 
-      Verdict mapping: every raised terminal failure carries a `FailureVerdict` — a diagnosis
-      verdict maps onto it (category as is — product_defect and incurable are taxonomy labels,
-      recoverable never raises; explanation ← root_cause plus the earliest_step quote when it
-      names a step; recommendation ← recommendation); a refused cycle authors its own — category
-      incurable, the explanation naming the exhausted per-group cycle cap (colon-free); an
-      outside-group root — category incurable, the explanation naming that step verbatim
-      (colon-free).
+      Verdict mapping: every raised terminal failure carries a `FailureVerdict` — a diagnosis verdict maps onto it (category as is — product_defect and incurable are taxonomy labels, recoverable never raises; explanation ← root_cause plus the earliest_step quote when it names a step; recommendation ← recommendation); a refused cycle authors its own — category incurable, the explanation naming the exhausted per-group cycle cap (colon-free); an outside-group root — category incurable, the explanation naming that step verbatim (colon-free).
 
       Algorithm:
       1. Open a recovery cycle via budgets open_group_cycle keyed by the group prompt; a refused cycle raises `IncurableStepError` carrying the verdict naming the exhausted cycle cap — the reason colon-free, one render
-      2. Diagnose via `classify_group_failure`; a product_defect verdict raises `ProductDefectError` carrying the verdict and the full underlying error; an incurable verdict raises `IncurableStepError` carrying them
-      3. Match the earliest affected step: an exact verbatim match of earliest_step against the group's steps names the row start; an exact match against a step of the test outside the group raises the honest terminal `IncurableStepError` whose verdict names that step — recovery is out of mandate; no match degrades to the failed step itself
+      2. Copy the prior scenario records and group traces into recovery-local views on entry. Initialize the active failure from the executor's `prepared`, `step_type`, `identity` and `attempt_history`; derive its underlying error from that history. Diagnose via `classify_group_failure`, passing the local views and the active failure's instruction as STEP and its history as HISTORY. On later cycles, diagnose with the updated local views and active failure. A product_defect verdict raises `ProductDefectError` carrying the active failure verdict and underlying error; an incurable verdict raises `IncurableStepError` carrying them
+      3. Match the earliest affected step: an exact verbatim match of earliest_step against the local traces' current instructions names the row start; an exact match against a step of the test outside the group raises the honest terminal `IncurableStepError` whose verdict names that step — recovery is out of mandate; no match degrades to the active failure's occurrence in the group
       4. Grant every row step a fresh healing counter via budgets refresh_healing
-      5. The row — from the earliest affected step through the failed step, the group's own steps only — sequentially: the step's declared delay passes quietly; the step regenerates via the generator regenerate carrying the diagnosis recommendation, the group framing per `group_framing`, `previous_steps`, the grown attempt history and the step's own window built from its declared tries and the trace identity; the candidate executes immediately on the current page inside the regeneration loop; the two-dimension compliance gate guards the write-back; the cache stores the step; report on_healing_started and on_healed for the recovered step; a structured log record names the diagnosis and the row composition
-      6. A repeat failure of a row step — an `IncurableStepError` from the regeneration — re-enters a fresh diagnosis and a new cycle from step 1 with the fresh failure state, while cycles remain
+      5. The row — from the earliest affected step through the failed step, the group's own steps only — sequentially: the step's declared delay passes quietly; re-render the step through `render_step` from Imports — the trace's sentence, step type, recorded vars and the current `memory` produce a fresh `PreparedStep` against the current context; the step regenerates via the generator regenerate carrying the fresh prepared step, the diagnosis recommendation, the group framing per `group_framing`, the recovery-local scenario view, the grown attempt history, the step's own window built from its declared tries and the trace identity, and `memory`; the candidate executes immediately on the current page inside the regeneration loop; the returned result validates; the two-dimension compliance gate guards the write-back; the captures publish through `memory` at the step's acceptance; the cache stores the step; update that step occurrence's instruction in the local scenario and trace views before the next row request; report on_healing_started and on_healed for the recovered step; a structured log record names the diagnosis and the row composition
+      6. A repeat failure of a row step — an `IncurableStepError` from regeneration — updates the active failure to that row occurrence's fresh `PreparedStep`, step type, identity, grown row attempt history and underlying error; mark that occurrence failed in the local trace view, preserving its freshly prepared instruction. Then re-enter a fresh diagnosis and cycle from step 1 with those facts, while cycles remain. The caller's stored traces and scenario records are not rewritten
       7. On success return the healed cached step of the failed step — the group continues normally
 
       Requirements:
@@ -183,6 +189,9 @@ Annotations: |
       - Anti-masking: a product_defect diagnosis always fails the test loudly
       - One render per terminal failure — the existing taxonomy, exactly once
       - The recovery is loudly reported through the healing events and the log records
+      - Every accepted row step publishes its validated captures at its own acceptance point — a later row failure never rolls them back; the failed step's captures publish with its acceptance, never through a re-execution
+      - A new diagnosis after a row failure uses the actual failing row step's STEP and HISTORY, not the executor's original failure; after full row success the return value remains the healed cached step of the originally failed step
+      - A re-render authoring error of a row step surfaces as that step's failure — loud, never silently skipped
 
       Constraints:
       - No page-state rollback — forward re-execution only
@@ -194,4 +203,4 @@ Annotations: |
 Author: Goga
 CreatedAt: 16/09/26
 Description: |
-  The group recovery of prettyplay: the group-level diagnosis request over the whole interaction (recoverable | product_defect | incurable), the group-scoped affected row with sequential per-step regeneration and immediate forward re-execution, the compliance-gated per-step cache write-back, and the bounded recovery cycles with fresh healing counters per cycle.
+  The group recovery of prettyplay: the group-level diagnosis request over the whole interaction, the group-scoped affected row with per-step re-rendering against the current context, sequential regeneration and immediate forward re-execution, the compliance-gated per-step cache write-back with capture publication at each acceptance, and the bounded recovery cycles with fresh healing counters per cycle.

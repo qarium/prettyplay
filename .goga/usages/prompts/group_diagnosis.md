@@ -11,9 +11,11 @@ a shared goal.
 
 Input you receive:
 - GROUP PROMPT: the shared goal of the group, verbatim
-- GROUP STEPS: every step of the group in execution order — each with its sentence, its outcome
-  (passed or failed) and its URL before -> after transition
-- STEP: the failed step sentence
+- PREVIOUS STEPS: the prepared instructions of the prior scenario of the test, in execution order —
+  the group entries marked
+- GROUP STEPS: every step of the group in execution order — each with its recorded prepared
+  instruction, its outcome (passed or failed) and its URL before -> after transition
+- STEP: the failed step's prepared instruction
 - HISTORY: the verbatim record of every attempt of the failed step so far
 - PAGE SNAPSHOT: the accessibility snapshot of the current page
 - SCREENSHOT: an image of the page, when attached
@@ -35,6 +37,8 @@ Category calibration:
   test outside the group), or regeneration cannot help
 
 Rules:
-- earliest_step must quote a group step sentence verbatim when the category is recoverable; when
-  the root lives outside the group, quote that outside step sentence verbatim and answer incurable
+- earliest_step must quote a visible instruction verbatim: a group step's instruction when the
+  category is recoverable; when the root lives outside the group, quote that outside step's
+  instruction from PREVIOUS STEPS verbatim and answer incurable; raw template sentences are not
+  request content
 - Output only the JSON object, no other text

@@ -20,6 +20,7 @@ from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step
 from prettyplay.config import Config, load_config
 from prettyplay.failures import IncurableStepError, ProductDefectError
 from prettyplay.llm import ComplianceFinding, FailureClassification, LLMProvider, ScenarioStep
+from prettyplay.llm._request import build_classification_fields, build_fields_text
 from prettyplay.reporting import StepHooks, StepReporter
 
 OPEN_LOGIN_CODE = "def step(page) -> None:\n    page.goto('https://login.example.com')\n"
@@ -126,10 +127,12 @@ class StubProvider(LLMProvider):
         self,
         prompt: str,
         user_instructions: str = "",
-        step_text: str = "",
+        instruction: str = "",
         step_type: str = "",
         previous_steps: list[str] | None = None,
         group_prompt: str | None = None,
+        inputs: dict[str, str] | None = None,
+        declarations: list[str] | None = None,
         snapshot: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
@@ -142,9 +145,11 @@ class StubProvider(LLMProvider):
             {
                 "prompt": prompt,
                 "user_instructions": user_instructions,
-                "step_text": step_text,
+                "instruction": instruction,
                 "step_type": step_type,
                 "previous_steps": list(previous_steps),  # copy: the scenario context lives on
+                "inputs": inputs,
+                "declarations": declarations,
                 "snapshot": snapshot,
                 "page_url": page_url,
                 "screenshot": screenshot,
@@ -185,8 +190,10 @@ class StubProvider(LLMProvider):
         self,
         prompt: str,
         user_instructions: str,
-        step_text: str,
+        instruction: str,
         step_type: str,
+        inputs: dict[str, str],
+        declarations: list[str],
         code: str,
         attempt_history: list[str] | None = None,
     ) -> list[ComplianceFinding]:
@@ -194,8 +201,10 @@ class StubProvider(LLMProvider):
             {
                 "prompt": prompt,
                 "user_instructions": user_instructions,
-                "step_text": step_text,
+                "instruction": instruction,
                 "step_type": step_type,
+                "inputs": inputs,
+                "declarations": declarations,
                 "code": code,
                 "attempt_history": list(attempt_history or []),
             }
@@ -247,8 +256,10 @@ class ForbiddenProvider(LLMProvider):
         self,
         prompt: str,
         user_instructions: str,
-        step_text: str,
+        instruction: str,
         step_type: str,
+        inputs: dict[str, str],
+        declarations: list[str],
         code: str,
         attempt_history: list[str] | None = None,
     ) -> list[ComplianceFinding]:
@@ -430,7 +441,8 @@ def test_scenario_context_feeds_next_generation(tmp_path: Path) -> None:
 
     assert [request["previous_steps"] for request in provider.generation_requests] == [
         [],
-        [ScenarioStep(sentence="шаг один")],  # typed records — the sentence plus its empty group membership
+        # typed records — the sentence, its executed instruction and the empty group membership
+        [ScenarioStep(sentence="шаг один", instruction="шаг один")],
     ]
     assert [event for event, _payload in hook.events if event == "on_step_passed"] == [
         "on_step_passed",
@@ -1021,7 +1033,7 @@ def test_scenario_c_steering_write_back_threads_shared_history_and_passes_the_ga
     # the dialog joined the engine-grown history: the first guided request carries the three engine records
     assert len(provider.generation_requests[3]["attempt_history"]) == 3
     assert provider.generation_requests[3]["guidance"] == "the button moved into the modal"
-    assert provider.generation_requests[3]["step_text"] == "open the app page"
+    assert provider.generation_requests[3]["instruction"] == "open the app page"
     assert provider.generation_requests[3]["step_type"] == "action"
 
     # the rejected turn appended its record — the same URL on both sides — and the next request carries it grown
@@ -1495,3 +1507,152 @@ def test_count_forms_step_runs_green_through_the_full_cycle(tmp_path: Path) -> N
     loaded = StepCache(Config(cache_root=str(tmp_path)), None, StepReporter(hooks=[])).load(identity)
     assert loaded is not None
     assert loaded.code.startswith("from playwright.sync_api import expect")
+
+
+def test_scenario_records_carry_both_texts_and_events_carry_raw_sentence(tmp_path: Path) -> None:
+    """The dual-text invariant end to end: records carry both texts, lifecycle events the raw sentence."""
+    capture_sentence = "Read the item name into {% var name %}"
+    read_sentence = "Open the item named {{ name }}"
+    capture_code = 'def step(page):\n    return {"name": "Book"}\n'
+    open_code = "def step(page) -> None:\n    page.goto('https://app.example.com')\n"
+    provider = StubProvider(answers=[capture_code, open_code])
+    page = FakePage()
+    hook = RecorderHook()
+
+    with installed_test(tmp_path, provider, page, "login-flow") as test:
+        test.add_hooks(hook)
+        test.step(capture_sentence)  # miss: generate, validate, publish, store
+        test.step(read_sentence)  # miss: the request renders the memory value "Book"
+        test.close()
+
+    # the scenario records carry both texts: the raw template sentence and the prepared instruction
+    assert test._executor._scenario == [
+        ScenarioStep(sentence=capture_sentence, instruction="Read the item name into ", group_prompt=""),
+        ScenarioStep(sentence=read_sentence, instruction="Open the item named Book", group_prompt=""),
+    ]
+
+    # the model saw the prepared instructions of both steps — never the raw Jinja
+    assert [request["instruction"] for request in provider.generation_requests] == [
+        "Read the item name into ",
+        "Open the item named Book",
+    ]
+    assert [request["declarations"] for request in provider.generation_requests] == [["name"], []]
+
+    # the provider-side STEP line of the reading step is the prepared instruction with "Book" embedded
+    request = provider.generation_requests[1]
+    rendered = build_fields_text(
+        user_instructions="",
+        instruction=request["instruction"],
+        step_type="action",
+        previous_steps=list(request["previous_steps"]),
+        group_prompt=None,
+        inputs={},
+        declarations=[],
+        snapshot="- button 'Войти'",
+        page_url="https://app.example.com",
+        cheat_sheet="cs",
+        attempt_history=[],
+        recommendation=None,
+        guidance=None,
+    )
+    assert "STEP:\nOpen the item named Book" in rendered
+    assert "- Read the item name into" in rendered  # the context renders the earlier instruction
+    assert "{{" not in rendered  # no raw Jinja of either step reaches the request
+    assert "{%" not in rendered
+
+    # the step lifecycle events carry the raw sentence (option A) — both steps, every event
+    assert [
+        (event, payload["step_text"])
+        for event, payload in hook.events
+        if event in {"on_step_started", "on_step_passed", "on_step_finished"}
+    ] == [
+        ("on_step_started", capture_sentence),
+        ("on_step_passed", capture_sentence),
+        ("on_step_finished", capture_sentence),
+        ("on_step_started", read_sentence),
+        ("on_step_passed", read_sentence),
+        ("on_step_finished", read_sentence),
+    ]
+
+    # the engine events carry the prepared instruction of their own step
+    assert [(event, payload["step_text"]) for event, payload in hook.events if event == "on_generation_started"] == [
+        ("on_generation_started", "Read the item name into "),
+        ("on_generation_started", "Open the item named Book"),
+    ]
+
+    # the capture published exactly once — at the declaring step's acceptance; the reader declares nothing
+    assert test._executor._memory.snapshot() == {"name": "Book"}
+
+
+def test_capture_flow_across_steps_embeds_the_value_in_model_and_failure_texts(tmp_path: Path) -> None:
+    """Data Flow 5 end to end: a capture publishes; the next step's requests and failure texts embed the value."""
+    capture_sentence = "Read the item name into {% var name %}"
+    read_sentence = "Open the item named {{ name }}"
+    capture_code = 'def step(page):\n    return {"name": "Book"}\n'
+    failing_code = "def step(page) -> None:\n    raise RuntimeError('the item cannot open')\n"
+    seed_step(tmp_path, read_sentence, failing_code, cache_key="login-flow")  # the reading step replays broken
+    provider = StubProvider(
+        answers=[capture_code],
+        verdict=FailureClassification(
+            category="incurable", explanation="the item is gone", recommendation="reword the step"
+        ),
+    )
+    page = FakePage()
+    hook = RecorderHook()
+
+    with installed_test(tmp_path, provider, page, "login-flow") as test:
+        test.add_hooks(hook)
+        test.step(capture_sentence)  # the capture publishes "Book" at its acceptance
+        with pytest.raises(IncurableStepError) as excinfo:
+            test.step(read_sentence)  # the broken replay renders "Book" and fails into the heal path
+        test.close()
+
+    # the model judging the failure saw the prepared instruction — "Book" embedded, never raw Jinja
+    classification = provider.classification_requests[0]
+    assert classification["step_text"] == "Open the item named Book"
+    composed = build_classification_fields(
+        "",
+        classification["step_text"],
+        classification["code"],
+        classification["error"],
+        classification["snapshot"],
+    )
+    assert "STEP:\nOpen the item named Book" in composed
+    assert "{{ name }}" not in composed
+
+    # the failure texts carry the prepared instruction with the value embedded
+    assert excinfo.value.step_text == "Open the item named Book"
+    assert "step: Open the item named Book" in str(excinfo.value)
+    failed = hook.events[[event for event, _payload in hook.events].index("on_step_failed")][1]
+    assert "step: Open the item named Book" in failed["error"]
+
+    # the captured value survived: the failed step published nothing, the earlier capture stays
+    assert test._executor._memory.snapshot() == {"name": "Book"}
+
+
+def test_strict_template_step_replay_validates_and_publishes_without_llm(tmp_path: Path) -> None:
+    """Strict replay of a template step: render, hit, validate, publish — no LLM keys or calls at all."""
+    sentence = "Read {{ vars.kind }} into {% var name %}"
+    code = 'def step(page) -> None:\n    page.goto(\'https://app.example.com\')\n    return {"name": "Dune"}\n'
+    seed_step(tmp_path, sentence, code, cache_key="login-flow")
+    provider = ForbiddenProvider()  # any LLM call fails the run — the replay path needs none
+    page = FakePage()
+    hook = RecorderHook()
+
+    with configured_test(Config(strict=True, cache_root=str(tmp_path)), provider, page) as test:
+        test.add_hooks(hook)
+        test.step(sentence, vars={"kind": "novel"})
+        test.close()
+
+    assert page.calls == [("goto", "https://app.example.com")]  # the cached code replayed
+    assert provider.calls == 0  # no LLM boundary touched — the gate never runs on replay
+    assert test._executor._memory.snapshot() == {"name": "Dune"}  # the validated captures published
+    assert test._executor._scenario == [
+        ScenarioStep(sentence=sentence, instruction="Read novel into ", group_prompt="")
+    ]
+    assert [event for event, _payload in hook.events] == [
+        "on_step_started",
+        "on_step_passed",
+        "on_step_finished",
+    ]
+    assert hook.events[0][1]["step_text"] == sentence  # the lifecycle surface carries the raw template

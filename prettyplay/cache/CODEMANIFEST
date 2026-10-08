@@ -17,6 +17,7 @@ Annotations: |
 
   The cache is a repository artifact: one .py file per step, addressed deterministically; the cache is always read, writes are best-effort.
   Step identity is intentional: the same normalized sentence in the same context is one step; a different language, a different step type or a different cache key is a different step.
+  Step identity stays on the original template sentence: a sentence containing Jinja markers addresses verbatim (NFC + trim — case-sensitive names, significant expression whitespace); an ordinary sentence keeps the casefold normalization; runtime values never enter the address.
   RunBudgets lives in this cell because its accounting key is `StepIdentity`: per-test attempt accounting stays next to the addressing it is keyed by; the recovery-cycle accounting joins the registry — per-group cycle counters keyed by the group key, beside the per-step pools.
 
 ---
@@ -24,20 +25,21 @@ Annotations: |
 "normalize_step_text(text: str) -> normalized: str":
   location: text.py
   annotations: |
-    Normalize a step sentence for identity and addressing.
+    Normalize a step sentence for identity and addressing — template-aware.
 
     `text`: the raw step sentence as written by the engineer.
     `normalized`: the normalized sentence.
 
     Algorithm:
-    1. Apply Unicode NFC normalization
-    2. Trim leading and trailing whitespace
-    3. Collapse internal whitespace runs to single spaces
-    4. Apply casefold
+    1. Detect Jinja template markers — an occurrence of `{{`, `{%` or `{#` anywhere in the sentence
+    2. A template sentence: apply Unicode NFC normalization and trim leading/trailing whitespace only — the source stays verbatim otherwise; Jinja names are case-sensitive and whitespace inside expressions is significant
+    3. An ordinary sentence: the existing pipeline — NFC, trim, collapse internal whitespace runs to single spaces, casefold
 
     Requirements:
-    - Pure function: no I/O, no locale dependence
-    - «Нажать Войти» and «нажать  войти » normalize to the same string; a Russian sentence and its English translation stay different
+    - Pure function: no I/O, no locale dependence, deterministic on `text` alone
+    - `{{ name }}` and `{{ Name }}` address different steps; semantically different Jinja source never shares an address
+    - «Нажать Войти» and «нажать  войти » still normalize to the same string; a Russian sentence and its English translation stay different
+    - Runtime values never enter the address — the normalization sees the template source only
 
 "StepIdentity(cache_key: str, step_type: str, normalized_text: str)":
   location: models.py
@@ -170,4 +172,4 @@ Annotations: |
 Author: Goga
 CreatedAt: 07/09/26
 Description: |
-  The step cache of prettyplay: normalization, deterministic addressing, atomic repository storage and the per-test attempt budgets, the group recovery cycle accounting.
+  The step cache of prettyplay: template-aware normalization (template sentences address verbatim, ordinary sentences casefold), deterministic addressing, atomic repository storage and the per-test attempt budgets, the group recovery cycle accounting.

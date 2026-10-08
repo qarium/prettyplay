@@ -1,0 +1,130 @@
+Imports:
+  - Types:
+      - PrettyplayError
+    Usages:
+      - taxonomy
+    From: prettyplay/failures
+
+Usages:
+  conventions: .goga/usages/conventions.md
+  jinja: .goga/usages/cooks/jinja.md
+
+Annotations: |
+  Use `conventions` for code writing rules and testing.
+  Use `jinja` for the Jinja environment, the `{% var %}` capture extension, the namespaces and the missing-value policy.
+  Use `taxonomy` from Imports for the base failure kind the authoring errors raise.
+
+  The step-sentence preparation of prettyplay: rendering a step sentence from a snapshot of the test memory and the call inputs into a plain-text instruction with capture declarations, the per-test memory of captured observations, and the deterministic validation of returned step results.
+  Rendering is pure preparation — no browser, no LLM, no page access: everything happens before execution; authoring errors surface here, before any code runs.
+  The memory belongs to one test execution: it survives navigation, never crosses tests, and publishes only validated captures after full acceptance.
+  Substituted values are data, never templates: a captured string containing `{{ x }}` stays literal; automatic HTML escaping is off; the instruction is plain text.
+  The prepared instruction is the single text every LLM request and every raised failure carries for a step; the raw template sentence stays the addressing artifact of the caller.
+
+---
+
+"PreparedStep(instruction: str, inputs: dict[str, str], declarations: list[str])":
+  location: render.py
+  annotations: |
+    The render product of one step sentence — what the whole agent cycle works with after preparation.
+
+    `instruction`: the prepared plain-text instruction — the rendered sentence with actual values embedded; what generation requests receive and failures carry.
+    `inputs`: the call-local input bindings of this step (vars), empty when none — separate from memory, never establishing memory.
+    `declarations`: the names of the capture tags reached during rendering, in execution order; empty — the step has no memory writes.
+
+    Requirements:
+    - pydantic v2, kw_only, empty defaults (see `conventions`)
+    - Immutable data carrier: rendering produces it once per preparation
+  properties:
+    "instruction -> str": |
+      The prepared plain-text instruction with actual values embedded.
+    "inputs -> dict[str, str]": |
+      The call-local input bindings of this step; empty — none.
+    "declarations -> list[str]": |
+      The reached capture-tag names, in execution order; empty — no memory writes.
+    "has_declarations -> bool": |
+      Whether the step declared any result captures.
+
+"render_step(text: str, step_type: str, memory: StepMemory, vars: dict[str, str] | None) -> prepared: PreparedStep":
+  location: render.py
+  annotations: |
+    Render one step sentence from a snapshot of memory and call inputs into a `PreparedStep` — the render point of every step execution and every recovery re-invocation.
+
+    `text`: the raw step sentence as written by the engineer — the template source, verbatim.
+    `step_type`: action or assertion — an assertion with reached capture declarations is an authoring error.
+    `memory`: the test memory — the render reads its snapshot; the step's own new captures stay invisible to its template.
+    `vars`: the call-local string inputs; None — none. `vars` is a reserved namespace beside memory: neither overwrites the other.
+    `prepared`: the render product.
+
+    Algorithm:
+    1. Take the snapshot: the `StepMemory` snapshot plus `vars` (None — empty); standard Jinja scope applies, ordinary set stays local to the template
+    2. Compile through the Jinja environment of `jinja`: StrictUndefined, autoescape=False, the `{% var %}` extension
+    3. Render: a reached capture tag records its name and renders to empty text; a duplicate name within one render fails as an authoring error; the reserved name `vars` and non-Jinja-identifier capture names fail as authoring errors
+    4. An unavailable name fails ordinary interpolation with the unavailable name in the message; author-written default and is defined keep standard behavior
+    5. `step_type` assertion with non-empty declarations — the authoring error: capture declarations are invalid in expect; an inactive branch declares nothing
+    6. Build and return `PreparedStep` — instruction (the rendered text), inputs (`vars`), declarations
+
+    Requirements:
+    - All authoring errors raise the loud actionable `PrettyplayError` naming the problem and the offending name — before any browser execution
+    - Substituted data is never rendered again; the instruction is plain text
+    - A same-step read observes the previous value or fails — new captures publish only after acceptance
+
+    Constraints:
+    - No browser, LLM or page access; no mutation of `memory` — the snapshot is read-only
+
+"StepMemory()":
+  location: memory.py
+  annotations: |
+    The per-test-execution memory of captured observations — the names namespace of rendering.
+
+    Constructs empty. Owned by the step executor of one test; rendering reads snapshots; publication happens only at acceptance points.
+
+    Requirements:
+    - Survives navigation; never crosses test boundaries — concurrent tests stay isolated
+  methods:
+    "snapshot() -> values: dict[str, str]": |
+      Return a copy of the current values — the render source.
+
+      `values`: the stable copy; later publications never mutate a taken snapshot.
+    "publish(captures: dict[str, str])": |
+      Publish validated captures atomically.
+
+      `captures`: the validated dictionary of one accepted step execution.
+
+      Algorithm:
+      1. Replace the value of every name present in `captures` — a successful recapture replaces the previous value
+      2. Names absent from `captures` keep their values
+
+      Requirements:
+      - All captures of one step publish together — one call per accepted execution
+      - A failed or rejected attempt never calls publish — its captures stay unpublished
+
+"validate_step_result(prepared: PreparedStep, result: object) -> captures: dict[str, str]":
+  location: validation.py
+  annotations: |
+    Deterministically validate the returned result of one step execution against the prepared declarations.
+
+    `prepared`: the render product of the executed step — the declaration set.
+    `result`: the untrusted step function's return — expected to be the dictionary of declared names to observed strings, or None for a declaration-free step.
+    `captures`: the validated captures, ready for publication; empty for a declaration-free step.
+
+    Algorithm:
+    1. No declarations: `result` None — return the empty captures (success without result); a non-None result is a violation
+    2. Declarations present: `result` None — the violation (missing result); any non-dict result — a deterministic type violation
+    3. The keys of the dictionary equal the declarations exactly — a missing or an unexpected name is a violation naming it
+    4. Every value is a str; every value is non-blank (not empty, not whitespace-only) — a violation names the offending capture
+    5. Return the validated captures
+
+    Requirements:
+    - Pure validation: no I/O, no LLM, deterministic on the inputs
+    - A violation, including a wrong result type, raises AssertionError with the deterministic violation text — the failed-check channel of the calling cycle: corrective generation on permitted non-strict paths, strict failure without generation
+    - Values are accepted as observed strings — no normalization, no trimming
+
+    Constraints:
+    - Never fabricates or repairs values: a violation is a failure, never a silent pass
+
+---
+
+Author: Goga
+CreatedAt: 08/10/26
+Description: |
+  The step-sentence preparation of prettyplay: rendering Jinja step templates with the `{% var %}` capture extension from a snapshot of memory and call inputs into prepared instructions with input bindings and result declarations, the per-test memory of captured observations with atomic publication, and the deterministic validation of returned step results.

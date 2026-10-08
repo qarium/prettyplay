@@ -11,10 +11,12 @@ class LLMProvider:
         self,
         prompt: str,
         user_instructions: str,
-        step_text: str,
+        instruction: str,
         step_type: str,
         previous_steps: list[ScenarioStep],
         group_prompt: str | None,
+        inputs: dict[str, str],
+        declarations: list[str],
         snapshot: str,
         page_url: str | None,
         screenshot: bytes | None,
@@ -33,14 +35,17 @@ class LLMProvider:
                 empty — the request carries no instructions block, non-empty —
                 rendered verbatim as a separate USER INSTRUCTIONS block of the
                 user content, identically in both implementations.
-            step_text: the raw sentence of the step to generate, as passed by
-                the calling engine — never the normalized addressing form.
+            instruction: the prepared instruction of the step — the rendered
+                plain-text sentence with actual values embedded; rendered as
+                the STEP block; the raw template sentence never reaches the
+                request.
             step_type: the type of the step; rendered as a STEP TYPE line
                 immediately before the STEP line, identically in both
                 implementations; takes no part in step addressing.
             previous_steps: the typed scenario records of the previous steps
-                of the test, in execution order — each the raw sentence plus
-                its permanent group membership; rendered by the provider
+                of the test, in execution order — each the prepared
+                instruction recorded at the step's execution plus its
+                permanent group membership; rendered by the provider
                 implementations as the PREVIOUS STEPS block with the group
                 entries marked, identically in both.
             group_prompt: the group prompt of the current step's group;
@@ -49,6 +54,16 @@ class LLMProvider:
                 separate GROUP PROMPT block immediately before the PREVIOUS
                 STEPS block, identically in both; takes no part in step
                 addressing.
+            inputs: the call-local input bindings of the step; non-empty —
+                rendered by the provider implementations as the INPUTS block
+                immediately after the STEP line, one ``name = value`` line
+                per binding, identically in both; empty — no block.
+            declarations: the declared result names of the step; non-empty —
+                rendered by the provider implementations as the RESULTS
+                block immediately after the INPUTS block stating the result
+                contract — the code returns a dictionary of exactly the
+                declared names to non-blank strings observed on the page;
+                empty — no block, the success-without-result code form.
             snapshot: the accessibility snapshot of the current page.
             page_url: the current URL of the page; non-empty — rendered by
                 the provider implementations as its own PAGE URL line
@@ -110,7 +125,9 @@ class LLMProvider:
                 empty — the request carries no instructions block, non-empty —
                 rendered verbatim as a separate USER INSTRUCTIONS block placed
                 last of the user content, identically in both implementations.
-            step_text: the sentence of the failed step.
+            step_text: the sentence of the failed step — the prepared
+                instruction, never the raw template sentence; a non-template
+                step passes its sentence unchanged.
             code: the existing step code that failed.
             error: the human-readable description of the failure.
             snapshot: the accessibility snapshot of the current page.
@@ -131,6 +148,7 @@ class LLMProvider:
         user_instructions: str,
         group_prompt: str,
         group_steps: list[str],
+        previous_steps: list[ScenarioStep],
         step_text: str,
         attempt_history: list[str],
         snapshot: str,
@@ -149,9 +167,19 @@ class LLMProvider:
                 last of the user content, identically in both implementations.
             group_prompt: the group prompt of the diagnosed group, verbatim.
             group_steps: the composed verbatim traces of the group's steps in
-                execution order — each the sentence, the outcome and the URL
-                before -> after transition, supplied by the calling engine.
-            step_text: the raw sentence of the failed step.
+                execution order — each the prepared instruction, the outcome
+                and the URL before -> after transition, supplied by the
+                calling engine.
+            previous_steps: the typed scenario records of the previous steps
+                of the test, in execution order — each the prepared
+                instruction recorded at the step's execution plus its
+                permanent group membership; rendered by the provider
+                implementations as the PREVIOUS STEPS block immediately before
+                the GROUP STEPS block with the group entries marked,
+                identically in both; empty — no block.
+            step_text: the prepared instruction of the failed step — never
+                the raw template sentence; a non-template step passes its
+                sentence unchanged.
             attempt_history: the rendered verbatim records of the failed
                 step's attempt history; non-empty — rendered as a separate
                 HISTORY block, every record verbatim, no collapsing, no size
@@ -175,8 +203,10 @@ class LLMProvider:
         self,
         prompt: str,
         user_instructions: str,
-        step_text: str,
+        instruction: str,
         step_type: str,
+        inputs: dict[str, str],
+        declarations: list[str],
         code: str,
         attempt_history: list[str],
     ) -> list[ComplianceFinding]:
@@ -189,11 +219,21 @@ class LLMProvider:
                 supplied by the calling engine from the generation_prompt
                 setting; the calling engine guarantees non-empty — the gate
                 never runs on empty instructions.
-            step_text: the raw sentence of the generated step, as passed by
-                the calling engine — never the normalized addressing form.
+            instruction: the prepared plain-text instruction of the generated
+                step — rendered as the STEP block; the raw template sentence
+                never reaches the request.
             step_type: the type of the step; rendered as a STEP TYPE line
                 immediately before the STEP line, identically in both
                 implementations.
+            inputs: the call-local input bindings of the step; non-empty —
+                rendered by the provider implementations as the INPUTS block
+                immediately after the STEP block, one ``name = value`` line
+                per binding, identically in both; empty — no block.
+            declarations: the reached capture names of the step; non-empty —
+                rendered by the provider implementations as the RESULTS block
+                immediately after the INPUTS block stating the exact-key,
+                observed non-blank string return contract, identically in
+                both; empty — no block, the success-without-result form.
             code: the successfully executed candidate code.
             attempt_history: the rendered per-step attempt records — the
                 ground truth of what was already tried; non-empty — rendered
@@ -203,7 +243,8 @@ class LLMProvider:
         Returns:
             The parsed findings; an empty list means compliant — one verdict
             request per executed candidate; the block order INSTRUCTIONS,
-            STEP, ATTEMPT HISTORY, CODE.
+            STEP, the optional INPUTS and RESULTS sections, ATTEMPT HISTORY,
+            CODE.
 
         Raises:
             NotImplementedError: the port itself carries no implementation.

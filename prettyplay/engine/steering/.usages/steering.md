@@ -41,9 +41,14 @@ run? [y/N] y
 - Local commands answer without the LLM: `snapshot` prints the full accessibility snapshot,
   `screenshot` writes a full PNG to a temporary file and prints the path, `error` and `code`
   reprint the stored texts
-- Every other line is guidance: one regeneration request carrying the step type, the raw
-  step sentence, a USER GUIDANCE block, the current page URL and the grown attempt history
+- Every other line is guidance: one regeneration request carrying the step type, the
+  prepared instruction, a USER GUIDANCE block, the current page URL and the grown attempt history
   as the HISTORY block — record 0 anchors the original failure
+- The banner and every guided request carry the prepared instruction — with INPUTS and RESULTS blocks when the
+  step carries inputs or declarations; the model never sees raw Jinja
+- A green turn: execute → validate the returned result (a violation is a red turn with the deterministic text) →
+  the compliance gate → the captures publish to the test memory together with the write-back; a rejected, failed
+  or gate-blocked turn publishes nothing
 - Every turn shows the complete generated code and asks `run? [y/N]`: `y` executes against
   the live page; `n`, Enter or `quit` aborts the turn without execution and the guidance
   prompt reopens — the rejected candidate lands in the history as a completed record with

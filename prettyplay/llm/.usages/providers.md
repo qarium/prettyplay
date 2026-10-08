@@ -36,7 +36,7 @@ The classification operation is named `classify_step_failure` — the former `cl
 
 User instructions parity: each operation carries its own instructions — generation requests render the generation_prompt setting, classification requests render the classification_prompt setting — as a verbatim USER INSTRUCTIONS block with identical placement semantics in both providers. A parity requirement, not a capability difference.
 
-Scenario-context parity: the previous steps of a generation request arrive as typed records — each the raw sentence plus its permanent group membership — and render as the PREVIOUS STEPS block with the group entries marked; the group prompt of the current step renders as the GROUP PROMPT block before PREVIOUS STEPS. A parity requirement, not a capability difference.
+Scenario-context parity: the previous steps of a generation request arrive as typed records — each carrying the raw sentence, prepared instruction and permanent group membership — and render their instruction fields as the PREVIOUS STEPS block with the group entries marked; the group prompt of the current step renders as the GROUP PROMPT block before PREVIOUS STEPS. A parity requirement, not a capability difference.
 
 Step-type parity: every generation request and every compliance verdict request renders the STEP TYPE line — action or assertion — immediately before the STEP line, identically in both providers. A parity requirement, not a capability difference.
 
@@ -47,6 +47,14 @@ Page-URL parity: a generation request with a non-empty page URL renders it as it
 Cheat-sheet parity: every generation request renders the CHEAT SHEET block after the scenario inputs and
 immediately before the USER INSTRUCTIONS block — the compact standard Playwright sync API reference supplied by the
 calling engine; guidance, not an allowlist. Both providers render it identically at the same position.
+
+Prepared-instruction parity: every generation request renders the prepared instruction — the plain-text sentence with actual values produced by rendering — as the STEP block; the raw template sentence never appears. Scenario records render their instruction field; the model never sees raw Jinja. A parity requirement, not a capability difference.
+
+Input-bindings and result-declarations parity: a non-empty inputs mapping renders as the INPUTS block immediately after the STEP line (one name = value line per binding); a non-empty declarations list renders as the RESULTS block immediately after INPUTS stating the result contract — the code returns a dictionary of exactly the declared names to non-blank observed page strings; empty inputs — no INPUTS block, empty declarations — no RESULTS block and the success-without-result form. Both providers render the blocks identically at the same positions. A parity requirement, not a capability difference.
+
+Compliance parity: the gate request uses the same prepared instruction, INPUTS and RESULTS representation in both providers. The reviewer sees the exact result contract next to the STEP line before ATTEMPT HISTORY and CODE; it never sees the raw template sentence.
+
+Classification parity: ordinary classification renders its `step_text` input as the prepared instruction in the STEP block, identically in both providers. Group diagnosis renders prior scenario and group trace instruction fields, plus the prepared failed STEP. Raw template sentences stay local to cache addressing and re-rendering.
 
 ## Transport retries
 
@@ -75,8 +83,8 @@ compliance and step adequacy judged in one request: the engine calls it once per
 executed candidate before caching — never for replayed cached code, never when generation_approve
 is off or generation_prompt is empty (zero calls).
 
-The request carries the gate system prompt and four blocks — INSTRUCTIONS, STEP (with its
-STEP TYPE line), ATTEMPT HISTORY, CODE; the answer is a JSON list of findings:
+The request carries the gate system prompt and INSTRUCTIONS, STEP (with its STEP TYPE line),
+optional INPUTS and RESULTS, ATTEMPT HISTORY and CODE blocks; the answer is a JSON list of findings:
 
 [{"instruction": "...", "priority": "high", "explanation": "...", "dimension": "instruction"}]
 
@@ -100,8 +108,9 @@ The fourth port operation `classify_group_failure` — one logical request per d
 bounded resends of the identical SDK request inside it, through the
 effective classification model, both providers in full parity:
 
-- inputs: the group prompt (verbatim), the group step traces (sentence, outcome, URL transition —
-  one per step), the failed step's sentence, its rendered attempt history, the page snapshot and
+- inputs: the group prompt (verbatim), prior scenario instructions with group membership, the
+  group step traces (prepared instruction, outcome, URL transition — one per step), the failed
+  step's prepared instruction, its rendered attempt history, the page snapshot and
   the optional screenshot; the classification instructions of the project reach it exactly as a
   classification request
 - the answer parses strictly through `parse_group_failure_classification`: JSON with the four

@@ -4,7 +4,7 @@ import logging
 
 from ...config import Config
 from ...driver import PageFacade
-from ...llm import GroupFailureClassification, LLMProvider
+from ...llm import GroupFailureClassification, LLMProvider, ScenarioStep
 from ..attempts import StepAttempt
 from .outcome import GroupStepOutcome
 
@@ -19,9 +19,11 @@ a shared goal.
 
 Input you receive:
 - GROUP PROMPT: the shared goal of the group, verbatim
-- GROUP STEPS: every step of the group in execution order — each with its sentence, its outcome
-  (passed or failed) and its URL before -> after transition
-- STEP: the failed step sentence
+- PREVIOUS STEPS: the prepared instructions of the prior scenario of the test, in execution order —
+  the group entries marked
+- GROUP STEPS: every step of the group in execution order — each with its recorded prepared
+  instruction, its outcome (passed or failed) and its URL before -> after transition
+- STEP: the failed step's prepared instruction
 - HISTORY: the verbatim record of every attempt of the failed step so far
 - PAGE SNAPSHOT: the accessibility snapshot of the current page
 - SCREENSHOT: an image of the page, when attached
@@ -43,8 +45,10 @@ Category calibration:
   test outside the group), or regeneration cannot help
 
 Rules:
-- earliest_step must quote a group step sentence verbatim when the category is recoverable; when
-  the root lives outside the group, quote that outside step sentence verbatim and answer incurable
+- earliest_step must quote a visible instruction verbatim: a group step's instruction when the
+  category is recoverable; when the root lives outside the group, quote that outside step's
+  instruction from PREVIOUS STEPS verbatim and answer incurable; raw template sentences are not
+  request content
 - Output only the JSON object, no other text"""
 
 
@@ -53,6 +57,7 @@ def classify_group_failure(  # noqa: PLR0913, PLR0917 — the parameter list is 
     provider: LLMProvider,
     group_prompt: str,
     traces: list[GroupStepOutcome],
+    previous_steps: list[ScenarioStep],
     step_text: str,
     step_type: str,  # noqa: ARG001 — the contract parameter; the kind rides the traces, not the port call
     attempt_history: list[StepAttempt],
@@ -67,8 +72,14 @@ def classify_group_failure(  # noqa: PLR0913, PLR0917 — the parameter list is 
         provider: the LLM port implementation diagnosing the failure.
         group_prompt: the group prompt of the diagnosed group, verbatim.
         traces: the group's step traces in execution order — every record
-            rendered verbatim into the GROUP STEPS block.
-        step_text: the raw sentence of the failed step, verbatim.
+            renders its recorded prepared instruction into the GROUP STEPS
+            block; the raw sentences stay local.
+        previous_steps: the typed scenario records of the test, in
+            execution order — the provider renders their prepared
+            instructions as the PREVIOUS STEPS block, the group entries
+            marked; the basis of the outside-group root diagnosis.
+        step_text: the prepared instruction of the failed step, verbatim —
+            never the raw template sentence.
         step_type: the step kind: action or assertion.
         attempt_history: the per-step attempt history of the failed step,
             grown to the failure — every record rendered verbatim into the
@@ -92,6 +103,7 @@ def classify_group_failure(  # noqa: PLR0913, PLR0917 — the parameter list is 
         user_instructions=config.classification_prompt,
         group_prompt=group_prompt,
         group_steps=[trace.render() for trace in traces],
+        previous_steps=previous_steps,
         step_text=step_text,
         attempt_history=[record.render() for record in attempt_history],
         snapshot=snapshot,

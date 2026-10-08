@@ -10,6 +10,7 @@ from playwright.sync_api import Error
 from prettyplay.driver import PageFacade
 from prettyplay.driver.page import _DialogRouter
 from prettyplay.engine import run_step_code
+from prettyplay.engine.execution import bind_step_inputs
 
 #: the generated import header — executes on the calling thread, inert without a Playwright session
 GENERATED_HEADER_CODE = "from playwright.sync_api import expect\n\n\ndef step(page):\n    assert page is not None\n"
@@ -20,9 +21,13 @@ class RawPage:
 
     def __init__(self) -> None:
         self.seen_failures: list[BaseException] = []
+        self.seen_values: list[object] = []
 
     def remember(self, failure: BaseException) -> None:
         self.seen_failures.append(failure)
+
+    def observe(self, value: object) -> None:
+        self.seen_values.append(value)
 
 
 class RecordingHandle:
@@ -51,7 +56,32 @@ class TestRunStepCodeContract:
         assert [parameter.name for parameter in parameters] == ["code", "page"]
         assert parameters[0].annotation in (str, "str")
         assert parameters[1].annotation in (PageFacade, PageFacade.__name__)
-        assert signature.return_annotation in (None, "None")
+        assert signature.return_annotation == dict[str, str] | None
+
+    def test_returning_step_function_dictionary_comes_back(self) -> None:
+        handle = RecordingHandle()
+        code = 'def step(page):\n    return {"name": "Dune"}\n'
+
+        result = run_step_code(code, handle)
+
+        assert result == {"name": "Dune"}
+
+    def test_none_returning_step_function_comes_back_as_none(self) -> None:
+        handle = RecordingHandle()
+        code = "def step(page):\n    return None\n"
+
+        result = run_step_code(code, handle)
+
+        assert result is None
+
+    def test_cached_code_reads_fresh_bindings_on_each_execution(self) -> None:
+        handle = RecordingHandle()
+        code = 'def step(page):\n    return {"seen": step_inputs["vars"]["item"] + step_inputs["name"]}\n'
+
+        with bind_step_inputs({"name": " one"}, {"item": "A"}):
+            assert run_step_code(code, handle) == {"seen": "A one"}
+        with bind_step_inputs({"name": " two"}, {"item": "B"}):
+            assert run_step_code(code, handle) == {"seen": "B two"}
 
 
 class TestRunStepCodeLogic:
@@ -60,13 +90,36 @@ class TestRunStepCodeLogic:
     def test_run_step_code_runs_the_whole_step_through_the_run_primitive(self) -> None:
         handle = RecordingHandle()
 
-        assert run_step_code(GENERATED_HEADER_CODE, handle) is None  # the outcome of the unit is not the routine's
+        assert run_step_code(GENERATED_HEADER_CODE, handle) is None  # the header code's step returns None implicitly
 
         assert len(handle.calls) == 1  # one run unit — the whole step-function call
         kind, action = handle.calls[0]
         assert kind == "run"
         assert callable(action)
         assert action.__name__ == "step"  # the resolved namespace["step"] itself — no wrapper built here
+
+    def test_result_passes_through_as_the_same_object(self) -> None:
+        handle = RecordingHandle()
+        code = (
+            "def step(page):\n"
+            '    result = {"name": "Dune", "kind": "book"}\n'
+            "    page.observe(result)\n"
+            "    return result\n"
+        )
+
+        returned = run_step_code(code, handle)
+
+        assert returned is handle.raw.seen_values[0]  # identity — no re-wrapping through either boundary
+        assert returned == {"name": "Dune", "kind": "book"}  # values verbatim
+
+    def test_result_rides_the_single_run_unit(self) -> None:
+        handle = RecordingHandle()
+        code = 'def step(page):\n    return {"name": "Dune"}\n'
+
+        returned = run_step_code(code, handle)
+
+        assert len(handle.calls) == 1  # one run unit — the result is its outcome, no second boundary crossing
+        assert returned == {"name": "Dune"}
 
     def test_run_step_code_propagates_step_failures_untouched(self) -> None:
         handle = RecordingHandle()

@@ -5,29 +5,46 @@ Domain: generating executable code for an unknown step. Audience: library intern
 ## Generate a step
 
 ```python
+from prettyplay.engine.renderer import PreparedStep
+from prettyplay.llm import ScenarioStep
+
 step = generator.generate(
     identity=identity,
-    step_text="click the «Sign in» button",
+    prepared=PreparedStep(
+        instruction="click the Sign in button"
+    ),  # the render product of the step — instruction, inputs, declarations
     step_type="action",
     previous_steps=[
-        ScenarioStep(sentence="open the login page", group_prompt=""),
-        ScenarioStep(sentence="enter the login and password", group_prompt=""),
+        ScenarioStep(sentence="open the login page", instruction="open the login page", group_prompt=""),
+        ScenarioStep(
+            sentence="enter the login and password", instruction="enter the login and password", group_prompt=""
+        ),
     ],
     group_prompt=None,  # None — an ordinary step; the group prompt of the step's group inside one
     page=page,
     attempt_history=history,
     window=window,
+    memory=memory,
 )
 ```
 
-- The loop: request code → execute against the live page → append the full attempt record → on failure re-request with the fresh snapshot and the grown history
+- The loop: request code → execute against the live page → validate the returned result → on failure append the full attempt record and re-request with the fresh snapshot and the grown history
 - The attempt history is one continuous verbatim list: every record carries the outcome, the `URL before -> after` line, the complete candidate code and the complete error; no collapsing, no size limits — the attempt budgets are the only bound. The error text follows the engine error-text policy: the bulky aria-snapshot section Playwright appends to a failed check message is excluded — the fresh page state reaches the loop through the separately captured snapshot
-- Every request carries the honest inputs: the step type (action or assertion) and the raw step sentence as written by the engineer — never the casefolded normalization
+- Every request carries the honest inputs: the step type (action or assertion) and the prepared instruction of the step (with its INPUTS/RESULTS blocks when present) — the raw template sentence never reaches a request; the casefolded normalization is an addressing key only
 - The page may carry side effects of failed candidates and manual intervention — the replayability requirement of the system prompt tells the model a regeneration never rides that leftover state: an action step repeats its action; a first attempt works on the page the previous steps produced. The structural separation rides the same prompt: an action step ends at its action, an assertion step observes without changing the page
 - Every candidate execution runs under the settle window: transient failures re-execute the same code inside the window (settle_retry log records), no LLM budget consumed; deterministic failures go to the next request or classification; the URL pair brackets the whole attempt, settle re-executions included
 - A non-empty generation_prompt setting adds a USER INSTRUCTIONS block to every generation and regeneration request; classification requests never carry it; changing the instructions never invalidates the cache — cached steps run as stored
 - A non-empty classification_prompt setting adds a USER INSTRUCTIONS block to classification requests only; generation requests never carry it
 - Every generation and regeneration request carries the CHEAT SHEET block right before the USER INSTRUCTIONS block — the compact standard Playwright sync API reference carried by every request; guidance, not an allowlist: everything standard stays allowed, the error-driven regeneration loop is the second line of defense
+
+## Result contract
+
+A candidate of a step with result declarations must return the dictionary of exactly the declared names to
+non-blank observed strings. After a successful execution the loop validates it deterministically
+(`validate_step_result` from the renderer): a violation is a failed check — the record lands in the history with
+the violation text, the existing classification and healing budgets apply. A valid result publishes to the test
+memory together with the gate pass: an accepted candidate publishes its captures exactly once, after validation
+and the compliance gate; failed and gate-blocked attempts publish nothing.
 
 ## The execution boundary
 
@@ -69,8 +86,8 @@ Inside a group the generator behaves differently in exactly two ways:
   failed code and the full failure text; the executor routes it to the group recovery
 
 With no group framing input (`group_prompt=None`) the ordinary paths are byte-identical. The
-previous-steps context is typed: each entry carries the raw sentence verbatim plus its permanent
-group membership.
+previous-steps context is typed: each entry carries the raw sentence plus its prepared instruction —
+requests render the instruction field with the permanent group membership marked.
 
 ## The instruction compliance gate
 
@@ -80,8 +97,8 @@ generation_approve = false:
 
 - one verdict request per candidate through the provider (the effective classification
   model); zero requests when the switch is off or the instructions are empty
-- the request carries INSTRUCTIONS, STEP with its STEP TYPE line, the ATTEMPT HISTORY
-  records and the CODE block; the reviewer is instructed to use the attempt history as
+- the request carries INSTRUCTIONS, STEP with its STEP TYPE line, optional INPUTS and RESULTS,
+  the ATTEMPT HISTORY records and the CODE block; the reviewer is instructed to use the attempt history as
   the ground truth of what already happened on the page
 - a high finding of either dimension fails the attempt: the record lands in the history
   with the violation text in its error field, the retry carries the grown history — the
@@ -123,7 +140,7 @@ classification = classify_step_failure(
 )
 ```
 
-The routine collects the fresh page snapshot (plus the screenshot when enabled) and calls the provider with the engine classification prompt; a non-empty classification_prompt setting of the config reaches the request as a USER INSTRUCTIONS block. The step sentence is the raw sentence passed by the caller — the casefolded normalization is an addressing key only. The category set is four: rot, product_defect, fixable, incurable. Provider unavailability propagates: the calling path decides whether it is a terminal infrastructure failure or a quiet verdict skip.
+The routine collects the fresh page snapshot (plus the screenshot when enabled) and calls the provider with the engine classification prompt; a non-empty classification_prompt setting of the config reaches the request as a USER INSTRUCTIONS block. The step sentence is the prepared instruction passed by the caller — never the raw template sentence; the casefolded normalization is an addressing key only. The category set is four: rot, product_defect, fixable, incurable. Provider unavailability propagates: the calling path decides whether it is a terminal infrastructure failure or a quiet verdict skip.
 
 ## The fixed form
 

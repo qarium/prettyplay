@@ -457,10 +457,12 @@ def require_completion_text(text: str | None, provider: str) -> str:
 
 def build_fields_text(  # noqa: PLR0913, PLR0917 — the parameters mirror the fixed port signature
     user_instructions: str,
-    step_text: str,
+    instruction: str,
     step_type: str,
     previous_steps: list[ScenarioStep],
     group_prompt: str | None,
+    inputs: dict[str, str],
+    declarations: list[str],
     snapshot: str,
     page_url: str | None,
     cheat_sheet: str,
@@ -475,20 +477,32 @@ def build_fields_text(  # noqa: PLR0913, PLR0917 — the parameters mirror the f
             generation_prompt setting; empty — the request carries no
             instructions block, non-empty — rendered verbatim as a separate
             USER INSTRUCTIONS block after the CHEAT SHEET block.
-        step_text: the raw sentence of the step to generate, as passed by
-            the calling engine — never the normalized addressing form.
+        instruction: the prepared instruction of the step — the rendered
+            plain-text sentence with actual values embedded; rendered as
+            the STEP block; the raw template sentence never reaches the
+            request.
         step_type: the type of the step; rendered as a STEP TYPE line
             immediately before the STEP line, inside the scenario section.
         previous_steps: the typed scenario records of the previous steps of
-            the test, in execution order — each the raw sentence plus its
-            permanent group membership; an entry carrying a group prompt
-            renders marked as a group step, an ordinary entry renders its
-            sentence alone, identically whether or not this request carries
-            a group framing.
+            the test, in execution order — each entry renders its prepared
+            instruction (recorded at execution) plus its permanent group
+            membership; an entry carrying a group prompt renders marked as
+            a group step, an ordinary entry renders its instruction alone,
+            identically whether or not this request carries a group
+            framing.
         group_prompt: the group prompt of the current step's group; None —
             an ordinary step, no GROUP PROMPT block; non-empty — rendered
             verbatim as a separate GROUP PROMPT block immediately before
             the PREVIOUS STEPS block.
+        inputs: the call-local input bindings of the step; non-empty —
+            rendered as the INPUTS block immediately after the STEP line,
+            one ``name = value`` line per binding; empty — no block.
+        declarations: the declared result names of the step; non-empty —
+            rendered as the RESULTS block immediately after the INPUTS
+            block stating the result contract — the code returns a
+            dictionary of exactly the declared names to non-blank strings
+            observed on the page; empty — no block, the
+            success-without-result code form.
         snapshot: the accessibility snapshot of the current page.
         page_url: the current URL of the page; non-empty — rendered as its
             own PAGE URL line immediately after the PAGE SNAPSHOT section;
@@ -513,16 +527,21 @@ def build_fields_text(  # noqa: PLR0913, PLR0917 — the parameters mirror the f
 
     Returns:
         The request fields as one text with the STEP TYPE line, the STEP
-        section, the optional GROUP PROMPT section, the PREVIOUS STEPS /
+        section, the optional INPUTS and RESULTS sections immediately after
+        it, the optional GROUP PROMPT section, the PREVIOUS STEPS /
         PAGE SNAPSHOT sections, the optional PAGE URL line, the CHEAT SHEET
         section and the optional USER INSTRUCTIONS / HISTORY /
         RECOMMENDATION / USER GUIDANCE sections — a non-empty input renders
         its named block.
     """
+    previous = _format_previous_steps(previous_steps)
+
     sections = [
-        f"STEP TYPE: {step_type}\nSTEP:\n{step_text}",
+        f"STEP TYPE: {step_type}\nSTEP:\n{instruction}",
+        *([_format_inputs(inputs)] if inputs else []),
+        *([_format_results(declarations)] if declarations else []),
         *([f"GROUP PROMPT:\n{group_prompt}"] if group_prompt else []),
-        _format_previous_steps(previous_steps),
+        previous if previous is not None else "PREVIOUS STEPS:\n(none)",
         f"PAGE SNAPSHOT:\n{snapshot}",
         *([f"PAGE URL: {page_url}"] if page_url else []),
         f"CHEAT SHEET:\n{cheat_sheet}",
@@ -575,6 +594,7 @@ def build_group_diagnosis_fields(  # noqa: PLR0913, PLR0917 — the parameters m
     user_instructions: str,
     group_prompt: str,
     group_steps: list[str],
+    previous_steps: list[ScenarioStep],
     step_text: str,
     attempt_history: list[str],
     snapshot: str,
@@ -589,10 +609,16 @@ def build_group_diagnosis_fields(  # noqa: PLR0913, PLR0917 — the parameters m
             identically in both implementations.
         group_prompt: the group prompt of the diagnosed group, verbatim.
         group_steps: the composed verbatim trace records of the group's
-            steps in execution order — each the sentence, the outcome and
-            the URL before -> after transition, supplied by the calling
-            engine.
-        step_text: the raw sentence of the failed step.
+            steps in execution order — each trace renders its recorded
+            prepared instruction with the outcome and the URL before ->
+            after transition, supplied by the calling engine.
+        previous_steps: the typed scenario records of the previous steps of
+            the test, in execution order — each entry renders its prepared
+            instruction with the group entries marked; non-empty — rendered
+            as the PREVIOUS STEPS block immediately before the GROUP STEPS
+            block; empty — no block.
+        step_text: the prepared instruction of the failed step; never the
+            raw template sentence.
         attempt_history: the rendered per-step attempt records of the
             failed step — every record a complete multi-line verbatim
             record composed by the calling engine; non-empty — rendered as
@@ -602,13 +628,17 @@ def build_group_diagnosis_fields(  # noqa: PLR0913, PLR0917 — the parameters m
         snapshot: the accessibility snapshot of the current page.
 
     Returns:
-        The request fields as one text with the GROUP PROMPT, GROUP STEPS,
-        STEP, HISTORY (when non-empty) and PAGE SNAPSHOT sections and the
-        optional USER INSTRUCTIONS section last — the screenshot rides the
-        SDK image part of the request, never this text.
+        The request fields as one text with the GROUP PROMPT, optional
+        PREVIOUS STEPS, GROUP STEPS, STEP, HISTORY (when non-empty) and
+        PAGE SNAPSHOT sections and the optional USER INSTRUCTIONS section
+        last — the screenshot rides the SDK image part of the request,
+        never this text.
     """
+    previous = _format_previous_steps(previous_steps)
+
     sections = [
         f"GROUP PROMPT:\n{group_prompt}",
+        *([previous] if previous is not None else []),
         _format_group_steps(group_steps),
         f"STEP:\n{step_text}",
         *(["HISTORY:\n" + "\n".join(attempt_history)] if attempt_history else []),
@@ -621,10 +651,12 @@ def build_group_diagnosis_fields(  # noqa: PLR0913, PLR0917 — the parameters m
     return "\n\n".join(sections)
 
 
-def build_compliance_fields(
+def build_compliance_fields(  # noqa: PLR0913, PLR0917 — the parameters mirror the fixed port signature
     user_instructions: str,
-    step_text: str,
+    instruction: str,
     step_type: str,
+    inputs: dict[str, str],
+    declarations: list[str],
     attempt_history: list[str],
     code: str,
 ) -> str:
@@ -635,9 +667,18 @@ def build_compliance_fields(
             generation_prompt setting; the calling engine guarantees
             non-empty — the gate never runs on empty instructions, so the
             block always renders.
-        step_text: the raw sentence of the generated step.
+        instruction: the prepared plain-text instruction of the generated
+            step — rendered as the STEP block; never the raw template
+            sentence.
         step_type: the type of the step; rendered as a STEP TYPE line
             immediately before the STEP line, inside the STEP block.
+        inputs: the call-local input bindings of the step; non-empty —
+            rendered as the INPUTS block immediately after the STEP block,
+            one ``name = value`` line per binding; empty — no block.
+        declarations: the reached capture names of the step; non-empty —
+            rendered as the RESULTS block immediately after the INPUTS
+            block stating the exact-key, observed non-blank string return
+            contract; empty — no block, the success-without-result form.
         attempt_history: the rendered per-step attempt records — the ground
             truth of what was already tried; non-empty — rendered as a
             separate ATTEMPT HISTORY block with the records joined by
@@ -646,13 +687,16 @@ def build_compliance_fields(
 
     Returns:
         The request fields as one text with INSTRUCTIONS, STEP (with its
-        STEP TYPE line), ATTEMPT HISTORY and CODE sections in this fixed
-        order — the ATTEMPT HISTORY block omitted when the history is
-        empty, identically in both implementations.
+        STEP TYPE line), the optional INPUTS and RESULTS sections,
+        ATTEMPT HISTORY and CODE sections in this fixed order — the
+        ATTEMPT HISTORY block omitted when the history is empty,
+        identically in both implementations.
     """
     sections = [
         f"INSTRUCTIONS:\n{user_instructions}",
-        f"STEP TYPE: {step_type}\nSTEP:\n{step_text}",
+        f"STEP TYPE: {step_type}\nSTEP:\n{instruction}",
+        *([_format_inputs(inputs)] if inputs else []),
+        *([_format_results(declarations)] if declarations else []),
     ]
 
     if attempt_history:
@@ -732,10 +776,17 @@ def parse_classification_line(answer: str) -> tuple[str, str, str] | None:
     return None
 
 
-def _format_previous_steps(previous_steps: list[ScenarioStep]) -> str:
-    """Render the scenario context section; an empty history stays explicit."""
+#: The result contract sentence rendered at the end of every RESULTS block —
+#: the exact-key, observed non-blank string return the step code must satisfy.
+_RESULTS_CONTRACT = (
+    "the step code returns a dictionary of exactly these names to non-blank strings observed on the page"
+)
+
+
+def _format_previous_steps(previous_steps: list[ScenarioStep]) -> str | None:
+    """Render the scenario context section; None — an empty history omits the block."""
     if not previous_steps:
-        return "PREVIOUS STEPS:\n(none)"
+        return None
 
     listed = "\n".join(_previous_step_line(record) for record in previous_steps)
 
@@ -743,11 +794,25 @@ def _format_previous_steps(previous_steps: list[ScenarioStep]) -> str:
 
 
 def _previous_step_line(record: ScenarioStep) -> str:
-    """Render one scenario record — the sentence, marked when it carries group membership."""
+    """Render one scenario record — the prepared instruction, marked when it carries group membership."""
     if record.group_prompt:
-        return f"- {record.sentence} [group step — {record.group_prompt}]"
+        return f"- {record.instruction} [group step — {record.group_prompt}]"
 
-    return f"- {record.sentence}"
+    return f"- {record.instruction}"
+
+
+def _format_inputs(inputs: dict[str, str]) -> str:
+    """Render the INPUTS block — one ``name = value`` line per binding, in the given order."""
+    bindings = "\n".join(f"{name} = {value}" for name, value in inputs.items())
+
+    return f"INPUTS:\n{bindings}"
+
+
+def _format_results(declarations: list[str]) -> str:
+    """Render the RESULTS block — the declared names plus the result contract sentence."""
+    names = "\n".join(f"- {name}" for name in declarations)
+
+    return f"RESULTS:\n{names}\n{_RESULTS_CONTRACT}"
 
 
 def _format_group_steps(group_steps: list[str]) -> str:

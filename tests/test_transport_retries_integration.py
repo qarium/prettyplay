@@ -18,6 +18,7 @@ from prettyplay.cache import RunBudgets, StepCache, StepIdentity
 from prettyplay.config import Config
 from prettyplay.engine import StepGenerator
 from prettyplay.engine.polling import SettleWindow
+from prettyplay.engine.renderer import PreparedStep, StepMemory
 from prettyplay.failures import LLMUnavailableError
 from prettyplay.llm import OpenAIProvider
 from prettyplay.reporting import StepHooks, StepReporter
@@ -130,7 +131,17 @@ class TestTransportRetriesBudgetNeutrality:
         caplog.set_level(logging.WARNING, logger="prettyplay")
 
         with mock.patch.object(provider, "_get_client", return_value=sdk_client):
-            cached_step = generator.generate(identity, "open the shop page", "action", [], None, page, [], window)
+            cached_step = generator.generate(
+                identity,
+                PreparedStep(instruction="open the shop page"),  # the pre-render interim sentence
+                "action",
+                [],
+                None,
+                page,
+                [],
+                window,
+                StepMemory(),
+            )
 
         assert cached_step.code == WORKING_CODE
         assert page.calls == [("goto", "https://example.com")]  # the candidate really executed
@@ -194,11 +205,31 @@ class TestTransportRetriesBudgetNeutrality:
 
         with mock.patch.object(provider, "_get_client", return_value=sdk_client):
             if recovers:
-                cached_step = generator.generate(identity, "open the shop page", "action", [], None, page, [], window)
+                cached_step = generator.generate(
+                    identity,
+                    PreparedStep(instruction="open the shop page"),  # the pre-render interim sentence
+                    "action",
+                    [],
+                    None,
+                    page,
+                    [],
+                    window,
+                    StepMemory(),
+                )
                 assert cached_step.code == WORKING_CODE
             else:
                 with pytest.raises(LLMUnavailableError):
-                    generator.generate(identity, "open the shop page", "action", [], None, page, [], window)
+                    generator.generate(
+                        identity,
+                        PreparedStep(instruction="open the shop page"),  # the pre-render interim sentence
+                        "action",
+                        [],
+                        None,
+                        page,
+                        [],
+                        window,
+                        StepMemory(),
+                    )
 
         assert sdk_client.chat.completions.create.call_count == 3
         assert page.calls == [("goto", "https://example.com")]

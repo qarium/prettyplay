@@ -30,10 +30,32 @@ def _retries(caplog: pytest.LogCaptureFixture) -> list:
 
 
 def test_settle_is_importable_and_callable_with_the_contract_parameters() -> None:
-    """The facade exports settle; it runs with the four contract parameters."""
-    result = settle(mock.Mock(), "CODE", _fake_page(), SettleWindow(None, 0.5))
+    """The facade exports settle; it runs with the four contract parameters and returns the execution result."""
+    execute = mock.Mock(return_value=None)
+
+    result = settle(execute, "CODE", _fake_page(), SettleWindow(None, 0.5))
 
     assert result is None
+
+
+def test_settle_contract_returns_the_successful_result_in_the_time_mode() -> None:
+    """Contract: the execute routine returns dict[str, str] | None and settle passes the success back — time mode."""
+    result_dictionary = {"name": "Dune"}
+    execute = mock.Mock(return_value=result_dictionary)
+
+    result = settle(execute, "CODE", _fake_page(), SettleWindow(5.0, 0))
+
+    assert result is result_dictionary
+
+
+def test_settle_contract_returns_the_successful_result_in_the_count_mode() -> None:
+    """Contract: the count-bounded loop carries the successful execution's result back — count mode."""
+    result_dictionary = {"name": "Dune"}
+    execute = mock.Mock(side_effect=[PlaywrightError("Timeout 1000ms exceeded"), result_dictionary])
+
+    result = settle(execute, "CODE", _fake_page(), SettleWindow(None, 0, tries=2))
+
+    assert result is result_dictionary
 
 
 def test_settle_retries_pollable_failure_until_success(caplog: pytest.LogCaptureFixture) -> None:
@@ -319,3 +341,36 @@ def test_settle_count_mode_tries_one_is_a_single_execution(caplog: pytest.LogCap
     assert excinfo.value is original
     assert execute.call_count == 1  # executed(1) == tries(1) — no re-execution at the boundary
     assert _retries(caplog) == []
+
+
+def test_settle_carries_successful_result_through() -> None:
+    """A successful execution's result returns untouched — polling off, one execution, no inspection."""
+    window = SettleWindow(None, 0.0)
+
+    def execute(_code: str, _page: object) -> dict[str, str]:
+        return {"name": "Dune"}
+
+    result = settle(execute, "code", object(), window)
+
+    assert result == {"name": "Dune"}
+
+
+def test_settle_carries_result_of_successful_count_retry(caplog: pytest.LogCaptureFixture) -> None:
+    """A successful count-mode retry's result reaches the caller — the retry's dictionary, not a dropped one."""
+    calls = 0
+
+    def execute(_code: str, _page: object) -> dict[str, str]:
+        nonlocal calls
+        calls += 1
+
+        if calls == 1:
+            raise AssertionError("page not ready")
+
+        return {"name": "Dune"}
+
+    with caplog.at_level(logging.INFO, logger="prettyplay"):
+        result = settle(execute, "code", object(), SettleWindow(None, 0.0, 2))
+
+    assert result == {"name": "Dune"}
+    assert calls == 2
+    assert [r.getMessage() for r in caplog.records if r.getMessage() == "settle_retry"] == ["settle_retry"]
