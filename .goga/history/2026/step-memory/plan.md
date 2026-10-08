@@ -303,11 +303,11 @@ Create the Python package for the new cell `prettyplay/engine/renderer/` (today 
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them.**
 
-- [ ] Create `prettyplay/engine/renderer/__init__.py` — package docstring (the step-sentence preparation cell: rendering, memory, result validation), `__all__: list[str] = []` for now; relative imports only when re-exports land
-- [ ] Create `tests/engine/renderer/__init__.py` (empty, per convention)
-- [ ] Verify package importability: `.venv/bin/python -c "import prettyplay.engine.renderer"` — no error
-- [ ] Lint: `.venv/bin/ruff check prettyplay/engine/renderer/ tests/engine/renderer/` — clean
-- [ ] **Full lint/format gate (M3)**: `.venv/bin/ruff check prettyplay/ tests/` and `.venv/bin/ruff format --check prettyplay/ tests/` — both pass before marking this task complete
+- [x] Create `prettyplay/engine/renderer/__init__.py` — package docstring (the step-sentence preparation cell: rendering, memory, result validation), `__all__: list[str] = []` for now; relative imports only when re-exports land
+- [x] Create `tests/engine/renderer/__init__.py` (empty, per convention)
+- [x] Verify package importability: `.venv/bin/python -c "import prettyplay.engine.renderer"` — no error (import ok, `__all__ = []`)
+- [x] Lint: `.venv/bin/ruff check prettyplay/engine/renderer/ tests/engine/renderer/` — clean (one E501 on the initial docstring fixed by shortening it)
+- [x] **Full lint/format gate (M3)**: `.venv/bin/ruff check prettyplay/ tests/` and `.venv/bin/ruff format --check prettyplay/ tests/` — both pass before marking this task complete (all checks passed; 116 files formatted; full suite at the Task 1 baseline: 1188 passed, 5 failed — the known prompt-mirror tests mapped to Tasks 11/12/15/17)
 
 ### Task 3: Template-aware `normalize_step_text` in the cache cell
 
