@@ -36,8 +36,56 @@ with PrettyPlay("login-flow") as t:
   untouched; absorbed retries appear as settle_retry records only, the step stays green
 - step(text, delay=1.5) — a quiet pause in seconds before the step's code runs: the started event
   fires, the declared seconds pass, then the code; a step never reached never pauses
-- Both parameters are keyword-only and accepted by both step kinds; invalid values (zero/negative
-  tries, negative delay) fail loudly at the call
+- step(text, vars={"expected": "Details"}) — the call-local string inputs; separate namespace from memory
+- All parameters are keyword-only and accepted by both step kinds; invalid values (zero/negative
+  tries, negative delay) and non-string vars values fail loudly at the call
+
+## Templates and step memory
+
+Capture an observation, navigate, verify — ordinary step and expect calls plus explicit template syntax:
+
+```python
+with PrettyPlay("item-name") as t:
+    t.step("Open https://shop.example/products")
+    t.step("Read the first item name into {% var name %}")
+    t.step("Open the item named {{ name }}")
+    t.expect("The page contains {{ name }}")
+```
+
+- `{% var name %}` declares where the step saves text read from the page; once the step is accepted, `name` is
+  available in later templates
+- Several captures in one step publish together — `t.step("Read the first item name into {% var first_name %} and
+  the second item name into {% var second_name %}")`; a successful recapture replaces the previous value; a failed
+  step publishes nothing
+- Memory survives navigation and belongs to one test execution — never shared across tests, concurrent runs included
+- A same-step read observes the previous value or fails with the unavailable name; use two steps to capture then use
+- Templates are ordinary Python strings — f-strings evaluate before PrettyPlay receives them
+
+Call-local inputs through the reserved `vars` namespace:
+
+```python
+t.expect("The page contains {{ name }} and {{ vars.expected }}", vars={"expected": "Details"})
+```
+
+- `{{ name }}` reads memory, `{{ vars.name }}` reads the call input — separate namespaces, neither overwrites the
+  other; call inputs never establish memory; values are strings only
+- Standard Jinja stays available (filters, conditions, `set` — template-local); missing values fail loudly naming
+  the name; author-written `| default(...)` and `is defined` behave as authored
+
+## Literal Jinja in existing sentences
+
+```python
+t.expect("The page contains {% raw %}{{ name }}{% endraw %}")
+```
+
+## Cache and replay limitation
+
+- Template sentences address the cache by their source: `{{ name }}` and `{{ Name }}` are different steps; runtime
+  values never enter the address
+- Cached code re-reads captures from the current page on every execution — a changed item name for the same
+  operation replays without regeneration
+- Accepted limitation: a template that changes the operation itself may let old cached code succeed at the previous
+  operation without triggering healing
 
 ## Groups
 

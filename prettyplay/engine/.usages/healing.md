@@ -8,18 +8,19 @@ Domain: healing a failed cached step. Audience: library internals and engineers 
 healed = healer.heal(
     step=failed_step,
     error="element not found: button «Sign in»",
-    step_text="click the «Sign in» button",
+    prepared=PreparedStep(...),  # the render product of the failed step
     step_type="action",
-    previous_steps=[ScenarioStep(sentence="open the login page", group_prompt="")],
+    previous_steps=[ScenarioStep(sentence="open the login page", instruction="open the login page", group_prompt="")],
     page=page,
     attempt_history=history,
     window=window,
+    memory=memory,
 )
 ```
 
 The executor seeds record 0 of `attempt_history` before the delegation — the original cached code, the full replay
 error and the URL pair of the replay — so regeneration never loses the original: the history carries every record,
-the anchored cached code first. The raw `step_text` and the step type ride every classification and regeneration
+the anchored cached code first. The prepared instruction and the step type ride every classification and regeneration
 request — the casefolded normalization is an addressing key only.
 
 The classification verdict decides the path — the uniform decision table:
@@ -39,10 +40,11 @@ The classification verdict decides the path — the uniform decision table:
   unchecked
 - Anti-masking: healing never turns a product defect into a green test
 - The healed code replaces the cached code only after a successful execution
+- The accepted regeneration publishes its validated captures after the gate — nothing publishes on a failed or gate-blocked attempt
 - Generation and healing attempts live in one per-test registry — owned by the runtime of the test — with separate per-step limits (default 3 and 2)
 - Inside the regeneration loop no per-attempt classification happens (rejected: LLM cost): a failed attempt of any kind — a failed check included — appends its record and retries with the fresh error, the fresh snapshot and the grown history while budget remains; the entry classification guards the anti-masking
 - A regeneration budget exhaustion raises IncurableStepError carrying the verdict of the original classification — no extra LLM request
-- The scenario context is typed (the raw sentence + permanent group membership); group steps never reach the healer — their failures route to the group recovery
+- The scenario context is typed (the raw sentence + the prepared instruction + permanent group membership; requests render the instruction); group steps never reach the healer — their failures route to the group recovery
 - Provider unavailability during the classification raises LLMUnavailableError after the provider's bounded transport policy terminates. Transport sends consume no healing budget; the healer adds no retry on this infrastructure failure.
 - Healing never runs in strict mode: a failed cached step is at most classified, never regenerated
 - Interactive steering attempts are separate from healing: they consume no budgets, join the same per-step history and report their own healings

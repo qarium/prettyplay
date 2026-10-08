@@ -48,6 +48,14 @@ Cheat-sheet parity: every generation request renders the CHEAT SHEET block after
 immediately before the USER INSTRUCTIONS block — the compact standard Playwright sync API reference supplied by the
 calling engine; guidance, not an allowlist. Both providers render it identically at the same position.
 
+Prepared-instruction parity: every generation request renders the prepared instruction — the plain-text sentence with actual values produced by rendering — as the STEP block; the raw template sentence never appears. Scenario records render their instruction field; the model never sees raw Jinja. A parity requirement, not a capability difference.
+
+Input-bindings and result-declarations parity: a non-empty inputs mapping renders as the INPUTS block immediately after the STEP line (one name = value line per binding); a non-empty declarations list renders as the RESULTS block immediately after INPUTS stating the result contract — the code returns a dictionary of exactly the declared names to non-blank observed page strings; empty inputs — no INPUTS block, empty declarations — no RESULTS block and the success-without-result form. Both providers render the blocks identically at the same positions. A parity requirement, not a capability difference.
+
+Compliance parity: the gate request uses the same prepared instruction, INPUTS and RESULTS representation in both providers. The reviewer sees the exact result contract next to the STEP line before ATTEMPT HISTORY and CODE; it never sees the raw template sentence.
+
+Classification parity: ordinary classification renders its `step_text` input as the prepared instruction in the STEP block, identically in both providers. Group diagnosis renders prior scenario and group trace instruction fields, plus the prepared failed STEP. Raw template sentences stay local to cache addressing and re-rendering.
+
 ## Transport retries
 
 Transient provider outages no longer kill a logical attempt: every SDK call of all four

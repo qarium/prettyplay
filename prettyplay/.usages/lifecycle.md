@@ -40,6 +40,9 @@ The library is framework-agnostic: no plugins, no base classes. Construct the ob
 
 Team workflow: generate locally where the LLM is reachable, commit the cache directory, run CI fully from the cache with no LLM keys — optionally with strict=true for guaranteed replay-only behavior.
 
+Template steps replay like any cached step: captures re-read from the current page, results validate and publish
+on the strict path exactly as on the ordinary replay; strict adds no generation, healing or new checks.
+
 ## Settle polling
 
 `polling_timeout` (default None — off; 0 — explicit disable) opens one settle window per step execution, measured

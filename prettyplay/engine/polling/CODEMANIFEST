@@ -13,6 +13,7 @@ Annotations: |
   The settle policy of step-code execution: one window per step execution, created by the step executor from the polling settings and the step's declared retry count, threaded into every execution of the step's code — cached code and candidates alike, replay-strict included.
   Two bound modes live side by side: the time window (no declared count — the behavior identical to today) and the count bound (a declared count — the total number of executions of one code unit replaces the time bound for that loop); the pollable filter and the inter-execution pause apply in both.
   The window gates repetitions, never kills a running attempt; re-executions emit no hook events — their visibility is the settle_retry log record alone; no LLM budget is ever consumed.
+  An execution result rides the loop: settle returns the result of the successful execution — the step's dictionary for steps with result declarations, None otherwise; the window gates repetitions exactly as before, never touching the result beyond passing the successful one through.
 
 ---
 
@@ -53,20 +54,21 @@ Annotations: |
       - Checked only before a repetition: the window never interrupts a running attempt
       - False when disabled, not started, or expired — the first execution may consume the whole window
 
-"settle(execute: Callable[[str, PageFacade], None], code: str, page: PageFacade, window: SettleWindow)":
+"settle(execute: Callable[[str, PageFacade], dict[str, str] | None], code: str, page: PageFacade, window: SettleWindow) -> result: dict[str, str] | None":
   location: settle.py
   annotations: |
-    Execute step code under the settle window: absorb transient page-state failures by re-executing the same code, propagate everything else as-is.
+    Execute step code under the settle window: absorb transient page-state failures by re-executing the same code, propagate everything else as-is — and carry the result of the successful execution back to the caller.
 
-    `execute`: the step-code execution routine passed by the caller.
+    `execute`: the step-code execution routine passed by the caller — returns the step's result (a dictionary of declared names to observed strings, or None for a declaration-free step).
     `code`: the step code text.
     `page`: the page facade of the current test.
     `window`: the settle window of the current step execution.
+    `result`: the result returned by the successful execution — the last successful re-execution's result when repetitions occurred; None for a declaration-free step.
 
     Algorithm:
     In the count-bounded mode (`window` count_bounded): execute the code up to `window` tries times in total — each repetition requires the failure to be pollable and pauses the `window` delay; settle_retry records are uniform with the time mode; exhaustion propagates the failure to the caller as-is. In the time-bounded mode — as today.
     1. `window` start — mark the first execution
-    2. Call `execute` with `code` and `page`; success — return: the step code worked
+    2. Call `execute` with `code` and `page`; success — return the execution's result as-is: the step code worked
     3. On failure: `window` enabled, `is_pollable_failure` of the exception True, `window` has time remaining — pause the `window` delay, repeat from step 2
     4. Otherwise propagate the failure to the caller as-is
 
@@ -74,7 +76,7 @@ Annotations: |
     - Each repetition writes a settle_retry record to the logger prettyplay at INFO: the attempt counter and the failure text; no hook events are emitted
     - No LLM budget is consumed: re-execution is execution, not generation
     - Each settle call counts from zero in the count mode — the counter belongs to the code unit being executed: the cached code and every generated candidate each get their own full count; the LLM attempt budget is never multiplied
-    - Re-executions of both modes write settle_retry records at INFO — no hook events
+    - The result passes through untouched: the loop never inspects, validates or alters it — validation belongs to the calling cycle
 
     Constraints:
     - Never swallow, translate or retry a non-pollable failure — the classification path decides it
@@ -84,4 +86,4 @@ Annotations: |
 Author: Goga
 CreatedAt: 12/09/26
 Description: |
-  The settle policy of prettyplay: the per-execution settle window and the re-execution loop absorbing transient page-state failures before any costly move, beside the time window the count-bounded re-execution mode (tries).
+  The settle policy of prettyplay: the per-execution settle window and the re-execution loop absorbing transient page-state failures before any costly move — carrying the successful execution's result back to the caller — beside the time window the count-bounded re-execution mode (tries).

@@ -25,9 +25,13 @@ Annotations: |
   The page-URL input participates in both provider implementations with identical semantics: a non-empty page_url of a generation request renders as its own PAGE URL line immediately after the PAGE SNAPSHOT block of the user content; None or empty — no line; a parity requirement, not a capability difference.
   The step-type input participates in both provider implementations with identical semantics: every generation request and every compliance verdict request renders the STEP TYPE line — action or assertion — immediately before the STEP line of the user content; a parity requirement, not a capability difference.
   The attempt-history input participates in both provider implementations with identical semantics: the HISTORY block renders every attempt-history record verbatim — each record a complete multi-line record (the attempt outcome, the URL before -> after line, the complete candidate code, the complete error) composed by the calling engine; the record list carries the whole attempt history of the step, the anchored original cached code first when it exists; no collapsing, no size limits; the block takes the place of the former CODE and ERROR request inputs and the former steering-only history block; a parity requirement, not a capability difference.
-  The scenario-context input participates in both provider implementations with identical semantics: every generation request renders the PREVIOUS STEPS block from the typed scenario records — the raw sentence of each entry verbatim, the entries carrying group membership marked as group steps; a parity requirement, not a capability difference.
+  The scenario-context input participates in both provider implementations with identical semantics: generation and group diagnosis render PREVIOUS STEPS from the typed scenario records' prepared instruction fields, marking group membership; raw template sentences stay local to addressing and re-rendering.
   The group-framing input participates in both provider implementations with identical semantics: a non-empty group_prompt of a generation request renders as its own GROUP PROMPT block immediately before the PREVIOUS STEPS block; None — no block; a parity requirement, not a capability difference.
-  The group diagnosis operation is the fourth operation of the port with the same absolute parity: one logical request per diagnosis, with bounded resends of the identical SDK request inside it, carrying the group prompt, the group step traces, the failed step's sentence and attempt history, the page snapshot and the optional screenshot — sent through the effective classification model; the answer parses strictly through `parse_group_failure_classification`; a degraded answer is the conservative incurable, never a granted regeneration.
+  The group diagnosis operation is the fourth operation of the port with absolute provider parity: one logical request carries the group prompt, previous scenario instructions, group trace instructions, the failed prepared instruction, attempt history, snapshot and optional screenshot; the strict parser and conservative degraded verdict remain as before.
+  The prepared-instruction input participates in both provider implementations with identical semantics: every generation request renders the prepared instruction of the step — the plain-text sentence produced by rendering, actual values embedded — as the STEP block; the raw template sentence never appears in any request; the scenario records render their instruction field — the model never sees raw Jinja; a parity requirement, not a capability difference.
+  The input-bindings input participates in both provider implementations with identical semantics: a non-empty inputs mapping of a generation request renders as its own INPUTS block — one name = value line per binding — placed immediately after the STEP line of the user content; empty — no block; a parity requirement, not a capability difference.
+  The result-declarations input participates in both provider implementations with identical semantics: a non-empty declarations list of a generation request renders as its own RESULTS block — the declared names plus the result contract (the step code returns a dictionary of exactly these names to non-blank observed strings) — placed immediately after the INPUTS block; empty — no block, the code form stays success-without-result; a parity requirement, not a capability difference.
+  The compliance verdict request also receives the prepared instruction, inputs and declarations as primitives in both providers. It renders the STEP line from the instruction and optional INPUTS and RESULTS blocks before ATTEMPT HISTORY; the gate reviews the executed code against the same result contract as generation.
   The shared transport retry mechanism lives in _request.py: every SDK call of all four operations of both provider implementations passes through `send_with_retries`. Retryable transport failures — connection failures, timeouts, HTTP 408/429 and any status 500 through 599 — resend the identical request; permanent failures — authentication, authorization, invalid requests, an explicitly exhausted quota — fail immediately, an explicit permanent cause taking precedence over a retryable status (see `openai` and `anthropic` for the per-SDK exception rules). SDK built-in retries are disabled: both clients are constructed with max_retries=0, so the configured budget is also the maximum number of request sends. Delays are fixed policy: base 1, 2, 4, 8, 10, 10… seconds plus a 0–25 percent jitter of the base, capped at 10 seconds; a valid Retry-After of at most 10 seconds raises the pause to the indicated wait, above 10 seconds the request terminates with an actionable `LLMUnavailableError` instead of retrying, malformed values are ignored. KeyboardInterrupt during a wait interrupts it without another retry. Exhaustion and permanent rejections raise `LLMUnavailableError` with the original cause chained. Every retry emits one WARNING record to the logger prettyplay — provider, operation, attempt number, error category, delay; never secrets, never request or response contents.
   The request-attempt setting is llm_request_attempts / PRETTYPLAY_LLM_REQUEST_ATTEMPTS. These names supersede any older transport_attempts / PRETTYPLAY_TRANSPORT_ATTEMPTS wording in the imported `openai` and `anthropic` practices; do not implement the old names. The practices must be resynced from their corrected source before implementation.
   The classification operation classify_step_failure is the former classify_failure — the rename is nominal, the behavior identical.
@@ -43,30 +47,30 @@ Annotations: |
   annotations: |
     The unified LLM port of the library: code generation for a step, failure classification for healing and the two-dimension compliance verdict of the gate. One contract, two interchangeable implementations selected by configuration.
   methods:
-    "generate_step_code(prompt: str, user_instructions: str, step_text: str, step_type: str, previous_steps: list[ScenarioStep], group_prompt: str | None, snapshot: str, page_url: str | None, screenshot: bytes | None, cheat_sheet: str, attempt_history: list[str], recommendation: str | None, guidance: str | None) -> code: str": |
+    "generate_step_code(prompt: str, user_instructions: str, instruction: str, step_type: str, previous_steps: list[ScenarioStep], group_prompt: str | None, inputs: dict[str, str], declarations: list[str], snapshot: str, page_url: str | None, screenshot: bytes | None, cheat_sheet: str, attempt_history: list[str], recommendation: str | None, guidance: str | None) -> code: str": |
       Generate step code of the fixed form.
 
       `prompt`: the system prompt text supplied by the calling engine — applied verbatim as the system message.
       `user_instructions`: the project's code style instructions supplied by the calling engine from the generation_prompt setting; empty — the request carries no instructions block; non-empty — rendered by the provider implementations verbatim as a separate USER INSTRUCTIONS block of the user content, identically in both.
-      `step_text`: the raw sentence of the step to generate — as written by the engineer, verbatim; never the normalized addressing form.
-      `step_type`: action or assertion — rendered by the provider implementations as the STEP TYPE line immediately before the STEP line, identically in both.
-      `previous_steps`: the typed scenario records of the previous steps of the test, in execution order — each the raw sentence plus its permanent group membership; rendered by the provider implementations as the PREVIOUS STEPS block with the group entries marked, identically in both.
-      `group_prompt`: the group prompt of the current step's group; None — an ordinary step, no GROUP PROMPT block; non-empty — rendered by the provider implementations verbatim as a separate GROUP PROMPT block immediately before the PREVIOUS STEPS block, identically in both; takes no part in step addressing.
+      `instruction`: the prepared instruction of the step — the rendered plain-text sentence with actual values embedded; rendered as the STEP block, identically in both; the raw template sentence never reaches the request.
+      `step_type`: action or assertion — rendered as the STEP TYPE line immediately before the STEP line, identically in both.
+      `previous_steps`: the typed scenario records of the previous steps of the test, in execution order — each entry renders its `instruction` (the prepared instruction recorded at execution) with the group entries marked, identically in both.
+      `group_prompt`: the group prompt of the current step's group; None — an ordinary step, no GROUP PROMPT block; non-empty — rendered verbatim as a separate GROUP PROMPT block immediately before the PREVIOUS STEPS block, identically in both; takes no part in step addressing.
+      `inputs`: the call-local input bindings of the step; non-empty — rendered as the INPUTS block immediately after the STEP line, one name = value line per binding, identically in both; empty — no block.
+      `declarations`: the declared result names of the step; non-empty — rendered as the RESULTS block immediately after the INPUTS block stating the result contract — the code returns a dictionary of exactly the declared names to non-blank strings observed on the page; empty — no block, the success-without-result code form.
       `snapshot`: the accessibility snapshot of the current page.
-      `page_url`: the current URL of the page; non-empty — rendered by the provider implementations as its own PAGE URL line immediately after the PAGE SNAPSHOT block, identically in both; None — no line; supplied by the engine and steering generation paths.
+      `page_url`: the current URL of the page; non-empty — rendered as its own PAGE URL line immediately after the PAGE SNAPSHOT block, identically in both; None — no line.
       `screenshot`: an optional PNG image of the page; passed only when the project enables screenshots.
-      `cheat_sheet`: the compact standard Playwright sync API reference supplied by the calling engine — rendered by the provider implementations as the leading CHEAT SHEET block of the user content, identically in both; guidance, not an allowlist — everything standard stays allowed.
-      `attempt_history`: the attempt history of the step — every record a complete multi-line verbatim record (the attempt outcome, the URL before -> after line, the complete candidate code, the complete error) composed by the calling engine; the original cached code anchors the list as record 0 when it exists; non-empty — rendered as the HISTORY block after the USER INSTRUCTIONS block; empty — no block; no collapsing, no size limits; the list takes the place of the former existing_code, error and guidance_history inputs — the last record is the code being fixed.
+      `cheat_sheet`: the compact standard Playwright sync API reference supplied by the calling engine — rendered as the leading CHEAT SHEET block of the user content, identically in both; guidance, not an allowlist.
+      `attempt_history`: the attempt history of the step — every record a complete multi-line verbatim record composed by the calling engine; non-empty — rendered as the HISTORY block after the USER INSTRUCTIONS block; empty — no block; no collapsing, no size limits.
       `recommendation`: the diagnosis of the classification that preceded the regeneration; non-empty — rendered as a separate RECOMMENDATION block after the HISTORY block; None — no block.
       `guidance`: the engineer guidance message of the interactive steering; non-empty — rendered as a separate USER GUIDANCE block; None — no block.
-      `code`: the generated step code of the fixed form, working through the standard Playwright sync API — imports from playwright.sync_api and the Python standard library only, global at the top level of the code block; the first markdown-fenced block of the answer is unwrapped — an answer with no closed fence returns verbatim.
+      `code`: the generated step code of the fixed form — def step(page) -> None without result declarations, def step(page) -> dict[str, str] | None with them, working through the standard Playwright sync API — imports from playwright.sync_api and the Python standard library only, global at the top level of the code block; the first markdown-fenced block of the answer is unwrapped — an answer with no closed fence returns verbatim.
 
       Requirements:
       - A provider transport failure is retried inside this operation up to the configured request-attempt budget; exhaustion, a permanent rejection or an over-cap Retry-After raises `LLMUnavailableError` naming the provider with the original cause chained
       - The generated code contains no provider-specific constructs
-      - The block order of a generation request is fixed: CHEAT SHEET, user instructions, HISTORY, RECOMMENDATION, USER GUIDANCE — a non-empty input renders its named block, identically in both implementations
-      - the GROUP PROMPT block renders immediately before the PREVIOUS STEPS block of the scenario part, identically in both implementations
-      - The PAGE URL line renders in the scenario part — immediately after the PAGE SNAPSHOT block; the STEP TYPE line renders immediately before the STEP line; the fixed order of the regeneration tail (HISTORY, RECOMMENDATION, USER GUIDANCE) is unchanged within it
+      - The block order of the scenario part is fixed: the STEP TYPE line, the STEP line, then the INPUTS block (when non-empty) and the RESULTS block (when non-empty) immediately after the STEP line; the remaining scenario blocks keep their current order and positions — GROUP PROMPT immediately before PREVIOUS STEPS, the PAGE URL line immediately after the PAGE SNAPSHOT block; the fixed order of the regeneration tail (HISTORY, RECOMMENDATION, USER GUIDANCE) is unchanged; a non-empty input renders its named block, identically in both implementations
       - The new inputs take no part in step addressing: a cached step never regenerates because they changed
     "classify_step_failure(prompt: str, user_instructions: str, step_text: str, code: str, error: str, snapshot: str, screenshot: bytes | None) -> classification: FailureClassification": |
       Classify a failed cached step.
@@ -74,7 +78,7 @@ Annotations: |
 
       `prompt`: the system prompt text supplied by the calling engine — applied verbatim as the system message.
       `user_instructions`: the project's classification instructions supplied by the calling engine from the classification_prompt setting; empty — the request carries no instructions block; non-empty — rendered by the provider implementations verbatim as a separate USER INSTRUCTIONS block of the user content, identically in both.
-      `step_text`: the raw sentence of the failed step as passed by the calling engine.
+      `step_text`: the prepared instruction of the failed step, rendered as STEP in the classification request; never the raw template sentence. Both providers use it identically.
       `code`: the existing step code that failed.
       `error`: the human-readable description of the failure.
       `snapshot`: the accessibility snapshot of the current page.
@@ -83,55 +87,34 @@ Annotations: |
 
       Requirements:
       - A provider transport failure is retried inside this operation up to the configured request-attempt budget; exhaustion, a permanent rejection or an over-cap Retry-After raises `LLMUnavailableError` naming the provider with the original cause chained
-    "classify_group_failure(prompt: str, user_instructions: str, group_prompt: str, group_steps: list[str], step_text: str, attempt_history: list[str], snapshot: str, screenshot: bytes | None) -> diagnosis: GroupFailureClassification": |
-      Send one group diagnosis request — the diagnosis of a failed step with the whole interaction
-      in view.
+    "classify_group_failure(prompt: str, user_instructions: str, group_prompt: str, group_steps: list[str], previous_steps: list[ScenarioStep], step_text: str, attempt_history: list[str], snapshot: str, screenshot: bytes | None) -> diagnosis: GroupFailureClassification": |
+      Send the group diagnosis with the whole prior scenario visible.
 
-      `prompt`: the group diagnosis system prompt supplied by the calling engine — applied
-      verbatim as the system message.
-      `user_instructions`: the project's classification instructions supplied by the calling
-      engine from the classification_prompt setting — the diagnosis request carries them exactly
-      as a classification request does; empty — no instructions block.
-      `group_prompt`: the group prompt, verbatim.
-      `group_steps`: the composed verbatim traces of the group's steps in execution order — each
-      the sentence, the outcome and the URL before -> after transition, supplied by the calling
-      engine.
-      `step_text`: the raw sentence of the failed step.
-      `attempt_history`: the rendered verbatim records of the failed step's attempt history.
-      `snapshot`: the accessibility snapshot of the current page.
-      `screenshot`: an optional PNG image of the page; passed only when the project enables
-      screenshots.
-      `diagnosis`: the `GroupFailureClassification` verdict.
-
-      Algorithm:
-      1. Build the user content in the fixed order GROUP PROMPT, GROUP STEPS, STEP, HISTORY,
-         PAGE SNAPSHOT, SCREENSHOT (when attached), USER INSTRUCTIONS last — identically in both
-         implementations
-      2. Send one request through the effective classification model
-      3. Parse the text answer strictly through `parse_group_failure_classification` and return
-         the verdict
+      `previous_steps`: previous scenario records in execution order; render a PREVIOUS STEPS block from their prepared instruction fields, marking group membership, before GROUP STEPS. Empty — omit the block.
+      `group_steps`: the rendered group traces; each trace's visible sentence line is its recorded prepared instruction.
+      `step_text`: the failed step's prepared instruction, rendered as STEP; never its raw template sentence.
+      `diagnosis`: earliest_step quotes a visible prepared instruction verbatim, so the recovery matcher can resolve it against group traces or prior scenario records.
 
       Requirements:
-      - A provider transport failure is retried inside this operation up to the configured request-attempt budget; exhaustion, a permanent rejection or an over-cap Retry-After raises `LLMUnavailableError` naming the provider with the original cause chained
-      - One logical diagnosis attempt with bounded transport retries inside it — attempt budgets belong to the calling engine
-      - The input takes no part in step addressing
-    "check_instruction_compliance(prompt: str, user_instructions: str, step_text: str, step_type: str, code: str, attempt_history: list[str]) -> verdict: list[ComplianceFinding]": |
-      Check the successfully executed candidate code on two dimensions — instruction compliance and step adequacy — the compliance verdict request of the gate.
+      - Both providers render GROUP PROMPT, optional PREVIOUS STEPS, GROUP STEPS, STEP, HISTORY, PAGE SNAPSHOT, optional SCREENSHOT, USER INSTRUCTIONS in the same order
+      - Preserve the existing strict verdict parser and bounded transport retries
+    "check_instruction_compliance(prompt: str, user_instructions: str, instruction: str, step_type: str, inputs: dict[str, str], declarations: list[str], code: str, attempt_history: list[str]) -> verdict: list[ComplianceFinding]": |
+      Check an executed candidate against the binding user instructions and the prepared step, including its result contract.
 
-      `prompt`: the gate system prompt text supplied by the calling engine — applied verbatim as the system message.
-      `user_instructions`: the project's generation instructions supplied by the calling engine from the generation_prompt setting; the calling engine guarantees non-empty — the gate never runs on empty instructions.
-      `step_text`: the raw sentence of the generated step.
-      `step_type`: action or assertion — the adequacy dimension judges by it; rendered as the STEP TYPE line immediately before the STEP line.
-      `code`: the successfully executed candidate code.
-      `attempt_history`: the attempt history of the step — verbatim records composed by the calling engine; non-empty — rendered as the ATTEMPT HISTORY block after the STEP block; the gate prompt instructs the reviewer to use it.
-      `verdict`: the parsed findings of both dimensions; an empty list means compliant and adequate.
+      `prompt`: the compliance system prompt, applied verbatim.
+      `user_instructions`: the binding generation instructions; the caller invokes the gate only when these are non-empty.
+      `instruction`: the prepared plain-text step instruction, rendered as STEP; never the raw template.
+      `step_type`: action or assertion, rendered immediately before STEP.
+      `inputs`: current call bindings; non-empty — render INPUTS after STEP, one name = value line per binding; empty — omit the block.
+      `declarations`: reached capture names; non-empty — render RESULTS after INPUTS with the exact-key, observed non-blank string return contract; empty — omit the block and retain the success-without-result form.
+      `code`: the successfully executed candidate under review.
+      `attempt_history`: verbatim attempt records, rendered as ATTEMPT HISTORY after the scenario blocks when non-empty.
+      `verdict`: the parsed findings of instruction compliance and step adequacy; empty — both dimensions pass.
 
       Requirements:
-      - A provider transport failure is retried inside this operation up to the configured request-attempt budget; exhaustion, a permanent rejection or an over-cap Retry-After raises `LLMUnavailableError` naming the provider with the original cause chained
-      - The answer parses strictly through `parse_compliance_verdict`; a malformed verdict raises `ComplianceVerdictError` — unchecked code is never waved through
-      - The user content carries four blocks in the fixed order INSTRUCTIONS, STEP, ATTEMPT HISTORY, CODE — with the STEP TYPE line immediately before the STEP line — identically in both implementations
-      - The gate model is the effective classification model of the provider settings
-      - The input takes no part in step addressing: a cached step never regenerates because it changed
+      - Both provider implementations render the same block order: INSTRUCTIONS, STEP TYPE and STEP, optional INPUTS, optional RESULTS, ATTEMPT HISTORY, CODE
+      - Preserve the existing bounded transport retries and strict verdict parsing; malformed verdicts raise ComplianceVerdictError
+      - These inputs do not enter cache addressing, and the gate never runs on replayed cached code
 
 "LLMProvider::OpenAIProvider(config: Config)":
   location: openai_provider.py
@@ -144,11 +127,14 @@ Annotations: |
 
     Algorithm (all four operations):
     1. Build the request: the prompt text as the system message, the user content carrying the inputs — the STEP TYPE line renders immediately before the STEP line; the CHEAT SHEET block renders after the scenario inputs; a non-empty page_url renders as its own PAGE URL line immediately after the PAGE SNAPSHOT block; a non-empty user_instructions of a generation request renders as a separate USER INSTRUCTIONS block placed immediately after the CHEAT SHEET block; the attempt-history records render as the HISTORY block placed after the USER INSTRUCTIONS block — every record verbatim, complete multi-line records, no collapsing; the remaining regeneration-only blocks render in the fixed order RECOMMENDATION, USER GUIDANCE; a non-empty input renders its named block, identically in both implementations; a non-empty user_instructions of a classification request renders as the separate USER INSTRUCTIONS block placed last in the user content, after all classification inputs (STEP, CODE, ERROR, PAGE SNAPSHOT)
+    generation and compliance scenario parts render the STEP TYPE line, the prepared-instruction STEP line, the INPUTS block (when non-empty) and the RESULTS block (when non-empty) immediately after it — identically in both implementations
+    ordinary classification renders its prepared step_text as STEP
+    group diagnosis renders previous scenario instructions in PREVIOUS STEPS before GROUP STEPS, with identical behavior in both providers
     2. Send the single SDK call wrapped in `send_with_retries` with the provider label openai, the operation label, attempts taken from config llm_request_attempts and `classify_openai_failure` as the classifier
     3. Extract the text answer; a generation answer unwraps its first markdown-fenced block — an unfenced answer passes through verbatim
     4. An SDK error classifies through `classify_openai_failure`; permanent categories and exhaustion map to `LLMUnavailableError` through the retry mechanism (see `openai`)
 
-    The compliance operation: the prompt as the system message, the user content carrying the INSTRUCTIONS, STEP (with its STEP TYPE line), ATTEMPT HISTORY and CODE blocks in this fixed order; sent as one request through the effective classification model; the text answer parses strictly through `parse_compliance_verdict` — a malformed verdict (an answer of the old shape included) raises `ComplianceVerdictError`; an SDK error classifies through `classify_openai_failure`; permanent categories and exhaustion map to `LLMUnavailableError` through the shared transport retry mechanism (see `openai`)
+    The compliance operation: the prompt as the system message, the user content carrying the INSTRUCTIONS, STEP (with its STEP TYPE line), the optional INPUTS and RESULTS blocks, ATTEMPT HISTORY and CODE blocks in this fixed order; sent as one request through the effective classification model; the text answer parses strictly through `parse_compliance_verdict` — a malformed verdict (an answer of the old shape included) raises `ComplianceVerdictError`; an SDK error classifies through `classify_openai_failure`; permanent categories and exhaustion map to `LLMUnavailableError` through the shared transport retry mechanism (see `openai`)
 
 "LLMProvider::AnthropicProvider(config: Config)":
   location: anthropic_provider.py
@@ -161,11 +147,14 @@ Annotations: |
 
     Algorithm (all four operations):
     1. Build the request: the prompt text as the system message, the user content carrying the inputs — the STEP TYPE line renders immediately before the STEP line; the CHEAT SHEET block renders after the scenario inputs; a non-empty page_url renders as its own PAGE URL line immediately after the PAGE SNAPSHOT block; a non-empty user_instructions of a generation request renders as a separate USER INSTRUCTIONS block placed immediately after the CHEAT SHEET block; the attempt-history records render as the HISTORY block placed after the USER INSTRUCTIONS block — every record verbatim, complete multi-line records, no collapsing; the remaining regeneration-only blocks render in the fixed order RECOMMENDATION, USER GUIDANCE; a non-empty input renders its named block, identically in both implementations; a non-empty user_instructions of a classification request renders as the separate USER INSTRUCTIONS block placed last in the user content, after all classification inputs (STEP, CODE, ERROR, PAGE SNAPSHOT)
+    generation and compliance scenario parts render the STEP TYPE line, the prepared-instruction STEP line, the INPUTS block (when non-empty) and the RESULTS block (when non-empty) immediately after it — identically in both implementations
+    ordinary classification renders its prepared step_text as STEP
+    group diagnosis renders previous scenario instructions in PREVIOUS STEPS before GROUP STEPS, with identical behavior in both providers
     2. Send the single SDK call wrapped in `send_with_retries` with the provider label anthropic, the operation label, attempts taken from config llm_request_attempts and `classify_anthropic_failure` as the classifier
     3. Extract the text answer; a generation answer unwraps its first markdown-fenced block — an unfenced answer passes through verbatim
     4. An SDK error classifies through `classify_anthropic_failure`; permanent categories and exhaustion map to `LLMUnavailableError` through the retry mechanism (see `anthropic`)
 
-    The compliance operation: the prompt as the system message, the user content carrying the INSTRUCTIONS, STEP (with its STEP TYPE line), ATTEMPT HISTORY and CODE blocks in this fixed order; sent as one request through the effective classification model; the text answer parses strictly through `parse_compliance_verdict` — a malformed verdict (an answer of the old shape included) raises `ComplianceVerdictError`; an SDK error classifies through `classify_anthropic_failure`; permanent categories and exhaustion map to `LLMUnavailableError` through the shared transport retry mechanism (see `anthropic`)
+    The compliance operation: the prompt as the system message, the user content carrying the INSTRUCTIONS, STEP (with its STEP TYPE line), the optional INPUTS and RESULTS blocks, ATTEMPT HISTORY and CODE blocks in this fixed order; sent as one request through the effective classification model; the text answer parses strictly through `parse_compliance_verdict` — a malformed verdict (an answer of the old shape included) raises `ComplianceVerdictError`; an SDK error classifies through `classify_anthropic_failure`; permanent categories and exhaustion map to `LLMUnavailableError` through the shared transport retry mechanism (see `anthropic`)
 
 "create_provider(config: Config) -> provider: LLMProvider":
   location: provider.py
@@ -394,22 +383,23 @@ Annotations: |
     - The salvage repairs syntax only — semantics stay strict: no field, type or label requirement is relaxed for a salvaged answer
     - A failure of the salvage library itself is a malformed verdict: a third-party exception never crosses the parse (see `json_repair`)
 
-"ScenarioStep(sentence: str, group_prompt: str)":
+"ScenarioStep(sentence: str, instruction: str, group_prompt: str)":
   location: models.py
   annotations: |
     One record of the scenario context of a test — the unit every PREVIOUS STEPS block renders.
 
-    `sentence`: the raw step sentence as written by the engineer, verbatim — never the normalized
-    addressing form.
-    `group_prompt`: the group prompt of the step's group; empty — an ordinary step; non-empty —
-    the verbatim group prompt; the membership is permanent for the lifetime of the test context.
+    `sentence`: the raw step sentence (the template source) as written by the engineer, verbatim — the addressing and diagnostics artifact; never rendered into requests.
+    `instruction`: the prepared instruction recorded at the step's execution — the rendered plain-text sentence; equals `sentence` for a non-template step; the only field requests render.
+    `group_prompt`: the group prompt of the step's group; empty — an ordinary step; non-empty — the verbatim group prompt; the membership is permanent for the lifetime of the test context.
 
     Requirements:
     - pydantic v2, kw_only, empty defaults (see `conventions`)
     - A record appended to the scenario context is never rewritten
   properties:
     "sentence -> str": |
-      The raw step sentence, verbatim.
+      The raw step sentence (the template source), verbatim.
+    "instruction -> str": |
+      The prepared instruction recorded at execution; equals the sentence for a non-template step.
     "group_prompt -> str": |
       The group prompt of the step's group; empty means an ordinary step.
 
@@ -476,4 +466,4 @@ Annotations: |
 Author: Goga
 CreatedAt: 10/09/26
 Description: |
-  The LLM port of prettyplay: one contract, the openai and anthropic SDK implementations in full parity — generation, classification and the two-dimension compliance verdict with identical user-instructions, cheat-sheet, step-type and attempt-history semantics — the failure classification verdict and the instruction-compliance and step-adequacy findings, the typed scenario records, the group diagnosis operation and its verdict, and the shared bounded transport retry mechanism.
+  The LLM port of prettyplay: one contract, the openai and anthropic SDK implementations in full parity — generation (carrying the prepared instruction with input bindings and result declarations), classification and the two-dimension compliance verdict with identical user-instructions, cheat-sheet, step-type and attempt-history semantics — the failure classification verdict and the instruction-compliance and step-adequacy findings, the typed scenario records (raw sentence + prepared instruction), the group diagnosis operation and its verdict, and the shared bounded transport retry mechanism.

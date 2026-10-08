@@ -49,3 +49,7 @@ total (the first execution included; 1 — no re-execution). The pollable filter
 pause keep applying between executions; retries appear as `settle_retry` records; exhaustion
 propagates the failure to the ordinary path. Each `settle` call counts from zero — the cached code
 and every generated candidate each get their own full count. No LLM budget is consumed.
+
+## Result carriage
+
+`settle` returns the result of the successful execution — `run_step_code` returns the step's dictionary for steps with capture declarations and None otherwise. The loop passes the successful result through untouched; validation and publication belong to the calling cycle. A repeated execution's success returns that re-execution's result.
