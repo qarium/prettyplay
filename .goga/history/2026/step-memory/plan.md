@@ -498,15 +498,15 @@ Builder changes in `_request.py`: `build_fields_text(user_instructions, instruct
 **Usages relevant to this task:**
 - `conventions` (M1/M2): `tests/engine/test_execution.py` (extend the existing fakes-based tests).
 
-- [ ] **Contract tests**: signature `run_step_code(code: str, page: PageFacade) -> dict[str, str] | None`; a returning step function's dictionary comes back; a `None`-returning step function comes back as `None` (expected to fail at this stage)
-- [ ] **REPL checkpoint** (M4): in the venv, evaluate `run_step_code('def step(page):\n    return {"name": "Dune"}\n', fake_page)` with the existing fake page from the tests — the dictionary returns
-- [ ] **Code**: in `prettyplay/engine/execution.py`, return the outcome of the run primitive; update annotations and docstrings
-- [ ] **Interface verification**: `.venv/bin/pytest tests/engine/test_execution.py -v` — all pass
-- [ ] **Logic tests**: result passes through untouched (same object/values); exceptions still propagate as-is; the worker-thread boundary unchanged (calling thread never touches Playwright)
-- [ ] **Debugging**: re-run the task-focused tests after adding logic tests and fix the implementation until they pass; run `.venv/bin/pytest tests/ -x` diagnostically, map each remaining expected failure to a specific pending migration task, and fix every unrelated regression (do not weaken tests)
-- [ ] **Contract re-verification**: no translation, no swallowing, no retry
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/engine/ tests/engine/` and `ruff format --check` on the same — fix findings
-- [ ] **Full lint/format gate (M3)**: `.venv/bin/ruff check prettyplay/ tests/` and `.venv/bin/ruff format --check prettyplay/ tests/` — both pass before marking this task complete
+- [x] **Contract tests**: signature `run_step_code(code: str, page: PageFacade) -> dict[str, str] | None`; a returning step function's dictionary comes back; a `None`-returning step function comes back as `None` (expected to fail at this stage) (the annotation and dictionary-carriage tests failed first — `None == (dict[str, str] | None)` and `None == {'name': 'Dune'}`; the None-returning case passed trivially against the old drop; all pass after implementation)
+- [x] **REPL checkpoint** (M4): in the venv, evaluate `run_step_code('def step(page):\n    return {"name": "Dune"}\n', fake_page)` with the existing fake page from the tests — the dictionary returns (initial probe: `None` — the run primitive's outcome was dropped; post-edit probe: `{'name': 'Dune'}`, explicit `return None` → `None`, and the return annotation equals `dict[str, str] | None`)
+- [x] **Code**: in `prettyplay/engine/execution.py`, return the outcome of the run primitive; update annotations and docstrings (the diff is exactly three points: the `-> dict[str, str] | None` annotation, a `Returns` docstring section, and `return page.run(step_fn)`)
+- [x] **Interface verification**: `.venv/bin/pytest tests/engine/test_execution.py -v` — all pass (12 passed after the code change; 14 after the logic tests)
+- [x] **Logic tests**: result passes through untouched (same object/values); exceptions still propagate as-is; the worker-thread boundary unchanged (calling thread never touches Playwright) (added `test_result_passes_through_as_the_same_object` — identity through both boundaries, values verbatim — and `test_result_rides_the_single_run_unit` — the result is the one run unit's outcome, no second crossing; the stale "outcome of the unit is not the routine's" comment on the existing boundary test corrected; exception identity and calling-thread compile coverage stay green in the existing tests)
+- [x] **Debugging**: re-run the task-focused tests after adding logic tests and fix the implementation until they pass; run `.venv/bin/pytest tests/ -x` diagnostically, map each remaining expected failure to a specific pending migration task, and fix every unrelated regression (do not weaken tests) (full suite: 1272 passed, 9 failed — exactly the nine known failures recorded at Task 9: the five prompt-mirror tests mapped to Tasks 11/12/15/17 plus the four keyword-signature integration failures of the still-unmigrated generator mapped to Task 12; no unrelated regressions)
+- [x] **Contract re-verification**: no translation, no swallowing, no retry (git diff confirms: no try/except added, the exception path untouched, the result returned verbatim from the single run primitive call)
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/engine/ tests/engine/` and `ruff format --check` on the same — fix findings (one E501 on a new logic-test comment fixed by shortening it)
+- [x] **Full lint/format gate (M3)**: `.venv/bin/ruff check prettyplay/ tests/` and `.venv/bin/ruff format --check prettyplay/ tests/` — both pass before marking this task complete (all checks passed; 122 files formatted)
 
 ### Task 11: `check_step_compliance` takes the render product; compliance prompt mirror updated
 

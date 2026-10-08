@@ -3,7 +3,7 @@
 from ..driver import PageFacade
 
 
-def run_step_code(code: str, page: PageFacade) -> None:
+def run_step_code(code: str, page: PageFacade) -> dict[str, str] | None:
     """Execute step code of the fixed form against the page handle of the test.
 
     Args:
@@ -13,6 +13,11 @@ def run_step_code(code: str, page: PageFacade) -> None:
         page: the page handle of the current test — the whole step call
             crosses the worker boundary as one unit, the step receives the
             genuine sync Page.
+
+    Returns:
+        The step function's return as-is — the dictionary of declared names
+        to observed strings for a step with declarations, None for a
+        declaration-free step; plain data only.
 
     Raises:
         Exception: whatever the step code raises propagates as-is — never
@@ -24,4 +29,4 @@ def run_step_code(code: str, page: PageFacade) -> None:
 
     step_fn = namespace["step"]
     # the engine contract: one worker unit — the whole step against the genuine sync Page
-    page.run(step_fn)
+    return page.run(step_fn)
