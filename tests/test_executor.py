@@ -228,23 +228,25 @@ class RecordingSteering:
         self,
         failure: IncurableStepError,
         identity: StepIdentity,
-        step_text: str,
+        prepared: PreparedStep,
         step_type: str,
         previous_steps: list[ScenarioStep],
         group_prompt: str | None,
         page: FakePage,
         attempt_history: list[StepAttempt],
+        memory: StepMemory,
     ) -> CachedStep | None:
         self.calls.append(
             {
                 "failure": failure,
                 "identity": identity,
-                "step_text": step_text,
+                "prepared": prepared,
                 "step_type": step_type,
                 "previous_steps": list(previous_steps),  # snapshot: the live list grows after the call
                 "group_prompt": group_prompt,
                 "page": page,
                 "attempt_history": list(attempt_history),  # snapshot: the dialog joins the grown history
+                "memory": memory,
             }
         )
         if self.error is not None:
@@ -700,13 +702,15 @@ class TestStepExecutorContract:
         assert set(steering.calls[0]) == {
             "failure",
             "identity",
-            "step_text",
+            "prepared",
             "step_type",
             "previous_steps",
             "group_prompt",
             "page",
             "attempt_history",
+            "memory",
         }
+        assert steering.calls[0]["prepared"].instruction == "нажать Войти"  # the interim render product
         assert steering.calls[0]["group_prompt"] is None  # the ordinary cycle carries no group context
 
 

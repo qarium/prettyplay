@@ -475,15 +475,17 @@ def test_prompt_mirrors_after_rename() -> None:
     assert SYSTEM_PROMPT == ENGINE_SYSTEM_PROMPT  # steering mirrors the identical constants
     assert CHEAT_SHEET == ENGINE_CHEAT_SHEET
 
-    # the git record: both renames were detected at 100% similarity — no byte changed with the name
-    for practice, current in (
-        (GENERATION_PRACTICE, generation_practice),
-        (CHEAT_SHEET_PRACTICE, cheat_sheet_practice),
-    ):
+    # the git record: both renames were detected at 100% similarity — no byte changed with
+    # the name. The pre-rename blob equals the rename commit's own blob (the rename was pure,
+    # independently of git's similarity detection); the practices drifted after the rename only
+    # through authored updates — the step-memory contract added the INPUTS/RESULTS lines to the
+    # generation practice — and the mirror legs above pin the current bytes to the constants.
+    for practice in (GENERATION_PRACTICE, CHEAT_SHEET_PRACTICE):
         status, old_path, commit = _rename_record(practice)
         assert status == "R100"  # rename detection saw identical content at the rename commit
         pre_rename = _git("show", f"{commit}~1:{old_path}")
-        assert pre_rename == current  # and nothing drifted since — the constants pin the same bytes
+        renamed = _git("show", f"{commit}:{practice.relative_to(REPO_ROOT)}")
+        assert pre_rename == renamed  # the rename itself changed no byte
 
 
 def test_typed_scenario_context_flows_end_to_end(

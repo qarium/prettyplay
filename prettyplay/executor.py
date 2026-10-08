@@ -505,8 +505,9 @@ class StepExecutor:
             failure: the terminal failure about to propagate.
             identity: the address of the stuck step — the healed step is
                 written back under it.
-            step_text: the raw sentence of the stuck step — carried into
-                every guided regeneration request verbatim.
+            step_text: the raw sentence of the stuck step — the interim
+                render product of every guided regeneration request until
+                the executor task threads the render product.
             step_type: action or assertion — carried into every guided
                 regeneration request.
             previous_steps: the typed scenario records of the previous steps
@@ -531,7 +532,15 @@ class StepExecutor:
             raise failure
 
         healed = self._steering.steer(
-            failure, identity, step_text, step_type, previous_steps, group_prompt, page, attempt_history
+            failure,
+            identity,
+            PreparedStep(instruction=step_text),  # interim until the executor task threads the render product
+            step_type,
+            previous_steps,
+            group_prompt,
+            page,
+            attempt_history,
+            StepMemory(),  # interim — the executor task threads the per-test memory
         )
         if healed is None:  # quit, EOF, SIGINT, an unreadable stdin or a dead provider
             raise failure
