@@ -515,10 +515,12 @@ def test_typed_scenario_context_flows_end_to_end(
     # the provider-side render of exactly those records: the marked group entry, no GROUP PROMPT block
     rendered = build_fields_text(
         user_instructions="",
-        step_text="place the order",
+        instruction="place the order",
         step_type="action",
         previous_steps=list(request["previous_steps"]),
         group_prompt=None,
+        inputs={},
+        declarations=[],
         snapshot="body: main",
         page_url="https://shop.example.com/checkout",
         cheat_sheet=CHEAT_SHEET,

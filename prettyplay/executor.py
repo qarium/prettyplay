@@ -13,7 +13,7 @@ from .engine import StepGenerator, StepHealer, classify_step_failure, format_ste
 from .engine.attempts import OUTCOME_ORIGINAL, StepAttempt
 from .engine.groups import GroupRecovery, GroupStepOutcome
 from .engine.polling import SettleWindow, settle
-from .engine.renderer import PreparedStep, StepMemory  # interim until the executor task threads the render product
+from .engine.renderer import PreparedStep, StepMemory, render_step, validate_step_result
 from .engine.steering import StepSteering
 from .failures import FailureVerdict, IncurableStepError, LLMUnavailableError, ProductDefectError
 from .llm import LLMProvider, ScenarioStep
@@ -62,6 +62,8 @@ class StepExecutor:
             path, the interactive switch the steering gate.
         _provider: the LLM port implementation of the strict classification.
         _scenario: the typed records of the previous steps of this test.
+        _memory: the per-test memory of captured observations — constructed
+            here once, read by every render, grown only at acceptance points.
     """
 
     def __init__(  # noqa: PLR0913, PLR0917 — the signature is fixed by the root cell contract
@@ -77,7 +79,7 @@ class StepExecutor:
         config: PrettyConfig,
         provider: LLMProvider,
     ) -> None:
-        """Keep the collaborators of the step cycle and reset the scenario context.
+        """Keep the collaborators of the step cycle, reset the scenario context and build the test memory.
 
         Args:
             cache_key: the context key of the owning test object.
@@ -109,6 +111,7 @@ class StepExecutor:
         self._config = config
         self._provider = provider
         self._scenario: list[ScenarioStep] = []  # test scenario context
+        self._memory = StepMemory()  # the per-test memory of captured observations
 
     def execute(  # noqa: PLR0913, PLR0917 — the signature is fixed by the root cell contract
         self,
@@ -118,12 +121,14 @@ class StepExecutor:
         group: StepGroup | None = None,
         tries: int | None = None,
         delay: float | None = None,
-        vars: dict[str, str] | None = None,  # noqa: ARG002 — the render input until the executor task threads it
+        vars: dict[str, str] | None = None,
     ) -> None:
         """Run one step through the full cycle.
 
         Args:
-            step_text: the sentence of the step as written by the engineer.
+            step_text: the sentence of the step as written by the engineer —
+                the template source and the addressing artifact; never
+                rendered into a request.
             step_type: the kind of the step sentence ({action, assertion}).
             page: the live page facade of the current test.
             group: the authoring group the step executes inside; ``None`` —
@@ -134,13 +139,17 @@ class StepExecutor:
                 the time-bounded settle mode; a declared count switches the
                 settle window to the count-bounded mode.
             delay: the declared quiet start pause in seconds; ``None`` — no
-                pause; passes quietly right after the started event.
+                pause; passes quietly right after the started event, before
+                the render.
             vars: the validated call-local string inputs passed by the
                 facade/group methods; rendered into the step's
-                ``PreparedStep`` and never published to memory — the render
-                threading lands with the executor task.
+                ``PreparedStep`` and never published to memory.
 
         Raises:
+            PrettyplayError: the template is an authoring error — malformed,
+                an invalid or duplicated capture name, an unavailable name or
+                an expectation declaring captures; raised before any browser
+                execution, cache access or identity construction.
             ProductDefectError: the healed step verdict says the expectation
                 of the step is genuinely broken in the product; in strict
                 mode, a product_defect classification of a failed cached
@@ -161,6 +170,7 @@ class StepExecutor:
             if delay is not None:
                 time.sleep(delay)  # the quiet pre-step pause — no event, no log record
 
+            prepared = render_step(step_text, step_type, self._memory, vars)  # authoring errors precede addressing
             identity = StepIdentity(
                 cache_key=self.cache_key,
                 step_type=step_type,
@@ -174,13 +184,15 @@ class StepExecutor:
             if cached is not None:
                 url_before = group_url_before if group is not None else _read_url(page)
                 try:
-                    settle(run_step_code, cached.code, page, window)
-                except Exception as error:  # cached code failed — the mode picks the reaction
+                    result = settle(run_step_code, cached.code, page, window)
+                    captures = validate_step_result(prepared, result)
+                except Exception as error:  # the replay failed or its result violated the contract — the mode reacts
                     traced = self._replay_failure(
                         cached,
                         format_step_error(error),
                         url_before,
                         _read_url(page),  # the bracket closes on the failure record 0 anchors
+                        prepared,
                         step_text,
                         step_type,
                         group,
@@ -191,24 +203,46 @@ class StepExecutor:
                         page,
                         window,
                     )
+                else:
+                    # acceptance = the validated successful execution — the gate never runs on replay
+                    self._memory.publish(captures)
             elif self._config.strict:
-                raise IncurableStepError(step_text, _STRICT_MISS_REASON, "", code="")
+                raise IncurableStepError(prepared.instruction, _STRICT_MISS_REASON, "", code="")
             else:
                 traced = self._generate_step(
-                    step_text, step_type, group, tries, delay, identity, group_url_before, attempt_history, page, window
+                    prepared,
+                    step_text,
+                    step_type,
+                    group,
+                    tries,
+                    delay,
+                    identity,
+                    group_url_before,
+                    attempt_history,
+                    page,
+                    window,
                 )
 
             self._scenario.append(
                 ScenarioStep(
                     sentence=step_text,
-                    instruction=step_text,  # the pre-render interim — rendering lands with the executor task
+                    instruction=prepared.instruction,
                     group_prompt=group.prompt if group is not None else "",
                 )
             )
             if group is not None and not traced:
                 # the green step's own record — the bracket closes after the execution
                 self._append_group_trace(
-                    group, step_text, step_type, tries, delay, identity, group_url_before, _read_url(page), "passed"
+                    group,
+                    prepared,
+                    step_text,
+                    step_type,
+                    tries,
+                    delay,
+                    identity,
+                    group_url_before,
+                    _read_url(page),
+                    "passed",
                 )
             self._reporter.emit("on_step_passed", {"step_text": step_text, "step_type": step_type})
             outcome = "passed"
@@ -240,6 +274,7 @@ class StepExecutor:
     def _append_group_trace(  # noqa: PLR0913, PLR0917 — the record fields are fixed by the groups cell contract
         self,
         group: StepGroup,
+        prepared: PreparedStep,
         step_text: str,
         step_type: str,
         tries: int | None,
@@ -253,7 +288,10 @@ class StepExecutor:
 
         Args:
             group: the authoring group the step executes inside.
-            step_text: the raw sentence of the step, verbatim.
+            prepared: the render product of the step — its instruction and
+                call-local inputs ride the record verbatim.
+            step_text: the raw sentence of the step, verbatim — the
+                re-render source of the row mechanics.
             step_type: action or assertion.
             tries: the declared retry count of this execution; ``None`` —
                 the global polling settings governed the step.
@@ -269,10 +307,11 @@ class StepExecutor:
         group.traces.append(
             GroupStepOutcome(
                 sentence=step_text,
-                instruction=step_text,  # the pre-render interim — rendering lands with the executor task
+                instruction=prepared.instruction,
                 step_type=step_type,
                 tries=tries,
                 delay=delay,
+                vars=prepared.inputs,
                 outcome=outcome_label,
                 url_before=url_before,
                 url_after=url_after,
@@ -286,6 +325,7 @@ class StepExecutor:
         error_text: str,
         url_before: str,
         url_after: str,
+        prepared: PreparedStep,
         step_text: str,
         step_type: str,
         group: StepGroup | None,
@@ -300,10 +340,15 @@ class StepExecutor:
 
         Args:
             step: the cached step whose code failed.
-            error_text: the full formatted error text of the failure.
+            error_text: the full formatted error text of the failure — a
+                result-contract violation arrives as the deterministic
+                violation text.
             url_before: the page URL read before the cached execution.
             url_after: the page URL read on the failure — the bracket of
                 record 0 and the failed trace record.
+            prepared: the render product of the failed step — every request
+                and raised failure carries the prepared instruction, never
+                the raw template sentence.
             step_text: the raw sentence of the step, verbatim.
             step_type: action or assertion.
             group: the authoring group the step executes inside;
@@ -328,12 +373,12 @@ class StepExecutor:
             LLMUnavailableError: the provider service failed; no retry.
         """
         if self._config.strict:
-            self._strict_failure(step_text, step_type, step, error_text, page)  # always raises
+            self._strict_failure(prepared.instruction, step_type, step, error_text, page)  # always raises
 
         if group is not None:
             # the failed group step is traced once, then the group recovery decides
             self._append_group_trace(
-                group, step_text, step_type, tries, delay, identity, url_before, url_after, "failed"
+                group, prepared, step_text, step_type, tries, delay, identity, url_before, url_after, "failed"
             )
             # record 0 — the anchor of the recovery: the original cached code with its
             # replay error and the replay URL pair, composed before the recovery delegation
@@ -346,7 +391,7 @@ class StepExecutor:
                     url_after=url_after,
                 )
             )
-            self._recover_or_steer(group, step_text, step_type, identity, attempt_history, page, window)
+            self._recover_or_steer(group, prepared, step_type, identity, attempt_history, page, window)
 
             return True
 
@@ -366,21 +411,22 @@ class StepExecutor:
             self._healer.heal(
                 step,
                 error_text,
-                PreparedStep(instruction=step_text),  # interim until the executor task threads the render product
+                prepared,
                 step_type,
                 self._scenario,
                 page,
                 attempt_history,
                 window,
-                StepMemory(),  # interim — the executor task threads the per-test memory
+                self._memory,
             )
         except IncurableStepError as failure:  # the only kind the steering intercept serves
-            self._steer_or_raise(failure, identity, step_text, step_type, self._scenario, None, page, attempt_history)
+            self._steer_or_raise(failure, identity, prepared, step_type, self._scenario, None, page, attempt_history)
 
         return False
 
     def _generate_step(  # noqa: PLR0913, PLR0917 — the threading is fixed by the root cell contract
         self,
+        prepared: PreparedStep,
         step_text: str,
         step_type: str,
         group: StepGroup | None,
@@ -395,6 +441,9 @@ class StepExecutor:
         """Generate a missing step; a group step's terminal failure routes to the recovery.
 
         Args:
+            prepared: the render product of the step — every request carries
+                the prepared instruction with its INPUTS and RESULTS blocks;
+                the accepted captures publish inside the engine loop.
             step_text: the raw sentence of the step, verbatim.
             step_type: action or assertion.
             group: the authoring group the step executes inside;
@@ -425,37 +474,37 @@ class StepExecutor:
         try:
             self._generator.generate(
                 identity,
-                PreparedStep(instruction=step_text),  # interim until the executor task threads the render product
+                prepared,
                 step_type,
                 self._scenario,
                 group.prompt if group is not None else None,
                 page,
                 attempt_history,
                 window,
-                StepMemory(),  # interim — the executor task threads the per-test memory
+                self._memory,
             )
 
             return False
         except IncurableStepError as failure:  # the only kind the steering intercept serves
             if group is None:
                 self._steer_or_raise(
-                    failure, identity, step_text, step_type, self._scenario, None, page, attempt_history
+                    failure, identity, prepared, step_type, self._scenario, None, page, attempt_history
                 )
 
                 return False
 
             # the unclassified generation failure of a group step — the recovery decides
             self._append_group_trace(
-                group, step_text, step_type, tries, delay, identity, url_before, _read_url(page), "failed"
+                group, prepared, step_text, step_type, tries, delay, identity, url_before, _read_url(page), "failed"
             )
-            self._recover_or_steer(group, step_text, step_type, identity, attempt_history, page, window)
+            self._recover_or_steer(group, prepared, step_type, identity, attempt_history, page, window)
 
             return True
 
     def _recover_or_steer(  # noqa: PLR0913, PLR0917 — the threading is fixed by the root cell contract
         self,
         group: StepGroup,
-        step_text: str,
+        prepared: PreparedStep,
         step_type: str,
         identity: StepIdentity,
         attempt_history: list[StepAttempt],
@@ -466,7 +515,9 @@ class StepExecutor:
 
         Args:
             group: the authoring group of the failed step.
-            step_text: the raw sentence of the failed step, verbatim.
+            prepared: the render product of the failed step — the active
+                failure's instruction rides the diagnosis; the per-test
+                memory threads into every row re-render and publication.
             step_type: action or assertion.
             identity: the address of the failed step.
             attempt_history: the per-step attempt history anchored by
@@ -479,25 +530,25 @@ class StepExecutor:
             self._recovery.recover(
                 group.prompt,
                 group.traces,
-                PreparedStep(instruction=step_text),  # interim until the executor task threads the render product
+                prepared,
                 step_type,
                 self._scenario,
                 identity,
                 attempt_history,
                 page,
                 window,
-                StepMemory(),  # interim — the executor task threads the per-test memory
+                self._memory,
             )
         except IncurableStepError as failure:  # the only kind the steering intercept serves
             self._steer_or_raise(
-                failure, identity, step_text, step_type, self._scenario, group.prompt, page, attempt_history
+                failure, identity, prepared, step_type, self._scenario, group.prompt, page, attempt_history
             )
 
     def _steer_or_raise(  # noqa: PLR0913, PLR0917 — the threading is fixed by the root cell contract
         self,
         failure: IncurableStepError,
         identity: StepIdentity,
-        step_text: str,
+        prepared: PreparedStep,
         step_type: str,
         previous_steps: list[ScenarioStep],
         group_prompt: str | None,
@@ -510,9 +561,9 @@ class StepExecutor:
             failure: the terminal failure about to propagate.
             identity: the address of the stuck step — the healed step is
                 written back under it.
-            step_text: the raw sentence of the stuck step — the interim
-                render product of every guided regeneration request until
-                the executor task threads the render product.
+            prepared: the render product of the stuck step — the banner and
+                every guided request carry the prepared instruction; the
+                memory threads into the validated green turn's publication.
             step_type: action or assertion — carried into every guided
                 regeneration request.
             previous_steps: the typed scenario records of the previous steps
@@ -539,13 +590,13 @@ class StepExecutor:
         healed = self._steering.steer(
             failure,
             identity,
-            PreparedStep(instruction=step_text),  # interim until the executor task threads the render product
+            prepared,
             step_type,
             previous_steps,
             group_prompt,
             page,
             attempt_history,
-            StepMemory(),  # interim — the executor task threads the per-test memory
+            self._memory,
         )
         if healed is None:  # quit, EOF, SIGINT, an unreadable stdin or a dead provider
             raise failure
@@ -554,7 +605,7 @@ class StepExecutor:
 
     def _strict_failure(
         self,
-        step_text: str,
+        instruction: str,
         step_type: str,
         step: CachedStep,
         error_text: str,
@@ -563,7 +614,9 @@ class StepExecutor:
         """Turn the failure of a cached step into a terminal error by classification only.
 
         Args:
-            step_text: the sentence of the failed step.
+            instruction: the prepared instruction of the failed step — the
+                classification request and the raised failure carry it,
+                never the raw template sentence.
             step_type: the kind of the step sentence ({action, assertion}).
             step: the cached step whose code failed.
             error_text: the full formatted error text of the failure.
@@ -577,14 +630,16 @@ class StepExecutor:
                 picks the kind.
         """
         try:
-            classification = classify_step_failure(self._config, self._provider, step_text, step.code, error_text, page)
+            classification = classify_step_failure(
+                self._config, self._provider, instruction, step.code, error_text, page
+            )
         except LLMUnavailableError:
             logger.warning("verdict skipped: llm unavailable")
 
             # from None: the skip is logged; the step failure itself travels in the error field
             if step_type == "assertion":
-                raise ProductDefectError(step_text, _STRICT_NO_VERDICT_REASON, error_text, None) from None
-            raise IncurableStepError(step_text, _STRICT_NO_VERDICT_REASON, error_text, code=step.code) from None
+                raise ProductDefectError(instruction, _STRICT_NO_VERDICT_REASON, error_text, None) from None
+            raise IncurableStepError(instruction, _STRICT_NO_VERDICT_REASON, error_text, code=step.code) from None
 
         verdict = FailureVerdict(
             category=classification.category,
@@ -593,5 +648,5 @@ class StepExecutor:
         )
 
         if classification.category == "product_defect":
-            raise ProductDefectError(step_text, classification.explanation, error_text, verdict)
-        raise IncurableStepError(step_text, classification.explanation, error_text, code=step.code, verdict=verdict)
+            raise ProductDefectError(instruction, classification.explanation, error_text, verdict)
+        raise IncurableStepError(instruction, classification.explanation, error_text, code=step.code, verdict=verdict)

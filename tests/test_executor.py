@@ -16,13 +16,22 @@ from prettyplay.engine import StepAttempt
 from prettyplay.engine.attempts import OUTCOME_ORIGINAL
 from prettyplay.engine.groups import GroupStepOutcome
 from prettyplay.engine.polling import SettleWindow, settle
-from prettyplay.engine.renderer import PreparedStep, StepMemory
-from prettyplay.failures import FailureVerdict, IncurableStepError, LLMUnavailableError, ProductDefectError
+from prettyplay.engine.renderer import PreparedStep, StepMemory, render_step
+from prettyplay.failures import (
+    FailureVerdict,
+    IncurableStepError,
+    LLMUnavailableError,
+    PrettyplayError,
+    ProductDefectError,
+)
 from prettyplay.llm import FailureClassification, LLMProvider, ScenarioStep
 from prettyplay.reporting import StepHooks, StepReporter
 
 CACHED_CODE = "def step(page) -> None:\n    page.goto('https://example.com')\n"
 BROKEN_CODE = "def step(page) -> None:\n    page.get_by_role('button', name='Войти').click()\n"
+CAPTURING_CODE = 'def step(page):\n    return {"name": "Dune"}\n'
+BLANK_CODE = 'def step(page):\n    return {"name": ""}\n'
+TEMPLATE_STEP = "Read {{ kind }} into {% var name %}"
 
 
 class FakePage:
@@ -309,6 +318,7 @@ class ScriptedProvider(LLMProvider):
         self.verdict = verdict
         self.generation_calls = 0
         self.classification_calls = 0
+        self.classification_requests: list[dict[str, object]] = []
 
     def generate_step_code(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
@@ -340,6 +350,9 @@ class ScriptedProvider(LLMProvider):
         screenshot: bytes | None = None,
     ) -> FailureClassification:
         self.classification_calls += 1
+        self.classification_requests.append(
+            {"step_text": step_text, "code": code, "error": error, "snapshot": snapshot, "screenshot": screenshot}
+        )
         return self.verdict
 
 
@@ -586,7 +599,35 @@ class TestStepExecutorContract:
         assert defaults["group"] is None  # the ordinary step — every path byte-identical to today
         assert defaults["tries"] is None  # the time-bounded settle mode of the polling settings
         assert defaults["delay"] is None  # no quiet start pause
-        assert defaults["vars"] is None  # no call-local inputs — the render threading lands with the executor task
+        assert defaults["vars"] is None  # no call-local inputs rendered into the step
+
+    def test_constructor_builds_one_memory_per_executor(self, tmp_path: Path) -> None:
+        """One StepMemory per test execution — constructed in __init__, owned for the test's life."""
+        fixture = ExecutorFixture(tmp_path, RecordingGenerator(), RecordingHealer())
+        other = ExecutorFixture(tmp_path, RecordingGenerator(), RecordingHealer())
+
+        assert isinstance(fixture.executor._memory, StepMemory)
+        assert isinstance(other.executor._memory, StepMemory)
+        assert fixture.executor._memory is not other.executor._memory  # tests never share memory
+
+    def test_execute_renders_the_step_before_addressing_from_the_raw_sentence(self, tmp_path: Path) -> None:
+        """The render product rides every engine call; the identity addresses the original template."""
+        generator = RecordingGenerator()
+        fixture = ExecutorFixture(tmp_path, generator, RecordingHealer())
+        fixture.executor._memory.publish({"kind": "novel"})
+
+        fixture.executor.execute("Read {{ kind }} into {% var name %}", "action", FakePage())
+
+        call = generator.calls[0]
+        assert call["prepared"].instruction == "Read novel into "  # rendered — never raw Jinja
+        assert call["prepared"].declarations == ["name"]
+        assert call["prepared"].inputs == {}
+        assert call["memory"] is fixture.executor._memory  # the per-test memory threads by identity
+        assert call["identity"] == StepIdentity(
+            cache_key="login-flow",
+            step_type="action",
+            normalized_text=normalize_step_text("Read {{ kind }} into {% var name %}"),
+        )  # addressing stays on the original sentence — template mode, verbatim
 
     def test_execute_grows_the_typed_scenario_context(self, tmp_path: Path) -> None:
         """The scenario context holds typed records — the sentence plus the permanent group membership."""
@@ -712,7 +753,7 @@ class TestStepExecutorContract:
             "attempt_history",
             "memory",
         }
-        assert steering.calls[0]["prepared"].instruction == "нажать Войти"  # the interim render product
+        assert steering.calls[0]["prepared"].instruction == "нажать Войти"  # the render product — verbatim sentence
         assert steering.calls[0]["group_prompt"] is None  # the ordinary cycle carries no group context
 
 
@@ -782,7 +823,7 @@ class TestStepExecutorLogic:
         assert record.url_after == "https://b.example"
         assert (
             call["prepared"].instruction == "Click the «Sign in» button"
-        )  # the interim render product of the raw sentence, casing untouched — Task 19 threads the real one
+        )  # the render product — a non-template sentence renders verbatim, casing untouched
         assert call["step_type"] == "action"
 
     def test_execute_degrades_a_dead_replay_url_read_to_the_empty_pair(self, tmp_path: Path) -> None:
@@ -1161,6 +1202,147 @@ class TestStepExecutorStrictMode:
             {"step_text": "нажать Войти", "step_type": "action", "error": "classification crashed"}
         ]
         assert not events_named(fixture.recorder, "on_step_verdict")  # no verdict for a crashed classification
+
+
+class TestStepExecutorRenderAndMemory:
+    """Logic tests: the render point, replay publication and the memory ownership."""
+
+    def test_executor_publishes_validated_captures_on_cached_replay(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A validated cached replay publishes its captures — the prior memory values survive."""
+        gate = mock.Mock(return_value=[])
+        monkeypatch.setattr("prettyplay.engine.generator.check_step_compliance", gate)
+        generator = RecordingGenerator()
+        fixture = ExecutorFixture(tmp_path, generator, RecordingHealer())
+        fixture.executor._memory.publish({"kind": "novel"})
+        seed_cached_step(fixture, TEMPLATE_STEP, code=CAPTURING_CODE)
+        page = FakePage()
+
+        fixture.executor.execute(TEMPLATE_STEP, "action", page, vars=None)
+
+        assert fixture.executor._memory.snapshot() == {"kind": "novel", "name": "Dune"}  # kind survives the publish
+        assert fixture.executor._scenario == [
+            ScenarioStep(sentence=TEMPLATE_STEP, instruction="Read novel into ", group_prompt="")
+        ]  # the record holds both texts — the raw template and the prepared instruction
+        assert generator.calls == []  # a cached replay runs no engine
+        assert fixture.provider.generation_calls == 0
+        assert fixture.provider.classification_calls == 0  # no LLM calls whatsoever
+        assert gate.call_count == 0  # the gate never runs on replay
+        assert events_named(fixture.recorder, "on_step_started") == [
+            {"step_text": TEMPLATE_STEP, "step_type": "action"}
+        ]  # the hook surface carries the raw sentence
+        assert events_named(fixture.recorder, "on_step_passed") == [{"step_text": TEMPLATE_STEP, "step_type": "action"}]
+
+    def test_executor_strict_template_step_validates_and_publishes_on_replay(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Strict replay accepts and publishes valid captures without regeneration or compliance gating."""
+        gate = mock.Mock(return_value=[])
+        monkeypatch.setattr("prettyplay.engine.generator.check_step_compliance", gate)
+        provider = ScriptedProvider()
+        generator = RecordingGenerator()
+        fixture = strict_fixture(tmp_path, generator, RecordingHealer(), provider)
+        fixture.executor._memory.publish({"kind": "novel"})
+        seed_cached_step(fixture, TEMPLATE_STEP, code=CAPTURING_CODE)
+
+        fixture.executor.execute(TEMPLATE_STEP, "action", FakePage(), vars=None)
+
+        assert fixture.executor._memory.snapshot() == {"kind": "novel", "name": "Dune"}  # publish + retain
+        assert provider.generation_calls == 0  # the only LLM call strict mode may make is a classification
+        assert provider.classification_calls == 0  # a green replay classifies nothing
+        assert generator.calls == []
+        assert gate.call_count == 0  # acceptance is the validated successful execution — never the gate
+        assert fixture.executor._scenario[-1].instruction == "Read novel into "
+
+    def test_executor_strict_template_result_violation_stays_unpublished(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A result-contract violation on cached strict replay is a failed check: memory untouched, no generation."""
+        gate = mock.Mock(return_value=[])
+        monkeypatch.setattr("prettyplay.engine.generator.check_step_compliance", gate)
+        provider = ScriptedProvider(
+            verdict=FailureClassification(
+                category="incurable", explanation="capture is blank", recommendation="inspect the page"
+            )
+        )
+        generator = RecordingGenerator()
+        fixture = strict_fixture(tmp_path, generator, RecordingHealer(), provider)
+        fixture.executor._memory.publish({"kind": "novel"})
+        seed_cached_step(fixture, TEMPLATE_STEP, code=BLANK_CODE)
+
+        with pytest.raises(IncurableStepError) as excinfo:
+            fixture.executor.execute(TEMPLATE_STEP, "action", FakePage(), vars=None)
+
+        assert "name" in str(excinfo.value)  # the deterministic violation text rides the render
+        assert excinfo.value.verdict.category == "incurable"
+        assert fixture.executor._memory.snapshot() == {"kind": "novel"}  # the violation publishes nothing
+        assert provider.classification_calls == 1  # the classification is the only LLM call
+        assert provider.classification_requests[0]["step_text"] == "Read novel into "  # prepared, never raw Jinja
+        assert provider.classification_requests[0]["error"] == "the result value of 'name' is blank"  # no prefix
+        assert generator.calls == []
+        assert gate.call_count == 0
+
+    def test_declared_delay_sleeps_before_the_render(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The numbered contract order: the pause passes, then the render surfaces the authoring error."""
+        fixture = ExecutorFixture(tmp_path, RecordingGenerator(), RecordingHealer())
+        recorded: list[tuple[str, float | str]] = []
+
+        def recording_sleep(seconds: float) -> None:
+            recorded.append(("sleep", seconds))
+
+        def spying_render(text: str, step_type: str, memory: StepMemory, vars: dict[str, str] | None) -> PreparedStep:
+            recorded.append(("render", text))
+
+            return render_step(text, step_type, memory, vars)
+
+        load = mock.Mock(side_effect=fixture.cache.load)
+        monkeypatch.setattr(time, "sleep", recording_sleep)
+        monkeypatch.setattr("prettyplay.executor.render_step", spying_render)
+        monkeypatch.setattr(fixture.cache, "load", load)
+
+        with pytest.raises(PrettyplayError, match="missing"):
+            fixture.executor.execute("Open {{ missing }}", "action", FakePage(), delay=0.5)
+
+        assert recorded == [
+            ("sleep", 0.5),  # the declared pause passes first — the contract's numbered order
+            ("render", "Open {{ missing }}"),  # then the render raises the authoring error
+        ]
+        assert load.call_count == 0  # the authoring error precedes cache access — the address is never built
+        assert fixture.executor._memory.snapshot() == {}  # nothing rendered in, nothing published
+
+    def test_executor_renders_exactly_once_per_step_execution(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """One render per execution — a failed replay routed through the heal never re-renders the sentence."""
+        fixture = ExecutorFixture(tmp_path, RecordingGenerator(), RecordingHealer())
+        seed_cached_step(fixture, "нажать войти")  # the broken cached code — the replay fails into the heal
+        renders: list[str] = []
+
+        def spying_render(text: str, step_type: str, memory: StepMemory, vars: dict[str, str] | None) -> PreparedStep:
+            renders.append(text)
+
+            return render_step(text, step_type, memory, vars)
+
+        monkeypatch.setattr("prettyplay.executor.render_step", spying_render)
+
+        fixture.executor.execute("нажать Войти", "action", FakePage())
+
+        assert renders == ["нажать Войти"]  # the heal re-executes code; only recovery re-renders rows
+
+    def test_group_trace_records_the_prepared_instruction_and_call_vars(self, tmp_path: Path) -> None:
+        """The group trace carries both texts and the call-local vars — the row re-render inputs."""
+        fixture = ExecutorFixture(tmp_path, RecordingGenerator(), RecordingHealer())
+        group = FakeGroup(prompt="the flow")
+
+        fixture.executor.execute("Check {{ vars.code }}", "action", FakePage(), group=group, vars={"code": "A1"})
+
+        assert len(group.traces) == 1
+        record = group.traces[0]
+        assert record.sentence == "Check {{ vars.code }}"  # the re-render source
+        assert record.instruction == "Check A1"  # the rendered unit the diagnosis quotes
+        assert record.vars == {"code": "A1"}  # the recorded re-render input
+        assert record.outcome == "passed"
 
 
 def interactive_fixture(  # noqa: PLR0913, PLR0917 — the assembly inputs of the fixture
