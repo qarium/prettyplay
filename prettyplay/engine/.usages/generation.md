@@ -11,7 +11,9 @@ step = generator.generate(
     step_type="action",
     previous_steps=[
         ScenarioStep(sentence="open the login page", instruction="open the login page", group_prompt=""),
-        ScenarioStep(sentence="enter the login and password", instruction="enter the login and password", group_prompt=""),
+        ScenarioStep(
+            sentence="enter the login and password", instruction="enter the login and password", group_prompt=""
+        ),
     ],
     group_prompt=None,  # None — an ordinary step; the group prompt of the step's group inside one
     page=page,

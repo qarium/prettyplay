@@ -13,8 +13,8 @@ prepared = render_step(
     memory=memory,
     vars=None,
 )
-prepared.instruction   # "For the item named Book, read its tags into " — plain text, actual values
-prepared.inputs        # {} — the call's vars
+prepared.instruction  # "For the item named Book, read its tags into " — plain text, actual values
+prepared.inputs  # {} — the call's vars
 prepared.declarations  # ["tags"] — reached capture tags only
 ```
 

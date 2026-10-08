@@ -290,12 +290,12 @@ The repo's `.venv` was built on macOS (`pyvenv.cfg` points at `/opt/homebrew/...
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them.**
 
-- [ ] Recreate the venv: `rm -rf .venv && python3 -m venv .venv && .venv/bin/pip install -e ".[test]"` (installs the package plus pytest/pytest-cov/pytest-mock/ruff; pulls `jinja2>=3.1`)
-- [ ] REPL probe the environment (M4): `.venv/bin/python -c "import jinja2, pydantic, prettyplay; print(jinja2.__version__)"` — must print a 3.1+ version
-- [ ] Baseline: `.venv/bin/pytest tests/` — record passing and failing test counts and the exact prompt-mirror failures; investigate any unrelated failure before proceeding. Require the full suite to pass after Task 19 completes all dependent API migrations; Task 20 confirms the integrated result.
-- [ ] Baseline: `.venv/bin/ruff check prettyplay/` and `.venv/bin/ruff check tests/` — clean
-- [ ] Lint: `.venv/bin/ruff format --check prettyplay/ tests/` — fix nothing that predates this topic unless the check fails on files this topic will not touch; report any pre-existing failure instead of reformatting the world
-- [ ] **Full lint/format gate (M3)**: `.venv/bin/ruff check prettyplay/ tests/` and `.venv/bin/ruff format --check prettyplay/ tests/` — both pass before marking this task complete
+- [x] Recreate the venv: `rm -rf .venv && python3 -m venv .venv && .venv/bin/pip install -e ".[test]"` (installs the package plus pytest/pytest-cov/pytest-mock/ruff; pulls `jinja2>=3.1`)
+- [x] REPL probe the environment (M4): `.venv/bin/python -c "import jinja2, pydantic, prettyplay; print(jinja2.__version__)"` — must print a 3.1+ version (printed 3.1.6)
+- [x] Baseline: `.venv/bin/pytest tests/` — record passing and failing test counts and the exact prompt-mirror failures; investigate any unrelated failure before proceeding. Require the full suite to pass after Task 19 completes all dependent API migrations; Task 20 confirms the integrated result. (Baseline: 1188 passed, 5 failed — all five are prompt-mirror tests mapped to pending tasks: `tests/engine/test_compliance.py::TestCompliancePromptMirror` → Task 11; `tests/engine/test_generator.py::TestPromptConstants::test_system_prompt_mirrors_the_generation_practice` and `tests/test_groups_integration.py::test_prompt_mirrors_after_rename` → Task 12; `tests/engine/groups/test_diagnosis.py::TestClassifyGroupFailureContract::test_group_diagnosis_prompt_mirrors_the_practice` → Task 15; `tests/engine/steering/test_steering.py::TestStepSteeringContract::test_steering_mirrors_the_practices` → Task 17. No unrelated failures.)
+- [x] Baseline: `.venv/bin/ruff check prettyplay/` and `.venv/bin/ruff check tests/` — clean (both passed)
+- [x] Lint: `.venv/bin/ruff format --check prettyplay/ tests/` — fix nothing that predates this topic unless the check fails on files this topic will not touch; report any pre-existing failure instead of reformatting the world (3 failures found, all in this topic's own `.usages/` docs from commit e4c8904 — `generation.md`, `memory.md`, `rendering.md`; pure code-fence formatting, not frozen prompt constants; formatted via `ruff format` on exactly those three files)
+- [x] **Full lint/format gate (M3)**: `.venv/bin/ruff check prettyplay/ tests/` and `.venv/bin/ruff format --check prettyplay/ tests/` — both pass before marking this task complete (both pass: 114 files formatted, all checks passed)
 
 ### Task 2: Renderer package skeleton and test scaffolding (infrastructure)
 

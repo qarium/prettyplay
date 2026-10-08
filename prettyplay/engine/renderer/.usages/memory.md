@@ -7,9 +7,9 @@ Domain: the per-test memory of captured observations. Audience: library internal
 ```python
 from prettyplay.engine.renderer import StepMemory
 
-memory = StepMemory()              # empty at construction, one per test execution
-values = memory.snapshot()         # the render source — a stable copy
-memory.publish({"name": "Book"})   # atomic, after full acceptance only
+memory = StepMemory()  # empty at construction, one per test execution
+values = memory.snapshot()  # the render source — a stable copy
+memory.publish({"name": "Book"})  # atomic, after full acceptance only
 ```
 
 - Rendering reads a snapshot: a step's own new captures stay invisible to its template; a same-step read observes the previous value or fails
