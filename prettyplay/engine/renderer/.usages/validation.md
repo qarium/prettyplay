@@ -5,10 +5,13 @@ Domain: deterministic acceptance of returned step results. Audience: library int
 ## Validate an execution result
 
 ```python
-from prettyplay.engine.renderer import validate_step_result
+from prettyplay.engine.renderer import PreparedStep, StepMemory, validate_step_result
 
-captures = validate_step_result(prepared, result)  # result — the step function's return
-memory.publish(captures)
+memory = StepMemory()
+prepared = PreparedStep(instruction="Read the item name", declarations=["name"])
+result = {"name": "Book"}  # returned by the executed step after reading the page
+captures = validate_step_result(prepared, result)
+memory.publish(captures)  # accepted cached replay; candidates must pass compliance first
 ```
 
 - Exact declared keys: missing or unexpected names violate; string values only; blank (empty or whitespace-only) values violate

@@ -37,7 +37,7 @@ with PrettyPlay("login-flow") as t:
 - step(text, delay=1.5) — a quiet pause in seconds before the step's code runs: the started event
   fires, the declared seconds pass, then the code; a step never reached never pauses
 - step(text, vars={"expected": "Details"}) — the call-local string inputs; separate namespace from memory
-- All parameters are keyword-only and accepted by both step kinds; invalid values (zero/negative
+- The optional tries, delay and vars parameters are keyword-only and accepted by both step kinds; invalid values (zero/negative
   tries, negative delay) and non-string vars values fail loudly at the call
 
 ## Templates and step memory
@@ -102,7 +102,7 @@ with t.group("accept cookies, fill and submit the order form") as g:
 - The block frames itself with the four group lifecycle events — on_group_started on entry, then
   on_group_passed/on_group_failed and the closing on_group_finished on exit; a recovered group
   reports passed
-- An empty group prompt fails loudly at entry; a group with zero steps is a quiet no-op
+- An empty group prompt fails loudly at entry; a group with zero steps emits only the group lifecycle events
 - Group membership changes no step's cache address: cached group steps replay as ordinary steps —
   no LLM calls, strict replay-only included
 - On a non-strict run a failing group step is diagnosed with the whole group in view and the
@@ -115,13 +115,14 @@ with t.group("accept cookies, fill and submit the order form") as g:
 ## The honest step context
 
 The step cycle carries an honest context window end to end: every generation, healing and
-steering request receives the step type (action or assertion), the raw step sentence as
-written by the engineer, and the verbatim per-step attempt history — every prior candidate
+steering request receives the step type (action or assertion), the prepared instruction with its input bindings and
+result declarations, and the verbatim per-step attempt history — every prior candidate
 with its outcome, its URL before -> after line, its complete code and complete error, the
 original cached code anchored first. The cache write is guarded by a two-dimension gate —
 instruction compliance and step adequacy — so a cached step contains the action the
 sentence asks for, not a check of an already-achieved state. All of this is internal: the
-authoring surface — step(), expect(), the cache addressing — is unchanged.
+authoring surface uses step() and expect() with optional vars; cache addressing uses the original
+template source.
 
 ## Author page access
 

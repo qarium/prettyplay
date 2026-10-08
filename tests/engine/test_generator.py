@@ -2634,6 +2634,88 @@ class TestPromptConstants:
 class TestStepGeneratorMemory:
     """Logic tests: in-loop validation and the publication of the accepted captures."""
 
+    @pytest.mark.parametrize("corrected", [False, True])
+    def test_regenerate_invalid_capture_preserves_memory_until_acceptance(
+        self, tmp_path: Path, corrected: bool
+    ) -> None:
+        """Invalid results consume healing attempts without publishing partial captures."""
+        invalid = 'def step(page):\n    return {"name": "", "kind": "changed"}\n'
+        valid = (
+            'def step(page):\n    assert step_inputs["name"] == "Before"\n'
+            '    assert step_inputs["kind"] == "novel"\n'
+            '    return {"name": "After", "kind": "book"}\n'
+        )
+        provider = StubProvider([invalid, valid] if corrected else [invalid], compliance_verdicts=[[]])
+        fixture = GeneratorFixture(
+            tmp_path, provider, limits=(3, 2 if corrected else 1), generation_prompt="Read the page"
+        )
+        fixture.memory.publish({"name": "Before", "kind": "novel", "other": "retained"})
+        identity = make_identity()
+        history = make_anchored_history()
+        prepared = PreparedStep(instruction="Read the item", declarations=["name", "kind"])
+
+        def regenerate():
+            return fixture.generator.regenerate(
+                identity,
+                prepared,
+                "action",
+                [],
+                None,
+                FakePage(),
+                history,
+                "read again",
+                fixture.window,
+                fixture.memory,
+            )
+
+        if corrected:
+            step = regenerate()
+
+            assert fixture.memory.snapshot() == {"name": "After", "kind": "book", "other": "retained"}
+            assert fixture.cache.load(identity).code.strip() == step.code.strip() == valid.strip()
+            assert len(provider.compliance_calls) == 1
+            assert "blank" in provider.calls[1]["attempt_history"][-1]
+        else:
+            with pytest.raises(IncurableStepError, match="healing attempt budget exhausted"):
+                regenerate()
+
+            assert fixture.memory.snapshot() == {"name": "Before", "kind": "novel", "other": "retained"}
+            assert fixture.cache.load(identity) is None
+            assert provider.compliance_calls == []
+
+        assert [record.outcome for record in history] == [OUTCOME_ORIGINAL, OUTCOME_FAILED_CHECK]
+        assert history[-1].code == invalid
+        assert history[-1].error == "the result value of 'name' is blank"
+        assert provider.classify_step_failure_calls == []
+        assert len(provider.calls) == (2 if corrected else 1)
+
+    def test_funded_regeneration_invalid_capture_is_terminal_without_publication(self, tmp_path: Path) -> None:
+        """A second invalid result reaches terminal classification and preserves prior memory."""
+        invalid = 'def step(page):\n    return {"name": ""}\n'
+        final = FailureClassification(category="incurable", explanation="capture unavailable", recommendation="inspect")
+        provider = StubProvider([invalid, invalid], verdicts=[ROT_VERDICT, final])
+        fixture = GeneratorFixture(tmp_path, provider, generation_prompt="Read the page")
+        fixture.memory.publish({"name": "Before"})
+        identity = make_identity()
+        history: list[StepAttempt] = []
+        prepared = PreparedStep(instruction="Read the item name", declarations=["name"])
+
+        with pytest.raises(IncurableStepError) as excinfo:
+            fixture.generator.generate(
+                identity, prepared, "action", [], None, FakePage(), history, fixture.window, fixture.memory
+            )
+
+        assert excinfo.value.verdict.category == "incurable"
+        assert excinfo.value.error == "the result value of 'name' is blank"
+        assert fixture.memory.snapshot() == {"name": "Before"}
+        assert fixture.cache.load(identity) is None
+        assert provider.compliance_calls == []
+        assert len(provider.calls) == 2
+        assert len(provider.classify_step_failure_calls) == 2
+        assert [record.outcome for record in history] == [OUTCOME_FAILED_CHECK, OUTCOME_FAILED_CHECK]
+        assert provider.classify_step_failure_calls[-1]["error"] == history[-1].error
+        assert provider.calls[1]["recommendation"] == ROT_VERDICT.recommendation
+
     def test_generator_publishes_captures_after_gate_pass_and_stores(self, tmp_path: Path) -> None:
         provider = StubProvider(['def step(page) -> dict:\n    return {"name": "Dune"}\n'])
         fixture = GeneratorFixture(tmp_path, provider)

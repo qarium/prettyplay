@@ -5,9 +5,14 @@ Domain: generating executable code for an unknown step. Audience: library intern
 ## Generate a step
 
 ```python
+from prettyplay.engine.renderer import PreparedStep
+from prettyplay.llm import ScenarioStep
+
 step = generator.generate(
     identity=identity,
-    prepared=PreparedStep(...),  # the render product of the step — instruction, inputs, declarations
+    prepared=PreparedStep(
+        instruction="click the Sign in button"
+    ),  # the render product of the step — instruction, inputs, declarations
     step_type="action",
     previous_steps=[
         ScenarioStep(sentence="open the login page", instruction="open the login page", group_prompt=""),
@@ -23,7 +28,7 @@ step = generator.generate(
 )
 ```
 
-- The loop: request code → execute against the live page → validate the returned result → append the full attempt record → on failure re-request with the fresh snapshot and the grown history
+- The loop: request code → execute against the live page → validate the returned result → on failure append the full attempt record and re-request with the fresh snapshot and the grown history
 - The attempt history is one continuous verbatim list: every record carries the outcome, the `URL before -> after` line, the complete candidate code and the complete error; no collapsing, no size limits — the attempt budgets are the only bound. The error text follows the engine error-text policy: the bulky aria-snapshot section Playwright appends to a failed check message is excluded — the fresh page state reaches the loop through the separately captured snapshot
 - Every request carries the honest inputs: the step type (action or assertion) and the prepared instruction of the step (with its INPUTS/RESULTS blocks when present) — the raw template sentence never reaches a request; the casefolded normalization is an addressing key only
 - The page may carry side effects of failed candidates and manual intervention — the replayability requirement of the system prompt tells the model a regeneration never rides that leftover state: an action step repeats its action; a first attempt works on the page the previous steps produced. The structural separation rides the same prompt: an action step ends at its action, an assertion step observes without changing the page
@@ -92,8 +97,8 @@ generation_approve = false:
 
 - one verdict request per candidate through the provider (the effective classification
   model); zero requests when the switch is off or the instructions are empty
-- the request carries INSTRUCTIONS, STEP with its STEP TYPE line, the ATTEMPT HISTORY
-  records and the CODE block; the reviewer is instructed to use the attempt history as
+- the request carries INSTRUCTIONS, STEP with its STEP TYPE line, optional INPUTS and RESULTS,
+  the ATTEMPT HISTORY records and the CODE block; the reviewer is instructed to use the attempt history as
   the ground truth of what already happened on the page
 - a high finding of either dimension fails the attempt: the record lands in the history
   with the violation text in its error field, the retry carries the grown history — the

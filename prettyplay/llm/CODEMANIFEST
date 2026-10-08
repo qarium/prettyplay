@@ -61,7 +61,7 @@ Annotations: |
       `snapshot`: the accessibility snapshot of the current page.
       `page_url`: the current URL of the page; non-empty — rendered as its own PAGE URL line immediately after the PAGE SNAPSHOT block, identically in both; None — no line.
       `screenshot`: an optional PNG image of the page; passed only when the project enables screenshots.
-      `cheat_sheet`: the compact standard Playwright sync API reference supplied by the calling engine — rendered as the leading CHEAT SHEET block of the user content, identically in both; guidance, not an allowlist.
+      `cheat_sheet`: the compact standard Playwright sync API reference supplied by the calling engine — rendered as the CHEAT SHEET block after the scenario inputs and before USER INSTRUCTIONS, identically in both; guidance, not an allowlist.
       `attempt_history`: the attempt history of the step — every record a complete multi-line verbatim record composed by the calling engine; non-empty — rendered as the HISTORY block after the USER INSTRUCTIONS block; empty — no block; no collapsing, no size limits.
       `recommendation`: the diagnosis of the classification that preceded the regeneration; non-empty — rendered as a separate RECOMMENDATION block after the HISTORY block; None — no block.
       `guidance`: the engineer guidance message of the interactive steering; non-empty — rendered as a separate USER GUIDANCE block; None — no block.

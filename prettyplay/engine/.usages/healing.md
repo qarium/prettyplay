@@ -5,10 +5,13 @@ Domain: healing a failed cached step. Audience: library internals and engineers 
 ## Heal
 
 ```python
+from prettyplay.engine.renderer import PreparedStep
+from prettyplay.llm import ScenarioStep
+
 healed = healer.heal(
     step=failed_step,
     error="element not found: button «Sign in»",
-    prepared=PreparedStep(...),  # the render product of the failed step
+    prepared=PreparedStep(instruction="click the Sign in button"),  # the render product of the failed step
     step_type="action",
     previous_steps=[ScenarioStep(sentence="open the login page", instruction="open the login page", group_prompt="")],
     page=page,

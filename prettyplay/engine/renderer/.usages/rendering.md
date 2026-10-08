@@ -5,7 +5,10 @@ Domain: preparing a step sentence into a plain-text instruction with capture dec
 ## Render a step
 
 ```python
-from prettyplay.engine.renderer import render_step
+from prettyplay.engine.renderer import StepMemory, render_step
+
+memory = StepMemory()
+memory.publish({"name": "Book"})  # a previously accepted observation
 
 prepared = render_step(
     text="For the item named {{ name }}, read its tags into {% var tags %}",
