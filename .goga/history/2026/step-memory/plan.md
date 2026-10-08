@@ -771,15 +771,15 @@ Cross-cell scenarios spanning the facade, executor, renderer, engines and LLM po
 **Usages relevant to this task:**
 - `conventions` (M2): integration tests only for cross-module/package interaction; they do not replace per-entity contract/logic tests.
 
-- [ ] Create/extend the integration test cases in `tests/test_integration.py`
-- [ ] Test cross-entity interaction, transfer verbatim from the design:
-  - `test_scenario_records_carry_both_texts_and_events_carry_raw_sentence` — **Setup**: template step end-to-end with fakes (miss → generate → accept); **Input**: `t.step("Open the item named {{ name }}")` after a capture step; **Assertions**: `ScenarioStep(sentence="Open the item named {{ name }}", instruction="Open the item named Book", …)`; hook events' `step_text == "Open the item named {{ name }}"`; the provider request's STEP line is the prepared instruction; **Sufficiency**: the dual-text invariant and the hook-surface decision (option A).
-  - Capture flow across steps (design Data Flow 5): step A `{% var name %}` declares; accepted execution returns `{"name": "Book"}`; validation passes; publication; step B `{{ name }}` reads the snapshot value "Book"; the model and the failure texts see the prepared instruction with "Book" embedded.
-  - Group template flow: `g.step("Check {{ vars.code }}", vars={"code": "A1"})` traces `GroupStepOutcome(sentence=…, instruction="Check A1", vars={"code": "A1"}, …)` and the diagnosis/group requests carry instructions only.
-- [ ] Test edge case: cached replay of a template step under `strict=True` end-to-end (render → HIT → validate → publish; no LLM keys required)
-- [ ] Run validation: `.venv/bin/pytest tests/ -x` — all green
+- [x] Create/extend the integration test cases in `tests/test_integration.py` (three new facade-level tests appended — the dual-text records with raw-sentence lifecycle events, the Data Flow 5 capture flow, the strict vars-template replay; the group template flow landed in `tests/test_groups_integration.py` per the group-scoped rule, with its own `TemplateGroupProvider` stub scripting the group diagnosis; a pre-test REPL probe in the venv confirmed all three flows' target behavior before pinning)
+- [x] Test cross-entity interaction, transfer verbatim from the design:
+  - `test_scenario_records_carry_both_texts_and_events_carry_raw_sentence` — **Setup**: template step end-to-end with fakes (miss → generate → accept); **Input**: `t.step("Open the item named {{ name }}")` after a capture step; **Assertions**: `ScenarioStep(sentence="Open the item named {{ name }}", instruction="Open the item named Book", …)`; hook events' `step_text == "Open the item named {{ name }}"`; the provider request's STEP line is the prepared instruction; **Sufficiency**: the dual-text invariant and the hook-surface decision (option A). (transferred verbatim: the full `_scenario` equality pins both records' dual texts, the started/passed/finished payloads carry the raw sentences while the `on_generation_started` events carry the prepared instructions — the exact event-surface split, and the provider-side STEP line is asserted on the `build_fields_text` composition of the recorded request with `{{`/`{%` absent from the whole rendered request)
+  - Capture flow across steps (design Data Flow 5): step A `{% var name %}` declares; accepted execution returns `{"name": "Book"}`; validation passes; publication; step B `{{ name }}` reads the snapshot value "Book"; the model and the failure texts see the prepared instruction with "Book" embedded. (`test_capture_flow_across_steps_embeds_the_value_in_model_and_failure_texts` — the capture step generates and publishes, the seeded-broken reading step renders "Book" and fails into the heal; the classification `step_text`, the `build_classification_fields` composition, the raised `IncurableStepError.step_text`, its rendered text and the `on_step_failed` error payload all carry "Open the item named Book"; the memory keeps `{"name": "Book"}` — the failed step published nothing)
+  - Group template flow: `g.step("Check {{ vars.code }}", vars={"code": "A1"})` traces `GroupStepOutcome(sentence=…, instruction="Check A1", vars={"code": "A1"}, …)` and the diagnosis/group requests carry instructions only. (`test_group_template_flow_traces_instruction_and_vars_and_requests_carry_instructions_only` — a full-record `GroupStepOutcome` equality pins sentence/instruction/vars/outcome/urls/identity with the instruction-first `render()`, the generation request carries `instruction="Check A1"` with its INPUTS and GROUP PROMPT blocks composed through `build_fields_text`, the diagnosis request's STEP/GROUP STEPS/PREVIOUS STEPS blocks composed through `build_group_diagnosis_fields` carry instructions only — no `{{`/`{%` in either composition — and the raised `ProductDefectError` carries the prepared instruction)
+- [x] Test edge case: cached replay of a template step under `strict=True` end-to-end (render → HIT → validate → publish; no LLM keys required) (`test_strict_template_step_replay_validates_and_publishes_without_llm` — a `vars`-fed template seeds the cache, replays under `ForbiddenProvider` with zero LLM calls, publishes `{"name": "Dune"}` from the validated captures, records the dual-text `ScenarioStep` and emits the raw-sentence lifecycle events; the autouse no-credentials fixture keeps the run key-free)
+- [x] Run validation: `.venv/bin/pytest tests/ -x` — all green (1321 passed — the 1317 baseline plus the four new integration tests; both facade-check commands of the Validation Commands section re-verified)
 
-- [ ] **Full lint/format gate (M3)**: `.venv/bin/ruff check prettyplay/ tests/` and `.venv/bin/ruff format --check prettyplay/ tests/` — both pass before marking this task complete
+- [x] **Full lint/format gate (M3)**: `.venv/bin/ruff check prettyplay/ tests/` and `.venv/bin/ruff format --check prettyplay/ tests/` — both pass before marking this task complete (all checks passed; 122 files already formatted)
 
 ---
 
@@ -799,17 +799,17 @@ All commands run in the project virtualenv (Task 1 recreates it; prefix with `.v
 
 ## Completion Criteria
 
-- [ ] Every contract entity is implemented in the correct `location`
-- [ ] Every contract entity is accessible from its facade (renderer `__all__` carries all four names)
-- [ ] Properties and methods match the declared API
-- [ ] Descriptions are reflected in behavior (acceptance ordering, dual-text records, hook surface)
-- [ ] Contract dependencies are met (renderer imports only `prettyplay/failures` + `jinja2`; no import cycles)
-- [ ] Re-exports are accessible from the facade (root re-exports unchanged and green)
-- [ ] Every coding task followed the TDD workflow (contract tests → initial REPL probe → code with a REPL probe after each edit → interface verification → logic tests → debugging → contract re-verification → lint)
-- [ ] Contract tests and logic tests cover facade, API, and behavior within each coding task
-- [ ] Integration tests exist for the cross-entity template flow (Task 20)
-- [ ] No package boundary was expanded; no new cells beyond the contracted renderer
-- [ ] `CODEMANIFEST` files were not modified (contract is read-only)
-- [ ] All validation commands pass (tests, lint, format check, facade checks)
-- [ ] The mandatory rules M1–M4 were applied in every task: conventions-based style, conventions-based tests, lint/format gates at every stage and before every local commit, REPL-cycle inner loop
-- [ ] Every Usages entry is mentioned in at least one task (conventions, jinja, taxonomy, system_prompt, compliance_prompt, group_diagnosis, group_framing, classification_prompt, cheat_sheet, rendering, memory, validation)
+- [x] Every contract entity is implemented in the correct `location`
+- [x] Every contract entity is accessible from its facade (renderer `__all__` carries all four names)
+- [x] Properties and methods match the declared API
+- [x] Descriptions are reflected in behavior (acceptance ordering, dual-text records, hook surface)
+- [x] Contract dependencies are met (renderer imports only `prettyplay/failures` + `jinja2`; no import cycles)
+- [x] Re-exports are accessible from the facade (root re-exports unchanged and green)
+- [x] Every coding task followed the TDD workflow (contract tests → initial REPL probe → code with a REPL probe after each edit → interface verification → logic tests → debugging → contract re-verification → lint)
+- [x] Contract tests and logic tests cover facade, API, and behavior within each coding task
+- [x] Integration tests exist for the cross-entity template flow (Task 20)
+- [x] No package boundary was expanded; no new cells beyond the contracted renderer
+- [x] `CODEMANIFEST` files were not modified (contract is read-only)
+- [x] All validation commands pass (tests, lint, format check, facade checks)
+- [x] The mandatory rules M1–M4 were applied in every task: conventions-based style, conventions-based tests, lint/format gates at every stage and before every local commit, REPL-cycle inner loop
+- [x] Every Usages entry is mentioned in at least one task (conventions, jinja, taxonomy, system_prompt, compliance_prompt, group_diagnosis, group_framing, classification_prompt, cheat_sheet, rendering, memory, validation)

@@ -12,6 +12,7 @@ from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step
 from prettyplay.config import Config
 from prettyplay.engine.generator import CHEAT_SHEET as ENGINE_CHEAT_SHEET
 from prettyplay.engine.generator import SYSTEM_PROMPT as ENGINE_SYSTEM_PROMPT
+from prettyplay.engine.groups import GroupStepOutcome
 from prettyplay.engine.groups.diagnosis import GROUP_DIAGNOSIS_PROMPT
 from prettyplay.engine.steering.steering import CHEAT_SHEET, SYSTEM_PROMPT
 from prettyplay.failures import ProductDefectError
@@ -22,7 +23,7 @@ from prettyplay.llm import (
     LLMProvider,
     ScenarioStep,
 )
-from prettyplay.llm._request import build_fields_text
+from prettyplay.llm._request import build_fields_text, build_group_diagnosis_fields
 from prettyplay.reporting import StepHooks, StepReporter
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -247,6 +248,97 @@ class RecordingProvider(LLMProvider):
         screenshot: bytes | None,
     ) -> GroupFailureClassification:
         raise AssertionError("provider must not diagnose — strict mode never recovers")
+
+    def check_instruction_compliance(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
+        self,
+        prompt: str,
+        user_instructions: str,
+        instruction: str,
+        step_type: str,
+        inputs: dict[str, str],
+        declarations: list[str],
+        code: str,
+        attempt_history: list[str] | None = None,
+    ) -> list[ComplianceFinding]:
+        return []  # compliant by default — the gate passes
+
+
+class TemplateGroupProvider(LLMProvider):
+    """Stub provider of the group template flow: recorded requests, a scripted group verdict."""
+
+    def __init__(self, answers: list[str], group_verdict: GroupFailureClassification) -> None:
+        self.answers = list(answers)
+        self.group_verdict = group_verdict
+        self.generation_requests: list[dict[str, object]] = []
+        self.group_requests: list[dict[str, object]] = []
+
+    def generate_step_code(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
+        self,
+        prompt: str,
+        user_instructions: str = "",
+        instruction: str = "",
+        step_type: str = "",
+        previous_steps: list[str] | None = None,
+        group_prompt: str | None = None,
+        inputs: dict[str, str] | None = None,
+        declarations: list[str] | None = None,
+        snapshot: str = "",
+        page_url: str | None = None,
+        screenshot: bytes | None = None,
+        cheat_sheet: str = "",
+        attempt_history: list[str] | None = None,
+        recommendation: str | None = None,
+        guidance: str | None = None,
+    ) -> str:
+        self.generation_requests.append(
+            {
+                "instruction": instruction,
+                "step_type": step_type,
+                "previous_steps": list(previous_steps or []),  # copy: the scenario context lives on
+                "group_prompt": group_prompt,
+                "inputs": inputs,
+                "declarations": declarations,
+            }
+        )
+        if not self.answers:
+            raise AssertionError("stub provider has no generation answers left")
+        return self.answers.pop(0)
+
+    def classify_step_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
+        self,
+        prompt: str,
+        user_instructions: str,
+        step_text: str,
+        code: str,
+        error: str,
+        snapshot: str,
+        screenshot: bytes | None,
+    ) -> FailureClassification:
+        raise AssertionError("the group flow never runs the ordinary classification")
+
+    def classify_group_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
+        self,
+        prompt: str,
+        user_instructions: str,
+        group_prompt: str,
+        group_steps: list[str],
+        previous_steps: list[ScenarioStep],
+        step_text: str,
+        attempt_history: list[str],
+        snapshot: str,
+        screenshot: bytes | None,
+    ) -> GroupFailureClassification:
+        self.group_requests.append(
+            {
+                "group_prompt": group_prompt,
+                "group_steps": list(group_steps),  # copy: the trace renders live on
+                "previous_steps": list(previous_steps),
+                "step_text": step_text,
+                "attempt_history": list(attempt_history),
+            }
+        )
+
+        return self.group_verdict
 
     def check_instruction_compliance(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
@@ -531,3 +623,105 @@ def test_typed_scenario_context_flows_end_to_end(
     assert "GROUP PROMPT:" not in rendered  # the current step is ordinary — no framing block
     assert "- open the shop page\n" in rendered  # the ordinary entry plain (C13)
     assert f"- {COOKIE_STEP} [group step — {GROUP_PROMPT}]" in rendered  # marked outside its group
+
+
+def test_group_template_flow_traces_instruction_and_vars_and_requests_carry_instructions_only(
+    tmp_path: Path,
+) -> None:
+    """The group template flow: vars render into trace instructions; every request carries instructions only."""
+    check_template = "Check {{ vars.code }}"
+    confirm_template = "the code {{ vars.code }} is confirmed"
+    check_code = "def step(page) -> None:\n    page.get_by_role('button', name='A1').expect_visible()\n"
+    confirm_code = "def step(page) -> None:\n    page.get_by_text('A1').expect_visible()\n"
+    seed_step(tmp_path, confirm_template, confirm_code, cache_key="checkout-flow", step_type="assertion")
+    provider = TemplateGroupProvider(
+        answers=[check_code],
+        group_verdict=GroupFailureClassification(
+            category="product_defect",
+            root_cause="the confirmation line is genuinely missing",
+            earliest_step="the code A1 is confirmed",
+            recommendation="file a bug",
+        ),
+    )
+    page = FakePage(broken_lookups=frozenset({"get_by_text"}))  # the cached confirmation lookup rotted
+
+    with installed_test(tmp_path, provider, page, "checkout-flow") as test:
+        with test.group(GROUP_PROMPT) as group:
+            group.step(check_template, vars={"code": "A1"})  # miss: the template step generates green
+            with pytest.raises(ProductDefectError) as excinfo:
+                group.expect(confirm_template, vars={"code": "A1"})  # the rotted replay routes to the recovery
+        test.close()
+
+    # the trace record carries both texts and the call-local inputs — the row re-render source
+    assert group.traces[0] == GroupStepOutcome(
+        sentence=check_template,
+        instruction="Check A1",
+        step_type="action",
+        tries=None,
+        delay=None,
+        vars={"code": "A1"},
+        outcome="passed",
+        url_before="https://shop.example.com/checkout",
+        url_after="https://shop.example.com/checkout",
+        identity=StepIdentity(
+            cache_key="checkout-flow", step_type="action", normalized_text=normalize_step_text(check_template)
+        ),
+    )
+    assert group.traces[0].render().startswith("Check A1\n")  # the instruction line renders first
+    assert group.traces[1].sentence == confirm_template
+    assert group.traces[1].instruction == "the code A1 is confirmed"
+    assert group.traces[1].vars == {"code": "A1"}
+    assert group.traces[1].outcome == "failed"
+
+    # the generation request of the template step carried the prepared instruction with its INPUTS block
+    request = provider.generation_requests[0]
+    assert request["instruction"] == "Check A1"
+    assert request["inputs"] == {"code": "A1"}
+    assert request["declarations"] == []
+    assert request["group_prompt"] == GROUP_PROMPT
+    rendered = build_fields_text(
+        user_instructions="",
+        instruction=request["instruction"],
+        step_type="action",
+        previous_steps=list(request["previous_steps"]),
+        group_prompt=GROUP_PROMPT,
+        inputs={"code": "A1"},
+        declarations=[],
+        snapshot="body: main",
+        page_url="https://shop.example.com/checkout",
+        cheat_sheet=CHEAT_SHEET,
+        attempt_history=[],
+        recommendation=None,
+        guidance=None,
+    )
+    assert "STEP:\nCheck A1" in rendered
+    assert "INPUTS:\ncode = A1" in rendered
+    assert f"GROUP PROMPT:\n{GROUP_PROMPT}" in rendered
+    assert "{{" not in rendered  # instructions only — the raw template never reaches the request
+    assert "{%" not in rendered
+
+    # the diagnosis request carries instructions only: STEP, the trace renders, the scenario view
+    diagnosis = provider.group_requests[0]
+    assert diagnosis["step_text"] == "the code A1 is confirmed"
+    assert diagnosis["previous_steps"] == [
+        ScenarioStep(sentence=check_template, instruction="Check A1", group_prompt=GROUP_PROMPT)
+    ]
+    assert [record.splitlines()[0] for record in diagnosis["group_steps"]] == [
+        "Check A1",
+        "the code A1 is confirmed",
+    ]
+    composed = build_group_diagnosis_fields(
+        user_instructions="",
+        group_prompt=GROUP_PROMPT,
+        group_steps=list(diagnosis["group_steps"]),
+        previous_steps=list(diagnosis["previous_steps"]),
+        step_text=diagnosis["step_text"],
+        attempt_history=list(diagnosis["attempt_history"]),
+        snapshot="body: main",
+    )
+    assert "STEP:\nthe code A1 is confirmed" in composed
+    assert "{{" not in composed
+    assert "{%" not in composed
+
+    # the terminal verdict carries the prepared instruction — "A1" embedded, never the template
+    assert excinfo.value.step_text == "the code A1 is confirmed"
