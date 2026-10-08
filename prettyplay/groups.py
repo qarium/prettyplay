@@ -58,6 +58,30 @@ def _validate_delay(delay: float | None) -> None:
         raise PrettyplayError(f"invalid delay {delay!r} — a non-negative number of seconds, keyword-only")
 
 
+def _validate_vars(vars: dict[str, str] | None) -> None:
+    """Validate the call-local string inputs of one step; ``None`` — no inputs.
+
+    Args:
+        vars: the declared input mapping of the step — every value must be
+            a string, bools never coerced; the names reach the template's
+            ``vars`` namespace at render time.
+
+    Raises:
+        PrettyplayError: the value is not a mapping or some value is not a
+            string — the loud failure names the parameter, the received
+            value and the allowed form.
+    """
+    if vars is None:
+        return
+
+    if not isinstance(vars, dict):
+        raise PrettyplayError(f"invalid vars {vars!r} — a mapping of input names to string values, keyword-only")
+
+    for value in vars.values():
+        if not isinstance(value, str):  # a bool is never a string — no coercion
+            raise PrettyplayError(f"invalid vars value {value!r} — every value must be a string, keyword-only")
+
+
 class StepGroup:
     """The authoring group object yielded by :meth:`PrettyPlay.group`: one coherent mini-scenario with a shared goal.
 
@@ -157,7 +181,14 @@ class StepGroup:
         self._reporter.emit(outcome_event, {"group_prompt": self._prompt})
         self._reporter.emit("on_group_finished", {"group_prompt": self._prompt})
 
-    def step(self, text: str, *, tries: int | None = None, delay: float | None = None) -> None:
+    def step(
+        self,
+        text: str,
+        *,
+        tries: int | None = None,
+        delay: float | None = None,
+        vars: dict[str, str] | None = None,
+    ) -> None:
         """Execute the action step ``text`` inside the group.
 
         Args:
@@ -167,15 +198,26 @@ class StepGroup:
                 time-bounded settle mode of the polling settings.
             delay: keyword-only — the quiet pre-step pause in seconds;
                 ``None`` — no pause.
+            vars: keyword-only — the call-local string inputs of the step;
+                every value must be a string. ``None`` — no inputs; a
+                separate namespace from memory — ``{{ vars.name }}`` reads
+                these values at render time.
 
         Raises:
-            PrettyplayError: ``tries`` or ``delay`` is invalid — the loud
-                failure names the parameter, the received value and the
-                allowed form; the executor is never reached.
+            PrettyplayError: ``tries``, ``delay`` or ``vars`` is invalid —
+                the loud failure names the parameter, the received value
+                and the allowed form; the executor is never reached.
         """
-        self._delegate(text, "action", tries, delay)
+        self._delegate(text, "action", tries, delay, vars)
 
-    def expect(self, text: str, *, tries: int | None = None, delay: float | None = None) -> None:
+    def expect(
+        self,
+        text: str,
+        *,
+        tries: int | None = None,
+        delay: float | None = None,
+        vars: dict[str, str] | None = None,
+    ) -> None:
         """Execute the assertion step ``text`` inside the group — the same delegation, assertion kind.
 
         Args:
@@ -185,15 +227,26 @@ class StepGroup:
                 time-bounded settle mode of the polling settings.
             delay: keyword-only — the quiet pre-step pause in seconds;
                 ``None`` — no pause.
+            vars: keyword-only — the call-local string inputs of the step;
+                every value must be a string. ``None`` — no inputs; a
+                separate namespace from memory — ``{{ vars.name }}`` reads
+                these values at render time.
 
         Raises:
-            PrettyplayError: ``tries`` or ``delay`` is invalid — the loud
-                failure names the parameter, the received value and the
-                allowed form; the executor is never reached.
+            PrettyplayError: ``tries``, ``delay`` or ``vars`` is invalid —
+                the loud failure names the parameter, the received value
+                and the allowed form; the executor is never reached.
         """
-        self._delegate(text, "assertion", tries, delay)
+        self._delegate(text, "assertion", tries, delay, vars)
 
-    def _delegate(self, text: str, step_type: str, tries: int | None, delay: float | None) -> None:
+    def _delegate(
+        self,
+        text: str,
+        step_type: str,
+        tries: int | None,
+        delay: float | None,
+        vars: dict[str, str] | None,
+    ) -> None:
         """Validate, pause and delegate one group step to the executor.
 
         Args:
@@ -203,12 +256,15 @@ class StepGroup:
                 the global polling settings govern the step.
             delay: the declared start pause of this execution; ``None`` —
                 no pause.
+            vars: the validated call-local string inputs of this
+                execution; ``None`` — no inputs.
 
         Raises:
-            PrettyplayError: ``tries`` or ``delay`` is invalid.
+            PrettyplayError: ``tries``, ``delay`` or ``vars`` is invalid.
         """
         _validate_tries(tries)
         _validate_delay(delay)
+        _validate_vars(vars)
 
         if not self._delegated:
             if self._delay is not None:
@@ -217,4 +273,4 @@ class StepGroup:
             time.sleep(int((100 - self._speed) * 30) / 1000)  # the between-step pace — never slow_mo
 
         self._delegated = True
-        self._executor.execute(text, step_type, self._open_page(), group=self, tries=tries, delay=delay)
+        self._executor.execute(text, step_type, self._open_page(), group=self, tries=tries, delay=delay, vars=vars)

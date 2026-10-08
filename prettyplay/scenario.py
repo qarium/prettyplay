@@ -19,7 +19,7 @@ from .engine.groups import GroupRecovery
 from .engine.steering import StepSteering
 from .executor import StepExecutor
 from .failures import PrettyplayError
-from .groups import StepGroup, _validate_delay, _validate_tries
+from .groups import StepGroup, _validate_delay, _validate_tries, _validate_vars
 from .reporting import StepHooks, StepReporter
 from .runtime import PrettyplayRuntime
 
@@ -231,7 +231,14 @@ class PrettyPlay:
             self._page = self._runtime.open_page()
         return self._page
 
-    def step(self, text: str, *, tries: int | None = None, delay: float | None = None) -> None:
+    def step(
+        self,
+        text: str,
+        *,
+        tries: int | None = None,
+        delay: float | None = None,
+        vars: dict[str, str] | None = None,
+    ) -> None:
         """Execute one action step sentence through the step cycle.
 
         Args:
@@ -244,12 +251,19 @@ class PrettyPlay:
                 involvement.
             delay: keyword-only — the quiet pre-step pause in seconds,
                 non-negative, fractional allowed; ``None`` — no pause.
+            vars: keyword-only — the call-local string inputs of the step;
+                every value must be a string, otherwise the loud actionable
+                failure names the parameter, the received value and the
+                allowed form. ``None`` — no inputs; a separate namespace
+                from memory — ``{{ vars.name }}`` reads these values,
+                ``{{ name }}`` reads memory; call inputs never establish
+                memory.
 
         Raises:
-            PrettyplayError: ``tries`` or ``delay`` is invalid — the loud
-                failure names the parameter, the received value and the
-                allowed form; every library failure leaving this method
-                carries its traceback folded to this boundary.
+            PrettyplayError: ``tries``, ``delay`` or ``vars`` is invalid —
+                the loud failure names the parameter, the received value
+                and the allowed form; every library failure leaving this
+                method carries its traceback folded to this boundary.
             ProductDefectError: the step expectation is genuinely broken in the product.
             IncurableStepError: the step never generated successfully, or the verdict
                 says regeneration cannot help.
@@ -260,11 +274,19 @@ class PrettyPlay:
         try:
             _validate_tries(tries)
             _validate_delay(delay)
-            self._executor.execute(text, "action", self._ensure_page(), tries=tries, delay=delay)
+            _validate_vars(vars)
+            self._executor.execute(text, "action", self._ensure_page(), tries=tries, delay=delay, vars=vars)
         except PrettyplayError as error:
             _raise_folded(error)
 
-    def expect(self, text: str, *, tries: int | None = None, delay: float | None = None) -> None:
+    def expect(
+        self,
+        text: str,
+        *,
+        tries: int | None = None,
+        delay: float | None = None,
+        vars: dict[str, str] | None = None,
+    ) -> None:
         """Execute one assertion step sentence through the step cycle.
 
         Args:
@@ -277,10 +299,12 @@ class PrettyPlay:
                 involvement.
             delay: keyword-only — the quiet pre-step pause in seconds,
                 non-negative, fractional allowed; ``None`` — no pause.
+            vars: keyword-only — the call-local string inputs of the step,
+                validated exactly as :meth:`step`; ``None`` — no inputs.
 
         Raises:
-            PrettyplayError: ``tries`` or ``delay`` is invalid; the traceback
-                folding is exactly as :meth:`step`.
+            PrettyplayError: ``tries``, ``delay`` or ``vars`` is invalid;
+                the traceback folding is exactly as :meth:`step`.
             ProductDefectError: the step expectation is genuinely broken in the product.
             IncurableStepError: the step never generated successfully, or the verdict
                 says regeneration cannot help.
@@ -291,7 +315,8 @@ class PrettyPlay:
         try:
             _validate_tries(tries)
             _validate_delay(delay)
-            self._executor.execute(text, "assertion", self._ensure_page(), tries=tries, delay=delay)
+            _validate_vars(vars)
+            self._executor.execute(text, "assertion", self._ensure_page(), tries=tries, delay=delay, vars=vars)
         except PrettyplayError as error:
             _raise_folded(error)
 

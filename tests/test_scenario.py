@@ -371,9 +371,9 @@ class TestPrettyPlayContract:
         for method in (PrettyPlay.step, PrettyPlay.expect):
             parameters = list(inspect.signature(method).parameters.values())[1:]
 
-            assert [parameter.name for parameter in parameters] == ["text", "tries", "delay"]
+            assert [parameter.name for parameter in parameters] == ["text", "tries", "delay", "vars"]
             assert parameters[0].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD  # text stays positional
-            for parameter in parameters[1:]:  # tries/delay — keyword-only, None defaults
+            for parameter in parameters[1:]:  # tries/delay/vars — keyword-only, None defaults
                 assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
                 assert parameter.default is None
 
@@ -437,9 +437,9 @@ class TestStepGroupContract:
         for method in (StepGroup.step, StepGroup.expect):
             parameters = list(inspect.signature(method).parameters.values())[1:]
 
-            assert [parameter.name for parameter in parameters] == ["text", "tries", "delay"]
+            assert [parameter.name for parameter in parameters] == ["text", "tries", "delay", "vars"]
             assert parameters[0].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD  # text stays positional
-            for parameter in parameters[1:]:  # tries/delay — keyword-only, None defaults
+            for parameter in parameters[1:]:  # tries/delay/vars — keyword-only, None defaults
                 assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
                 assert parameter.default is None
 
@@ -779,7 +779,7 @@ class TestPrettyPlayLogic:
             cache_key = CACHE_KEY
 
             def execute(  # noqa: PLR0913, PLR0917 — the signature is fixed by the root cell contract
-                self, step_text: str, step_type: str, page_: FakePage, group=None, tries=None, delay=None
+                self, step_text: str, step_type: str, page_: FakePage, group=None, tries=None, delay=None, vars=None
             ) -> None:
                 engine_depth_two()
 
@@ -806,7 +806,7 @@ class TestPrettyPlayLogic:
             cache_key = CACHE_KEY
 
             def execute(  # noqa: PLR0913, PLR0917 — the signature is fixed by the root cell contract
-                self, step_text: str, step_type: str, page_: FakePage, group=None, tries=None, delay=None
+                self, step_text: str, step_type: str, page_: FakePage, group=None, tries=None, delay=None, vars=None
             ) -> None:
                 raise error
 
@@ -835,7 +835,7 @@ class TestPrettyPlayLogic:
             cache_key = CACHE_KEY
 
             def execute(  # noqa: PLR0913, PLR0917 — the signature is fixed by the root cell contract
-                self, step_text: str, step_type: str, page_: FakePage, group=None, tries=None, delay=None
+                self, step_text: str, step_type: str, page_: FakePage, group=None, tries=None, delay=None, vars=None
             ) -> None:
                 try:
                     raise original
@@ -871,7 +871,7 @@ class TestPrettyPlayLogic:
             cache_key = CACHE_KEY
 
             def execute(  # noqa: PLR0913, PLR0917 — the signature is fixed by the root cell contract
-                self, step_text: str, step_type: str, page_: FakePage, group=None, tries=None, delay=None
+                self, step_text: str, step_type: str, page_: FakePage, group=None, tries=None, delay=None, vars=None
             ) -> None:
                 try:
                     raise original
@@ -907,7 +907,7 @@ class TestPrettyPlayLogic:
             cache_key = CACHE_KEY
 
             def execute(  # noqa: PLR0913, PLR0917 — the signature is fixed by the root cell contract
-                self, step_text: str, step_type: str, page_: FakePage, group=None, tries=None, delay=None
+                self, step_text: str, step_type: str, page_: FakePage, group=None, tries=None, delay=None, vars=None
             ) -> None:
                 try:
                     raise structured
@@ -937,7 +937,7 @@ class TestPrettyPlayLogic:
             cache_key = CACHE_KEY
 
             def execute(  # noqa: PLR0913, PLR0917 — the signature is fixed by the root cell contract
-                self, step_text: str, step_type: str, page_: FakePage, group=None, tries=None, delay=None
+                self, step_text: str, step_type: str, page_: FakePage, group=None, tries=None, delay=None, vars=None
             ) -> None:
                 raise RuntimeError("hook bug")
 
@@ -1261,9 +1261,17 @@ class RecordingGroupExecutor:
         group: object | None = None,
         tries: int | None = None,
         delay: float | None = None,
+        vars: dict[str, str] | None = None,
     ) -> None:
         self.calls.append(
-            {"step_text": step_text, "step_type": step_type, "group": group, "tries": tries, "delay": delay}
+            {
+                "step_text": step_text,
+                "step_type": step_type,
+                "group": group,
+                "tries": tries,
+                "delay": delay,
+                "vars": vars,
+            }
         )
 
         if group is not None:
@@ -1280,6 +1288,9 @@ class TestStepParametersValidation:
         def group_step_with_zero_tries(test: PrettyPlay) -> None:
             test.group("p").step("x", tries=0)
 
+        def group_step_with_int_vars(test: PrettyPlay) -> None:
+            test.group("p").step("x", vars={"expected": 42})
+
         cases: list[tuple[Callable[[PrettyPlay], None], tuple[str, ...]]] = [
             (lambda t: t.step("x", tries=0), ("tries", "0", "a positive integer")),
             (lambda t: t.step("x", tries=-1), ("tries", "-1", "a positive integer")),
@@ -1287,13 +1298,18 @@ class TestStepParametersValidation:
             (lambda t: t.step("x", tries="3"), ("tries", "'3'", "a positive integer")),
             (lambda t: t.step("x", delay=-0.5), ("delay", "-0.5", "a non-negative number of seconds")),
             (lambda t: t.step("x", delay="slow"), ("delay", "'slow'", "a non-negative number of seconds")),
+            (lambda t: t.step("x", vars={"expected": 42}), ("vars", "42", "a string")),
+            (lambda t: t.step("x", vars={"expected": True}), ("vars", "True", "a string")),
+            (lambda t: t.step("x", vars=[("a", "b")]), ("vars", "[('a', 'b')]", "a mapping of input names")),
             (lambda t: t.expect("x", tries=0), ("tries", "0", "a positive integer")),
             (lambda t: t.expect("x", delay=-1), ("delay", "-1", "a non-negative number of seconds")),
+            (lambda t: t.expect("x", vars={"expected": 3.5}), ("vars", "3.5", "a string")),
             (lambda t: t.group(""), ("group prompt", "empty")),
             (lambda t: t.group("p", speed=101), ("speed", "101", "0-100")),
             (lambda t: t.group("p", speed="fast"), ("speed", "'fast'", "0-100")),
             (lambda t: t.group("p", delay=-1), ("delay", "-1", "a non-negative number of seconds")),
             (group_step_with_zero_tries, ("tries", "0", "a positive integer")),
+            (group_step_with_int_vars, ("vars", "42", "a string")),
         ]
 
         with scenario_on_tmp_cache(tmp_path):
@@ -1308,6 +1324,53 @@ class TestStepParametersValidation:
                     assert fragment in str(excinfo.value), f"{fragment!r} missing from: {excinfo.value}"
 
         executor.execute.assert_not_called()  # a bad value never reaches the executor
+
+    def test_facade_rejects_non_string_vars_value(self, tmp_path: Path) -> None:
+        """A non-string vars value fails at the call — no executor, no render, no page."""
+        executor = mock.Mock(name="executor")
+        opener = mock.Mock(name="open_page", return_value=FakePage())
+
+        with scenario_on_tmp_cache(tmp_path):
+            test = PrettyPlay(CACHE_KEY)
+            test._executor = executor
+
+            with (
+                mock.patch.object(test._runtime, "open_page", opener),
+                pytest.raises(PrettyplayError) as excinfo,
+            ):
+                test.step("open the page", vars={"expected": 42})
+
+            for fragment in ("vars", "42", "a string"):  # the parameter, repr(value) and the allowed form
+                assert fragment in str(excinfo.value), f"{fragment!r} missing from: {excinfo.value}"
+
+        executor.execute.assert_not_called()  # the executor — render included — is never invoked
+        opener.assert_not_called()  # no page opens for a rejected call
+
+    def test_valid_vars_reach_the_executor_delegation_unchanged(self, tmp_path: Path) -> None:
+        """Valid bindings ride the delegation by identity; ``None`` is the default."""
+        executor = mock.Mock(name="executor")
+        bindings = {"expected": "D"}
+        page = FakePage()
+
+        with scenario_on_tmp_cache(tmp_path):
+            test = PrettyPlay(CACHE_KEY)
+            test._executor = executor
+
+            with mock.patch.object(test._runtime, "open_page", return_value=page):
+                test.step("open the page", vars=bindings)
+                test.expect("check {{ vars.expected }}", vars=bindings)
+                test.step("plain")
+                test.group("p").step("one", vars=bindings)
+
+        step_call, expect_call, plain_call, group_call = executor.execute.call_args_list
+
+        assert step_call.args == ("open the page", "action", page)
+        assert step_call.kwargs == {"tries": None, "delay": None, "vars": bindings}
+        assert expect_call.args == ("check {{ vars.expected }}", "assertion", page)
+        assert expect_call.kwargs["vars"] is bindings  # the same object — never copied
+        assert plain_call.kwargs["vars"] is None  # the default — no validation error
+        assert isinstance(group_call.kwargs["group"], StepGroup)  # the delegation carries the group context
+        assert group_call.kwargs["vars"] is bindings
 
     def test_validation_error_carries_the_folded_traceback(self, tmp_path: Path) -> None:
         """A validation failure leaving step carries its traceback folded to the facade boundary."""
@@ -1447,6 +1510,7 @@ class TestGroupAuthoringBlock:
                 group: object | None = None,
                 tries: int | None = None,
                 delay: float | None = None,
+                vars: dict[str, str] | None = None,
             ) -> None:
                 raise RuntimeError("step exploded")
 
@@ -1509,6 +1573,7 @@ class TestGroupAuthoringBlock:
                 group: object | None = None,
                 tries: int | None = None,
                 delay: float | None = None,
+                vars: dict[str, str] | None = None,
             ) -> None:
                 if group is not None:
                     group.traces.append(("failed", step_text))

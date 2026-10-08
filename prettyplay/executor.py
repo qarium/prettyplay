@@ -118,6 +118,7 @@ class StepExecutor:
         group: StepGroup | None = None,
         tries: int | None = None,
         delay: float | None = None,
+        vars: dict[str, str] | None = None,  # noqa: ARG002 — the render input until the executor task threads it
     ) -> None:
         """Run one step through the full cycle.
 
@@ -134,6 +135,10 @@ class StepExecutor:
                 settle window to the count-bounded mode.
             delay: the declared quiet start pause in seconds; ``None`` — no
                 pause; passes quietly right after the started event.
+            vars: the validated call-local string inputs passed by the
+                facade/group methods; rendered into the step's
+                ``PreparedStep`` and never published to memory — the render
+                threading lands with the executor task.
 
         Raises:
             ProductDefectError: the healed step verdict says the expectation

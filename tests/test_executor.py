@@ -581,10 +581,12 @@ class TestStepExecutorContract:
             "group",
             "tries",
             "delay",
+            "vars",
         ]
         assert defaults["group"] is None  # the ordinary step — every path byte-identical to today
         assert defaults["tries"] is None  # the time-bounded settle mode of the polling settings
         assert defaults["delay"] is None  # no quiet start pause
+        assert defaults["vars"] is None  # no call-local inputs — the render threading lands with the executor task
 
     def test_execute_grows_the_typed_scenario_context(self, tmp_path: Path) -> None:
         """The scenario context holds typed records — the sentence plus the permanent group membership."""
