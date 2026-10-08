@@ -21,6 +21,7 @@ from ..attempts import (
 )
 from ..compliance import check_step_compliance
 from ..execution import run_step_code
+from ..renderer import PreparedStep
 from ..text import format_step_error
 
 logger = logging.getLogger("prettyplay")
@@ -321,7 +322,12 @@ class StepSteering:
             # history it judges holds every prior turn — the candidate rides the CODE block
             try:
                 findings = check_step_compliance(
-                    self._config, self._provider, step_text, step_type, code, attempt_history
+                    self._config,
+                    self._provider,
+                    PreparedStep(instruction=step_text),  # interim until steer threads the render product
+                    step_type,
+                    code,
+                    attempt_history,
                 )
             except (LLMUnavailableError, ComplianceVerdictError) as gate_failure:
                 print(f"compliance gate failed: {gate_failure}")

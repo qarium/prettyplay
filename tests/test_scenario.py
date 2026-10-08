@@ -193,8 +193,10 @@ class GateHardFailingProvider(LLMProvider):
         self,
         prompt: str,
         user_instructions: str,
-        step_text: str,
+        instruction: str,
         step_type: str,
+        inputs: dict[str, str],
+        declarations: list[str],
         code: str,
         attempt_history: list[str],
     ) -> list[ComplianceFinding]:
@@ -202,8 +204,10 @@ class GateHardFailingProvider(LLMProvider):
             {
                 "prompt": prompt,
                 "user_instructions": user_instructions,
-                "step_text": step_text,
+                "instruction": instruction,
                 "step_type": step_type,
+                "inputs": inputs,
+                "declarations": declarations,
                 "code": code,
                 "attempt_history": attempt_history,
             }

@@ -163,8 +163,10 @@ class ForbiddenProvider(LLMProvider):
         self,
         prompt: str,
         user_instructions: str,
-        step_text: str,
+        instruction: str,
         step_type: str,
+        inputs: dict[str, str],
+        declarations: list[str],
         code: str,
         attempt_history: list[str] | None = None,
     ) -> list[ComplianceFinding]:
@@ -244,8 +246,10 @@ class RecordingProvider(LLMProvider):
         self,
         prompt: str,
         user_instructions: str,
-        step_text: str,
+        instruction: str,
         step_type: str,
+        inputs: dict[str, str],
+        declarations: list[str],
         code: str,
         attempt_history: list[str] | None = None,
     ) -> list[ComplianceFinding]:

@@ -185,8 +185,10 @@ class StubProvider(LLMProvider):
         self,
         prompt: str,
         user_instructions: str,
-        step_text: str,
+        instruction: str,
         step_type: str,
+        inputs: dict[str, str],
+        declarations: list[str],
         code: str,
         attempt_history: list[str] | None = None,
     ) -> list[ComplianceFinding]:
@@ -194,8 +196,10 @@ class StubProvider(LLMProvider):
             {
                 "prompt": prompt,
                 "user_instructions": user_instructions,
-                "step_text": step_text,
+                "instruction": instruction,
                 "step_type": step_type,
+                "inputs": inputs,
+                "declarations": declarations,
                 "code": code,
                 "attempt_history": list(attempt_history or []),
             }
@@ -247,8 +251,10 @@ class ForbiddenProvider(LLMProvider):
         self,
         prompt: str,
         user_instructions: str,
-        step_text: str,
+        instruction: str,
         step_type: str,
+        inputs: dict[str, str],
+        declarations: list[str],
         code: str,
         attempt_history: list[str] | None = None,
     ) -> list[ComplianceFinding]:

@@ -20,6 +20,7 @@ from .classification import classify_step_failure
 from .compliance import check_step_compliance
 from .execution import run_step_code
 from .polling import SettleWindow, settle
+from .renderer import PreparedStep
 from .text import format_step_error
 
 logger = logging.getLogger("prettyplay")
@@ -405,7 +406,14 @@ class StepGenerator:
             else:
                 url_after = _read_url(page)
                 # the gate sits outside every exception-swallowing try: its hard failures propagate
-                findings = check_step_compliance(self._config, self._provider, step_text, step_type, code, history)
+                findings = check_step_compliance(
+                    self._config,
+                    self._provider,
+                    PreparedStep(instruction=step_text),  # interim until the loop threads the render product
+                    step_type,
+                    code,
+                    history,
+                )
                 high = _high_finding(findings)
                 if high is not None:  # the attempt failed on the violation — retry targeted at it
                     history.append(
@@ -491,7 +499,14 @@ class StepGenerator:
             url_after = _read_url(page)
 
             # the gate sits outside every exception-swallowing try: its hard failures propagate
-            findings = check_step_compliance(self._config, self._provider, step_text, step_type, code, history)
+            findings = check_step_compliance(
+                self._config,
+                self._provider,
+                PreparedStep(instruction=step_text),  # interim until the loop threads the render product
+                step_type,
+                code,
+                history,
+            )
             high = _high_finding(findings)
             if high is not None:  # the attempt failed on the violation — retry targeted at it
                 history.append(_record(code, _violation_text(high), OUTCOME_COMPLIANCE_BLOCKED, url_before, url_after))
@@ -763,7 +778,14 @@ class StepGenerator:
         url_after = _read_url(page)
 
         # the gate sits outside the settle try: its hard failures propagate
-        findings = check_step_compliance(self._config, self._provider, step_text, step_type, code, history)
+        findings = check_step_compliance(
+            self._config,
+            self._provider,
+            PreparedStep(instruction=step_text),  # interim until the loop threads the render product
+            step_type,
+            code,
+            history,
+        )
         high = _high_finding(findings)
         if high is not None:  # a compliance block is a candidate failure, not a check
             history.append(_record(code, _violation_text(high), OUTCOME_COMPLIANCE_BLOCKED, url_before, url_after))

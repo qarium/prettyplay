@@ -379,7 +379,7 @@ class TestStepSteeringContract:
         call = provider.compliance_calls[0]
         assert call["prompt"] == COMPLIANCE_PROMPT  # the frozen mirror of the compliance practice
         assert call["user_instructions"] == INSTRUCTIONS
-        assert call["step_text"] == "click Pay"
+        assert call["instruction"] == "click Pay"  # the interim render product carries the step text
         assert call["step_type"] == "action"  # the honest input rides the verdict request
         assert call["attempt_history"] == []  # the first green turn — no records yet
         assert call["code"] == GENERATED_CODE
