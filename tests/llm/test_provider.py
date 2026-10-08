@@ -13,10 +13,12 @@ GENERATE_STEP_CODE_PARAMS = [
     "self",
     "prompt",
     "user_instructions",
-    "step_text",
+    "instruction",
     "step_type",
     "previous_steps",
     "group_prompt",
+    "inputs",
+    "declarations",
     "snapshot",
     "page_url",
     "screenshot",
@@ -41,6 +43,7 @@ CLASSIFY_GROUP_FAILURE_PARAMS = [
     "user_instructions",
     "group_prompt",
     "group_steps",
+    "previous_steps",
     "step_text",
     "attempt_history",
     "snapshot",
@@ -50,8 +53,10 @@ CHECK_INSTRUCTION_COMPLIANCE_PARAMS = [
     "self",
     "prompt",
     "user_instructions",
-    "step_text",
+    "instruction",
     "step_type",
+    "inputs",
+    "declarations",
     "code",
     "attempt_history",
 ]
@@ -144,8 +149,22 @@ class TestLLMProviderContract:
             assert parameters["recommendation"].annotation == parameters["page_url"].annotation, owner.__name__
             assert parameters["guidance"].annotation == parameters["page_url"].annotation, owner.__name__
             assert names[names.index("previous_steps") + 1] == "group_prompt", owner.__name__
-            assert names[names.index("group_prompt") + 1] == "snapshot", owner.__name__
+            assert names[names.index("group_prompt") + 1] == "inputs", owner.__name__
+            assert names[names.index("inputs") + 1] == "declarations", owner.__name__
+            assert names[names.index("declarations") + 1] == "snapshot", owner.__name__
             for name in ("step_type", "group_prompt", "attempt_history", "recommendation", "guidance"):
+                assert parameters[name].default is inspect.Signature.empty, (owner.__name__, name)
+
+    def test_generate_step_code_signature_carries_the_prepared_step_primitives(self) -> None:
+        for owner in (LLMProvider, OpenAIProvider, AnthropicProvider):
+            parameters = inspect.signature(owner.generate_step_code).parameters
+            names = list(parameters)
+
+            assert parameters["instruction"].annotation is str, owner.__name__
+            assert parameters["inputs"].annotation == dict[str, str], owner.__name__
+            assert parameters["declarations"].annotation == list[str], owner.__name__
+            assert "step" + "_text" not in names, owner.__name__  # the dead slot name, assembled — no literal
+            for name in ("instruction", "inputs", "declarations"):
                 assert parameters[name].default is inspect.Signature.empty, (owner.__name__, name)
 
     def test_generate_step_code_signature_drops_the_removed_regeneration_inputs(self) -> None:
@@ -159,11 +178,28 @@ class TestLLMProviderContract:
     def test_check_instruction_compliance_signature_carries_the_new_inputs(self) -> None:
         for owner in (LLMProvider, OpenAIProvider, AnthropicProvider):
             parameters = inspect.signature(owner.check_instruction_compliance).parameters
+            names = list(parameters)
 
+            assert parameters["instruction"].annotation is str, owner.__name__
             assert parameters["step_type"].annotation is str, owner.__name__
+            assert parameters["inputs"].annotation == dict[str, str], owner.__name__
+            assert parameters["declarations"].annotation == list[str], owner.__name__
             assert parameters["attempt_history"].annotation == list[str], owner.__name__
-            for name in ("step_type", "code", "attempt_history"):
+            assert names[names.index("step_type") + 1] == "inputs", owner.__name__
+            assert names[names.index("inputs") + 1] == "declarations", owner.__name__
+            assert names[names.index("declarations") + 1] == "code", owner.__name__
+            for name in ("step_type", "code", "attempt_history", "instruction", "inputs", "declarations"):
                 assert parameters[name].default is inspect.Signature.empty, (owner.__name__, name)
+
+    def test_classify_group_failure_signature_carries_previous_steps(self) -> None:
+        for owner in (LLMProvider, OpenAIProvider, AnthropicProvider):
+            parameters = inspect.signature(owner.classify_group_failure).parameters
+            names = list(parameters)
+
+            assert parameters["previous_steps"].annotation == list[ScenarioStep], owner.__name__
+            assert names[names.index("group_steps") + 1] == "previous_steps", owner.__name__
+            assert names[names.index("previous_steps") + 1] == "step_text", owner.__name__
+            assert parameters["previous_steps"].default is inspect.Signature.empty, owner.__name__
 
     def test_generate_step_code_signature_carries_cheat_sheet_after_screenshot(self) -> None:
         for owner in (LLMProvider, OpenAIProvider, AnthropicProvider):
@@ -183,10 +219,12 @@ class TestLLMProviderContract:
             port.generate_step_code(
                 prompt="p",
                 user_instructions="",
-                step_text="s",
+                instruction="s",
                 step_type="action",
                 previous_steps=[],
                 group_prompt=None,
+                inputs={},
+                declarations=[],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
@@ -213,6 +251,7 @@ class TestLLMProviderContract:
                 user_instructions="",
                 group_prompt="the checkout flow",
                 group_steps=["trace record"],
+                previous_steps=[],
                 step_text="s",
                 attempt_history=[],
                 snapshot="- snap",
@@ -223,8 +262,10 @@ class TestLLMProviderContract:
             port.check_instruction_compliance(
                 prompt="p",
                 user_instructions="i",
-                step_text="s",
+                instruction="s",
                 step_type="action",
+                inputs={},
+                declarations=[],
                 code="c",
                 attempt_history=[],
             )
@@ -385,10 +426,12 @@ class TestClassificationInstructionsPlacement:
                 provider.generate_step_code(
                     prompt="sys",
                     user_instructions="be terse",
-                    step_text="s",
+                    instruction="s",
                     step_type="action",
                     previous_steps=[],
                     group_prompt=None,
+                    inputs={},
+                    declarations=[],
                     snapshot="snap",
                     page_url=None,
                     screenshot=None,
@@ -442,10 +485,12 @@ class TestNewInputsParity:
                 provider.generate_step_code(
                     prompt="sys",
                     user_instructions="be terse",
-                    step_text="s",
+                    instruction="s",
                     step_type="assertion",
-                    previous_steps=[ScenarioStep(sentence="step one")],
+                    previous_steps=[ScenarioStep(sentence="step one", instruction="step one")],
                     group_prompt=None,
+                    inputs={},
+                    declarations=[],
                     snapshot="snap",
                     page_url=self.PAGE_URL,
                     screenshot=None,
@@ -463,8 +508,10 @@ class TestNewInputsParity:
                 provider.check_instruction_compliance(
                     prompt="gate",
                     user_instructions="be terse",
-                    step_text="s",
+                    instruction="s",
                     step_type="assertion",
+                    inputs={},
+                    declarations=[],
                     code="def step(page) -> None:\n    ...\n",
                     attempt_history=self.ATTEMPT_RECORDS,
                 )
@@ -494,6 +541,56 @@ class TestNewInputsParity:
                 < text.index("ATTEMPT HISTORY:")
                 < text.index("CODE:")
             )
+
+
+class TestPreparedInputsParity:
+    """Logic tests: the INPUTS and RESULTS blocks ride the provider requests in the fixed order."""
+
+    def test_provider_renders_inputs_and_results_blocks_in_fixed_order(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "test")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+
+        texts = []
+
+        for provider, make_client in (
+            (OpenAIProvider(Config(model="gpt-5")), _openai_client),
+            (AnthropicProvider(Config(model="claude-sonnet-4-5")), _anthropic_client),
+        ):
+            client, requests = make_client(GENERATION_ANSWER)
+
+            with mock.patch.object(provider, "_get_client", return_value=client):
+                provider.generate_step_code(
+                    prompt="p",
+                    user_instructions="",
+                    instruction="Read novel into ",
+                    step_type="action",
+                    previous_steps=[],
+                    group_prompt=None,
+                    inputs={"expected": "Details"},
+                    declarations=["name"],
+                    snapshot="snap",
+                    page_url="https://x",
+                    screenshot=None,
+                    cheat_sheet="cs",
+                    attempt_history=[],
+                    recommendation=None,
+                    guidance=None,
+                )
+
+            texts.append(requests[0]["messages"][-1]["content"])
+
+        for text in texts:
+            assert (
+                text.index("STEP TYPE: action")
+                < text.index("STEP:\nRead novel into ")
+                < text.index("INPUTS:\nexpected = Details")
+                < text.index("RESULTS:")
+                < text.index("PAGE SNAPSHOT:")
+                < text.index("PAGE URL: https://x")
+                < text.index("CHEAT SHEET:")
+            )  # the defect D1 lock — the prepared blocks directly after the STEP line
+
+        assert texts[0] == texts[1]  # parity: the shared builder renders both providers identical
 
 
 DIAGNOSIS_ANSWER = (
@@ -537,6 +634,7 @@ class TestGroupDiagnosisParity:
                     user_instructions="be terse",
                     group_prompt="the checkout flow",
                     group_steps=self.GROUP_STEPS,
+                    previous_steps=[ScenarioStep(sentence="open the shop", instruction="open the shop")],
                     step_text="the status shows order confirmed",
                     attempt_history=self.ATTEMPT_HISTORY,
                     snapshot="- snap",
@@ -556,12 +654,13 @@ class TestGroupDiagnosisParity:
         for text in diagnosis_texts:
             assert (
                 text.index("GROUP PROMPT:\nthe checkout flow")
+                < text.index("PREVIOUS STEPS:\n- open the shop")
                 < text.index("GROUP STEPS:\n")
                 < text.index("STEP:\nthe status shows order confirmed")
                 < text.index("HISTORY:\n")
                 < text.index("PAGE SNAPSHOT:\n- snap")
                 < text.index("USER INSTRUCTIONS:\nbe terse")
-            )  # the fixed diagnosis order, instructions last
+            )  # the fixed diagnosis order, previous steps before group steps, instructions last
 
     def test_garbage_diagnosis_answer_degrades_inside_the_provider(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
@@ -579,6 +678,7 @@ class TestGroupDiagnosisParity:
                     user_instructions="",
                     group_prompt="the checkout flow",
                     group_steps=self.GROUP_STEPS,
+                    previous_steps=[],
                     step_text="the status shows order confirmed",
                     attempt_history=[],
                     snapshot="- snap",

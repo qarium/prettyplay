@@ -83,10 +83,12 @@ class OpenAIProvider(LLMProvider):
         self,
         prompt: str,
         user_instructions: str,
-        step_text: str,
+        instruction: str,
         step_type: str,
         previous_steps: list[ScenarioStep],
         group_prompt: str | None,
+        inputs: dict[str, str],
+        declarations: list[str],
         snapshot: str,
         page_url: str | None,
         screenshot: bytes | None,
@@ -105,22 +107,36 @@ class OpenAIProvider(LLMProvider):
                 instructions block, non-empty — rendered verbatim as a
                 separate USER INSTRUCTIONS block of the user content,
                 identically to the anthropic implementation.
-            step_text: the raw sentence of the step to generate, as passed by
-                the calling engine — never the normalized addressing form.
+            instruction: the prepared instruction of the step — the rendered
+                plain-text sentence with actual values embedded; rendered as
+                the STEP block; the raw template sentence never reaches the
+                request.
             step_type: the type of the step; rendered as a STEP TYPE line
                 immediately before the STEP line, identically to the
                 anthropic implementation; takes no part in step addressing.
             previous_steps: the typed scenario records of the previous steps
-                of the test, in execution order — each the raw sentence plus
-                its permanent group membership; rendered as the PREVIOUS
-                STEPS block with the group entries marked, identically to
-                the anthropic implementation.
+                of the test, in execution order — each the prepared
+                instruction recorded at the step's execution plus its
+                permanent group membership; rendered as the PREVIOUS STEPS
+                block with the group entries marked, identically to the
+                anthropic implementation.
             group_prompt: the group prompt of the current step's group;
                 None — an ordinary step, no GROUP PROMPT block; non-empty —
                 rendered verbatim as a separate GROUP PROMPT block
                 immediately before the PREVIOUS STEPS block, identically to
                 the anthropic implementation; takes no part in step
                 addressing.
+            inputs: the call-local input bindings of the step; non-empty —
+                rendered as the INPUTS block immediately after the STEP
+                line, one ``name = value`` line per binding, identically to
+                the anthropic implementation; empty — no block.
+            declarations: the declared result names of the step; non-empty —
+                rendered as the RESULTS block immediately after the INPUTS
+                block stating the result contract — the code returns a
+                dictionary of exactly the declared names to non-blank
+                strings observed on the page — identically to the anthropic
+                implementation; empty — no block, the
+                success-without-result code form.
             snapshot: the accessibility snapshot of the current page.
             page_url: the current URL of the page; non-empty — rendered as
                 its own PAGE URL line immediately after the PAGE SNAPSHOT
@@ -164,10 +180,12 @@ class OpenAIProvider(LLMProvider):
         """
         text = build_fields_text(
             user_instructions=user_instructions,
-            step_text=step_text,
+            instruction=instruction,
             step_type=step_type,
             previous_steps=previous_steps,
             group_prompt=group_prompt,
+            inputs=inputs,
+            declarations=declarations,
             snapshot=snapshot,
             page_url=page_url,
             cheat_sheet=cheat_sheet,
@@ -216,7 +234,9 @@ class OpenAIProvider(LLMProvider):
                 instructions block, non-empty — rendered verbatim as a
                 separate USER INSTRUCTIONS block placed last of the user
                 content, identically to the anthropic implementation.
-            step_text: the sentence of the failed step.
+            step_text: the sentence of the failed step — the prepared
+                instruction, never the raw template sentence; a non-template
+                step passes its sentence unchanged.
             code: the existing step code that failed.
             error: the human-readable description of the failure.
             snapshot: the accessibility snapshot of the current page.
@@ -266,6 +286,7 @@ class OpenAIProvider(LLMProvider):
         user_instructions: str,
         group_prompt: str,
         group_steps: list[str],
+        previous_steps: list[ScenarioStep],
         step_text: str,
         attempt_history: list[str],
         snapshot: str,
@@ -283,10 +304,19 @@ class OpenAIProvider(LLMProvider):
                 user content, identically to the anthropic implementation.
             group_prompt: the group prompt of the diagnosed group, verbatim.
             group_steps: the composed verbatim traces of the group's steps
-                in execution order — each the sentence, the outcome and the
-                URL before -> after transition, supplied by the calling
-                engine.
-            step_text: the raw sentence of the failed step.
+                in execution order — each the prepared instruction, the
+                outcome and the URL before -> after transition, supplied by
+                the calling engine.
+            previous_steps: the typed scenario records of the previous steps
+                of the test, in execution order — each the prepared
+                instruction recorded at the step's execution plus its
+                permanent group membership; rendered as the PREVIOUS STEPS
+                block immediately before the GROUP STEPS block with the
+                group entries marked, identically to the anthropic
+                implementation; empty — no block.
+            step_text: the prepared instruction of the failed step — never
+                the raw template sentence; a non-template step passes its
+                sentence unchanged.
             attempt_history: the rendered verbatim records of the failed
                 step's attempt history; non-empty — rendered as a separate
                 HISTORY block, every record verbatim, no collapsing, no size
@@ -298,9 +328,9 @@ class OpenAIProvider(LLMProvider):
         Returns:
             The diagnosis verdict; a degraded answer carries the
             conservative incurable with the raw answer in root_cause — the
-            block order GROUP PROMPT, GROUP STEPS, STEP, HISTORY, PAGE
-            SNAPSHOT; an unusable answer degrades inside the provider,
-            never raising across the port.
+            block order GROUP PROMPT, optional PREVIOUS STEPS, GROUP STEPS,
+            STEP, HISTORY, PAGE SNAPSHOT; an unusable answer degrades inside
+            the provider, never raising across the port.
 
         Raises:
             LLMUnavailableError: the SDK client is unavailable or the
@@ -310,6 +340,7 @@ class OpenAIProvider(LLMProvider):
             user_instructions=user_instructions,
             group_prompt=group_prompt,
             group_steps=group_steps,
+            previous_steps=previous_steps,
             step_text=step_text,
             attempt_history=attempt_history,
             snapshot=snapshot,
@@ -339,8 +370,10 @@ class OpenAIProvider(LLMProvider):
         self,
         prompt: str,
         user_instructions: str,
-        step_text: str,
+        instruction: str,
         step_type: str,
+        inputs: dict[str, str],
+        declarations: list[str],
         code: str,
         attempt_history: list[str],
     ) -> list[ComplianceFinding]:
@@ -353,11 +386,22 @@ class OpenAIProvider(LLMProvider):
                 the generation_prompt setting; the calling engine
                 guarantees non-empty — the gate never runs on empty
                 instructions.
-            step_text: the raw sentence of the generated step, as passed by
-                the calling engine — never the normalized addressing form.
+            instruction: the prepared plain-text instruction of the generated
+                step — rendered as the STEP block; the raw template sentence
+                never reaches the request.
             step_type: the type of the step; rendered as a STEP TYPE line
                 immediately before the STEP line, identically to the
                 anthropic implementation.
+            inputs: the call-local input bindings of the step; non-empty —
+                rendered as the INPUTS block immediately after the STEP
+                block, one ``name = value`` line per binding, identically to
+                the anthropic implementation; empty — no block.
+            declarations: the reached capture names of the step; non-empty —
+                rendered as the RESULTS block immediately after the INPUTS
+                block stating the exact-key, observed non-blank string
+                return contract, identically to the anthropic
+                implementation; empty — no block, the
+                success-without-result form.
             code: the successfully executed candidate code.
             attempt_history: the rendered per-step attempt records — the
                 ground truth of what was already tried; non-empty — rendered
@@ -367,14 +411,17 @@ class OpenAIProvider(LLMProvider):
 
         Returns:
             The parsed findings; an empty list means compliant — the block
-            order INSTRUCTIONS, STEP, ATTEMPT HISTORY, CODE; no fence
-            unwrapping: a malformed verdict raises, never a silent pass.
+            order INSTRUCTIONS, STEP, the optional INPUTS and RESULTS
+            sections, ATTEMPT HISTORY, CODE; no fence unwrapping: a
+            malformed verdict raises, never a silent pass.
 
         Raises:
             LLMUnavailableError: the SDK client is unavailable or the
                 service request failed.
         """
-        text = build_compliance_fields(user_instructions, step_text, step_type, attempt_history, code)
+        text = build_compliance_fields(
+            user_instructions, instruction, step_type, inputs, declarations, attempt_history, code
+        )
         messages = [
             {"role": "system", "content": prompt},
             {"role": "user", "content": text},

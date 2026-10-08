@@ -23,10 +23,12 @@ GENERATE_STEP_CODE_PARAMS = [
     "self",
     "prompt",
     "user_instructions",
-    "step_text",
+    "instruction",
     "step_type",
     "previous_steps",
     "group_prompt",
+    "inputs",
+    "declarations",
     "snapshot",
     "page_url",
     "screenshot",
@@ -51,6 +53,7 @@ CLASSIFY_GROUP_FAILURE_PARAMS = [
     "user_instructions",
     "group_prompt",
     "group_steps",
+    "previous_steps",
     "step_text",
     "attempt_history",
     "snapshot",
@@ -60,8 +63,10 @@ CHECK_INSTRUCTION_COMPLIANCE_PARAMS = [
     "self",
     "prompt",
     "user_instructions",
-    "step_text",
+    "instruction",
     "step_type",
+    "inputs",
+    "declarations",
     "code",
     "attempt_history",
 ]
@@ -159,10 +164,12 @@ class TestAnthropicProviderLogic:
             provider.generate_step_code(
                 prompt="p",
                 user_instructions="",
-                step_text="s",
+                instruction="s",
                 step_type="action",
                 previous_steps=[],
                 group_prompt=None,
+                inputs={},
+                declarations=[],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
@@ -187,10 +194,12 @@ class TestAnthropicProviderLogic:
             provider.generate_step_code(
                 prompt="p",
                 user_instructions="",
-                step_text="s",
+                instruction="s",
                 step_type="action",
                 previous_steps=[],
                 group_prompt=None,
+                inputs={},
+                declarations=[],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
@@ -213,10 +222,12 @@ class TestAnthropicProviderLogic:
             code = provider.generate_step_code(
                 prompt="p",
                 user_instructions="",
-                step_text="s",
+                instruction="s",
                 step_type="action",
                 previous_steps=[],
                 group_prompt=None,
+                inputs={},
+                declarations=[],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
@@ -298,10 +309,12 @@ class TestAnthropicProviderLogic:
             code = provider.generate_step_code(
                 prompt="system prompt text",
                 user_instructions="",
-                step_text="открыть страницу",
+                instruction="открыть страницу",
                 step_type="action",
-                previous_steps=[ScenarioStep(sentence="шаг один")],
+                previous_steps=[ScenarioStep(sentence="шаг один", instruction="шаг один")],
                 group_prompt=None,
+                inputs={},
+                declarations=[],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
@@ -336,10 +349,12 @@ class TestAnthropicProviderLogic:
             provider.generate_step_code(
                 prompt="p",
                 user_instructions="",
-                step_text="s",
+                instruction="s",
                 step_type="action",
                 previous_steps=[],
                 group_prompt=None,
+                inputs={},
+                declarations=[],
                 snapshot="- snap",
                 page_url="https://shop.example.com/cart",
                 screenshot=None,
@@ -364,10 +379,12 @@ class TestAnthropicProviderLogic:
             code = provider.generate_step_code(
                 prompt="p",
                 user_instructions="",
-                step_text="s",
+                instruction="s",
                 step_type="action",
                 previous_steps=[],
                 group_prompt=None,
+                inputs={},
+                declarations=[],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
@@ -396,10 +413,12 @@ class TestAnthropicProviderLogic:
             provider.generate_step_code(
                 prompt="p",
                 user_instructions="",
-                step_text="s",
+                instruction="s",
                 step_type="action",
                 previous_steps=[],
                 group_prompt=None,
+                inputs={},
+                declarations=[],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
@@ -460,10 +479,12 @@ class TestAnthropicProviderLogic:
             provider.generate_step_code(
                 prompt="p",
                 user_instructions="",
-                step_text="s",
+                instruction="s",
                 step_type="action",
                 previous_steps=[],
                 group_prompt=None,
+                inputs={},
+                declarations=[],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=b"png-bytes",
@@ -491,10 +512,12 @@ class TestAnthropicProviderLogic:
             provider.generate_step_code(
                 prompt="p",
                 user_instructions="",
-                step_text="s",
+                instruction="s",
                 step_type="action",
                 previous_steps=[],
                 group_prompt=None,
+                inputs={},
+                declarations=[],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
@@ -517,10 +540,12 @@ class TestAnthropicProviderLogic:
             provider.generate_step_code(
                 prompt="p",
                 user_instructions="",
-                step_text="s",
+                instruction="s",
                 step_type="action",
                 previous_steps=[],
                 group_prompt=None,
+                inputs={},
+                declarations=[],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
@@ -605,10 +630,12 @@ class TestAnthropicProviderLogic:
             provider.generate_step_code(
                 prompt="SYS",
                 user_instructions=USER_INSTRUCTIONS,
-                step_text="s",
+                instruction="s",
                 step_type="action",
                 previous_steps=[],
                 group_prompt=None,
+                inputs={},
+                declarations=[],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
@@ -681,8 +708,10 @@ class TestAnthropicProviderLogic:
             findings = provider.check_instruction_compliance(
                 prompt="gate prompt",
                 user_instructions="Prefer id attributes",
-                step_text="нажать Войти",
+                instruction="нажать Войти",
                 step_type="action",
+                inputs={},
+                declarations=[],
                 code=WORKING_CODE,
                 attempt_history=[record],
             )
@@ -696,7 +725,7 @@ class TestAnthropicProviderLogic:
         assert user["role"] == "user"
         # parity: the shared builder — the user content equals the openai implementation's
         assert user["content"] == build_compliance_fields(
-            "Prefer id attributes", "нажать Войти", "action", [record], WORKING_CODE
+            "Prefer id attributes", "нажать Войти", "action", {}, [], [record], WORKING_CODE
         )
 
         assert len(findings) == 1
@@ -717,8 +746,10 @@ class TestAnthropicProviderLogic:
             provider.check_instruction_compliance(
                 prompt="p",
                 user_instructions="Prefer id attributes",
-                step_text="s",
+                instruction="s",
                 step_type="action",
+                inputs={},
+                declarations=[],
                 code="c",
                 attempt_history=[],
             )
@@ -758,6 +789,10 @@ class TestAnthropicGroupDiagnosis:
                 user_instructions="be terse",
                 group_prompt="the checkout flow",
                 group_steps=GROUP_STEPS,
+                previous_steps=[
+                    ScenarioStep(sentence="open the shop", instruction="open the shop"),
+                    ScenarioStep(sentence="fill {{ field }}", instruction="fill the field", group_prompt="the flow"),
+                ],
                 step_text="the status shows order confirmed",
                 attempt_history=[record],
                 snapshot="- snap",
@@ -773,12 +808,14 @@ class TestAnthropicGroupDiagnosis:
         assert user["role"] == "user"
         assert (
             user["content"].index("GROUP PROMPT:\nthe checkout flow")
+            < user["content"].index("PREVIOUS STEPS:\n- open the shop\n- fill the field [group step — the flow]")
             < user["content"].index("GROUP STEPS:\n")
             < user["content"].index("STEP:\nthe status shows order confirmed")
             < user["content"].index(f"HISTORY:\n{record}")
             < user["content"].index("PAGE SNAPSHOT:\n- snap")
             < user["content"].index("USER INSTRUCTIONS:\nbe terse")
-        )  # parity: the fixed diagnosis order, instructions last, exactly as in the openai implementation
+        )  # parity: the fixed diagnosis order, previous steps before group steps, instructions last
+        assert "fill {{ field }}" not in user["content"]  # the raw template sentence never reaches the request
         assert GROUP_STEPS[0] in user["content"]  # every trace record verbatim
 
         assert verdict.category == "recoverable"
@@ -800,6 +837,7 @@ class TestAnthropicGroupDiagnosis:
                 user_instructions="",
                 group_prompt="the checkout flow",
                 group_steps=GROUP_STEPS,
+                previous_steps=[],
                 step_text="the status shows order confirmed",
                 attempt_history=[],
                 snapshot="- snap",
@@ -825,6 +863,7 @@ class TestAnthropicGroupDiagnosis:
                 user_instructions="",
                 group_prompt="the checkout flow",
                 group_steps=GROUP_STEPS,
+                previous_steps=[],
                 step_text="the status shows order confirmed",
                 attempt_history=[],
                 snapshot="- snap",
@@ -847,6 +886,7 @@ class TestAnthropicGroupDiagnosis:
                 user_instructions="",
                 group_prompt="the checkout flow",
                 group_steps=GROUP_STEPS,
+                previous_steps=[],
                 step_text="the status shows order confirmed",
                 attempt_history=[],
                 snapshot="- snap",
@@ -888,10 +928,12 @@ class TestAnthropicProviderTransportWiring:
             provider.generate_step_code(
                 prompt="p",
                 user_instructions="",
-                step_text="s",
+                instruction="s",
                 step_type="action",
                 previous_steps=[],
                 group_prompt=None,
+                inputs={},
+                declarations=[],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
@@ -916,6 +958,7 @@ class TestAnthropicProviderTransportWiring:
                 user_instructions="",
                 group_prompt="the checkout flow",
                 group_steps=GROUP_STEPS,
+                previous_steps=[],
                 step_text="the status shows order confirmed",
                 attempt_history=[],
                 snapshot="- snap",
@@ -925,8 +968,10 @@ class TestAnthropicProviderTransportWiring:
             provider.check_instruction_compliance(
                 prompt="p",
                 user_instructions="Prefer id attributes",
-                step_text="s",
+                instruction="s",
                 step_type="action",
+                inputs={},
+                declarations=[],
                 code="c",
                 attempt_history=[],
             )
@@ -968,10 +1013,12 @@ class TestAnthropicProviderTransportWiring:
             code = provider.generate_step_code(
                 prompt="p",
                 user_instructions="",
-                step_text="s",
+                instruction="s",
                 step_type="action",
                 previous_steps=[],
                 group_prompt=None,
+                inputs={},
+                declarations=[],
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
