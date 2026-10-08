@@ -30,6 +30,7 @@ Output exactly one Python code block with one function of the fixed form:
 
 Rules:
 - The function receives exactly one argument: the page — the genuine Playwright sync Page; the whole step runs inside the driver worker thread
+- The global `step_inputs` is supplied fresh on every execution: captured values are available by name and call-local INPUTS under `step_inputs["vars"]`. Read changing values from it instead of hardcoding the current STEP or INPUTS values into cached code
 - Import from playwright.sync_api and the Python standard library only — no third-party
   libraries; imports are global only: at the top level of the code block, before `def
   step`, never inside the function body

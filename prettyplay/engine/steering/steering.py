@@ -20,7 +20,7 @@ from ..attempts import (
     StepAttempt,
 )
 from ..compliance import check_step_compliance
-from ..execution import run_step_code
+from ..execution import bind_step_inputs, run_step_code
 from ..renderer import PreparedStep, StepMemory, validate_step_result
 from ..text import format_step_error
 
@@ -56,6 +56,7 @@ Output exactly one Python code block with one function of the fixed form:
 
 Rules:
 - The function receives exactly one argument: the page — the genuine Playwright sync Page; the whole step runs inside the driver worker thread
+- The global `step_inputs` is supplied fresh on every execution: captured values are available by name and call-local INPUTS under `step_inputs["vars"]`. Read changing values from it instead of hardcoding the current STEP or INPUTS values into cached code
 - Import from playwright.sync_api and the Python standard library only — no third-party
   libraries; imports are global only: at the top level of the code block, before `def
   step`, never inside the function body
@@ -317,7 +318,8 @@ class StepSteering:
 
             url_before = self._guarded_url(page) or ""
             try:
-                result = run_step_code(code, page)  # bare — the settle window never re-arms inside the dialog
+                with bind_step_inputs(memory.snapshot(), prepared.inputs):
+                    result = run_step_code(code, page)  # bare — the settle window never re-arms inside the dialog
             except Exception as outcome:  # a red turn returns to the prompt, never escapes
                 print(f"turn failed: {outcome}")
                 url_after = self._guarded_url(page) or ""

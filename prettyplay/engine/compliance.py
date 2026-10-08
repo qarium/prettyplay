@@ -70,6 +70,8 @@ Rules:
 - Treat RESULTS as the exact-key return contract: the code must return a dictionary of exactly
   the declared names to non-blank strings observed on the page — code that cannot produce it
   is an adequacy finding
+- When INPUTS values influence the step, code that hardcodes their current values instead of
+  reading `step_inputs["vars"]` cannot replay with new inputs; report a high adequacy finding
 - Output only the JSON list, no other text"""
 
 

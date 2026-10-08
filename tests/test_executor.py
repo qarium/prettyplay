@@ -1207,6 +1207,39 @@ class TestStepExecutorStrictMode:
 class TestStepExecutorRenderAndMemory:
     """Logic tests: the render point, replay publication and the memory ownership."""
 
+    def test_template_cache_replay_uses_current_call_inputs(self, tmp_path: Path) -> None:
+        fixture = ExecutorFixture(tmp_path, RecordingGenerator(), RecordingHealer())
+        sentence = "Read {{ vars.item }} into {% var name %}"
+        code = 'def step(page):\n    return {"name": step_inputs["vars"]["item"]}\n'
+        seed_cached_step(fixture, sentence, code=code)
+
+        fixture.executor.execute(sentence, "action", FakePage(), vars={"item": "A"})
+        assert fixture.executor._memory.snapshot() == {"name": "A"}
+        fixture.executor.execute(sentence, "action", FakePage(), vars={"item": "B"})
+
+        assert fixture.executor._memory.snapshot() == {"name": "B"}
+        assert [record.instruction for record in fixture.executor._scenario] == ["Read A into ", "Read B into "]
+
+    def test_invalid_non_strict_replay_heals_before_publishing(self, tmp_path: Path) -> None:
+        healer = RecordingHealer()
+        fixture = ExecutorFixture(tmp_path, RecordingGenerator(), healer)
+        fixture.executor._memory.publish({"kind": "novel"})
+        seed_cached_step(fixture, TEMPLATE_STEP, code=BLANK_CODE)
+
+        def heal_after_violation(*args: object) -> None:
+            memory = args[-1]
+            assert isinstance(memory, StepMemory)
+            assert memory.snapshot() == {"kind": "novel"}
+            assert args[1] == "the result value of 'name' is blank"
+            memory.publish({"name": "Dune"})
+
+        healer.heal = mock.Mock(side_effect=heal_after_violation)
+        fixture.executor.execute(TEMPLATE_STEP, "action", FakePage())
+
+        history = healer.heal.call_args.args[6]
+        assert history[0].error == "the result value of 'name' is blank"
+        assert fixture.executor._memory.snapshot() == {"kind": "novel", "name": "Dune"}
+
     def test_executor_publishes_validated_captures_on_cached_replay(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

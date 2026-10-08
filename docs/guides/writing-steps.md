@@ -43,9 +43,30 @@ with PrettyPlay("login-flow") as t:
 - `step(text, delay=1.5)` — a quiet pause in seconds before the step's code
   runs: the started event fires, the declared seconds pass, then the code; a
   step never reached never pauses
-- Both parameters are keyword-only and accepted by both step kinds; invalid
+- These parameters and `vars` are keyword-only and accepted by both step kinds; invalid
   values (zero or negative `tries`, negative `delay`) fail loudly at the
   call — before any page or LLM involvement
+
+## Templates and step memory
+
+Use Jinja expressions to insert a value captured earlier in the same test.
+The `{% var name %}` tag declares a result that generated step code must read
+from the page and return as a nonblank string. A successful step publishes its
+captures together after validation; an unsuccessful attempt publishes nothing.
+
+```python
+t.step("Read the first item name into {% var name %}")
+t.step("Open the item named {{ name }}")
+t.expect("The page shows {{ name }}")
+t.step("Enter {{ vars.code }}", vars={"code": "A1"})
+```
+
+`vars` is a separate namespace for call-local string inputs and is reserved as
+a capture name. Captures last until this test ends, including across page
+navigation. An `expect` may read captures but cannot declare one. Use Jinja's
+`raw` block when a sentence must contain literal template markers. Template
+sentences share a cache entry across runtime values; see
+[Step cache](../reference/step-cache.md#addressing).
 
 ## Step groups
 
@@ -58,7 +79,7 @@ with t.group("accept cookies, fill and submit the order form") as g:
 ```
 
 The group block is one coherent mini-scenario with a shared goal: inside,
-steps use the ordinary authoring surface — retry count and start pause
+steps use the ordinary authoring surface — retry count, start pause and `vars`
 included. A failing group step on a non-strict run is diagnosed with the
 whole group in view and the affected row is recovered automatically; group
 membership changes no step's cache address. See

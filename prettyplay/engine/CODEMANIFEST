@@ -131,6 +131,8 @@ Usages:
     - Treat RESULTS as the exact-key return contract: the code must return a dictionary of exactly
       the declared names to non-blank strings observed on the page — code that cannot produce it
       is an adequacy finding
+    - When INPUTS values influence the step, code that hardcodes their current values instead of
+      reading `step_inputs["vars"]` cannot replay with new inputs; report a high adequacy finding
     - Output only the JSON list, no other text
 
 Annotations: |
@@ -142,7 +144,7 @@ Annotations: |
   Use `compliance_prompt` as the system prompt of every compliance verdict request.
   Use `group_framing` from Usages as the single source of the additive group framing of generation and regeneration requests of group steps — the block structure and the marking change together with the practice.
 
-  The fixed form of step code: one function receiving exactly one argument — the genuine sync Page of the test; the function body works through the standard Playwright sync API; imports allowed from playwright.sync_api and the Python standard library only — third-party libraries are forbidden; imports are global only: at the top level of the code block, before def step, never inside the function body — a prompt rule carried by `system_prompt`, no runtime enforcement; the whole step executes inside the driver worker thread through the run primitive of `PageFacade` — the calling thread never touches Playwright.
+  The fixed form of step code: one function receiving exactly one argument — the genuine sync Page of the test; the function body works through the standard Playwright sync API and may read the current execution's `step_inputs` global (captured values by name, call-local inputs under `vars`); imports allowed from playwright.sync_api and the Python standard library only — third-party libraries are forbidden; imports are global only: at the top level of the code block, before def step, never inside the function body — a prompt rule carried by `system_prompt`, no runtime enforcement; the whole step executes inside the driver worker thread through the run primitive of `PageFacade` — the calling thread never touches Playwright.
   Every attempt — generation or healing — consumes the shared per-step budget of the test; exhaustion is the incurable failure, never an infinite loop.
   One continuous per-step attempt history threads through generation, healing and steering: every step-code request of the engines carries it verbatim — every record complete (the outcome, the URL before -> after line, the complete candidate code, the complete error); the original cached code anchors it as record 0 when it exists; the history is bounded by the attempt budgets alone — no collapsing, no truncation, no size limits.
   Honest inputs in every step request: the step type and prepared instruction, with current input bindings and result declarations when present, reach generation, regeneration and compliance; scenario records render their instruction fields. The raw template sentence remains the cache and re-render source, never a request input.

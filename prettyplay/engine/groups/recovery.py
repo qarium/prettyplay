@@ -28,6 +28,23 @@ _CYCLE_CAP_RECOMMENDATION = "raise healing_attempts or rework the group"
 _OUTSIDE_ROOT = "the root lives outside the group"
 
 
+def _scenario_occurrences(
+    scenario: list[ScenarioStep], traces: list[GroupStepOutcome], group_prompt: str
+) -> list[int | None]:
+    """Match this group's accepted traces to their latest scenario records by occurrence."""
+    occurrences: list[int | None] = [None] * len(traces)
+    search_end = len(scenario)
+    for occurrence in range(len(traces) - 2, -1, -1):
+        trace = traces[occurrence]
+        for index in range(search_end - 1, -1, -1):
+            record = scenario[index]
+            if record.group_prompt == group_prompt and record.sentence == trace.sentence:
+                occurrences[occurrence] = index
+                search_end = index
+                break
+    return occurrences
+
+
 class _ActiveFailure:
     """The failure facts the next diagnosis describes — the failed step on entry, fresh per row failure.
 
@@ -184,9 +201,7 @@ class GroupRecovery:
         """
         local_scenario = [record.model_copy() for record in previous_steps]
         local_traces = [trace.model_copy() for trace in traces]
-        scenario_occurrences = [
-            index for index, record in enumerate(local_scenario) if record.group_prompt == group_prompt
-        ]
+        scenario_occurrences = _scenario_occurrences(local_scenario, local_traces, group_prompt)
         active = _ActiveFailure(prepared, step_type, identity, attempt_history, len(local_traces) - 1)
 
         while True:
@@ -269,7 +284,7 @@ class GroupRecovery:
         group_prompt: str,
         local_scenario: list[ScenarioStep],
         local_traces: list[GroupStepOutcome],
-        scenario_occurrences: list[int],
+        scenario_occurrences: list[int | None],
         active: _ActiveFailure,
         verdict: GroupFailureClassification,
         memory: StepMemory,
@@ -362,8 +377,8 @@ class GroupRecovery:
             # accepted: the fresh instruction replaces the occurrence in both local views, by index —
             # the failed step's own record was never appended to the scenario, its occurrence finds none
             local_traces[occurrence] = trace.model_copy(update={"instruction": fresh.instruction})
-            if occurrence < len(scenario_occurrences):
-                scenario_index = scenario_occurrences[occurrence]
+            scenario_index = scenario_occurrences[occurrence]
+            if scenario_index is not None:
                 local_scenario[scenario_index] = local_scenario[scenario_index].model_copy(
                     update={"instruction": fresh.instruction}
                 )

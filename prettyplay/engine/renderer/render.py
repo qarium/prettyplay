@@ -169,6 +169,10 @@ def render_step(text: str, step_type: str, memory: StepMemory, vars: dict[str, s
         name = _unavailable_name(error, inputs)
 
         raise PrettyplayError(f"the step template references an unavailable name: {name}") from error
+    except PrettyplayError:
+        raise
+    except Exception as error:
+        raise PrettyplayError(f"the step template {text!r} failed to evaluate: {error}") from error
 
     declarations = list(extension.declarations)
 

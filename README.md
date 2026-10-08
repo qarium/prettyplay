@@ -97,6 +97,14 @@ crossing with a loud error instead of a deadlock.
 
 ## What happens on a step
 
+Steps can capture page text for later steps. For example, call
+`play.step("Read the item name into {% var name %}")`, then
+`play.expect("The page shows {{ name }}")`. Call-local string values use a
+separate namespace: `play.step("Open {{ vars.code }}", vars={"code": "A1"})`.
+Captures must be nonblank strings read from the page, live for this test only,
+and cannot be declared in `expect`. See
+[Writing steps](docs/guides/writing-steps.md#templates-and-step-memory).
+
 - **cache hit** — the cached code runs; no LLM is contacted
 - **cache miss** — the step code is generated (a candidate that must actually
   work on the page), then cached; only successes are cached — after the
@@ -443,6 +451,9 @@ Hooks can also be wired at construction — pass the list to the keyword-only
 event of every step reaches them. `StepHooks` is re-exported from the package
 root, so `from prettyplay import StepHooks` works too.
 
+For template steps, lifecycle hook `step_text` is the authored template;
+generation and healing hook `step_text` is the rendered instruction.
+
 A raising hook never fails the run; the failure is logged. The `error` payload
 of `on_step_failed` is the full structured render of the failure — multi-line,
 verbatim. `on_step_verdict` fires after `on_step_failed`, only when the
@@ -466,6 +477,6 @@ silently generating.
 
 ## Limitations
 
-Step sentences and group prompts land in the repository cache, the logs and
-the LLM requests: never put secrets or personal data into a step or a group
-prompt.
+Step sentences, group prompts, call-local `vars` values and captured values can
+land in LLM prompts, diagnostic output and logs. Do not use them for secrets or
+sensitive personal data.

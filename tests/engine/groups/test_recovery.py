@@ -440,6 +440,54 @@ class TestGroupRecoveryReferenceScenario:
 class TestGroupRecoveryRowReRender:
     """Logic tests: the row re-renders against the current memory; the local views stay isolated."""
 
+    def test_same_prompt_in_prior_group_does_not_receive_current_row_update(self, tmp_path: Path) -> None:
+        capture = "Read {{ kind }} into {% var name %}"
+        check = "Check {{ name }}"
+        traces = [
+            GroupStepOutcome(
+                sentence=capture,
+                instruction="Read novel into ",
+                step_type="action",
+                outcome="passed",
+                identity=_identity(capture),
+            ),
+            GroupStepOutcome(
+                sentence=check,
+                instruction="Check Dune",
+                step_type="assertion",
+                outcome="failed",
+                identity=_identity(check, "assertion"),
+            ),
+        ]
+        scenario = [
+            ScenarioStep(sentence=capture, instruction="Prior group instruction", group_prompt=GROUP_PROMPT),
+            ScenarioStep(sentence=capture, instruction="Read novel into ", group_prompt=GROUP_PROMPT),
+        ]
+        memory = StepMemory()
+        memory.publish({"kind": "new", "name": "Dune"})
+        provider = RecoveryProvider(
+            verdicts=[_verdict(earliest_step="Read novel into ")],
+            answers=['def step(page):\n    return {"name": "Tale"}\n', WORKING_CODE],
+        )
+        fixture = RecoveryFixture(tmp_path, provider)
+
+        fixture.recovery.recover(
+            GROUP_PROMPT,
+            traces,
+            PreparedStep(instruction="Check Dune"),
+            "assertion",
+            scenario,
+            _identity(check, "assertion"),
+            [_attempt()],
+            FakePage(),
+            SettleWindow(None, 0),
+            memory,
+        )
+
+        preceding = provider.generate_calls[1]["previous_steps"]
+        assert preceding[0].instruction == "Prior group instruction"
+        assert preceding[1].instruction == "Read new into "
+
     def test_recovery_rerenders_row_step_against_current_memory(self, tmp_path: Path) -> None:
         """The row re-renders each step from its sentence, recorded vars and the current memory.
 

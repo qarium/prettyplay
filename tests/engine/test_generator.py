@@ -2676,6 +2676,26 @@ class TestStepGeneratorMemory:
         assert excinfo.value.verdict is not None
         assert excinfo.value.verdict.category == "incurable"
 
+    def test_invalid_capture_is_corrected_before_publication(self, tmp_path: Path) -> None:
+        provider = StubProvider(
+            ['def step(page):\n    return {"name": ""}\n', 'def step(page):\n    return {"name": "Dune"}\n'],
+            verdict=FailureClassification(category="fixable", explanation="blank capture", recommendation="read text"),
+        )
+        fixture = GeneratorFixture(tmp_path, provider)
+        identity = make_identity()
+        history: list[StepAttempt] = []
+        prepared = PreparedStep(instruction="read the item name", declarations=["name"])
+
+        step = fixture.generator.generate(
+            identity, prepared, "action", [], None, FakePage(), history, fixture.window, fixture.memory
+        )
+
+        assert history[0].outcome == OUTCOME_FAILED_CHECK
+        assert "blank" in history[0].error
+        assert fixture.memory.snapshot() == {"name": "Dune"}
+        assert fixture.cache.load(identity).code.strip() == step.code.strip()
+        assert provider.calls[1]["attempt_history"][0].find("blank") >= 0
+
 
 class TestAriaSnapshotPropagation:
     """Failed checks keep diagnostics while excluding page-state tails at engine boundaries."""

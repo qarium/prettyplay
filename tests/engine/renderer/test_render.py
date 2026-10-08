@@ -135,6 +135,13 @@ class TestRenderStepLogic:
         assert "if" in str(excinfo.value)
         assert "line 1" in str(excinfo.value)
 
+    def test_render_expression_failure_is_an_authoring_error(self) -> None:
+        with pytest.raises(PrettyplayError, match="failed to evaluate") as excinfo:
+            render_step("Open {{ 1 / 0 }}", "action", StepMemory(), None)
+
+        assert "{{ 1 / 0 }}" in str(excinfo.value)
+        assert isinstance(excinfo.value.__cause__, ZeroDivisionError)
+
     @pytest.mark.parametrize("text", ["{% var vars %}", "{% var 1x %}"])
     def test_render_reserved_and_invalid_capture_names_raise(self, text: str) -> None:
         with pytest.raises(PrettyplayError, match="var"):
