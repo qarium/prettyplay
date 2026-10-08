@@ -10,7 +10,7 @@ from .attempts import StepAttempt
 from .classification import classify_step_failure
 from .generator import StepGenerator
 from .polling import SettleWindow
-from .renderer import PreparedStep, StepMemory  # interim until the healer task threads the render product
+from .renderer import PreparedStep, StepMemory
 
 
 class StepHealer:
@@ -53,21 +53,23 @@ class StepHealer:
         self,
         step: CachedStep,
         error: str,
-        step_text: str,
+        prepared: PreparedStep,
         step_type: str,
         previous_steps: list[ScenarioStep],
         page: PageFacade,
         attempt_history: list[StepAttempt],
         window: SettleWindow,
+        memory: StepMemory,
     ) -> CachedStep:
         """Heal a failed cached step according to the classification verdict.
 
         Args:
             step: the cached step whose code failed.
             error: the failure description of the cached code.
-            step_text: the raw sentence of the step as passed by the executor —
-                forwarded into the classification and every regeneration
-                request verbatim, never the casefolded normalization.
+            prepared: the render product of the failed step — the
+                classification and every regeneration request carry the
+                prepared instruction with its INPUTS and RESULTS blocks; the
+                raw template sentence never reaches a request.
             step_type: action or assertion — forwarded into every regeneration
                 request.
             previous_steps: the typed scenario records of the previous steps
@@ -81,6 +83,9 @@ class StepHealer:
                 appends every further attempt of the healing.
             window: the settle window of the current step execution — the
                 regenerated candidates absorb transient failures inside it.
+            memory: the test memory of the executor — the accepted
+                regeneration's captures publish inside the regeneration loop
+                at the acceptance point, after validation and the gate.
 
         Returns:
             The healed step with proven code, already cached by the
@@ -99,7 +104,9 @@ class StepHealer:
             LLMUnavailableError: the provider service failed after the
                 bounded transport retries; no engine retry.
         """
-        classification = classify_step_failure(self._config, self._provider, step_text, step.code, error, page)
+        classification = classify_step_failure(
+            self._config, self._provider, prepared.instruction, step.code, error, page
+        )
 
         verdict = FailureVerdict(
             category=classification.category,
@@ -107,18 +114,22 @@ class StepHealer:
             recommendation=classification.recommendation,
         )
 
-        self._reporter.emit("on_healing_started", {"step_text": step_text, "category": classification.category})
+        self._reporter.emit(
+            "on_healing_started", {"step_text": prepared.instruction, "category": classification.category}
+        )
 
         if classification.category == "product_defect":
-            raise ProductDefectError(step_text, classification.explanation, error, verdict)
+            raise ProductDefectError(prepared.instruction, classification.explanation, error, verdict)
         if classification.category == "incurable":
-            raise IncurableStepError(step_text, classification.explanation, error, code=step.code, verdict=verdict)
+            raise IncurableStepError(
+                prepared.instruction, classification.explanation, error, code=step.code, verdict=verdict
+            )
 
-        # rot | fixable — regeneration carrying the recommendation and the anchored history
+        # rot | fixable — regeneration carrying the recommendation, the render product and the memory
         try:
             healed = self._generator.regenerate(
                 identity=step.identity,
-                prepared=PreparedStep(instruction=step_text),  # interim until the healer threads the render product
+                prepared=prepared,
                 step_type=step_type,
                 previous_steps=previous_steps,
                 group_prompt=None,  # a group step never reaches the healer — no framing on this path
@@ -126,11 +137,13 @@ class StepHealer:
                 attempt_history=attempt_history,
                 recommendation=classification.recommendation,
                 window=window,
-                memory=StepMemory(),  # interim — the healer task threads the per-test memory
+                memory=memory,
             )
         except IncurableStepError as inner:  # regeneration exhausted — the verdict stays None inside
             # the entry verdict of this classification, never a second LLM request; raise … from inner
-            raise IncurableStepError(step_text, inner.reason, inner.error, code=step.code, verdict=verdict) from inner
+            raise IncurableStepError(
+                prepared.instruction, inner.reason, inner.error, code=step.code, verdict=verdict
+            ) from inner
 
-        self._reporter.emit("on_healed", {"step_text": step_text, "explanation": classification.explanation})
+        self._reporter.emit("on_healed", {"step_text": prepared.instruction, "explanation": classification.explanation})
         return healed

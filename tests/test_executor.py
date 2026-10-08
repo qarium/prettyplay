@@ -16,7 +16,7 @@ from prettyplay.engine import StepAttempt
 from prettyplay.engine.attempts import OUTCOME_ORIGINAL
 from prettyplay.engine.groups import GroupStepOutcome
 from prettyplay.engine.polling import SettleWindow, settle
-from prettyplay.engine.renderer import PreparedStep
+from prettyplay.engine.renderer import PreparedStep, StepMemory
 from prettyplay.failures import FailureVerdict, IncurableStepError, LLMUnavailableError, ProductDefectError
 from prettyplay.llm import FailureClassification, LLMProvider, ScenarioStep
 from prettyplay.reporting import StepHooks, StepReporter
@@ -169,23 +169,25 @@ class RecordingHealer:
         self,
         step: CachedStep,
         error: str,
-        step_text: str,
+        prepared: PreparedStep,
         step_type: str,
         previous_steps: list[ScenarioStep],
         page: FakePage,
         attempt_history: list[StepAttempt],
         window: SettleWindow,
+        memory: StepMemory,
     ) -> CachedStep | None:
         self.calls.append(
             {
                 "step": step,
                 "error": error,
-                "step_text": step_text,
+                "prepared": prepared,
                 "step_type": step_type,
                 "previous_steps": list(previous_steps),  # snapshot: the live list grows after the call
                 "page": page,
                 "attempt_history": attempt_history,  # live reference: record 0 is asserted through it
                 "window": window,
+                "memory": memory,
             }
         )
         return self.step
@@ -202,12 +204,13 @@ class RaisingHealer:
         self,
         step: CachedStep,
         error: str,
-        step_text: str,
+        prepared: PreparedStep,
         step_type: str,
         previous_steps: list[str],
         page: FakePage,
         attempt_history: list[StepAttempt],
         window: SettleWindow,
+        memory: StepMemory,
     ) -> CachedStep:
         self.calls += 1
         raise self.error
@@ -666,18 +669,19 @@ class TestStepExecutorContract:
         }
         assert generator.calls[0]["group_prompt"] is None  # the ordinary step — no framing
 
-        # failed cached hit — heal(cached, error_text, step_text, step_type, scenario, page, history, window)
+        # failed cached hit — heal(cached, error_text, prepared, step_type, scenario, page, history, window, memory)
         seed_cached_step(fixture, "нажать войти")
         fixture.executor.execute("нажать Войти", "action", FakePage())
         assert set(healer.calls[0]) == {
             "step",
             "error",
-            "step_text",
+            "prepared",
             "step_type",
             "previous_steps",
             "page",
             "attempt_history",
             "window",
+            "memory",
         }
 
         # terminal failure, interactive — steer(…, scenario, group_prompt, page, history)
@@ -768,7 +772,9 @@ class TestStepExecutorLogic:
         assert record.error == "element not found"  # the formatted replay error
         assert record.url_before == "https://a.example"
         assert record.url_after == "https://b.example"
-        assert call["step_text"] == "Click the «Sign in» button"  # the raw sentence, casing untouched
+        assert (
+            call["prepared"].instruction == "Click the «Sign in» button"
+        )  # the interim render product of the raw sentence, casing untouched — Task 19 threads the real one
         assert call["step_type"] == "action"
 
     def test_execute_degrades_a_dead_replay_url_read_to_the_empty_pair(self, tmp_path: Path) -> None:

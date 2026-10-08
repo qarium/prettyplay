@@ -357,7 +357,17 @@ class StepExecutor:
         )
         try:
             # healed = re-executed
-            self._healer.heal(step, error_text, step_text, step_type, self._scenario, page, attempt_history, window)
+            self._healer.heal(
+                step,
+                error_text,
+                PreparedStep(instruction=step_text),  # interim until the executor task threads the render product
+                step_type,
+                self._scenario,
+                page,
+                attempt_history,
+                window,
+                StepMemory(),  # interim — the executor task threads the per-test memory
+            )
         except IncurableStepError as failure:  # the only kind the steering intercept serves
             self._steer_or_raise(failure, identity, step_text, step_type, self._scenario, None, page, attempt_history)
 
