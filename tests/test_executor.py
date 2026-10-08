@@ -583,8 +583,8 @@ class TestStepExecutorContract:
         fixture.executor.execute("шаг два", "action", FakePage())
 
         assert fixture.executor._scenario == [
-            ScenarioStep(sentence="шаг один", group_prompt=""),
-            ScenarioStep(sentence="шаг два", group_prompt=""),
+            ScenarioStep(sentence="шаг один", instruction="шаг один", group_prompt=""),
+            ScenarioStep(sentence="шаг два", instruction="шаг два", group_prompt=""),
         ]
 
     @pytest.mark.parametrize(
@@ -737,7 +737,7 @@ class TestStepExecutorLogic:
         assert generator.calls[0]["identity"] == StepIdentity(
             cache_key="login-flow", step_type="action", normalized_text=normalize_step_text("шаг один")
         )
-        assert generator.calls[1]["previous_steps"] == [ScenarioStep(sentence="шаг один")]
+        assert generator.calls[1]["previous_steps"] == [ScenarioStep(sentence="шаг один", instruction="шаг один")]
         passed = events_named(fixture.recorder, "on_step_passed")
         assert len(passed) == 2
         assert not events_named(fixture.recorder, "on_step_failed")
@@ -931,14 +931,14 @@ class TestStepExecutorLogic:
         assert len(healer.calls) == 1
         assert healer.calls[0]["step"].code.rstrip("\n") == BROKEN_CODE.rstrip("\n")  # serializer appends \n
         assert "element not found" in healer.calls[0]["error"]
-        assert healer.calls[0]["previous_steps"] == [ScenarioStep(sentence="шаг один")]
+        assert healer.calls[0]["previous_steps"] == [ScenarioStep(sentence="шаг один", instruction="шаг один")]
         assert healer.calls[0]["page"] is page
         assert len(generator.calls) == 1  # generation for the first step only, healing for the second
         assert len(events_named(fixture.recorder, "on_step_passed")) == 2
         assert not events_named(fixture.recorder, "on_step_failed")
         assert fixture.executor._scenario == [
-            ScenarioStep(sentence="шаг один"),
-            ScenarioStep(sentence="нажать Войти"),
+            ScenarioStep(sentence="шаг один", instruction="шаг один"),
+            ScenarioStep(sentence="нажать Войти", instruction="нажать Войти"),
         ]
 
     @pytest.mark.parametrize(
@@ -1218,12 +1218,12 @@ class TestStepExecutorSteeringAndClosingEvent:
             cache_key="login-flow", step_type="action", normalized_text=normalize_step_text("click Pay")
         )  # the cache write-back address of the healed step
         assert steering.calls[0]["previous_steps"] == [
-            ScenarioStep(sentence="шаг один")
+            ScenarioStep(sentence="шаг один", instruction="шаг один")
         ]  # the scenario context of the guided requests
         assert steering.calls[0]["page"] is page
         assert fixture.executor._scenario == [
-            ScenarioStep(sentence="шаг один"),
-            ScenarioStep(sentence="click Pay"),
+            ScenarioStep(sentence="шаг один", instruction="шаг один"),
+            ScenarioStep(sentence="click Pay", instruction="click Pay"),
         ]  # the healed step joined the scenario
         assert events_named(fixture.recorder, "on_step_finished")[-1] == {
             "step_text": "click Pay",
@@ -1563,7 +1563,11 @@ class TestStepExecutorGroupCycle:
             "on_step_finished",
         ]
         assert fixture.executor._scenario == [
-            ScenarioStep(sentence="the status shows order confirmed", group_prompt="the flow")
+            ScenarioStep(
+                sentence="the status shows order confirmed",
+                instruction="the status shows order confirmed",
+                group_prompt="the flow",
+            )
         ]  # the healed group step joined the scenario with its permanent membership
         assert len(group.traces) == 1  # one record per executed step — the healed step keeps its failed record
 
@@ -1807,8 +1811,10 @@ class TestStepExecutorGroupCycle:
         assert failed.url_before == "https://z.example"  # the bracket opened before the cycle
         assert failed.url_after == "https://w.example"  # and closed on the failure
         assert call["attempt_history"] == []  # no record 0 — the generation loop grew nothing on the fake
-        assert call["previous_steps"] == [ScenarioStep(sentence="шаг один", group_prompt="the flow")]
+        assert call["previous_steps"] == [
+            ScenarioStep(sentence="шаг один", instruction="шаг один", group_prompt="the flow")
+        ]
         assert fixture.executor._scenario == [
-            ScenarioStep(sentence="шаг один", group_prompt="the flow"),
-            ScenarioStep(sentence="click Pay", group_prompt="the flow"),
+            ScenarioStep(sentence="шаг один", instruction="шаг один", group_prompt="the flow"),
+            ScenarioStep(sentence="click Pay", instruction="click Pay", group_prompt="the flow"),
         ]

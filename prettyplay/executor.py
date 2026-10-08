@@ -193,7 +193,11 @@ class StepExecutor:
                 )
 
             self._scenario.append(
-                ScenarioStep(sentence=step_text, group_prompt=group.prompt if group is not None else "")
+                ScenarioStep(
+                    sentence=step_text,
+                    instruction=step_text,  # the pre-render interim — rendering lands with the executor task
+                    group_prompt=group.prompt if group is not None else "",
+                )
             )
             if group is not None and not traced:
                 # the green step's own record — the bracket closes after the execution

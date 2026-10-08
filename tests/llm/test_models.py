@@ -316,21 +316,34 @@ class TestScenarioStepContract:
 
     def test_positional_construction_is_rejected(self) -> None:
         with pytest.raises(TypeError):
-            ScenarioStep("open the login page", "the order form group")  # type: ignore[misc]
+            ScenarioStep("open the login page", "Read novel", "the order form group")  # type: ignore[misc]
 
-    def test_declares_exactly_two_fields_with_empty_defaults(self) -> None:
-        assert set(ScenarioStep.model_fields) == {"sentence", "group_prompt"}
+    def test_declares_exactly_three_fields_with_empty_defaults(self) -> None:
+        assert set(ScenarioStep.model_fields) == {"sentence", "instruction", "group_prompt"}
 
         record = ScenarioStep()
 
         assert record.sentence == ""
+        assert record.instruction == ""
         assert record.group_prompt == ""
 
-    def test_kw_only_construction_carries_both_parts(self) -> None:
-        record = ScenarioStep(sentence="open the login page", group_prompt="the order form group")
+    def test_instruction_defaults_to_the_empty_string(self) -> None:
+        record = ScenarioStep(sentence="click Save")
 
-        assert record.sentence == "open the login page"
+        assert record.instruction == ""  # a non-template record stays empty until the executor fills it
+
+    def test_kw_only_construction_carries_all_three_parts(self) -> None:
+        record = ScenarioStep(sentence="Read {{ kind }}", instruction="Read novel", group_prompt="the order form group")
+
+        assert record.sentence == "Read {{ kind }}"
+        assert record.instruction == "Read novel"
         assert record.group_prompt == "the order form group"
+
+    def test_instruction_is_constructible_without_the_group_prompt(self) -> None:
+        record = ScenarioStep(sentence="Read {{ kind }}", instruction="Read novel")
+
+        assert record.instruction == "Read novel"
+        assert record.group_prompt == ""
 
 
 class TestScenarioStepLogic:
@@ -342,10 +355,27 @@ class TestScenarioStepLogic:
         with pytest.raises(pydantic.ValidationError):
             record.sentence = "rewritten"  # type: ignore[misc]
 
+    def test_instruction_is_never_rewritten(self) -> None:
+        record = ScenarioStep(sentence="Read {{ kind }}", instruction="Read novel")
+
+        with pytest.raises(pydantic.ValidationError):
+            record.instruction = "rewritten"  # type: ignore[misc]
+
     def test_ordinary_step_carries_the_empty_group_prompt(self) -> None:
         record = ScenarioStep(sentence="open the login page")
 
         assert record.group_prompt == ""
+
+    def test_non_template_record_carries_the_empty_instruction(self) -> None:
+        record = ScenarioStep(sentence="click Save")
+
+        assert record.instruction == ""  # the equality with sentence is the caller's responsibility
+
+    def test_instruction_and_sentence_stay_independent(self) -> None:
+        record = ScenarioStep(sentence="Read {{ kind }}", instruction="Read novel")
+
+        assert record.sentence == "Read {{ kind }}"  # the raw template stays the addressing artifact
+        assert record.instruction == "Read novel"  # the rendered text is the request artifact
 
 
 class TestGroupFailureClassificationContract:

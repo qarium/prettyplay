@@ -430,7 +430,8 @@ def test_scenario_context_feeds_next_generation(tmp_path: Path) -> None:
 
     assert [request["previous_steps"] for request in provider.generation_requests] == [
         [],
-        [ScenarioStep(sentence="шаг один")],  # typed records — the sentence plus its empty group membership
+        # typed records — the sentence, its executed instruction and the empty group membership
+        [ScenarioStep(sentence="шаг один", instruction="шаг один")],
     ]
     assert [event for event, _payload in hook.events if event == "on_step_passed"] == [
         "on_step_passed",
