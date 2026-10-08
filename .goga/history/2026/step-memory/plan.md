@@ -317,18 +317,18 @@ Create the Python package for the new cell `prettyplay/engine/renderer/` (today 
 - `conventions` (M1/M2 rules): pure function, Google docstring, `tests/cache/test_text.py` mirrors the location.
 - `addressing` (`prettyplay/cache/.usages/addressing.md`, already updated): the identity-triple row and the template-sentences section describe the target behavior.
 
-- [ ] **Contract tests**: in `tests/cache/test_text.py` — template sentences keep case and internal whitespace verbatim (`{{ name }}` ≠ `{{ Name }}` addresses); the three markers `{{`, `{%`, `{#` each trigger template mode; ordinary sentences stay byte-identical to the current pipeline (extend the existing tests, do not replace them) (expected to fail at this stage)
-- [ ] **REPL checkpoint** (M4): in the venv, evaluate `normalize_step_text("  Read {{ name }} into {% var out %}  ")` and `normalize_step_text("{# note #} Click Sign in")` interactively — confirm verbatim NFC+trim output before writing the logic tests
-- [ ] **Code**: in `prettyplay/cache/text.py`, implement the split per the contract Algorithm — detect `any(marker in text for marker in ("{{", "{%", "{#"))`; template branch: `unicodedata.normalize("NFC", text).strip()` returned as-is; ordinary branch: the existing NFC → trim → collapse → casefold pipeline unchanged; update the docstring to the template-aware contract
-- [ ] **Interface verification**: `.venv/bin/pytest tests/cache/ -v` — all pass
-- [ ] **Logic tests**: transfer verbatim from the design:
+- [x] **Contract tests**: in `tests/cache/test_text.py` — template sentences keep case and internal whitespace verbatim (`{{ name }}` ≠ `{{ Name }}` addresses); the three markers `{{`, `{%`, `{#` each trigger template mode; ordinary sentences stay byte-identical to the current pipeline (extend the existing tests, do not replace them) (expected to fail at this stage)
+- [x] **REPL checkpoint** (M4): in the venv, evaluate `normalize_step_text("  Read {{ name }} into {% var out %}  ")` and `normalize_step_text("{# note #} Click Sign in")` interactively — confirm verbatim NFC+trim output before writing the logic tests
+- [x] **Code**: in `prettyplay/cache/text.py`, implement the split per the contract Algorithm — detect `any(marker in text for marker in ("{{", "{%", "{#"))`; template branch: `unicodedata.normalize("NFC", text).strip()` returned as-is; ordinary branch: the existing NFC → trim → collapse → casefold pipeline unchanged; update the docstring to the template-aware contract
+- [x] **Interface verification**: `.venv/bin/pytest tests/cache/ -v` — all pass (81 passed)
+- [x] **Logic tests**: transfer verbatim from the design:
   - `test_normalize_template_sentence_addresses_verbatim` — **Input**: `normalize_step_text("  Read {{ name }} into {% var out %}  ")`; **Trace**: markers detected (`{{`, `{%`) → NFC + trim only; **Assertions**: result == `"Read {{ name }} into {% var out %}"` (case and internal whitespace preserved); `normalize_step_text("read {{ Name }} …") != normalize_step_text("read {{ name }} …")`; **Sufficiency**: case-sensitive template addressing; prevents the casefold pipeline from collapsing distinct templates into one address.
   - `test_normalize_comment_marker_sentence_is_template` — **Input**: `normalize_step_text("{# note #} Click Sign in")`; **Assertions**: verbatim NFC+trim form (case preserved, no casefold); **Sufficiency**: locks the marker-set fix (defect 3).
   - Existing ordinary-pipeline tests (Russian casefold pairs, whitespace collapse) stay green unchanged.
-- [ ] **Debugging**: re-run the task-focused tests after adding logic tests and fix the implementation until they pass; run `.venv/bin/pytest tests/ -x` diagnostically, map each remaining expected failure to a specific pending migration task, and fix every unrelated regression (do not weaken tests)
-- [ ] **Contract re-verification**: signature `normalize_step_text(text: str) -> str` unchanged; pure; no new imports beyond stdlib
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/cache/ tests/cache/` and `.venv/bin/ruff format --check prettyplay/cache/ tests/cache/` — fix findings
-- [ ] **Full lint/format gate (M3)**: `.venv/bin/ruff check prettyplay/ tests/` and `.venv/bin/ruff format --check prettyplay/ tests/` — both pass before marking this task complete
+- [x] **Debugging**: re-run the task-focused tests after adding logic tests and fix the implementation until they pass; run `.venv/bin/pytest tests/ -x` diagnostically, map each remaining expected failure to a specific pending migration task, and fix every unrelated regression (do not weaken tests) (full suite: 1196 passed, 5 failed — the same five known prompt-mirror failures mapped to Tasks 11/12/15/17; no unrelated regressions)
+- [x] **Contract re-verification**: signature `normalize_step_text(text: str) -> str` unchanged; pure; no new imports beyond stdlib
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/cache/ tests/cache/` and `.venv/bin/ruff format --check prettyplay/cache/ tests/cache/` — fix findings (one I001 import-sort in the test file fixed)
+- [x] **Full lint/format gate (M3)**: `.venv/bin/ruff check prettyplay/ tests/` and `.venv/bin/ruff format --check prettyplay/ tests/` — both pass before marking this task complete (all checks passed; 116 files formatted)
 
 ### Task 4: Result carriage through `settle` in the polling cell
 
