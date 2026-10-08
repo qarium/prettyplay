@@ -13,6 +13,7 @@ from prettyplay.engine import StepAttempt, StepGenerator
 from prettyplay.engine.attempts import OUTCOME_ORIGINAL
 from prettyplay.engine.groups import GroupRecovery, GroupStepOutcome
 from prettyplay.engine.polling import SettleWindow
+from prettyplay.engine.renderer import PreparedStep, StepMemory
 from prettyplay.failures import IncurableStepError, LLMUnavailableError, ProductDefectError
 from prettyplay.llm import GroupFailureClassification, ScenarioStep
 from prettyplay.reporting import StepHooks, StepReporter
@@ -223,10 +224,10 @@ def _group_traces(**status_kwargs: object) -> list[GroupStepOutcome]:
 def _group_scenario() -> list[ScenarioStep]:
     """The typed records of the test before the failed step: one ordinary step, the group's passed steps."""
     return [
-        ScenarioStep(sentence="open the shop", group_prompt=""),
-        ScenarioStep(sentence=COOKIE, group_prompt=GROUP_PROMPT),
-        ScenarioStep(sentence=FILL, group_prompt=GROUP_PROMPT),
-        ScenarioStep(sentence=SUBMIT, group_prompt=GROUP_PROMPT),
+        ScenarioStep(sentence="open the shop", instruction="open the shop", group_prompt=""),
+        ScenarioStep(sentence=COOKIE, instruction=COOKIE, group_prompt=GROUP_PROMPT),
+        ScenarioStep(sentence=FILL, instruction=FILL, group_prompt=GROUP_PROMPT),
+        ScenarioStep(sentence=SUBMIT, instruction=SUBMIT, group_prompt=GROUP_PROMPT),
     ]
 
 
@@ -259,14 +260,68 @@ class TestGroupRecoveryContract:
         assert [parameter.name for parameter in parameters] == [
             "group_prompt",
             "traces",
-            "step_text",
+            "prepared",
             "step_type",
             "previous_steps",
             "identity",
             "attempt_history",
             "page",
             "window",
+            "memory",
         ]
+
+    def test_diagnosis_receives_the_local_views_and_the_active_instruction(self, tmp_path: Path) -> None:
+        provider = RecoveryProvider(verdicts=[_verdict(earliest_step=STATUS)], answers=[WORKING_CODE])
+        fixture = RecoveryFixture(tmp_path, provider, FakeGenerator([_cached(STATUS, "assertion")]))
+        scenario = _group_scenario()
+
+        fixture.recovery.recover(
+            GROUP_PROMPT,
+            _group_traces(),
+            PreparedStep(instruction=STATUS),
+            "assertion",
+            scenario,
+            _identity(STATUS, "assertion"),
+            [_attempt()],
+            FakePage(),
+            SettleWindow(None, 0),
+            StepMemory(),
+        )
+
+        call = provider.diagnosis_calls[0]
+        assert call["step_text"] == STATUS  # the active failure's prepared instruction rides as STEP
+        assert call["previous_steps"] == scenario  # value-equal copies of the caller's records…
+        assert call["previous_steps"] is not scenario  # …never the caller's list object
+        assert call["group_steps"] == [trace.render() for trace in _group_traces()]
+
+    def test_row_regenerations_receive_freshly_rendered_products_and_memory(self, tmp_path: Path) -> None:
+        provider = RecoveryProvider(verdicts=[_verdict(earliest_step=FILL)])
+        generator = FakeGenerator([_cached(FILL), _cached(SUBMIT), _cached(STATUS, "assertion")])
+        fixture = RecoveryFixture(tmp_path, provider, generator)
+        memory = StepMemory()
+        executor_prepared = PreparedStep(instruction=STATUS)
+
+        fixture.recovery.recover(
+            GROUP_PROMPT,
+            _group_traces(),
+            executor_prepared,
+            "assertion",
+            _group_scenario(),
+            _identity(STATUS, "assertion"),
+            [_attempt()],
+            FakePage(),
+            SettleWindow(None, 0),
+            memory,
+        )
+
+        fill_call, _submit_call, status_call = generator.calls
+        assert isinstance(fill_call["prepared"], PreparedStep)
+        assert fill_call["prepared"] is not executor_prepared  # rendered per row step, never reused
+        assert fill_call["prepared"].instruction == FILL
+        assert status_call["prepared"] is not executor_prepared
+        assert status_call["prepared"].instruction == STATUS
+        assert fill_call["memory"] is memory  # the per-test memory threads by identity
+        assert status_call["memory"] is memory
 
     def test_returns_the_healed_cached_step_of_the_failed_step(self, tmp_path: Path) -> None:
         healed = _cached(STATUS, "assertion")
@@ -276,13 +331,14 @@ class TestGroupRecoveryContract:
         result = fixture.recovery.recover(
             GROUP_PROMPT,
             _group_traces(),
-            STATUS,
+            PreparedStep(instruction=STATUS),
             "assertion",
             _group_scenario(),
             _identity(STATUS, "assertion"),
             [_attempt()],
             FakePage(),
             SettleWindow(None, 0),
+            StepMemory(),
         )
 
         assert result is healed
@@ -320,13 +376,14 @@ class TestGroupRecoveryReferenceScenario:
             healed = fixture.recovery.recover(
                 GROUP_PROMPT,
                 traces,
-                STATUS,
+                PreparedStep(instruction=STATUS),
                 "assertion",
                 _group_scenario(),
                 _identity(STATUS, "assertion"),
                 history,
                 FakePage(),
                 SettleWindow(None, 0),
+                StepMemory(),
             )
 
         # the healed step of the failed step returns — the group continues normally
@@ -380,6 +437,158 @@ class TestGroupRecoveryReferenceScenario:
         assert sleeps == [0.25, 0.5]
 
 
+class TestGroupRecoveryRowReRender:
+    """Logic tests: the row re-renders against the current memory; the local views stay isolated."""
+
+    def test_recovery_rerenders_row_step_against_current_memory(self, tmp_path: Path) -> None:
+        """The row re-renders each step from its sentence, recorded vars and the current memory.
+
+        The capture step's regenerated result republishes ``name``; the failed
+        step's own fresh render then reads the recaptured value — never its
+        recorded instruction and never the raw template sentence.
+        """
+        capture_sentence = "Read {{ kind }} into {% var name %}"
+        status_sentence = "Check the item named {{ name }}"
+        traces = [
+            GroupStepOutcome(
+                sentence=capture_sentence,
+                instruction="Read novel into ",  # recorded at the original execution
+                step_type="action",
+                outcome="passed",
+                url_before="https://example.com/cart",
+                url_after="https://example.com/checkout",
+                identity=_identity(capture_sentence),
+            ),
+            GroupStepOutcome(
+                sentence=status_sentence,
+                instruction="Check the item named Dune",
+                step_type="assertion",
+                outcome="failed",
+                url_before="https://example.com/checkout",
+                url_after="https://example.com/checkout",
+                identity=_identity(status_sentence, "assertion"),
+            ),
+        ]
+        scenario = [
+            ScenarioStep(sentence=capture_sentence, instruction="Read novel into ", group_prompt=GROUP_PROMPT),
+        ]
+        memory = StepMemory()
+        memory.publish({"kind": "novel", "name": "Dune"})
+
+        provider = RecoveryProvider(
+            verdicts=[_verdict(earliest_step="Read novel into ")],  # matches the recorded instruction
+            answers=['def step(page):\n    return {"name": "Tale"}\n', WORKING_CODE],
+        )
+        fixture = RecoveryFixture(tmp_path, provider)
+
+        healed = fixture.recovery.recover(
+            GROUP_PROMPT,
+            traces,
+            PreparedStep(instruction="Check the item named Dune"),
+            "assertion",
+            scenario,
+            _identity(status_sentence, "assertion"),
+            [_attempt()],
+            FakePage(),
+            SettleWindow(None, 0),
+            memory,
+        )
+
+        capture_call, status_call = provider.generate_calls
+
+        # the capture step: the fresh render — plain text, the declaration riding as RESULTS
+        assert capture_call["instruction"] == "Read novel into "
+        assert "{{" not in capture_call["instruction"]
+        assert "{%" not in capture_call["instruction"]
+        assert capture_call["declarations"] == ["name"]
+        assert capture_call["inputs"] == {}
+
+        # the failed step: its fresh render read the recaptured value — not the recorded Dune
+        assert status_call["instruction"] == "Check the item named Tale"
+
+        # the recapture published at its own acceptance: name replaced, kind kept
+        assert memory.snapshot() == {"kind": "novel", "name": "Tale"}
+
+        # the caller's views stay untouched — the same records, never rewritten
+        assert traces[0].instruction == "Read novel into "
+        assert traces[0].outcome == "passed"
+        assert scenario[0].instruction == "Read novel into "
+
+        assert healed.identity == _identity(status_sentence, "assertion")  # the originally failed step
+
+    def test_recovery_row_failure_updates_active_failure_for_next_diagnosis(self, tmp_path: Path) -> None:
+        """A failing row step becomes the active failure — the next diagnosis describes it, not the original."""
+        fill_sentence = "Fill {{ vars.field }}"
+        fill_trace = GroupStepOutcome(
+            sentence=fill_sentence,
+            instruction="Fill email",  # recorded at execution
+            step_type="action",
+            vars={"field": "email"},
+            outcome="passed",
+            url_before="https://example.com/cart",
+            url_after="https://example.com/checkout",
+            identity=_identity(fill_sentence),
+        )
+        traces = [fill_trace, _trace(STATUS, outcome="failed", step_type="assertion")]
+        scenario = [
+            ScenarioStep(sentence="open the shop", instruction="open the shop", group_prompt=""),
+            ScenarioStep(sentence=fill_sentence, instruction="Fill email", group_prompt=GROUP_PROMPT),
+        ]
+        memory = StepMemory()
+
+        row_failure = IncurableStepError(
+            "Fill email", "healing attempt budget exhausted", "the row failure text", code="the failing row code"
+        )
+        provider = RecoveryProvider(
+            verdicts=[
+                _verdict(earliest_step="Fill email"),
+                _verdict(category="product_defect", root_cause="the form is broken", earliest_step="Fill email"),
+            ]
+        )
+        generator = FakeGenerator([row_failure])
+        fixture = RecoveryFixture(tmp_path, provider, generator)
+
+        with pytest.raises(ProductDefectError) as excinfo:
+            fixture.recovery.recover(
+                GROUP_PROMPT,
+                traces,
+                PreparedStep(instruction=STATUS),
+                "assertion",
+                scenario,
+                _identity(STATUS, "assertion"),
+                [_attempt()],
+                FakePage(),
+                SettleWindow(None, 0),
+                memory,
+            )
+
+        # the failing row step regenerated with its fresh render and the threaded memory
+        row_call = generator.calls[0]
+        assert row_call["prepared"].instruction == "Fill email"  # rendered from sentence + recorded vars
+        assert row_call["memory"] is memory
+
+        # the second diagnosis describes the row step's failure — never the executor's original
+        first_diagnosis, second_diagnosis = provider.diagnosis_calls
+        assert first_diagnosis["step_text"] == STATUS
+        assert second_diagnosis["step_text"] == "Fill email"
+        assert "{{" not in second_diagnosis["step_text"]
+        assert second_diagnosis["attempt_history"] == [row_call["attempt_history"][0].render()]
+
+        # the local trace view marks the occurrence failed, preserving the fresh instruction
+        assert "Fill email" in second_diagnosis["group_steps"][0]
+        assert "outcome: failed" in second_diagnosis["group_steps"][0]
+
+        # the raised product defect carries the active failure's instruction
+        assert excinfo.value.verdict is not None
+        assert excinfo.value.verdict.category == "product_defect"
+        assert "Fill email" in str(excinfo.value)
+
+        # the caller's stored views are not rewritten
+        assert traces[0].outcome == "passed"
+        assert traces[0].instruction == "Fill email"
+        assert scenario[1].instruction == "Fill email"
+
+
 class TestGroupRecoveryTerminalFailures:
     """Logic tests: the refused cycle and the out-of-mandate root end the run honestly."""
 
@@ -394,13 +603,14 @@ class TestGroupRecoveryTerminalFailures:
             fixture.recovery.recover(
                 GROUP_PROMPT,
                 _group_traces(),
-                STATUS,
+                PreparedStep(instruction=STATUS),
                 "assertion",
                 _group_scenario(),
                 _identity(STATUS, "assertion"),
                 [_attempt()],
                 FakePage(),
                 SettleWindow(None, 0),
+                StepMemory(),
             )
 
         assert excinfo.value.verdict is not None
@@ -421,13 +631,14 @@ class TestGroupRecoveryTerminalFailures:
             outside_fixture.recovery.recover(
                 GROUP_PROMPT,
                 _group_traces(),
-                STATUS,
+                PreparedStep(instruction=STATUS),
                 "assertion",
                 _group_scenario(),
                 _identity(STATUS, "assertion"),
                 [_attempt()],
                 FakePage(),
                 SettleWindow(None, 0),
+                StepMemory(),
             )
 
         verdict = outside_excinfo.value.verdict
@@ -447,13 +658,14 @@ class TestGroupRecoveryTerminalFailures:
             fixture.recovery.recover(
                 GROUP_PROMPT,
                 _group_traces(),
-                STATUS,
+                PreparedStep(instruction=STATUS),
                 "assertion",
                 _group_scenario(),
                 _identity(STATUS, "assertion"),
                 [_attempt()],
                 FakePage(),
                 SettleWindow(None, 0),
+                StepMemory(),
             )
 
         verdict = excinfo.value.verdict
@@ -466,7 +678,7 @@ class TestGroupRecoveryTerminalFailures:
     def test_a_group_step_quote_wins_over_the_outside_duplicate(self, tmp_path: Path) -> None:
         """A quote naming a group step opens the row there — even when the same sentence exists outside."""
         # the cookie sentence ran earlier as an ordinary step AND is the group's own first trace
-        scenario = [*_group_scenario(), ScenarioStep(sentence=COOKIE, group_prompt="")]
+        scenario = [*_group_scenario(), ScenarioStep(sentence=COOKIE, instruction=COOKIE, group_prompt="")]
         traces = [
             _trace(COOKIE),
             _trace(FILL),
@@ -483,13 +695,14 @@ class TestGroupRecoveryTerminalFailures:
         healed = fixture.recovery.recover(
             GROUP_PROMPT,
             traces,
-            STATUS,
+            PreparedStep(instruction=STATUS),
             "assertion",
             scenario,
             _identity(STATUS, "assertion"),
             [_attempt()],
             FakePage(),
             SettleWindow(None, 0),
+            StepMemory(),
         )
 
         # the row starts at the group's own trace — never at the outside duplicate
@@ -507,13 +720,14 @@ class TestGroupRecoveryTerminalFailures:
             fixture.recovery.recover(
                 GROUP_PROMPT,
                 _group_traces(),
-                STATUS,
+                PreparedStep(instruction=STATUS),
                 "assertion",
                 _group_scenario(),
                 _identity(STATUS, "assertion"),
                 [],
                 FakePage(),
                 SettleWindow(None, 0),
+                StepMemory(),
             )
 
         # the terminal error carries the authored cap verdict
@@ -538,13 +752,14 @@ class TestGroupRecoveryTerminalFailures:
         result = fixture.recovery.recover(
             GROUP_PROMPT,
             _group_traces(),
-            STATUS,
+            PreparedStep(instruction=STATUS),
             "assertion",
             _group_scenario(),
             _identity(STATUS, "assertion"),
             [_attempt()],
             FakePage(),
             SettleWindow(5.0, 9.0),  # the failed step's window — never reused for the row
+            StepMemory(),
         )
 
         assert result is healed
@@ -576,13 +791,14 @@ class TestGroupRecoveryEdgePins:
         result = fixture.recovery.recover(
             GROUP_PROMPT,
             _group_traces(),
-            STATUS,
+            PreparedStep(instruction=STATUS),
             "assertion",
             _group_scenario(),
             _identity(STATUS, "assertion"),
             [_attempt()],
             FakePage(),
             SettleWindow(None, 0),
+            StepMemory(),
         )
 
         assert result is healed
@@ -606,13 +822,14 @@ class TestGroupRecoveryEdgePins:
         fixture.recovery.recover(
             GROUP_PROMPT,
             _group_traces(),
-            STATUS,
+            PreparedStep(instruction=STATUS),
             "assertion",
             _group_scenario(),
             _identity(STATUS, "assertion"),
             history,
             FakePage(),
             SettleWindow(None, 0),
+            StepMemory(),
         )
 
         fill_call, submit_call, status_call = fixture.generator.calls  # type: ignore[attr-defined]
@@ -649,13 +866,14 @@ class TestGroupRecoveryEdgePins:
             fixture.recovery.recover(
                 GROUP_PROMPT,
                 _group_traces(),
-                STATUS,
+                PreparedStep(instruction=STATUS),
                 "assertion",
                 _group_scenario(),
                 _identity(STATUS, "assertion"),
                 [_attempt()],
                 FakePage(),
                 SettleWindow(None, 0),
+                StepMemory(),
             )
 
         # the mapped verdict — the category as is, the explanation with the earliest-step quote
@@ -675,13 +893,14 @@ class TestGroupRecoveryEdgePins:
             fixture.recovery.recover(
                 GROUP_PROMPT,
                 _group_traces(),
-                STATUS,
+                PreparedStep(instruction=STATUS),
                 "assertion",
                 _group_scenario(),
                 _identity(STATUS, "assertion"),
                 [_attempt(code="the failed code", error="the underlying failure")],
                 FakePage(),
                 SettleWindow(None, 0),
+                StepMemory(),
             )
 
         assert excinfo.value.verdict is not None
@@ -701,13 +920,14 @@ class TestGroupRecoveryEdgePins:
             fixture.recovery.recover(
                 GROUP_PROMPT,
                 _group_traces(),
-                STATUS,
+                PreparedStep(instruction=STATUS),
                 "assertion",
                 _group_scenario(),
                 _identity(STATUS, "assertion"),
                 [_attempt()],
                 FakePage(),
                 SettleWindow(None, 0),
+                StepMemory(),
             )
 
         assert excinfo.value.verdict is not None
@@ -730,13 +950,14 @@ class TestGroupRecoveryEdgePins:
         result = fixture.recovery.recover(
             GROUP_PROMPT,
             [],
-            STATUS,
+            PreparedStep(instruction=STATUS),
             "assertion",
             _group_scenario(),
             _identity(STATUS, "assertion"),
             [_attempt()],
             FakePage(),
             SettleWindow(None, 0),
+            StepMemory(),
         )
 
         assert result is None  # never a healed step — the caller treats no row as no recovery
@@ -754,13 +975,14 @@ class TestGroupRecoveryEdgePins:
             fixture.recovery.recover(
                 GROUP_PROMPT,
                 _group_traces(),
-                STATUS,
+                PreparedStep(instruction=STATUS),
                 "assertion",
                 _group_scenario(),
                 _identity(STATUS, "assertion"),
                 [_attempt()],
                 FakePage(),
                 SettleWindow(None, 0),
+                StepMemory(),
             )
 
         assert excinfo.value.verdict is not None
@@ -780,13 +1002,14 @@ class TestGroupRecoveryEdgePins:
         fixture.recovery.recover(
             GROUP_PROMPT,
             traces,
-            STATUS,
+            PreparedStep(instruction=STATUS),
             "assertion",
             _group_scenario(),
             _identity(STATUS, "assertion"),
             [_attempt()],
             FakePage(),
             SettleWindow(None, 0),
+            StepMemory(),
         )
 
         assert traces == snapshot  # the honest original outcomes — later diagnoses see them unchanged
@@ -800,13 +1023,14 @@ class TestGroupRecoveryEdgePins:
             fixture.recovery.recover(
                 GROUP_PROMPT,
                 _group_traces(),
-                STATUS,
+                PreparedStep(instruction=STATUS),
                 "assertion",
                 _group_scenario(),
                 _identity(STATUS, "assertion"),
                 [_attempt()],
                 FakePage(),
                 SettleWindow(None, 0),
+                StepMemory(),
             )
 
         assert "openai request failed" in str(excinfo.value)

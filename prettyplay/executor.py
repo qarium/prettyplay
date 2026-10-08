@@ -474,13 +474,14 @@ class StepExecutor:
             self._recovery.recover(
                 group.prompt,
                 group.traces,
-                step_text,
+                PreparedStep(instruction=step_text),  # interim until the executor task threads the render product
                 step_type,
                 self._scenario,
                 identity,
                 attempt_history,
                 page,
                 window,
+                StepMemory(),  # interim — the executor task threads the per-test memory
             )
         except IncurableStepError as failure:  # the only kind the steering intercept serves
             self._steer_or_raise(

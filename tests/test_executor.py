@@ -264,25 +264,27 @@ class RecordingRecovery:
         self,
         group_prompt: str,
         traces: list[GroupStepOutcome],
-        step_text: str,
+        prepared: PreparedStep,
         step_type: str,
         previous_steps: list[ScenarioStep],
         identity: StepIdentity,
         attempt_history: list[StepAttempt],
         page: FakePage,
         window: SettleWindow,
+        memory: StepMemory,
     ) -> CachedStep | None:
         self.calls.append(
             {
                 "group_prompt": group_prompt,
                 "traces": list(traces),  # snapshot: the failed record rides the list at the call
-                "step_text": step_text,
+                "prepared": prepared,
                 "step_type": step_type,
                 "previous_steps": list(previous_steps),  # snapshot: the live list grows after the call
                 "identity": identity,
                 "attempt_history": attempt_history,  # live reference: record 0 is asserted through it
                 "page": page,
                 "window": window,
+                "memory": memory,
             }
         )
         if self.error is not None:
@@ -1557,7 +1559,8 @@ class TestStepExecutorGroupCycle:
         assert failed_trace.url_before == "https://a.example"
         assert failed_trace.url_after == "https://b.example"
         assert failed_trace.identity == call["identity"]  # the row resolves identities from the record
-        assert call["step_text"] == "the status shows order confirmed"
+        assert call["prepared"].instruction == "the status shows order confirmed"
+        assert isinstance(call["memory"], StepMemory)  # the per-test memory threads into the delegation
         assert call["step_type"] == "assertion"
         assert call["previous_steps"] == []  # the first step of the test — no context yet
         assert call["page"] is page
