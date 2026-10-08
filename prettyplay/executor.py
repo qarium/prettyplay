@@ -13,6 +13,7 @@ from .engine import StepGenerator, StepHealer, classify_step_failure, format_ste
 from .engine.attempts import OUTCOME_ORIGINAL, StepAttempt
 from .engine.groups import GroupRecovery, GroupStepOutcome
 from .engine.polling import SettleWindow, settle
+from .engine.renderer import PreparedStep, StepMemory  # interim until the executor task threads the render product
 from .engine.steering import StepSteering
 from .failures import FailureVerdict, IncurableStepError, LLMUnavailableError, ProductDefectError
 from .llm import LLMProvider, ScenarioStep
@@ -408,13 +409,14 @@ class StepExecutor:
         try:
             self._generator.generate(
                 identity,
-                step_text,
+                PreparedStep(instruction=step_text),  # interim until the executor task threads the render product
                 step_type,
                 self._scenario,
                 group.prompt if group is not None else None,
                 page,
                 attempt_history,
                 window,
+                StepMemory(),  # interim — the executor task threads the per-test memory
             )
 
             return False

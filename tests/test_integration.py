@@ -126,10 +126,12 @@ class StubProvider(LLMProvider):
         self,
         prompt: str,
         user_instructions: str = "",
-        step_text: str = "",
+        instruction: str = "",
         step_type: str = "",
         previous_steps: list[str] | None = None,
         group_prompt: str | None = None,
+        inputs: dict[str, str] | None = None,
+        declarations: list[str] | None = None,
         snapshot: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
@@ -142,9 +144,11 @@ class StubProvider(LLMProvider):
             {
                 "prompt": prompt,
                 "user_instructions": user_instructions,
-                "step_text": step_text,
+                "instruction": instruction,
                 "step_type": step_type,
                 "previous_steps": list(previous_steps),  # copy: the scenario context lives on
+                "inputs": inputs,
+                "declarations": declarations,
                 "snapshot": snapshot,
                 "page_url": page_url,
                 "screenshot": screenshot,
@@ -1028,7 +1032,7 @@ def test_scenario_c_steering_write_back_threads_shared_history_and_passes_the_ga
     # the dialog joined the engine-grown history: the first guided request carries the three engine records
     assert len(provider.generation_requests[3]["attempt_history"]) == 3
     assert provider.generation_requests[3]["guidance"] == "the button moved into the modal"
-    assert provider.generation_requests[3]["step_text"] == "open the app page"
+    assert provider.generation_requests[3]["instruction"] == "open the app page"
     assert provider.generation_requests[3]["step_type"] == "action"
 
     # the rejected turn appended its record — the same URL on both sides — and the next request carries it grown

@@ -536,10 +536,12 @@ class StepSteering:
         return self._provider.generate_step_code(
             prompt=SYSTEM_PROMPT,
             user_instructions=self._config.generation_prompt,
-            step_text=step_text,
+            instruction=step_text,  # interim until the steering task threads the render product
             step_type=step_type,
             previous_steps=previous_steps,
             group_prompt=group_prompt,
+            inputs={},  # interim — the steering task threads the call bindings
+            declarations=[],  # interim — the steering task threads the declared results
             snapshot=self._guarded_snapshot(page),
             page_url=self._guarded_url(page),
             screenshot=screenshot,

@@ -12,6 +12,7 @@ from ...reporting import StepReporter
 from ..attempts import OUTCOME_ORIGINAL, StepAttempt
 from ..generator import StepGenerator
 from ..polling import SettleWindow
+from ..renderer import PreparedStep, StepMemory  # interim until the recovery task threads the render product
 from .diagnosis import classify_group_failure
 from .outcome import GroupStepOutcome
 
@@ -244,7 +245,7 @@ class GroupRecovery:
             self._reporter.emit("on_healing_started", {"step_text": trace.sentence, "category": "recoverable"})
             healed = self._generator.regenerate(
                 identity=trace.identity,
-                step_text=trace.sentence,
+                prepared=PreparedStep(instruction=trace.sentence),  # interim until the recovery threads the render
                 step_type=trace.step_type,
                 previous_steps=previous_steps,
                 group_prompt=group_prompt,
@@ -252,6 +253,7 @@ class GroupRecovery:
                 attempt_history=row_history,
                 recommendation=verdict.recommendation,
                 window=row_window,
+                memory=StepMemory(),  # interim — the recovery task threads the per-test memory
             )
             self._reporter.emit("on_healed", {"step_text": trace.sentence, "explanation": verdict.root_cause})
             logger.info(

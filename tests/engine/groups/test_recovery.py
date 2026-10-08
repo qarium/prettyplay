@@ -333,7 +333,7 @@ class TestGroupRecoveryReferenceScenario:
         assert healed.code == WORKING_CODE
 
         # the row: three regenerations in trace order, each with the framing and the recommendation
-        assert [call["step_text"] for call in provider.generate_calls] == [FILL, SUBMIT, STATUS]
+        assert [call["instruction"] for call in provider.generate_calls] == [FILL, SUBMIT, STATUS]
         for call in provider.generate_calls:
             assert call["group_prompt"] == GROUP_PROMPT
             assert call["recommendation"] == verdict.recommendation
@@ -551,7 +551,7 @@ class TestGroupRecoveryTerminalFailures:
         call = fixture.generator.calls[0]  # type: ignore[attr-defined]
 
         assert call["identity"] == _identity(STATUS, "assertion")
-        assert call["step_text"] == STATUS
+        assert call["prepared"].instruction == STATUS
         assert call["group_prompt"] == GROUP_PROMPT
 
         # the row window is built from the trace's declared tries and the config polling settings

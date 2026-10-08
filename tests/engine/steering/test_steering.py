@@ -153,10 +153,12 @@ class FakeProvider:
         self,
         prompt: str,
         user_instructions: str,
-        step_text: str,
+        instruction: str,
         step_type: str,
         previous_steps: list[ScenarioStep],
         group_prompt: str | None,
+        inputs: dict[str, str] | None,
+        declarations: list[str] | None,
         snapshot: str,
         page_url: str | None,
         screenshot: bytes | None,
@@ -169,10 +171,12 @@ class FakeProvider:
             {
                 "prompt": prompt,
                 "user_instructions": user_instructions,
-                "step_text": step_text,
+                "instruction": instruction,
                 "step_type": step_type,
                 "previous_steps": previous_steps,
                 "group_prompt": group_prompt,
+                "inputs": inputs,
+                "declarations": declarations,
                 "snapshot": snapshot,
                 "page_url": page_url,
                 "screenshot": screenshot,
@@ -443,7 +447,7 @@ class TestStepSteeringLogic:
         request = provider.calls[0]
         assert request["guidance"] == "dismiss the modal first"
         assert request["recommendation"] is None  # the live guidance replaces the verdict diagnosis
-        assert request["step_text"] == "click Pay"  # the raw sentence rides the request verbatim
+        assert request["instruction"] == "click Pay"  # the raw sentence rides the request verbatim
         assert request["step_type"] == "action"
         assert request["attempt_history"] == []  # the first turn carries no records yet
         assert history == []  # a green turn never appends a record
@@ -499,7 +503,7 @@ class TestStepSteeringLogic:
         for request in provider.calls:
             assert request["group_prompt"] == GROUP_PROMPT  # verbatim, on every turn of the dialog
             assert request["previous_steps"] == [ORDINARY_STEP, GROUP_STEP]  # the typed records, unchanged
-            assert request["step_text"] == "fill the email field"  # the group step's own sentence verbatim
+            assert request["instruction"] == "fill the email field"  # the group step's own sentence verbatim
         assert len(history) == 1  # only the rejected turn recorded; the green turn never does
 
     def test_steer_ordinary_dialog_keeps_the_ordinary_payload_with_none_group_prompt(
@@ -529,10 +533,12 @@ class TestStepSteeringLogic:
         assert set(provider.calls[0]) == {
             "prompt",
             "user_instructions",
-            "step_text",
+            "instruction",
             "step_type",
             "previous_steps",
             "group_prompt",
+            "inputs",
+            "declarations",
             "snapshot",
             "page_url",
             "screenshot",
@@ -540,7 +546,7 @@ class TestStepSteeringLogic:
             "attempt_history",
             "recommendation",
             "guidance",
-        }  # the pre-change request shape plus the one widened key — nothing else moved
+        }  # the pre-change request shape plus the widened render keys — nothing else moved
         for request in provider.calls:
             assert request["group_prompt"] is None  # no group framing on the ordinary dialog, ever
 

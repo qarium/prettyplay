@@ -11,6 +11,7 @@ from prettyplay.engine import StepAttempt, StepGenerator, StepHealer
 from prettyplay.engine.attempts import OUTCOME_ORIGINAL
 from prettyplay.engine.classification import CLASSIFICATION_PROMPT
 from prettyplay.engine.polling import SettleWindow
+from prettyplay.engine.renderer import PreparedStep
 from prettyplay.failures import (
     FailureVerdict,
     IncurableStepError,
@@ -168,10 +169,12 @@ class FakeProvider:
         self,
         prompt: str,
         user_instructions: str = "",
-        step_text: str = "",
+        instruction: str = "",
         step_type: str = "",
         previous_steps: list[object] | None = None,
         group_prompt: str | None = None,
+        inputs: dict[str, str] | None = None,
+        declarations: list[str] | None = None,
         snapshot: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
@@ -184,10 +187,12 @@ class FakeProvider:
             {
                 "prompt": prompt,
                 "user_instructions": user_instructions,
-                "step_text": step_text,
+                "instruction": instruction,
                 "step_type": step_type,
                 "previous_steps": previous_steps,
                 "group_prompt": group_prompt,
+                "inputs": inputs,
+                "declarations": declarations,
                 "snapshot": snapshot,
                 "page_url": page_url,
                 "screenshot": screenshot,
@@ -211,7 +216,7 @@ class SpyGenerator:
     def regenerate(  # noqa: PLR0913, PLR0917 — the signature is fixed by the engine contract
         self,
         identity: StepIdentity,
-        step_text: str,
+        prepared: PreparedStep,
         step_type: str,
         previous_steps: list[object],
         group_prompt: str | None = None,
@@ -219,11 +224,12 @@ class SpyGenerator:
         attempt_history: list[StepAttempt] | None = None,
         recommendation: str = "",
         window: object = None,
+        memory: object = None,
     ) -> CachedStep:
         self.calls.append(
             {
                 "identity": identity,
-                "step_text": step_text,
+                "prepared": prepared,
                 "step_type": step_type,
                 "previous_steps": previous_steps,
                 "group_prompt": group_prompt,
@@ -231,6 +237,7 @@ class SpyGenerator:
                 "attempt_history": attempt_history,
                 "recommendation": recommendation,
                 "window": window,
+                "memory": memory,
             }
         )
         if self.failure is not None:
@@ -457,7 +464,7 @@ class TestStepHealerLogic:
             provider.classify_step_failure_calls[0]["step_text"] == "Click the «Sign IN» button"
         )  # raw, not normalized
         call = fixture.generator.calls[0]
-        assert call["step_text"] == "Click the «Sign IN» button"  # the same raw sentence into regeneration
+        assert call["prepared"].instruction == "Click the «Sign IN» button"  # the same sentence, rendered
         assert call["step_type"] == "action"
         assert call["attempt_history"] is history  # the same list object — threaded, never copied
         assert history[0].code == FAILED_CODE  # record 0 never re-seeded

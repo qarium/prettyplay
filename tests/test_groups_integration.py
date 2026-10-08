@@ -117,10 +117,12 @@ class ForbiddenProvider(LLMProvider):
         self,
         prompt: str,
         user_instructions: str = "",
-        step_text: str = "",
+        instruction: str = "",
         step_type: str = "",
         previous_steps: list[str] | None = None,
         group_prompt: str | None = None,
+        inputs: dict[str, str] | None = None,
+        declarations: list[str] | None = None,
         snapshot: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
@@ -187,10 +189,12 @@ class RecordingProvider(LLMProvider):
         self,
         prompt: str,
         user_instructions: str = "",
-        step_text: str = "",
+        instruction: str = "",
         step_type: str = "",
         previous_steps: list[str] | None = None,
         group_prompt: str | None = None,
+        inputs: dict[str, str] | None = None,
+        declarations: list[str] | None = None,
         snapshot: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
@@ -201,7 +205,7 @@ class RecordingProvider(LLMProvider):
     ) -> str:
         self.generation_requests.append(
             {
-                "step_text": step_text,
+                "instruction": instruction,
                 "step_type": step_type,
                 "previous_steps": list(previous_steps or []),  # copy: the scenario context lives on
                 "group_prompt": group_prompt,
@@ -499,7 +503,7 @@ def test_typed_scenario_context_flows_end_to_end(
 
     # the third step's request carried the typed records: the ordinary entry plain, the group entry marked
     request = provider.generation_requests[0]
-    assert request["step_text"] == "place the order"
+    assert request["instruction"] == "place the order"
     assert request["group_prompt"] is None  # an ordinary step again — no framing of its own
     assert request["previous_steps"] == scenario_records[:2]  # membership is a property of the record
     assert request["previous_steps"][1].group_prompt == GROUP_PROMPT

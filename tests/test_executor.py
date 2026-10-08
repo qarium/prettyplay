@@ -16,6 +16,7 @@ from prettyplay.engine import StepAttempt
 from prettyplay.engine.attempts import OUTCOME_ORIGINAL
 from prettyplay.engine.groups import GroupStepOutcome
 from prettyplay.engine.polling import SettleWindow, settle
+from prettyplay.engine.renderer import PreparedStep
 from prettyplay.failures import FailureVerdict, IncurableStepError, LLMUnavailableError, ProductDefectError
 from prettyplay.llm import FailureClassification, LLMProvider, ScenarioStep
 from prettyplay.reporting import StepHooks, StepReporter
@@ -83,24 +84,26 @@ class RecordingGenerator:
     def generate(  # noqa: PLR0913, PLR0917 — the signature is fixed by the engine contract
         self,
         identity: StepIdentity,
-        step_text: str,
+        prepared: PreparedStep,
         step_type: str,
         previous_steps: list[ScenarioStep],
         group_prompt: str | None,
         page: FakePage,
         attempt_history: list[StepAttempt],
         window: SettleWindow,
+        memory: object = None,
     ) -> CachedStep | None:
         self.calls.append(
             {
                 "identity": identity,
-                "step_text": step_text,
+                "prepared": prepared,
                 "step_type": step_type,
                 "previous_steps": list(previous_steps),  # snapshot: the live list grows after the call
                 "group_prompt": group_prompt,
                 "page": page,
                 "attempt_history": attempt_history,  # live reference: the per-step identity check needs it
                 "window": window,
+                "memory": memory,
             }
         )
         return self.step
@@ -116,13 +119,14 @@ class RaisingGenerator:
     def generate(  # noqa: PLR0913, PLR0917 — the signature is fixed by the engine contract
         self,
         identity: StepIdentity,
-        step_text: str,
+        prepared: PreparedStep,
         step_type: str,
         previous_steps: list[str],
         group_prompt: str | None,
         page: FakePage,
         attempt_history: list[StepAttempt],
         window: SettleWindow,
+        memory: object = None,
     ) -> CachedStep:
         self.calls += 1
         raise self.error
@@ -139,13 +143,14 @@ class FlakyGenerator:
     def generate(  # noqa: PLR0913, PLR0917 — the signature is fixed by the engine contract
         self,
         identity: StepIdentity,
-        step_text: str,
+        prepared: PreparedStep,
         step_type: str,
         previous_steps: list[str],
         group_prompt: str | None,
         page: FakePage,
         attempt_history: list[StepAttempt],
         window: SettleWindow,
+        memory: object = None,
     ) -> CachedStep | None:
         self.calls += 1
         if self.calls == 1:
@@ -646,17 +651,18 @@ class TestStepExecutorContract:
         healer = RecordingHealer()
         fixture = ExecutorFixture(tmp_path, generator, healer)
 
-        # cache miss — generate(identity, step_text, step_type, scenario, group_prompt, page, history, window)
+        # cache miss — generate(identity, prepared, step_type, scenario, group_prompt, page, history, window, memory)
         fixture.executor.execute("open the page", "action", FakePage())
         assert set(generator.calls[0]) == {
             "identity",
-            "step_text",
+            "prepared",
             "step_type",
             "previous_steps",
             "group_prompt",
             "page",
             "attempt_history",
             "window",
+            "memory",
         }
         assert generator.calls[0]["group_prompt"] is None  # the ordinary step — no framing
 
@@ -733,7 +739,7 @@ class TestStepExecutorLogic:
 
         assert len(generator.calls) == 2
         assert generator.calls[0]["previous_steps"] == []
-        assert generator.calls[0]["step_text"] == "шаг один"
+        assert generator.calls[0]["prepared"].instruction == "шаг один"
         assert generator.calls[0]["identity"] == StepIdentity(
             cache_key="login-flow", step_type="action", normalized_text=normalize_step_text("шаг один")
         )
@@ -789,7 +795,7 @@ class TestStepExecutorLogic:
         fixture.executor.execute("Open the LOGIN page", "action", page)
 
         call = generator.calls[0]
-        assert call["step_text"] == "Open the LOGIN page"  # raw, not casefolded
+        assert call["prepared"].instruction == "Open the LOGIN page"  # raw, not casefolded
         assert call["step_type"] == "action"
         assert call["attempt_history"] == []
         assert call["identity"].normalized_text == "open the login page"  # addressing still normalized

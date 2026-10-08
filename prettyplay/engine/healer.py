@@ -10,6 +10,7 @@ from .attempts import StepAttempt
 from .classification import classify_step_failure
 from .generator import StepGenerator
 from .polling import SettleWindow
+from .renderer import PreparedStep, StepMemory  # interim until the healer task threads the render product
 
 
 class StepHealer:
@@ -117,7 +118,7 @@ class StepHealer:
         try:
             healed = self._generator.regenerate(
                 identity=step.identity,
-                step_text=step_text,
+                prepared=PreparedStep(instruction=step_text),  # interim until the healer threads the render product
                 step_type=step_type,
                 previous_steps=previous_steps,
                 group_prompt=None,  # a group step never reaches the healer — no framing on this path
@@ -125,6 +126,7 @@ class StepHealer:
                 attempt_history=attempt_history,
                 recommendation=classification.recommendation,
                 window=window,
+                memory=StepMemory(),  # interim — the healer task threads the per-test memory
             )
         except IncurableStepError as inner:  # regeneration exhausted — the verdict stays None inside
             # the entry verdict of this classification, never a second LLM request; raise … from inner
