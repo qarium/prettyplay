@@ -173,6 +173,7 @@ def _trace(
 ) -> GroupStepOutcome:
     return GroupStepOutcome(
         sentence=sentence,
+        instruction=sentence,  # non-template steps record the sentence as their instruction
         step_type=step_type,
         tries=tries,
         delay=delay,

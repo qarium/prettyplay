@@ -264,6 +264,7 @@ class StepExecutor:
         group.traces.append(
             GroupStepOutcome(
                 sentence=step_text,
+                instruction=step_text,  # the pre-render interim — rendering lands with the executor task
                 step_type=step_type,
                 tries=tries,
                 delay=delay,

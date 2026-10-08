@@ -60,6 +60,7 @@ def _identity(normalized_text: str) -> StepIdentity:
 def _trace(sentence: str, outcome: str = "passed") -> GroupStepOutcome:
     return GroupStepOutcome(
         sentence=sentence,
+        instruction=sentence,  # non-template steps record the sentence as their instruction
         step_type="action",
         outcome=outcome,
         url_before="https://example.com/cart",

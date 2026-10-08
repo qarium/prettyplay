@@ -49,6 +49,7 @@ def group_traces() -> list[GroupStepOutcome]:
     def _trace(sentence: str, step_type: str, outcome: str) -> GroupStepOutcome:
         return GroupStepOutcome(
             sentence=sentence,
+            instruction=sentence,  # non-template steps record the sentence as their instruction
             step_type=step_type,
             tries=None,
             delay=None,
