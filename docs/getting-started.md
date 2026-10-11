@@ -121,7 +121,9 @@ ever (re)generated.
 
 Team workflow: generate locally where the LLM is reachable, commit the cache
 directory, run CI fully from the cache with no LLM keys — optionally with
-`strict = true` for guaranteed replay-only behavior.
+`strict = true` for guaranteed replay-only behavior. Committed caches need
+`cleanup=False` on every run — the default close sweeps the untouched
+entries of the test's key (see [Step cache](reference/step-cache.md)).
 
 ## Settle polling
 

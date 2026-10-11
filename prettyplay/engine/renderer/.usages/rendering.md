@@ -37,7 +37,7 @@ prepared = render_step(
     memory=memory,
     vars=None,
 )
-prepared.instruction      # "For the item named Book, read its tags into " — tag-stripped
+prepared.instruction  # "For the item named Book, read its tags into " — tag-stripped
 prepared.addressing_text  # "For the item named Book, read its tags into {% var tags %}" — tags verbatim
 ```
 

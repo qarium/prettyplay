@@ -1451,23 +1451,23 @@ reproduces exactly.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Code**: update `docs/reference/step-cache.md` — restate the addressing table (the
+- [x] **Code**: update `docs/reference/step-cache.md` — restate the addressing table (the
   rendered sentence; NFC + trim; case and internal whitespace significant; capture tags
   verbatim; a plain sentence and an identical render share one address), replace the old
   limitation passage with the addressing semantics, document `cleanup` and the per-test working
   set (the default sweep on close; `cleanup=False` as the committed-cache persistence mode),
   add the purge-after-upgrade note (no library version field invalidates the cache; purge
   manually after an upgrade)
-- [ ] **Code**: update `docs/guides/writing-steps.md` accordingly (the addressing preamble —
+- [x] **Code**: update `docs/guides/writing-steps.md` accordingly (the addressing preamble —
   templates address by their rendered values; the honest-context tail)
-- [ ] **REPL check** (fresh `.venv/bin/python`): run every code example and expected output
+- [x] **REPL check** (fresh `.venv/bin/python`): run every code example and expected output
   shown in the updated pages through the REPL — the documented behavior must reproduce exactly
   (the normalization examples, the render examples, the `cleanup` constructor call)
-- [ ] **Validation**: `grep -rn "casefold\|accepted limitation\|raw template sentence
+- [x] **Validation**: `grep -rn "casefold\|accepted limitation\|raw template sentence
   addresses\|template source" docs/` — fix every remaining page stating the old addressing;
   only intentional matches remain (e.g. the new "template source" phrasing of the render
   input)
-- [ ] **Lint**: none for prose; keep the markdown structure of the existing docs (headings,
+- [x] **Lint**: none for prose; keep the markdown structure of the existing docs (headings,
   code fences, tables)
 
 ### Task 11: Integration tests for the wired addressing lifecycle

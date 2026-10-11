@@ -14,23 +14,42 @@ deterministically; the cache is always read, writes are best-effort.
 |---|---|---|
 | cache_key | the main object constructor argument | a different key — a different step |
 | step type | action vs assertion | the same sentence as action and as assertion — two steps |
-| normalized sentence | ordinary text: NFC, trim, whitespace collapse, casefold; template source containing `{{`, `{%` or `{#`: NFC and trim only | «Click Sign in» equals «click  sign in »; template names, case and expression whitespace remain significant |
+| normalized sentence | the addressing text — the rendered sentence — after NFC + trim | «Click Sign in» and «click  sign in » are different steps; a plain sentence and a template producing the exact same text are one step |
 
 A missing cache entry for the computed address is a cache miss — the step is
 generated, not an error.
 
-Template identity uses the authored sentence. Rendered values and call-local
-`vars` values never enter the address, so one template replays from the same
-cache entry with new values. Generated code can read current captured values
-by name from the `step_inputs` global and call-local values from
-`step_inputs["vars"]` on each execution.
+### The addressing text
+
+Steps address the cache by their rendered sentence — the addressing text:
+
+- `{{ ... }}` interpolations substitute the actual values from vars and
+  memory — different values, different steps, no cross-value replay
+- an active `{% var name %}` capture tag stays in the addressing text
+  verbatim — `Read {% var a %}` and `Read {% var x %}` are different steps
+- a capture tag inside an inactive branch contributes nothing — it disappears
+  with the branch
+- a plain sentence addresses as itself
+
+```python
+# one template — two renderings against different memory — two steps:
+t.step("Open the item named {{ name }}")   # name = "Book" → addresses as "Open the item named Book"
+t.step("Open the item named {{ name }}")   # name = "Film" → addresses as "Open the item named Film"
+```
+
+Case and internal whitespace are significant: rendered values are data
+(«Sign in» and «sign In» are different buttons). The instruction sent to the
+LLM keeps the tag-stripped render. Generated code can read current captured
+values by name from the `step_inputs` global and call-local values from
+`step_inputs["vars"]` — supplied fresh on every execution, so cached code
+tracks the live page instead of the values baked into its address.
 
 ### Normalize and address
 
 ```python
 from prettyplay.cache import StepIdentity, normalize_step_text
 
-normalized = normalize_step_text("  Click   Sign In ")
+normalized = normalize_step_text("  Click Sign In ")
 identity = StepIdentity(
     cache_key="login-flow",
     step_type="action",
@@ -61,12 +80,20 @@ cache = StepCache(config=Config(), path="checkout", reporter=StepReporter(hooks=
 step = cache.load(identity)  # None on a cache miss
 if step is None:
     # a miss means: generate the step, then store it
-    cache.save(CachedStep(identity=identity, code=step_code, created_at="2026-09-07"))
+    cache.save(
+        CachedStep(
+            identity=identity,
+            addressing_text="  Click Sign In ",  # the rendered sentence, verbatim
+            code=step_code,
+            created_at="2026-09-07",
+        )
+    )
 ```
 
 ### File format
 
-Each file carries the metadata fields (step sentence, cache key, step type,
+Each file carries the metadata fields (the step's addressing text — the
+rendered sentence with actual values — the cache key, the step type, the
 creation date), then the `# --- step code ---` sentinel line, then the
 generated step code — top-level imports when present, then the fixed-form
 `def step` function (see [Driver facade](driver-facade.md)), restored
@@ -78,6 +105,11 @@ caches written against the retired page facade call methods that no longer
 exist (an `AttributeError` at replay, a hard failure in strict mode), so
 purge the cache directory once when upgrading across that change.
 
+The addressing change is a break of the same kind: some existing addresses
+change, because steps address by their rendered sentence now. Purge the
+cache directory once after upgrading across it — or let the first default
+close sweep the untouched legacy files of each test's key out of its scope.
+
 ### Write behavior
 
 - `save` never fails the run: a read-only cache or a busy Windows target
@@ -85,6 +117,40 @@ purge the cache directory once when upgrading across that change.
 - writes are atomic: a unique temporary file in the target directory, then an
   atomic replace; the last writer wins, a partial file never becomes visible
 - `load` always works, in every environment
+
+### The per-test working set
+
+The cache is a per-test working set by default: `close()` deletes every step
+file of this test's `cache_key` in its cache scope that the test did not
+successfully load or save — best-effort, logged, never failing the close.
+Replayed and freshly generated steps survive (they were touched); strict
+replays keep what they replay.
+
+The store accumulates the touched set — the file names of every step it
+successfully loaded or saved; misses, damaged entries and skipped or failed
+writes touch nothing:
+
+```python
+removed = cache.sweep_untouched(cache_key="login-flow")
+# deletes the untouched files of this cache key in this store's scope; returns their names
+```
+
+- the scope is this store's directory (cache root + subdirectory); only files
+  whose metadata carries `cache_key` are considered — other tests' entries
+  in a shared root survive
+- a file with unreadable metadata is skipped with a WARNING — its ownership
+  is unprovable
+- deletions are log records, one per file; a per-file failure is logged and
+  never raises; the call is idempotent
+
+```python
+from prettyplay import PrettyPlay
+
+test = PrettyPlay("login-flow", cleanup=False)  # keep the cache directory after close
+```
+
+- `cleanup` is a keyword-only constructor parameter, default `True`; there is
+  no config or env switch
 
 ### The compliance gate before caching
 
@@ -142,4 +208,8 @@ if budgets.try_generation(identity):
 Generate locally where the LLM is reachable → commit the cache directory → CI
 runs the whole suite from the cache with no LLM keys at all — `strict = true`
 turns that posture into a guarantee: a cache miss fails the run instead of
-silently generating. See [Configuration](../configuration.md).
+silently generating. Committed caches need `cleanup=False` on every
+generating and replaying run — a partial run sweeps the committed entries it
+never touched, while a strict replay keeps the entries it replays (they are
+loaded, hence touched), so a committed strict run is self-preserving. See
+[Configuration](../configuration.md).

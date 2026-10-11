@@ -64,9 +64,18 @@ t.step("Enter {{ vars.code }}", vars={"code": "A1"})
 `vars` is a separate namespace for call-local string inputs and is reserved as
 a capture name. Captures last until this test ends, including across page
 navigation. An `expect` may read captures but cannot declare one. Use Jinja's
-`raw` block when a sentence must contain literal template markers. Template
-sentences share a cache entry across runtime values; see
-[Step cache](../reference/step-cache.md#addressing).
+`raw` block when a sentence must contain literal template markers.
+
+Steps address the cache by their rendered sentence: `{{ name }}`
+interpolations substitute the actual values from memory and `vars`, so the
+same template with different values is a different step — no cross-value
+replay. Active `{% var name %}` capture tags stay in the address verbatim —
+`Read {% var a %}` and `Read {% var x %}` are different steps; a tag inside
+an inactive branch contributes nothing. Case and internal whitespace are
+significant — «Click Sign in» and «click  sign in » are different steps; a
+plain sentence and a template producing the exact same text share one step.
+The instruction sent to the LLM keeps the tag-stripped render — unchanged.
+See [Step cache](../reference/step-cache.md#addressing).
 
 ## Step groups
 
@@ -175,12 +184,15 @@ setting is on, explicitly dismissed when off — see
 
 ## Addressing
 
-The constructor arguments form the cache address: `cache_key` (mandatory) and
+The step's address is built from its rendered sentence (the addressing
+text); a template rendered with different values is a different step. The
+constructor arguments form the cache address: `cache_key` (mandatory) and
 `cache_path` (optional subdirectory). Equal cache keys in the shared root
 reuse one cached step across tests; a different language, step type or key is
 a different step. User instructions (`generation_prompt`,
 `classification_prompt`) take no part in the address — a cached step never
-regenerates because the instructions changed. See
+regenerates because the instructions changed. The attempt history and the
+honest request inputs take no part in the address either. See
 [Step cache](../reference/step-cache.md).
 
 ## How a step is generated
@@ -223,6 +235,17 @@ the compliance gate is on; classification requests never carry
 it. The instructions are not part of the cache address: changing them never
 invalidates cached steps — replayed code is never re-gated, so changed
 instructions need a manual cache purge to take effect.
+
+The request context is honest end to end: every generation, healing and
+steering request receives the step type (action or assertion), the prepared
+instruction with its input bindings and result declarations, and the
+verbatim per-step attempt history — every prior candidate with its outcome,
+its URL before → after line, its complete code and complete error, the
+original cached code anchored first. The cache write is guarded by the
+compliance gate above, so a cached step contains the action the sentence
+asks for, not a check of an already-achieved state. All of this is internal:
+the authoring surface uses `step()` and `expect()` with optional `vars`;
+cache addressing uses the rendered sentence (the addressing text).
 
 ## What you see
 

@@ -23,8 +23,8 @@ Steps address the cache by their rendered sentence — the addressing text:
 
 ```python
 # one template — two renderings against different memory — two steps:
-t.step("Open the item named {{ name }}")   # name = "Book" → addresses as "Open the item named Book"
-t.step("Open the item named {{ name }}")   # name = "Film" → addresses as "Open the item named Film"
+t.step("Open the item named {{ name }}")  # name = "Book" → addresses as "Open the item named Book"
+t.step("Open the item named {{ name }}")  # name = "Film" → addresses as "Open the item named Film"
 ```
 
 Case and internal whitespace are significant: rendered values are data («Sign in» and «sign In» are different buttons).
