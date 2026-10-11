@@ -1176,24 +1176,24 @@ re-render authoring error of a row step stays that step's loud failure (it raise
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (in `tests/engine/groups/test_recovery.py`; expected to hold): the
+- [x] **Contract tests** (in `tests/engine/groups/test_recovery.py`; expected to hold): the
   `recover` signature is unchanged; `GroupStepOutcome` shape is unchanged — the change is
   behavioral (the identity the row regenerates under)
-- [ ] **REPL baseline** (fresh `.venv/bin/python`): with `memory.publish({"name": "Book"})`
+- [x] **REPL baseline** (fresh `.venv/bin/python`): with `memory.publish({"name": "Book"})`
   render a template, then with `memory.publish({"name": "Film"})` re-render it — build both
   identities by hand and confirm the filenames differ; this is the stale-vs-fresh relationship
   the row must respect
-- [ ] **Code**: add `normalize_step_text` to the cache import; delete the pre-row refresh loop;
+- [x] **Code**: add `normalize_step_text` to the cache import; delete the pre-row refresh loop;
   implement the row steps per the algorithm above (the fresh render, the fresh identity keyed
   by `trace.identity.cache_key`, the in-loop `refresh_healing`, the regeneration under the
   fresh identity, the failure update to the fresh facts)
-- [ ] **Code**: align the `GroupStepOutcome.identity` attribute docstring in `outcome.py` with
+- [x] **Code**: align the `GroupStepOutcome.identity` attribute docstring in `outcome.py` with
   the applied contract (the execution fact)
-- [ ] **REPL check** (fresh process): re-evaluate the stale-vs-fresh construction — the fresh
+- [x] **REPL check** (fresh process): re-evaluate the stale-vs-fresh construction — the fresh
   identity derives from the re-rendered addressing text and differs from the trace identity;
   migrate into the source
-- [ ] **Interface verification**: `.venv/bin/python -m pytest tests/engine/groups/ -q`
-- [ ] **Logic tests**:
+- [x] **Interface verification**: `.venv/bin/python -m pytest tests/engine/groups/ -q`
+- [x] **Logic tests**:
   - `test_row_identity_comes_from_fresh_render_addressing` (design scenario, verbatim):
     recovery suite fixtures (mocked generator, real budgets/cache); `group_traces` with a
     template step `"Open the item named {{ name }}"` recorded with the identity built when
@@ -1204,11 +1204,11 @@ re-render authoring error of a row step stays that step's loud failure (it raise
     `refresh_healing` called exactly once, with `regenerate_identity`
   - keep the existing recovery assertions — the verdict mapping, the row composition, the
     anti-masking, the cycle cap, the local-view updates
-- [ ] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — the generator bridge keeps the
+- [x] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — the generator bridge keeps the
   real-regeneration paths green; fix implementation code until all tests pass
-- [ ] **Contract re-verification**: `.venv/bin/python -c "from prettyplay.engine.groups import
+- [x] **Contract re-verification**: `.venv/bin/python -c "from prettyplay.engine.groups import
   GroupRecovery, GroupStepOutcome"` — facade, API shape and behavior intact
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/engine/groups/recovery.py
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/engine/groups/recovery.py
   prettyplay/engine/groups/outcome.py tests/engine/groups/test_recovery.py` and
   `.venv/bin/ruff format --check` on the same files — zero findings; both gates must also pass
   immediately before any local commit of this task

@@ -26,9 +26,11 @@ class GroupStepOutcome(BaseModel):
         url_before: the page URL read immediately before the step's
             execution.
         url_after: the page URL read immediately after the step's execution.
-        identity: the cache address of the step — recorded by the executor
-            when the trace is appended; the addressing metadata of the row
-            mechanics, never rendered into the GROUP STEPS block.
+        identity: the cache address of the step at its execution — the
+            execution fact, recorded by the executor when the trace is
+            appended; the row mechanics take only the cache_key from it and
+            re-derive the address from the re-rendered addressing text;
+            never rendered into the GROUP STEPS block.
     """
 
     model_config = ConfigDict(kw_only=True, frozen=True)

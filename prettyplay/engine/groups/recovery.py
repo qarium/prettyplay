@@ -3,7 +3,7 @@
 import logging
 import time
 
-from ...cache import CachedStep, RunBudgets, StepCache, StepIdentity
+from ...cache import CachedStep, RunBudgets, StepCache, StepIdentity, normalize_step_text
 from ...config import Config
 from ...driver import PageFacade
 from ...failures import FailureVerdict, IncurableStepError, ProductDefectError
@@ -162,8 +162,9 @@ class GroupRecovery:
                 outside-group resolution matches the quote against its
                 instructions.
             identity: the address of the failed step — the active failure's
-                identity on entry; the row resolves every regeneration
-                identity, the failed step's included, from the trace records.
+                identity on entry; the row re-addresses every regeneration,
+                the failed step's included, from the fresh re-render of each
+                trace record, keyed by the trace's execution-fact cache_key.
             attempt_history: the per-step attempt history of the failed
                 step, grown to the failure — the active failure's history;
                 the failed step's row entry reuses it, the terminal-failure
@@ -181,10 +182,10 @@ class GroupRecovery:
             The healed cached step of the failed step — written back to the
             cache by the regeneration of its row entry; the row replays the
             group's own steps from the earliest affected one, each
-            re-rendered against the current memory and regenerating under a
-            fresh full healing counter; a repeat failure re-enters the
-            cap-checked cycle with the failing row step as the active
-            failure.
+            re-rendered against the current memory and regenerating under
+            the fresh identity of that render and a fresh full healing
+            counter; a repeat failure re-enters the cap-checked cycle with
+            the failing row step as the active failure.
 
         Raises:
             ProductDefectError: the diagnosis says the application is
@@ -266,9 +267,6 @@ class GroupRecovery:
             row_start = quoted_index if quoted_index is not None else active.occurrence
             row = list(enumerate(local_traces))[row_start:]
 
-            for _occurrence, trace in row:  # a fresh full healing counter per row step, every cycle
-                self._budgets.refresh_healing(trace.identity)
-
             try:
                 return self._run_row(
                     row, group_prompt, local_scenario, local_traces, scenario_occurrences, active, verdict, memory, page
@@ -317,9 +315,10 @@ class GroupRecovery:
 
         Returns:
             The healed cached step of the failed step — every row step
-            regenerates as its own per-step unit; the active failure's entry
-            reuses its grown history, an earlier one anchors a fresh list by
-            record 0.
+            re-renders against the current memory and regenerates as its own
+            per-step unit under the fresh identity of that render; the
+            active failure's entry reuses its grown history, an earlier one
+            anchors a fresh list by record 0.
 
         Raises:
             IncurableStepError: a row step's regeneration exhausted its
@@ -342,6 +341,17 @@ class GroupRecovery:
             # the fresh render against the current context: sentence + recorded vars + the current memory
             fresh = render_step(trace.sentence, trace.step_type, memory, trace.vars)
 
+            # the fresh address of the regeneration — the re-rendered addressing text; the trace
+            # identity contributes only its cache_key, the execution fact, never the address
+            fresh_identity = StepIdentity(
+                cache_key=trace.identity.cache_key,
+                step_type=trace.step_type,
+                normalized_text=normalize_step_text(fresh.addressing_text),
+            )
+
+            # a fresh full healing counter per row step, under the fresh address, every cycle
+            self._budgets.refresh_healing(fresh_identity)
+
             # the active failure's own entry reuses its grown history; an earlier step anchors a fresh one
             row_history = active.history if occurrence == active.occurrence else self._anchored_history(trace)
             row_window = SettleWindow(self._config.polling_timeout, self._config.polling_delay, trace.tries)
@@ -349,7 +359,7 @@ class GroupRecovery:
             self._reporter.emit("on_healing_started", {"step_text": fresh.instruction, "category": "recoverable"})
             try:
                 healed = self._generator.regenerate(
-                    identity=trace.identity,
+                    identity=fresh_identity,
                     prepared=fresh,
                     step_type=trace.step_type,
                     previous_steps=local_scenario,
@@ -362,11 +372,11 @@ class GroupRecovery:
                 )
             except IncurableStepError:
                 # the failing occurrence becomes the active failure of the next diagnosis — its
-                # fresh prepared step, identity, kind and grown history; the local trace view
-                # marks the occurrence failed, preserving the freshly prepared instruction
+                # fresh prepared step, fresh identity, kind and grown history; the local trace
+                # view marks the occurrence failed, preserving the freshly prepared instruction
                 active.prepared = fresh
                 active.step_type = trace.step_type
-                active.identity = trace.identity
+                active.identity = fresh_identity
                 active.history = row_history
                 active.occurrence = occurrence
                 local_traces[occurrence] = trace.model_copy(

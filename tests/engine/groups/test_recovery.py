@@ -273,6 +273,20 @@ class TestGroupRecoveryContract:
             "memory",
         ]
 
+    def test_group_step_outcome_shape_is_unchanged(self) -> None:
+        assert list(GroupStepOutcome.model_fields) == [
+            "sentence",
+            "instruction",
+            "step_type",
+            "tries",
+            "delay",
+            "vars",
+            "outcome",
+            "url_before",
+            "url_after",
+            "identity",
+        ]
+
     def test_diagnosis_receives_the_local_views_and_the_active_instruction(self, tmp_path: Path) -> None:
         provider = RecoveryProvider(verdicts=[_verdict(earliest_step=STATUS)], answers=[WORKING_CODE])
         fixture = RecoveryFixture(tmp_path, provider, FakeGenerator([_cached(STATUS, "assertion")]))
@@ -569,7 +583,61 @@ class TestGroupRecoveryRowReRender:
         assert traces[0].outcome == "passed"
         assert scenario[0].instruction == "Read novel into "
 
-        assert healed.identity == _identity(status_sentence, "assertion")  # the originally failed step
+        # the healed step stores under the failed step's fresh identity — its own re-render
+        # read the recaptured Tale, never the recorded Dune or the raw sentence
+        assert healed.identity == _identity("Check the item named Tale", "assertion")
+
+    def test_row_identity_comes_from_fresh_render_addressing(self, tmp_path: Path) -> None:
+        """The row regenerates under the fresh re-rendered identity — never the stale trace one.
+
+        The template step executed while ``name == "Book"``; the recovery runs
+        after the memory changed to ``Film``. The fresh render addresses the
+        step as ``Open the item named Film``: the regeneration identity, the
+        healing-counter refresh and the write-back all key on the fresh
+        address, carried on the trace identity's execution-fact cache_key.
+        """
+        template = "Open the item named {{ name }}"
+        stale_identity = _identity("Open the item named Book")  # built at execution, name == "Book"
+        traces = [
+            _trace(FILL),
+            GroupStepOutcome(
+                sentence=template,
+                instruction="Open the item named Book",  # recorded at the step's execution
+                step_type="action",
+                outcome="failed",
+                url_before="https://example.com/checkout",
+                url_after="https://example.com/checkout",
+                identity=stale_identity,
+            ),
+        ]
+        scenario = [ScenarioStep(sentence=FILL, instruction=FILL, group_prompt=GROUP_PROMPT)]
+        memory = StepMemory()
+        memory.publish({"name": "Film"})  # the value changed before the recovery
+        provider = RecoveryProvider(verdicts=[_verdict(earliest_step="Open the item named Book")])
+        generator = FakeGenerator([_cached("Open the item named Film")])
+        fixture = RecoveryFixture(tmp_path, provider, generator)
+
+        fixture.recovery.recover(
+            GROUP_PROMPT,
+            traces,
+            PreparedStep(instruction="Open the item named Book"),
+            "action",
+            scenario,
+            stale_identity,
+            [_attempt()],
+            FakePage(),
+            SettleWindow(None, 0),
+            memory,
+        )
+
+        assert len(generator.calls) == 1  # the row is the template step alone
+        regenerate_identity = generator.calls[0]["identity"]
+        assert isinstance(regenerate_identity, StepIdentity)
+        assert regenerate_identity.normalized_text == "Open the item named Film"
+        assert regenerate_identity.cache_key == stale_identity.cache_key  # the execution fact
+        assert regenerate_identity.step_type == "action"
+        assert regenerate_identity.filename != stale_identity.filename  # a new address, no stale replay
+        assert fixture.budgets.refresh_calls == [regenerate_identity]  # once, under the fresh identity
 
     def test_recovery_row_failure_updates_active_failure_for_next_diagnosis(self, tmp_path: Path) -> None:
         """A failing row step becomes the active failure — the next diagnosis describes it, not the original."""
