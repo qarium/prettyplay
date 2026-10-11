@@ -6,7 +6,7 @@ When no task or defect description exists anywhere in the run, stop immediately 
 
 ## Self-Contained Step Code
 
-Generated and cached step code may consume only its declared arguments, bound to the literal values rendered into the step's instruction sentence; it must never read execution-context channels or runtime globals, so a cached step remains valid wherever its sentence addresses it.
+Generated and cached step code may consume only its declared arguments, bound to the literal values rendered into the step's instruction sentence; it must never read execution-context channels or runtime globals, so a cached step remains valid wherever its sentence addresses it. Every name the code binds, the code uses: unused bindings are dead weight, a defect of the generation system — the generation prompt teaches the binding-economy rule and the compliance gate blocks dead weight as a high adequacy finding, both always edited in lockstep across every frozen mirror (the generation prompt in three copies, the gate prompt in two).
 
 ## Positive-Only Prompt Rules
 
