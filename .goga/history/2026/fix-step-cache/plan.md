@@ -994,36 +994,36 @@ never silently produce a mismatched instruction and address.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (in `tests/engine/renderer/test_render.py`; expected to fail at this
+- [x] **Contract tests** (in `tests/engine/renderer/test_render.py`; expected to fail at this
   stage): `PreparedStep.__init__` parameters are `instruction`, `addressing_text`, `inputs`,
   `declarations` (kw_only, frozen, empty defaults); the constructed model exposes
   `addressing_text`; the `render_step` signature is unchanged; `has_declarations` is unchanged
-- [ ] **REPL baseline** (fresh `.venv/bin/python`): with
+- [x] **REPL baseline** (fresh `.venv/bin/python`): with
   `memory.publish({"name": "Book"})`, render
   `"For the item named {{ name }}, read its tags into {% var tags %}"` — record today's single
   instruction `"For the item named Book, read its tags into "` and `declarations == ["tags"]`;
   this instruction value is the byte-identity baseline
-- [ ] **Code**: add `addressing_text: str = ""` to `PreparedStep` with the contract docstring
+- [x] **Code**: add `addressing_text: str = ""` to `PreparedStep` with the contract docstring
   ("the addressing text: the rendered sentence with actual values embedded and the reached
   capture tags kept verbatim; what the caller builds the cache identity from")
-- [ ] **Code**: implement `_MarkedVarExtension(VarExtension)` per the algorithm above; lex the
+- [x] **Code**: implement `_MarkedVarExtension(VarExtension)` per the algorithm above; lex the
   source tag spans in parse order before compilation and associate each parsed capture with its
   raw span; render exactly once against the snapshot and inputs; derive both texts; use unique
   unpredictable markers and verify each emitted marker appears exactly once in the completed
   output — an extra occurrence means ordinary data collided with a marker: raise the loud
   `PrettyplayError` before returning
-- [ ] **Code**: keep the existing compile/render error mapping around the sole evaluation and
+- [x] **Code**: keep the existing compile/render error mapping around the sole evaluation and
   the assertion-with-declarations authoring error; return
   `PreparedStep(instruction=instruction, addressing_text=addressing_text, inputs=inputs,
   declarations=declarations)`
-- [ ] **REPL check** (fresh process): re-evaluate the baseline template — the instruction is
+- [x] **REPL check** (fresh process): re-evaluate the baseline template — the instruction is
   byte-identical and `addressing_text == "For the item named Book, read its tags into
   {% var tags %}"`; evaluate the formatting variants
   `"A{%var x%}{% if false %}{% var hidden %}{% endif %}B{% var  y %}"` — instruction `"AB"`,
   addressing `"A{%var x%}B{% var  y %}"`; migrate the verified derivation into the source
-- [ ] **Interface verification**: `.venv/bin/python -m pytest tests/engine/renderer/ -q` — the
+- [x] **Interface verification**: `.venv/bin/python -m pytest tests/engine/renderer/ -q` — the
   contract tests pass
-- [ ] **Logic tests** (design scenarios, verbatim):
+- [x] **Logic tests** (design scenarios, verbatim):
   - `test_render_produces_both_texts_of_one_render`: with `memory.publish({"name": "Book"})` —
     `prepared.instruction == "For the item named Book, read its tags into "`;
     `prepared.addressing_text == "For the item named Book, read its tags into {% var tags %}"`;
@@ -1056,11 +1056,11 @@ never silently produce a mismatched instruction and address.
   - keep every existing render assertion — the instruction values, the authoring errors
     (malformed template, duplicate capture, the reserved `vars` name, an unavailable name, an
     assertion declaring captures): the regression backbone
-- [ ] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — the additive field with an empty
+- [x] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — the additive field with an empty
   default keeps the other suites green; fix implementation code until all tests pass
-- [ ] **Contract re-verification**: `.venv/bin/python -c "from prettyplay.engine.renderer
+- [x] **Contract re-verification**: `.venv/bin/python -c "from prettyplay.engine.renderer
   import PreparedStep, render_step"` — facade, API shape and behavior intact
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/engine/renderer/render.py
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/engine/renderer/render.py
   tests/engine/renderer/test_render.py` and `.venv/bin/ruff format --check` on the same files —
   zero findings; both gates must also pass immediately before any local commit of this task
 

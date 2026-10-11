@@ -2,6 +2,8 @@
 
 import inspect
 
+import jinja2.filters
+import prettyplay.engine.renderer.render as render_module
 import pydantic
 import pytest
 from prettyplay.engine.renderer import PreparedStep, StepMemory, render_step
@@ -22,15 +24,21 @@ class TestPreparedStepContract:
     def test_is_a_pydantic_base_model(self) -> None:
         assert issubclass(PreparedStep, pydantic.BaseModel)
 
-    def test_declares_exactly_three_fields(self) -> None:
-        assert set(PreparedStep.model_fields) == {"instruction", "inputs", "declarations"}
+    def test_declares_exactly_four_fields(self) -> None:
+        assert set(PreparedStep.model_fields) == {"instruction", "addressing_text", "inputs", "declarations"}
 
     def test_fields_have_empty_defaults(self) -> None:
         prepared = PreparedStep()
 
         assert prepared.instruction == ""
+        assert prepared.addressing_text == ""
         assert prepared.inputs == {}
         assert prepared.declarations == []
+
+    def test_exposes_the_addressing_text_attribute(self) -> None:
+        prepared = PreparedStep(instruction="click Save", addressing_text="click Save")
+
+        assert prepared.addressing_text == "click Save"
 
     def test_construction_is_keyword_only(self) -> None:
         for parameter in inspect.signature(PreparedStep).parameters.values():
@@ -218,3 +226,104 @@ class TestRenderStepLogic:
 
         assert first.declarations == ["a"]
         assert second.declarations == ["a"]
+
+
+class TestAddressingRender:
+    """Logic tests: both texts of one render — the addressing-text scenarios of the design."""
+
+    def test_render_produces_both_texts_of_one_render(self) -> None:
+        memory = StepMemory()
+        memory.publish({"name": "Book"})
+
+        prepared = render_step(
+            "For the item named {{ name }}, read its tags into {% var tags %}", "action", memory, None
+        )
+
+        assert prepared.instruction == "For the item named Book, read its tags into "
+        assert prepared.addressing_text == "For the item named Book, read its tags into {% var tags %}"
+        assert prepared.declarations == ["tags"]
+
+    def test_render_both_texts_observe_one_snapshot_and_branches(self) -> None:
+        memory = StepMemory()
+        memory.publish({"name": "Book", "kind": "short"})
+
+        prepared = render_step(
+            "{% if kind == 'short' %}The {{ name }} briefly{% else %}The {{ name }} at length{% endif %}"
+            " — note {% var n %}",
+            "action",
+            memory,
+            None,
+        )
+
+        assert prepared.instruction == "The Book briefly — note "
+        assert prepared.addressing_text == "The Book briefly — note {% var n %}"
+        assert "at length" not in prepared.addressing_text
+
+    def test_render_nondeterministic_filter_is_evaluated_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls: list[str] = []
+
+        def counted_choice(sequence: list[str]) -> str:
+            calls.append("call")
+
+            return "A" if len(calls) == 1 else "B"
+
+        monkeypatch.setattr(jinja2.filters.random, "choice", counted_choice)
+
+        prepared = render_step("Open {{ ['A', 'B']|random }} {% var found %}", "action", StepMemory(), None)
+
+        assert len(calls) == 1
+        assert prepared.instruction == "Open A "
+        assert prepared.addressing_text == "Open A {% var found %}"
+        assert prepared.declarations == ["found"]
+
+    def test_render_preserves_reached_capture_tag_source(self) -> None:
+        prepared = render_step(
+            "A{%var x%}{% if false %}{% var hidden %}{% endif %}B{% var  y %}", "action", StepMemory(), None
+        )
+
+        assert prepared.instruction == "AB"
+        assert prepared.addressing_text == "A{%var x%}B{% var  y %}"
+        assert prepared.declarations == ["x", "y"]
+
+    def test_render_data_never_reparsed_in_addressing_text(self) -> None:
+        memory = StepMemory()
+        memory.publish({"captured": "read {% var x %} then {{ y }}"})
+
+        prepared = render_step("Echo {{ captured }}", "action", memory, None)
+
+        assert prepared.instruction == "Echo read {% var x %} then {{ y }}"
+        assert prepared.addressing_text == prepared.instruction
+        assert prepared.declarations == []
+
+    def test_plain_sentence_and_identical_render_share_one_address(self) -> None:
+        from prettyplay.cache import StepIdentity, normalize_step_text  # noqa: PLC0415 — the addressing consumer
+
+        memory = StepMemory()
+        memory.publish({"name": "Book"})
+
+        plain = render_step("Open the item named Book", "action", memory, None)
+        template = render_step("Open the item named {{ name }}", "action", memory, None)
+
+        assert plain.addressing_text == "Open the item named Book"
+        assert template.addressing_text == "Open the item named Book"
+
+        first = StepIdentity(
+            cache_key="k", step_type="action", normalized_text=normalize_step_text(plain.addressing_text)
+        )
+        second = StepIdentity(
+            cache_key="k", step_type="action", normalized_text=normalize_step_text(template.addressing_text)
+        )
+
+        assert first.filename == second.filename
+
+    def test_render_marker_collision_with_data_fails_loudly(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def forced_marker(occurrence: int) -> str:
+            return "Boom" if occurrence == 0 else f"tag{occurrence}"
+
+        monkeypatch.setattr(render_module, "_new_marker", forced_marker)
+
+        memory = StepMemory()
+        memory.publish({"name": "Boom"})
+
+        with pytest.raises(PrettyplayError, match="marker"):
+            render_step("Say {{ name }} and {% var x %}", "action", memory, None)
