@@ -240,6 +240,50 @@ class TestRenderStepLogic:
 class TestAddressingRender:
     """Logic tests: both texts of one render — the addressing-text scenarios of the design."""
 
+    @pytest.mark.parametrize(
+        ("source", "instruction"),
+        [
+            ("{# Ignore {% var hidden %} #}Read {% var actual %}", "Read "),
+            (
+                "{{ 'quoted \\' {% var hidden %} }}' }} {% var actual %}",
+                "quoted ' {% var hidden %} }} ",
+            ),
+            (
+                "{% set label = 'quoted \\' {% var hidden %} %}' %}{{ label }} {% var actual %}",
+                "quoted ' {% var hidden %} %} ",
+            ),
+            ('{{ "backslash \\\\" }} {% var actual %}', "backslash \\ "),
+        ],
+        ids=["comment", "escaped-expression-quote", "escaped-block-quote", "escaped-backslash"],
+    )
+    def test_render_ignores_capture_syntax_in_comments_and_quoted_data(self, source: str, instruction: str) -> None:
+        prepared = render_step(source, "action", StepMemory(), None)
+
+        assert prepared.instruction == instruction
+        assert prepared.addressing_text == instruction + "{% var actual %}"
+        assert prepared.declarations == ["actual"]
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            '{{ "unterminated',
+            "{{ vars.name",
+            '{% set label = "unterminated',
+            "{# unfinished comment {% var hidden %}",
+            "{% raw %}unclosed {% var hidden %}",
+            "{% raw %}unclosed {% endraw wrong %}",
+            "{% 42 %}",
+        ],
+    )
+    def test_render_malformed_scanner_boundaries_raise_authoring_error(self, source: str) -> None:
+        memory = StepMemory()
+        memory.publish({"existing": "preserved"})
+
+        with pytest.raises(PrettyplayError, match="the step template is malformed"):
+            render_step(source, "action", memory, None)
+
+        assert memory.snapshot() == {"existing": "preserved"}
+
     def test_render_produces_both_texts_of_one_render(self) -> None:
         memory = StepMemory()
         memory.publish({"name": "Book"})

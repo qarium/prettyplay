@@ -5,11 +5,18 @@ Domain: reading and writing the step cache. Audience: engineers inspecting cache
 ## Read and write
 
 ```python
-from prettyplay.cache import CachedStep, StepCache
+from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step_text
 from prettyplay.config import Config
 from prettyplay.reporting import StepReporter
 
 cache = StepCache(config=Config(), path="checkout", reporter=StepReporter(hooks=[]))
+addressing_text = "open the login page"
+identity = StepIdentity(
+    cache_key="login-flow",
+    step_type="action",
+    normalized_text=normalize_step_text(addressing_text),
+)
+step_code = "def step(page):\n    page.goto('https://example.com/login')"
 
 step = cache.load(identity)  # None on a cache miss
 if step is None:
@@ -17,7 +24,7 @@ if step is None:
     cache.save(
         CachedStep(
             identity=identity,
-            addressing_text="open the login page",  # the rendered sentence, verbatim
+            addressing_text=addressing_text,  # must normalize to identity.normalized_text
             code=step_code,
             created_at="2026-09-07",
         )

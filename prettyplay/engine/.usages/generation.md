@@ -5,14 +5,20 @@ Domain: generating executable code for an unknown step. Audience: library intern
 ## Generate a step
 
 ```python
-from prettyplay.engine.renderer import PreparedStep
+from prettyplay.cache import StepIdentity, normalize_step_text
+from prettyplay.engine.renderer import render_step
 from prettyplay.llm import ScenarioStep
+
+prepared = render_step("click the Sign in button", "action", memory, None)
+identity = StepIdentity(
+    cache_key="login-flow",
+    step_type="action",
+    normalized_text=normalize_step_text(prepared.addressing_text),
+)
 
 step = generator.generate(
     identity=identity,
-    prepared=PreparedStep(
-        instruction="click the Sign in button"
-    ),  # the render product of the step — instruction, inputs, declarations
+    prepared=prepared,  # instruction, addressing text, inputs and declarations from one render
     step_type="action",
     previous_steps=[
         ScenarioStep(sentence="open the login page", instruction="open the login page", group_prompt=""),
@@ -30,7 +36,7 @@ step = generator.generate(
 
 - The loop: request code → execute against the live page → validate the returned result → on failure append the full attempt record and re-request with the fresh snapshot and the grown history
 - The attempt history is one continuous verbatim list: every record carries the outcome, the `URL before -> after` line, the complete candidate code and the complete error; no collapsing, no size limits — the attempt budgets are the only bound. The error text follows the engine error-text policy: the bulky aria-snapshot section Playwright appends to a failed check message is excluded — the fresh page state reaches the loop through the separately captured snapshot
-- Every request carries the honest inputs: the step type (action or assertion) and the prepared instruction of the step (with its INPUTS/RESULTS blocks when present) — the raw template sentence never reaches a request; the casefolded normalization is an addressing key only
+- Every request carries the honest inputs: the step type (action or assertion) and the prepared instruction of the step (with its INPUTS/RESULTS blocks when present) — the raw template sentence never reaches a request; NFC + trim normalization is an addressing key only
 - The page may carry side effects of failed candidates and manual intervention — the replayability requirement of the system prompt tells the model a regeneration never rides that leftover state: an action step repeats its action; a first attempt works on the page the previous steps produced. The structural separation rides the same prompt: an action step ends at its action, an assertion step observes without changing the page
 - Every candidate execution runs under the settle window: transient failures re-execute the same code inside the window (settle_retry log records), no LLM budget consumed; deterministic failures go to the next request or classification; the URL pair brackets the whole attempt, settle re-executions included
 - A non-empty generation_prompt setting adds a USER INSTRUCTIONS block to every generation and regeneration request; classification requests never carry it; changing the instructions never invalidates the cache — cached steps run as stored
@@ -140,7 +146,7 @@ classification = classify_step_failure(
 )
 ```
 
-The routine collects the fresh page snapshot (plus the screenshot when enabled) and calls the provider with the engine classification prompt; a non-empty classification_prompt setting of the config reaches the request as a USER INSTRUCTIONS block. The step sentence is the prepared instruction passed by the caller — never the raw template sentence; the casefolded normalization is an addressing key only. The category set is four: rot, product_defect, fixable, incurable. Provider unavailability propagates: the calling path decides whether it is a terminal infrastructure failure or a quiet verdict skip.
+The routine collects the fresh page snapshot (plus the screenshot when enabled) and calls the provider with the engine classification prompt; a non-empty classification_prompt setting of the config reaches the request as a USER INSTRUCTIONS block. The step sentence is the prepared instruction passed by the caller — never the raw template sentence; NFC + trim normalization is an addressing key only. The category set is four: rot, product_defect, fixable, incurable. Provider unavailability propagates: the calling path decides whether it is a terminal infrastructure failure or a quiet verdict skip.
 
 ## The fixed form
 

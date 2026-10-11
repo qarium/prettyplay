@@ -637,3 +637,25 @@ class TestStepCacheWorkingSet:
         cache = StepCache(Config(cache_root=str(tmp_path / "never-created")), None, StepReporter(hooks=[]))
 
         assert cache.sweep_untouched("k") == []
+
+    @pytest.mark.parametrize("operation", ["is_dir", "iterdir"])
+    def test_sweep_of_inaccessible_scope_returns_empty_with_warning(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture, operation: str
+    ) -> None:
+        """Scope inspection and enumeration failures preserve the stored files."""
+        cache, _ = make_cache(tmp_path, path=None)
+        identity = StepIdentity(cache_key="k", step_type="action", normalized_text="untouched")
+        target = tmp_path / identity.filename
+        write_step_file(target, "untouched", "k")
+
+        with (
+            mock.patch.object(Path, operation, side_effect=PermissionError("permission denied")),
+            caplog.at_level(logging.WARNING, logger="prettyplay"),
+        ):
+            assert cache.sweep_untouched("k") == []
+
+        assert target.exists()
+        warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert warnings[0].msg == "cache sweep failed to list the scope"
+        assert warnings[0].cache_key == "k"

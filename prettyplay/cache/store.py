@@ -214,10 +214,10 @@ class StepCache:
         removed: list[str] = []
 
         scope = self._target_dir()
-        if not scope.is_dir():
-            return removed
-
         try:
+            if not scope.is_dir():
+                return removed
+
             candidates = sorted(entry for entry in scope.iterdir() if _STEP_FILE_NAME.fullmatch(entry.name))
         except OSError:
             logger.warning("cache sweep failed to list the scope", extra={"cache_key": cache_key})

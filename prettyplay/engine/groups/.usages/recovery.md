@@ -13,12 +13,14 @@ never runs recovery — the classification-only path stays.
 ## The cycle
 
 ```python
-from prettyplay.engine.renderer import PreparedStep
+from prettyplay.engine.renderer import render_step
+
+prepared = render_step("the status shows order confirmed", "assertion", memory, None)
 
 healed = recovery.recover(
     group_prompt="accept cookies, fill and submit the order form",
     traces=group_traces,  # GroupStepOutcome per group step, execution order
-    prepared=PreparedStep(instruction="the status shows order confirmed"),  # the render product of the failed step
+    prepared=prepared,  # both texts of the failed step's render
     step_type="assertion",
     previous_steps=scenario,  # the typed scenario records of the test, execution order
     identity=identity,

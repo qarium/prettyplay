@@ -5,13 +5,16 @@ Domain: healing a failed cached step. Audience: library internals and engineers 
 ## Heal
 
 ```python
-from prettyplay.engine.renderer import PreparedStep
+from prettyplay.engine.renderer import render_step
 from prettyplay.llm import ScenarioStep
+
+prepared = render_step("click the Sign in button", "action", memory, None)
+# failed_step was loaded using the identity derived from this render's addressing_text.
 
 healed = healer.heal(
     step=failed_step,
     error="element not found: button «Sign in»",
-    prepared=PreparedStep(instruction="click the Sign in button"),  # the render product of the failed step
+    prepared=prepared,  # includes the current render's verbatim addressing_text for write-back
     step_type="action",
     previous_steps=[ScenarioStep(sentence="open the login page", instruction="open the login page", group_prompt="")],
     page=page,
@@ -24,7 +27,7 @@ healed = healer.heal(
 The executor seeds record 0 of `attempt_history` before the delegation — the original cached code, the full replay
 error and the URL pair of the replay — so regeneration never loses the original: the history carries every record,
 the anchored cached code first. The prepared instruction and the step type ride every classification and regeneration
-request — the casefolded normalization is an addressing key only.
+request — NFC + trim normalization is an addressing key only.
 
 The classification verdict decides the path — the uniform decision table:
 
