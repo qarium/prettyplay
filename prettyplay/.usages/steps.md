@@ -78,14 +78,19 @@ t.expect("The page contains {{ name }} and {{ vars.expected }}", vars={"expected
 t.expect("The page contains {% raw %}{{ name }}{% endraw %}")
 ```
 
-## Cache and replay limitation
+## Cache addressing and replay
 
-- Template sentences address the cache by their source: `{{ name }}` and `{{ Name }}` are different steps; runtime
-  values never enter the address
-- Cached code re-reads captures from the current page on every execution — a changed item name for the same
-  operation replays without regeneration
-- Accepted limitation: a template that changes the operation itself may let old cached code succeed at the previous
-  operation without triggering healing
+- Steps address the cache by their rendered sentence: `{{ name }}` interpolations substitute the
+  actual values from memory and vars, so the same template with different values is a different
+  step — no cross-value replay
+- Active `{% var name %}` capture tags stay in the address verbatim — `Read {% var a %}` and
+  `Read {% var x %}` are different steps; a tag inside an inactive branch contributes nothing
+- Case and internal whitespace are significant in the address: «Click Sign in» and
+  «click  sign in » are different steps; a plain sentence and a template producing the exact same
+  text share one step
+- The instruction sent to the LLM keeps the tag-stripped render — unchanged
+- By default the cache is a per-test working set: close() deletes the untouched entries of this
+  test; pass `cleanup=False` to keep the directory
 
 ## Groups
 
@@ -121,8 +126,8 @@ with its outcome, its URL before -> after line, its complete code and complete e
 original cached code anchored first. The cache write is guarded by a two-dimension gate —
 instruction compliance and step adequacy — so a cached step contains the action the
 sentence asks for, not a check of an already-achieved state. All of this is internal: the
-authoring surface uses step() and expect() with optional vars; cache addressing uses the original
-template source.
+authoring surface uses step() and expect() with optional vars; cache addressing uses the rendered
+sentence (the addressing text).
 
 ## Author page access
 
@@ -158,7 +163,7 @@ with PrettyPlay("login-flow") as t:
 
 ## Addressing
 
-The constructor arguments form the cache address: cache_key (mandatory) and cache_path (optional subdirectory). Equal cache keys in the shared root reuse one cached step across tests; a different language, step type or key is a different step. User instructions (generation_prompt, classification_prompt) take no part in the address — a cached step never regenerates because the instructions changed. Replayed cached code is never re-checked against the current instructions: purge the cache manually after changing them. The attempt history and the honest request inputs take no part in the address either.
+The step's address is built from its rendered sentence (the addressing text); a template rendered with different values is a different step. The constructor arguments form the cache address: cache_key (mandatory) and cache_path (optional subdirectory). Equal cache keys in the shared root reuse one cached step across tests; a different language, step type or key is a different step. User instructions (generation_prompt, classification_prompt) take no part in the address — a cached step never regenerates because the instructions changed. Replayed cached code is never re-checked against the current instructions: purge the cache manually after changing them. The attempt history and the honest request inputs take no part in the address either.
 
 ## What you see
 

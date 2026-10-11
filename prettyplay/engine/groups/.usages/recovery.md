@@ -69,3 +69,6 @@ itself and the row composition stay log-only records.
   values — steps left behind keep their last accepted observations
 - Traces carry the instruction (what the model saw and what the row matcher quotes) and the original `vars` of
   each step's call
+- The re-rendered addressing text re-addresses every row step: the regeneration, the healing-counter
+  refresh and the cache write-back key on the fresh identity — a row step re-rendered against changed
+  memory is a new address with a fresh budget

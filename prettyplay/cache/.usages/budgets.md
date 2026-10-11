@@ -19,6 +19,7 @@ if budgets.try_generation(identity):
 - Defaults: 3 generation attempts, 2 healing attempts — configurable in the project settings
 - An exhausted budget is the incurable failure, never an infinite loop
 - Budgets exist only in the memory of the running process — nothing is persisted
+- The identity key follows the addressing: the same template re-rendered against changed memory is a different identity and draws a fresh budget
 
 ## Healing-funded regenerations
 

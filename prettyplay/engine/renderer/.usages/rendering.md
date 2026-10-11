@@ -26,6 +26,27 @@ prepared.declarations  # ["tags"] — reached capture tags only
 - A reached `{% var name %}` renders to empty text and declares a result slot; an inactive branch declares nothing
 - Capture declarations are invalid for assertion steps (`expect`)
 
+## The addressing text
+
+The same render produces a second text — the addressing text the cache identity is built from:
+
+```python
+prepared = render_step(
+    text="For the item named {{ name }}, read its tags into {% var tags %}",
+    step_type="action",
+    memory=memory,
+    vars=None,
+)
+prepared.instruction      # "For the item named Book, read its tags into " — tag-stripped
+prepared.addressing_text  # "For the item named Book, read its tags into {% var tags %}" — tags verbatim
+```
+
+- `{{ ... }}` interpolations substitute the actual values in both texts — the addressing text carries real values, so different values address different steps
+- a reached `{% var name %}` tag renders to empty text in the instruction and stays verbatim in the addressing text
+- a tag inside an inactive branch contributes nothing to either text
+- both texts observe one snapshot and one set of branch decisions — they never disagree
+- substituted values are data and never re-rendered; `{% raw %}` blocks stay literal in both texts
+
 ## Authoring errors
 
 Raised as the loud actionable `PrettyplayError` before any browser execution:

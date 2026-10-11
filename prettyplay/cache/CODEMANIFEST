@@ -17,29 +17,31 @@ Annotations: |
 
   The cache is a repository artifact: one .py file per step, addressed deterministically; the cache is always read, writes are best-effort.
   Step identity is intentional: the same normalized sentence in the same context is one step; a different language, a different step type or a different cache key is a different step.
-  Step identity stays on the original template sentence: a sentence containing Jinja markers addresses verbatim (NFC + trim — case-sensitive names, significant expression whitespace); an ordinary sentence keeps the casefold normalization; runtime values never enter the address.
-  RunBudgets lives in this cell because its accounting key is `StepIdentity`: per-test attempt accounting stays next to the addressing it is keyed by; the recovery-cycle accounting joins the registry — per-group cycle counters keyed by the group key, beside the per-step pools.
+  Step identity is built from the addressing text — the rendered sentence with interpolations substituted and active capture tags verbatim; a plain sentence addresses as itself; exact-text equality unifies a plain sentence and a template producing the same text. One verbatim normalization serves every addressing text: case and internal whitespace are significant, because rendered values are data.
+  The cache is a per-test working set by default: the store accumulates the addresses it successfully loaded or saved, and the close-time sweep deletes the untouched files of its cache key in its scope — best-effort, logged, never raising.
+  RunBudgets lives in this cell because its accounting key is `StepIdentity`: per-test attempt accounting stays next to the addressing it is keyed by; the recovery-cycle accounting joins the registry — per-group cycle counters keyed by the group key, beside the per-step pools. Budgets follow the addressing: a re-rendered identity draws a fresh budget.
 
 ---
 
 "normalize_step_text(text: str) -> normalized: str":
   location: text.py
   annotations: |
-    Normalize a step sentence for identity and addressing — template-aware.
+    Normalize an addressing text for identity and addressing — one verbatim rule for every text.
 
-    `text`: the raw step sentence as written by the engineer.
-    `normalized`: the normalized sentence.
+    `text`: the addressing text of the step — the rendered sentence; a plain sentence addresses as itself.
+    `normalized`: the normalized addressing text.
 
     Algorithm:
-    1. Detect Jinja template markers — an occurrence of `{{`, `{%` or `{#` anywhere in the sentence
-    2. A template sentence: apply Unicode NFC normalization and trim leading/trailing whitespace only — the source stays verbatim otherwise; Jinja names are case-sensitive and whitespace inside expressions is significant
-    3. An ordinary sentence: the existing pipeline — NFC, trim, collapse internal whitespace runs to single spaces, casefold
+    1. Apply Unicode NFC normalization
+    2. Trim leading and trailing whitespace — nothing else
 
     Requirements:
     - Pure function: no I/O, no locale dependence, deterministic on `text` alone
-    - `{{ name }}` and `{{ Name }}` address different steps; semantically different Jinja source never shares an address
-    - «Нажать Войти» and «нажать  войти » still normalize to the same string; a Russian sentence and its English translation stay different
-    - Runtime values never enter the address — the normalization sees the template source only
+    - Case and internal whitespace are significant: «Click Sign in» and «click  sign in » are different steps — rendered values are data
+    - Exact-text equality unifies: a plain sentence and a template producing the exact same text share one address
+
+    Constraints:
+    - No casefold, no internal whitespace collapse, no template-marker detection
 
 "StepIdentity(cache_key: str, step_type: str, normalized_text: str)":
   location: models.py
@@ -48,14 +50,14 @@ Annotations: |
 
     `cache_key`: the explicit context key set by the integrator on the main object.
     `step_type`: action or assertion.
-    `normalized_text`: the step sentence after `normalize_step_text`.
+    `normalized_text`: the step's addressing text after `normalize_step_text` — the rendered sentence, verbatim-normalized.
   properties:
     "cache_key -> str": |
       The explicit context key of the step address.
     "step_type -> str": |
       The step kind: action or assertion.
     "normalized_text -> str": |
-      The normalized step sentence.
+      The normalized addressing text of the step — the rendered sentence after NFC + trim.
     "filename -> str": |
       The deterministic cache file name.
 
@@ -68,21 +70,26 @@ Annotations: |
       - The same triple always yields the same file name; any difference in the triple yields a different one
       - The digest identifies the file unambiguously inside the cache directory
 
-"CachedStep(identity: StepIdentity, code: str, created_at: str)":
+"CachedStep(identity: StepIdentity, addressing_text: str, code: str, created_at: str)":
   location: models.py
   annotations: |
     One cached step in memory: the metadata and the generated code of the step, as stored in its cache file.
 
     `identity`: the step address.
+    `addressing_text`: the step's addressing text — the verbatim rendered sentence before NFC and trim; the metadata sentence field carries it.
     `code`: the generated step code — top-level imports when present, then the fixed-form def step function.
     `created_at`: the creation date.
 
     Requirements:
     - The cache file is a valid Python module: metadata fields first, then the sentinel line, then the step code; importing the module and reading the fields reconstructs the step
     - The file carries no library version field and is never invalidated by a library upgrade
+    - The metadata sentence field carries the step's addressing text — the rendered sentence with actual values; rendered values on disk are accepted by the design, the security posture is a deferred question
+    - normalize_step_text(addressing_text) == identity.normalized_text for every newly built cached step; the load path may restore legacy files whose STEP_TEXT already contains the normalized sentence
   properties:
     "identity -> StepIdentity": |
       The step address.
+    "addressing_text -> str": |
+      The step's addressing text — the verbatim rendered sentence before NFC and trim.
     "code -> str": |
       The generated step code — top-level imports when present, then the fixed-form def step function; stored and restored verbatim.
     "created_at -> str": |
@@ -91,11 +98,15 @@ Annotations: |
 "StepCache(config: Config, path: str | None, reporter: StepReporter | None)":
   location: store.py
   annotations: |
-    The repository store of cache steps: addressing, atomic writes and the read-only mode.
+    The repository store of cache steps: addressing, atomic writes, the read-only mode — and the per-test working-set lifecycle: the touched-address accumulation and the close-time sweep.
 
     `config`: project settings; the cache_root setting is the cache root.
     `path`: the optional subdirectory inside the cache; part of the address — steps of different subdirectories never collide; empty — the shared root, so equal cache keys are reused across tests.
     `reporter`: the visibility point — cache events (saved, skipped) go through it; omitted — the hook-less default reporter, so a missing visibility point never fails a save.
+
+    Requirements:
+    - A successful load or save records the step's file name in the touched set — the object's working set; a miss, a damaged entry, a skipped or a failed write touch nothing
+    - The touched set lives in the memory of the running process, one per StepCache instance — it never persists
   properties:
     "root -> str": |
       The effective cache root; the default is <cwd>/.prettyplay/cache/ — the working directory of the run.
@@ -108,7 +119,8 @@ Annotations: |
       Algorithm:
       1. Resolve the target file by the effective root, the subdirectory and the identity file name
       2. A missing file returns None
-      3. Read the module, validate the metadata fields, reconstruct `CachedStep`: the code tail starts at the sentinel line — legacy files without it carry the code starting at def step(
+      3. Read the module, validate the metadata fields — normalize the STEP_TEXT value through `normalize_step_text` and compare it with the normalized_text of `identity`; restore that value as the addressing_text of the reconstructed `CachedStep` so the saved metadata is preserved — the code tail starts at the sentinel line — legacy files without it carry the code starting at def step(
+      4. A successful reconstruct records the identity file name in the touched set; a miss or a damaged entry records nothing
     "save(step: CachedStep) -> stored: bool": |
       Store the step atomically, best-effort.
 
@@ -116,16 +128,38 @@ Annotations: |
 
       Algorithm:
       1. Check writability: a read-only cache skips the write and reports on_cache_skipped with the reason read-only cache
-      2. Serialize the step into the module text: metadata fields, then the sentinel line, then the code
+      2. Serialize the step into the module text: metadata fields — STEP_TEXT serialized from the addressing_text of `step` — then the sentinel line, then the code; the file name derives from the identity of `step` as before
       3. Write a temporary file with a unique name in the target directory
       4. Replace the target file atomically via os.replace
       5. On Windows, when the target is busy: retry the replace shortly, then skip the write for this step and report on_cache_skipped — the run does not fail
-      6. Report on_cache_saved with the file name on success
+      6. Report on_cache_saved with the file name on success; a stored write records the file name in the touched set, a skipped or failed one records nothing
 
       Requirements:
       - Concurrent writers on one step never corrupt the file: last writer wins
       - A partially written file never becomes visible: the replace is atomic
       - The cache is always read, in every environment
+    "sweep_untouched(cache_key: str) -> removed: list[str]": |
+      Delete the untouched step files of one cache key in this store's scope — the per-test working-set cleanup.
+
+      `cache_key`: the context key of the owning test object — the sweep considers only files whose metadata carries it.
+      `removed`: the file names deleted by this call.
+
+      Algorithm:
+      1. The scope is the effective root plus the object's subdirectory
+      2. Enumerate every step file in the scope
+      3. Read the metadata fields: unreadable metadata — log a WARNING and skip the file, its ownership is unprovable in a possibly shared root; a cache_key other than `cache_key` — skip silently
+      4. A file name present in the touched set survives; every other file of this key is deleted, one log record per deletion naming the file
+      5. A per-file failure — reading or deleting — logs a WARNING and continues with the next file
+
+      Requirements:
+      - Never raises: the sweep is best-effort hygiene and must never fail the closing test
+      - Idempotent: a repeated call deletes nothing new — the survivors are touched files, other keys' files and unreadable ones
+      - Untouched legacy files of this key are swept by the first call after the upgrade
+      - The method knows nothing of the cleanup switch — the caller decides whether to sweep
+
+      Constraints:
+      - Deletions are log records only — no hook event, a deferred contract decision
+      - No address recomputation: the file name is the address — the sha256 of the triple; the touched set and the directory names share one key space
 
 "RunBudgets(generation_limit: int, healing_limit: int)":
   location: budgets.py
@@ -137,7 +171,7 @@ Annotations: |
 
     Requirements:
     - The registry lives for the lifetime of one test, owned by the test's runtime: every test starts with full limits — a step reused across tests gets a fresh budget in each test
-    - The identity key is `StepIdentity`
+    - The identity key is `StepIdentity`; budgets follow the addressing — a step re-rendered against changed memory is a different identity and draws a fresh budget
     - An exhausted budget returns False — the caller turns it into the incurable failure
     - Ordinary per-step healing keeps its per-test pools exactly as today — the recovery semantics ride beside them
     - The recovery cycle cap of a group is the healing_limit value — the loop is never infinite
@@ -172,4 +206,4 @@ Annotations: |
 Author: Goga
 CreatedAt: 07/09/26
 Description: |
-  The step cache of prettyplay: template-aware normalization (template sentences address verbatim, ordinary sentences casefold), deterministic addressing, atomic repository storage and the per-test attempt budgets, the group recovery cycle accounting.
+  The step cache of prettyplay: one verbatim normalization of addressing texts (the rendered sentence; NFC + trim), deterministic addressing by the addressing text, atomic repository storage, the per-test working-set lifecycle — touched-address accumulation and the close-time sweep — and the per-test attempt budgets, the group recovery cycle accounting.

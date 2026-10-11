@@ -11,32 +11,36 @@ Usages:
 
 Annotations: |
   Use `conventions` for code writing rules and testing.
-  Use `jinja` for the Jinja environment, the `{% var %}` capture extension, the namespaces and the missing-value policy.
+  Use `jinja` for the Jinja environment, the `{% var %}` capture extension, the namespaces, the missing-value policy, the addressing render.
   Use `taxonomy` from Imports for the base failure kind the authoring errors raise.
 
-  The step-sentence preparation of prettyplay: rendering a step sentence from a snapshot of the test memory and the call inputs into a plain-text instruction with capture declarations, the per-test memory of captured observations, and the deterministic validation of returned step results.
+  The step-sentence preparation of prettyplay: rendering a step sentence from a snapshot of the test memory and the call inputs into a plain-text instruction with capture declarations and the addressing text of the step, the per-test memory of captured observations, and the deterministic validation of returned step results.
   Rendering is pure preparation — no browser, no LLM, no page access: everything happens before execution; authoring errors surface here, before any code runs.
   The memory belongs to one test execution: it survives navigation, never crosses tests, and publishes only validated captures after full acceptance.
-  Substituted values are data, never templates: a captured string containing `{{ x }}` stays literal; automatic HTML escaping is off; the instruction is plain text.
-  The prepared instruction is the single text every LLM request and every raised failure carries for a step; the raw template sentence stays the addressing artifact of the caller.
+  Substituted values are data, never templates: a captured string containing `{{ x }}` stays literal; automatic HTML escaping is off; both texts are plain text.
+  The prepared instruction is the single text every LLM request and every raised failure carries for a step; the addressing text — the second text of the same render — is the addressing artifact the caller builds the cache identity from.
 
 ---
 
-"PreparedStep(instruction: str, inputs: dict[str, str], declarations: list[str])":
+"PreparedStep(instruction: str, addressing_text: str, inputs: dict[str, str], declarations: list[str])":
   location: render.py
   annotations: |
     The render product of one step sentence — what the whole agent cycle works with after preparation.
 
-    `instruction`: the prepared plain-text instruction — the rendered sentence with actual values embedded; what generation requests receive and failures carry.
+    `instruction`: the prepared plain-text instruction — the rendered sentence with actual values embedded, capture tags stripped; what generation requests receive and failures carry.
+    `addressing_text`: the addressing text — the same rendered sentence with actual values embedded and the reached capture tags kept verbatim; what the caller builds the cache identity from.
     `inputs`: the call-local input bindings of this step (vars), empty when none — separate from memory, never establishing memory.
     `declarations`: the names of the capture tags reached during rendering, in execution order; empty — the step has no memory writes.
 
     Requirements:
     - pydantic v2, kw_only, empty defaults (see `conventions`)
     - Immutable data carrier: rendering produces it once per preparation
+    - Both texts observe one snapshot and one set of branch decisions — they never disagree about a value or a branch
   properties:
     "instruction -> str": |
-      The prepared plain-text instruction with actual values embedded.
+      The prepared plain-text instruction with actual values embedded, capture tags stripped.
+    "addressing_text -> str": |
+      The addressing text: the rendered sentence with actual values embedded and the reached capture tags kept verbatim; the addressing artifact the caller derives the step identity from.
     "inputs -> dict[str, str]": |
       The call-local input bindings of this step; empty — none.
     "declarations -> list[str]": |
@@ -53,20 +57,21 @@ Annotations: |
     `step_type`: action or assertion — an assertion with reached capture declarations is an authoring error.
     `memory`: the test memory — the render reads its snapshot; the step's own new captures stay invisible to its template.
     `vars`: the call-local string inputs; None — none. `vars` is a reserved namespace beside memory: neither overwrites the other.
-    `prepared`: the render product.
+    `prepared`: the render product — the instruction and the addressing text of one render.
 
     Algorithm:
     1. Take the snapshot: the `StepMemory` snapshot plus `vars` (None — empty); standard Jinja scope applies, ordinary set stays local to the template
     2. Compile through the Jinja environment of `jinja`: StrictUndefined, autoescape=False, the `{% var %}` extension
-    3. Render: a reached capture tag records its name and renders to empty text; a duplicate name within one render fails as an authoring error; the reserved name `vars` and non-Jinja-identifier capture names fail as authoring errors
+    3. Render: a reached capture tag records its name and renders to empty text in the instruction while its tag source stays in the addressing text; a duplicate name within one render fails as an authoring error; the reserved name `vars` and non-Jinja-identifier capture names fail as authoring errors
     4. An unavailable name fails ordinary interpolation with the unavailable name in the message; author-written default and is defined keep standard behavior
     5. `step_type` assertion with non-empty declarations — the authoring error: capture declarations are invalid in expect; an inactive branch declares nothing
-    6. Build and return `PreparedStep` — instruction (the rendered text), inputs (`vars`), declarations
+    6. Build and return `PreparedStep` — instruction (the tag-stripped rendered text), addressing_text (the rendered sentence keeping the reached capture tags verbatim), inputs (`vars`), declarations — one render produces both texts per the addressing render of `jinja`
 
     Requirements:
     - All authoring errors raise the loud actionable `PrettyplayError` naming the problem and the offending name — before any browser execution
     - Substituted data is never rendered again; the instruction is plain text
     - A same-step read observes the previous value or fails — new captures publish only after acceptance
+    - The instruction and the addressing text come from one render: the same values, the same branch decisions — an inactive branch contributes neither declarations nor addressing-text tags
 
     Constraints:
     - No browser, LLM or page access; no mutation of `memory` — the snapshot is read-only
@@ -127,4 +132,4 @@ Annotations: |
 Author: Goga
 CreatedAt: 08/10/26
 Description: |
-  The step-sentence preparation of prettyplay: rendering Jinja step templates with the `{% var %}` capture extension from a snapshot of memory and call inputs into prepared instructions with input bindings and result declarations, the per-test memory of captured observations with atomic publication, and the deterministic validation of returned step results.
+  The step-sentence preparation of prettyplay: rendering Jinja step templates with the `{% var %}` capture extension from a snapshot of memory and call inputs into prepared instructions with input bindings and result declarations — carrying both texts of one render, the instruction and the addressing text — the per-test memory of captured observations with atomic publication, and the deterministic validation of returned step results.

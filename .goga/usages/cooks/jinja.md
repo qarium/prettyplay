@@ -61,3 +61,21 @@ except UndefinedError as error:
 ```python
 t.expect("The page contains {% raw %}{{ name }}{% endraw %}")
 ```
+
+## Addressing render — the second text of one render
+
+Besides the plain-text instruction, one render produces the addressing text — the rendered
+sentence the cache identity is built from:
+
+- `{{ ... }}` interpolations substitute the actual values from the same snapshot (memory + vars)
+- an active `{% var name %}` tag stays in the output verbatim — `{% var name %}` as written
+- an inactive branch contributes nothing — its tags disappear with the branch
+- substituted values are data: a captured string containing `{{ x }}` stays literal here too
+
+Rules:
+
+- One render carries one snapshot: the instruction and the addressing text observe the same
+  values and the same branch decisions — they never disagree
+- The instruction keeps the tag-stripped form (a capture tag renders to empty); the addressing
+  text keeps the tag source
+- `{% raw %}` blocks stay literal in both texts

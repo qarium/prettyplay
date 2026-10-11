@@ -25,6 +25,25 @@ test = PrettyPlay(
 )
 ```
 
+## Cache lifecycle on close
+
+The step cache is a per-test working set by default: `close()` deletes every step file of this
+test's `cache_key` in its cache scope that the test did not successfully load or save — best-effort,
+logged, never failing the close. Replayed and freshly generated steps survive (they were touched);
+strict replays keep what they replay.
+
+```python
+test = PrettyPlay("login-flow", cleanup=False)  # keep the cache directory after close
+```
+
+- `cleanup` is a keyword-only constructor parameter, default `True`; there is no config or env switch
+- the sweep scope is this test's cache directory filtered by its `cache_key` — other tests' entries
+  in a shared root survive; a file with unreadable metadata is skipped with a WARNING
+- committed-cache workflow (generate locally, commit, replay in CI): pass `cleanup=False` on every
+  run — a committed strict run is self-preserving (replayed entries are loaded, hence touched)
+- upgrading across the addressing change: purge the cache directory once, or let the first default
+  close sweep the untouched legacy files of each test's key
+
 ## Wiring into a framework
 
 The library is framework-agnostic: no plugins, no base classes. Construct the object in your test, call the step methods, let failures propagate — the runner counts them as ordinary test failures. A few lines of glue are enough; the suite runs by the standard runner command.
