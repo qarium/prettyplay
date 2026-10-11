@@ -530,7 +530,7 @@ def test_rot_healing_regenerates_rewrites_cache_and_passes(tmp_path: Path) -> No
         ("on_healing_started", {"step_text": "нажать Войти", "category": "rot"}),
         ("on_generation_started", {"step_text": "нажать Войти", "attempt": 1}),
         # the cache event carries the identity text — the cache cell addresses by the normalized form
-        ("on_cache_saved", {"step_text": "нажать войти", "filename": identity.filename}),
+        ("on_cache_saved", {"step_text": "нажать Войти", "filename": identity.filename}),
         ("on_healed", {"step_text": "нажать Войти", "explanation": "кнопка переименована"}),
         ("on_step_passed", {"step_text": "нажать Войти", "step_type": "action"}),
         ("on_step_finished", {"step_text": "нажать Войти", "step_type": "action", "outcome": "passed"}),

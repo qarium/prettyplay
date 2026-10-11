@@ -678,29 +678,29 @@ addressing text: the `normalized_text` of `StepIdentity`, the comparison basis o
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (in `tests/cache/test_text.py`; expected to fail at this stage): keep
+- [x] **Contract tests** (in `tests/cache/test_text.py`; expected to fail at this stage): keep
   the still-valid ones — `normalize_step_text` importable from the `prettyplay.cache` facade;
   `inspect.signature` parameters are exactly `["text"]`; the result of a call is `str`; add —
   the module defines neither `_WHITESPACE_RUN` nor `_TEMPLATE_MARKERS` (the removed-policy
   assertion pattern)
-- [ ] **REPL baseline** (fresh `.venv/bin/python` from the repository root — record today's
+- [x] **REPL baseline** (fresh `.venv/bin/python` from the repository root — record today's
   outputs before editing):
   `normalize_step_text("  Café ")` → `"café"`; `normalize_step_text("  Click   Sign In ")`
   → `"click sign in"`; `normalize_step_text("Read {{ name }} into {% var out %}")` → verbatim
   unchanged
-- [ ] **Code**: replace the body with `unicodedata.normalize("NFC", text).strip()`; delete
+- [x] **Code**: replace the body with `unicodedata.normalize("NFC", text).strip()`; delete
   `_WHITESPACE_RUN`, `_TEMPLATE_MARKERS` and the `re` import; rewrite the docstring per the
   contract annotation ("Normalize an addressing text for identity and addressing — one verbatim
   rule for every text"; `text` — the addressing text of the step, the rendered sentence, a plain
   sentence addresses as itself; Returns — the normalized addressing text)
-- [ ] **REPL check** (fresh process — never a stale interpreter): re-evaluate the baseline
+- [x] **REPL check** (fresh process — never a stale interpreter): re-evaluate the baseline
   inputs — `"  Café "` → `"Café"`, `"  Click   Sign In "` → `"Click   Sign In"` (case and
   the internal run preserved), the template text unchanged, and
   `normalize_step_text(normalize_step_text(x)) == normalize_step_text(x)`; migrate the verified
   body into the source file
-- [ ] **Interface verification**: `.venv/bin/python -m pytest tests/cache/test_text.py -q` — the
+- [x] **Interface verification**: `.venv/bin/python -m pytest tests/cache/test_text.py -q` — the
   contract tests pass
-- [ ] **Logic tests** (rewrite the suite to the verbatim rule; keep every still-valid
+- [x] **Logic tests** (rewrite the suite to the verbatim rule; keep every still-valid
   assertion — empty and whitespace-only inputs return `""`, distinct sentences stay distinct):
   - `test_normalize_applies_nfc_and_trim_only` (design scenario, verbatim):
     `normalize_step_text("  Café ") == "Café"`; idempotency;
@@ -711,21 +711,21 @@ addressing text: the `normalized_text` of `StepIdentity`, the comparison basis o
     `StepIdentity(cache_key="k", step_type="action", normalized_text=...)` filenames differ
   - delete the template-split class and the collapse/casefold pipeline tests — the old
     documented merge is gone by decision
-- [ ] **Registered mechanical breakage** (test debt, not implementation): in
+- [x] **Registered mechanical breakage** (test debt, not implementation): in
   `tests/test_executor.py`, `test_hit_path_runs_cached_code_without_engines` saves under
   `normalized_text="открыть страницу"` and executes `"  Открыть   страницу "` relying on the old
   merge — align the saved identity with the executed sentence's new normalization (keep the
   hit-path intent: cached code runs, no engine calls); sweep the suite for any other
   old-merge reliance (a saved sentence executed in different case/spacing) and align the same
   way
-- [ ] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — fix implementation code until all
+- [x] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — fix implementation code until all
   tests pass (test-code changes happen only in the registered rewrite steps above, never to
   make a failing assertion pass)
-- [ ] **Contract re-verification**: `.venv/bin/python -c "from prettyplay.cache import
+- [x] **Contract re-verification**: `.venv/bin/python -c "from prettyplay.cache import
   normalize_step_text; assert normalize_step_text('  Café ') == 'Café'; assert
   normalize_step_text('Click Sign in') != normalize_step_text('click  sign in ')"` — facade,
   API shape and the verbatim behavior intact
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/cache/text.py tests/cache/test_text.py
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/cache/text.py tests/cache/test_text.py
   tests/test_executor.py` and `.venv/bin/ruff format --check` on the same files — zero
   findings; both gates must also pass immediately before any local commit of this task
 

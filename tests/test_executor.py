@@ -717,7 +717,7 @@ class TestStepExecutorContract:
         assert generator.calls[0]["group_prompt"] is None  # the ordinary step — no framing
 
         # failed cached hit — heal(cached, error_text, prepared, step_type, scenario, page, history, window, memory)
-        seed_cached_step(fixture, "нажать войти")
+        seed_cached_step(fixture, "нажать Войти")
         fixture.executor.execute("нажать Войти", "action", FakePage())
         assert set(healer.calls[0]) == {
             "step",
@@ -737,7 +737,7 @@ class TestStepExecutorContract:
         interactive = interactive_fixture(
             tmp_path, RaisingGenerator(failure), RaisingHealer(failure), steering=steering
         )
-        seed_cached_step(interactive, "нажать войти")
+        seed_cached_step(interactive, "нажать Войти")
 
         with pytest.raises(IncurableStepError):
             interactive.executor.execute("нажать Войти", "action", FakePage())
@@ -764,11 +764,13 @@ class TestStepExecutorLogic:
         generator = RecordingGenerator()
         healer = RecordingHealer()
         fixture = ExecutorFixture(tmp_path, generator, healer)
-        identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="открыть страницу")
+        identity = StepIdentity(
+            cache_key="login-flow", step_type="action", normalized_text=normalize_step_text("  Открыть   страницу ")
+        )
         fixture.cache.save(CachedStep(identity=identity, code=CACHED_CODE, created_at="2026-09-07"))
         page = FakePage()
 
-        # step with different case and spacing normalizes to the same address
+        # the saved identity matches the executed sentence's NFC+trim normalization
         fixture.executor.execute("  Открыть   страницу ", "action", page)
 
         assert page.calls == [("goto", "https://example.com")]
@@ -805,7 +807,7 @@ class TestStepExecutorLogic:
         """Record 0 — the original cached code, the replay error, the replay URL pair — precedes the heal."""
         healer = RecordingHealer()
         fixture = ExecutorFixture(tmp_path, RecordingGenerator(), healer)
-        seed_cached_step(fixture, "click the «Sign in» button")
+        seed_cached_step(fixture, "Click the «Sign in» button")
         page = FakePage(urls=["https://a.example", "https://b.example"])
 
         fixture.executor.execute("Click the «Sign in» button", "action", page)
@@ -830,7 +832,7 @@ class TestStepExecutorLogic:
         """A dead page URL read brackets record 0 with the truthfully empty pair — the replay still heals."""
         healer = RecordingHealer()
         fixture = ExecutorFixture(tmp_path, RecordingGenerator(), healer)
-        seed_cached_step(fixture, "click the «Sign in» button")
+        seed_cached_step(fixture, "Click the «Sign in» button")
         page = FakePage(url_error=PlaywrightError("page crashed"))
 
         fixture.executor.execute("Click the «Sign in» button", "action", page)
@@ -853,7 +855,7 @@ class TestStepExecutorLogic:
         assert call["prepared"].instruction == "Open the LOGIN page"  # raw, not casefolded
         assert call["step_type"] == "action"
         assert call["attempt_history"] == []
-        assert call["identity"].normalized_text == "open the login page"  # addressing still normalized
+        assert call["identity"].normalized_text == "Open the LOGIN page"  # addressing is NFC+trim only — case kept
 
     def test_execute_creates_history_per_step_and_never_carries_it_across_steps(self, tmp_path: Path) -> None:
         """Every execution owns a fresh history — one step's records never leak into the next step's requests."""
@@ -976,13 +978,13 @@ class TestStepExecutorLogic:
     def test_cached_failure_heals_with_scenario_context(self, tmp_path: Path) -> None:
         generator = RecordingGenerator()
         healed_step = CachedStep(
-            identity=StepIdentity(cache_key="login-flow", step_type="action", normalized_text="нажать войти"),
+            identity=StepIdentity(cache_key="login-flow", step_type="action", normalized_text="нажать Войти"),
             code=CACHED_CODE,
             created_at="2026-09-08",
         )
         healer = RecordingHealer(healed_step)
         fixture = ExecutorFixture(tmp_path, generator, healer)
-        identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="нажать войти")
+        identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="нажать Войти")
         fixture.cache.save(CachedStep(identity=identity, code=BROKEN_CODE, created_at="2026-09-07"))
         page = FakePage()
 
@@ -1014,7 +1016,7 @@ class TestStepExecutorLogic:
         # no verdict — only on_step_failed; no verdict event
         healer = RaisingHealer(failure)
         fixture = ExecutorFixture(tmp_path, RecordingGenerator(), healer)
-        identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="нажать войти")
+        identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="нажать Войти")
         fixture.cache.save(CachedStep(identity=identity, code=BROKEN_CODE, created_at="2026-09-07"))
         page = FakePage()
 
@@ -1101,7 +1103,7 @@ class TestStepExecutorStrictMode:
             verdict=FailureClassification(category=category, explanation="expl", recommendation="rec")
         )
         fixture = strict_fixture(tmp_path, generator, healer, provider)
-        seed_cached_step(fixture, "нажать войти", step_type="assertion")
+        seed_cached_step(fixture, "нажать Войти", step_type="assertion")
         page = FakePage()
 
         with pytest.raises(expected) as excinfo:
@@ -1127,7 +1129,7 @@ class TestStepExecutorStrictMode:
             verdict=FailureClassification(category="product_defect", explanation="expl", recommendation="rec")
         )
         fixture = strict_fixture(tmp_path, RecordingGenerator(), RecordingHealer(), provider)
-        seed_cached_step(fixture, "нажать войти", step_type="assertion")
+        seed_cached_step(fixture, "нажать Войти", step_type="assertion")
 
         timing_out_page = FakePage(TimeoutError("locator.click: Timeout 30000ms exceeded"))
         with pytest.raises(ProductDefectError) as typed:
@@ -1159,7 +1161,7 @@ class TestStepExecutorStrictMode:
     ) -> None:
         provider = UnavailableProvider()
         fixture = strict_fixture(tmp_path, RecordingGenerator(), RecordingHealer(), provider)
-        seed_cached_step(fixture, "нажать войти", step_type=step_type)
+        seed_cached_step(fixture, "нажать Войти", step_type=step_type)
         page = FakePage()
 
         with caplog.at_level(logging.WARNING, logger="prettyplay"), pytest.raises(expected) as excinfo:
@@ -1190,7 +1192,7 @@ class TestStepExecutorStrictMode:
         """A non-infrastructure classification crash escapes raw — never masked as a step verdict."""
         provider = CrashingProvider()
         fixture = strict_fixture(tmp_path, RecordingGenerator(), RecordingHealer(), provider)
-        seed_cached_step(fixture, "нажать войти", step_type="action")
+        seed_cached_step(fixture, "нажать Войти", step_type="action")
         page = FakePage()
 
         with pytest.raises(RuntimeError, match="classification crashed"):
@@ -1349,7 +1351,7 @@ class TestStepExecutorRenderAndMemory:
     ) -> None:
         """One render per execution — a failed replay routed through the heal never re-renders the sentence."""
         fixture = ExecutorFixture(tmp_path, RecordingGenerator(), RecordingHealer())
-        seed_cached_step(fixture, "нажать войти")  # the broken cached code — the replay fails into the heal
+        seed_cached_step(fixture, "нажать Войти")  # the broken cached code — the replay fails into the heal
         renders: list[str] = []
 
         def spying_render(text: str, step_type: str, memory: StepMemory, vars: dict[str, str] | None) -> PreparedStep:
@@ -1412,7 +1414,7 @@ class TestStepExecutorSteeringAndClosingEvent:
         )
         steering = RecordingSteering(healed=healed)
         fixture = interactive_fixture(tmp_path, RecordingGenerator(), RaisingHealer(failure), steering=steering)
-        seed_cached_step(fixture, "нажать войти")
+        seed_cached_step(fixture, "нажать Войти")
         page = FakePage()
 
         fixture.executor.execute("нажать Войти", "action", page)  # healed — no raise
@@ -1480,7 +1482,7 @@ class TestStepExecutorSteeringAndClosingEvent:
         fixture = interactive_fixture(
             tmp_path, RecordingGenerator(), RaisingHealer(failure), steering=steering, budgets=budgets
         )
-        seed_cached_step(fixture, "нажать войти")
+        seed_cached_step(fixture, "нажать Войти")
 
         fixture.executor.execute("нажать Войти", "action", FakePage())  # healed — no raise
 
@@ -1573,8 +1575,8 @@ class TestStepExecutorSteeringAndClosingEvent:
         page = FakePage()
 
         if seed == "cached-failure":
-            identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="нажать войти")
-            seed_cached_step(fixture, "нажать войти")
+            identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="нажать Войти")
+            seed_cached_step(fixture, "нажать Войти")
             expected_code = fixture.cache.load(identity).code  # the cached code, exactly as stored
 
         with pytest.raises(IncurableStepError) as excinfo:
@@ -1640,7 +1642,7 @@ class TestStepExecutorSteeringAndClosingEvent:
             config=Config(cache_root=str(tmp_path), strict=True, polling_timeout=10.0, polling_delay=0),
             provider=provider,
         )
-        seed_cached_step(fixture, "нажать войти")
+        seed_cached_step(fixture, "нажать Войти")
         page = FakePage()
 
         transient = PlaywrightError("Timeout 10000ms exceeded")
