@@ -304,6 +304,26 @@ def seed_cache(
     )
 
 
+def write_untouched_step(cache_root: Path, cache_key: str, sentence: str = "open the login page") -> str:
+    """Hand-write one untouched step file of the key through a foreign store; return its filename.
+
+    The file carries valid metadata under its digest name but no step of the
+    test object ever loads or saves it — the shape the close-time sweep
+    deletes when the cleanup switch is on.
+    """
+    identity = StepIdentity(cache_key=cache_key, step_type="action", normalized_text=normalize_step_text(sentence))
+    StepCache(Config(cache_root=str(cache_root)), None, StepReporter(hooks=[])).save(
+        CachedStep(
+            identity=identity,
+            addressing_text=identity.normalized_text,
+            code="def step(page) -> None:\n    pass\n",
+            created_at="2026-10-11",
+        )
+    )
+
+    return identity.filename
+
+
 @contextlib.contextmanager
 def scenario_with_differing_instructions(
     tmp_path: Path,
@@ -344,13 +364,22 @@ class TestPrettyPlayContract:
     def test_constructor_signature_matches_contract(self) -> None:
         parameters = list(inspect.signature(PrettyPlay.__init__).parameters.values())[1:]
 
-        assert [parameter.name for parameter in parameters] == ["cache_key", "cache_path", "hooks", "config"]
+        assert [parameter.name for parameter in parameters] == ["cache_key", "cache_path", "cleanup", "hooks", "config"]
         assert parameters[0].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD  # cache_key stays positional
         assert parameters[1].default is None
-        assert parameters[2].default is None
-        assert parameters[2].kind is inspect.Parameter.KEYWORD_ONLY  # hooks — keyword-only
+        assert parameters[2].default is True
+        assert parameters[2].kind is inspect.Parameter.KEYWORD_ONLY  # cleanup — keyword-only, default True
         assert parameters[3].default is None
-        assert parameters[3].kind is inspect.Parameter.KEYWORD_ONLY  # config — keyword-only, as before
+        assert parameters[3].kind is inspect.Parameter.KEYWORD_ONLY  # hooks — keyword-only
+        assert parameters[4].default is None
+        assert parameters[4].kind is inspect.Parameter.KEYWORD_ONLY  # config — keyword-only, as before
+
+    def test_constructor_accepts_cleanup_false(self, tmp_path: Path) -> None:
+        """The keyword-only cleanup switch constructs both ways; close stays declared on the surface."""
+        with scenario_on_tmp_cache(tmp_path):
+            test = PrettyPlay(CACHE_KEY, cleanup=False)
+
+        assert test._cleanup is False  # the persistence mode of the committed-cache workflow
 
     def test_surface_matches_contract(self) -> None:
         assert isinstance(PrettyPlay.cache_key, property)
@@ -667,7 +696,9 @@ class TestPrettyPlayLogic:
         seed_cache(tmp_path)
 
         with scenario_on_tmp_cache(tmp_path):
-            test = PrettyPlay(CACHE_KEY)
+            # cleanup=False: nothing executed yet, so the default close-time sweep would
+            # delete the seeded (untouched) file and turn the post-close step into a miss
+            test = PrettyPlay(CACHE_KEY, cleanup=False)
             test.close()  # nothing started — close does not raise
 
             with mock.patch.object(test._runtime, "open_page", return_value=FakePage()) as open_page_mock:
@@ -1132,6 +1163,70 @@ class TestPrettyPlayLogic:
         assert len(raw.goto_threads) == 1  # the step ran once, through the worker
         assert action_threads == raw.goto_threads  # the action serialized with the step — the same pump thread
         assert action_threads[0] != threading.get_ident()  # never the calling thread
+
+
+class TestCacheLifecycleOnClose:
+    """The close-time cache sweep: the per-test working set by default, the guarded best-effort form."""
+
+    def test_close_sweeps_untouched_entries_by_default(self, tmp_path: Path) -> None:
+        """The default close deletes the untouched files of its key; the foreign-key neighbor survives."""
+        cfg = PrettyConfig(cache_root=str(tmp_path))
+        filename = write_untouched_step(tmp_path, "login-flow")
+        foreign_filename = write_untouched_step(tmp_path, "other-flow")
+
+        with mock.patch("prettyplay.scenario.load_config", return_value=cfg):
+            test = PrettyPlay("login-flow", cache_path=None, config=cfg)
+            test.close()  # no step ever executed — no page, no browser
+
+        assert not (tmp_path / filename).exists()
+        assert (tmp_path / foreign_filename).exists()  # the foreign-key neighbor survives
+
+    def test_cleanup_false_keeps_every_file(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        """``cleanup=False`` keeps every file — the persistence mode of the committed-cache workflow."""
+        cfg = PrettyConfig(cache_root=str(tmp_path))
+        filename = write_untouched_step(tmp_path, "login-flow")
+
+        with (
+            mock.patch("prettyplay.scenario.load_config", return_value=cfg),
+            caplog.at_level(logging.INFO, logger="prettyplay"),
+        ):
+            test = PrettyPlay("login-flow", cleanup=False, config=cfg)
+            test.close()
+
+        assert (tmp_path / filename).exists()  # after close
+        assert not [record for record in caplog.records if record.getMessage() == "cache file swept"]
+
+    def test_close_sweep_never_masks_teardown_and_never_raises(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A raising sweep is swallowed with a WARNING; a teardown error propagates and skips the sweep."""
+        cfg = PrettyConfig(cache_root=str(tmp_path))
+
+        with (
+            mock.patch("prettyplay.scenario.load_config", return_value=cfg),
+            caplog.at_level(logging.WARNING, logger="prettyplay"),
+        ):
+            test = PrettyPlay("login-flow", config=cfg)
+            sweep = mock.Mock(name="sweep_untouched", side_effect=RuntimeError("sweep exploded"))
+            test._cache.sweep_untouched = sweep  # type: ignore[method-assign] — the forced sweep failure
+
+            test.close()  # returns normally
+
+            failing = PrettyPlay("login-flow", config=cfg)
+            never_reached = mock.Mock(name="sweep_untouched_of_the_failing_test")
+            failing._cache.sweep_untouched = never_reached
+            with (
+                mock.patch.object(failing._runtime, "close", side_effect=RuntimeError("driver teardown failed")),
+                pytest.raises(RuntimeError, match="driver teardown failed"),
+            ):
+                failing.close()
+
+        assert sweep.call_args_list == [mock.call("login-flow")]  # this test's key, exactly once
+        never_reached.assert_not_called()  # the teardown error skips the sweep
+
+        warnings = [record for record in caplog.records if record.getMessage() == "cache sweep failed on close"]
+        assert len(warnings) == 1
+        assert warnings[0].exc_info is not None  # the traceback travels with the record
 
 
 class TestInstructionsIndependentCacheAddress:

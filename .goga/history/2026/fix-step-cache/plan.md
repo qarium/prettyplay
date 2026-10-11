@@ -1388,25 +1388,25 @@ construction.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (in `tests/test_scenario.py`; expected to fail at this stage):
+- [x] **Contract tests** (in `tests/test_scenario.py`; expected to fail at this stage):
   `inspect.signature(PrettyPlay.__init__)` parameters are `cache_key`, `cache_path`, `cleanup`
   (keyword-only), `hooks` (keyword-only), `config` (keyword-only); `cleanup` defaults to
   `True`; `close` is declared; the constructor accepts `cleanup=False`
-- [ ] **REPL baseline** (fresh `.venv/bin/python`): hand-write an untouched digest-named step
+- [x] **REPL baseline** (fresh `.venv/bin/python`): hand-write an untouched digest-named step
   file of `cache_key="login-flow"` into a temp cache root; construct
   `PrettyPlay("login-flow", config=...)` and `close()` — the file survives today (no sweep);
   this is the pre-change baseline
-- [ ] **Code**: add the `cleanup` parameter and `self._cleanup`; implement the `close`
+- [x] **Code**: add the `cleanup` parameter and `self._cleanup`; implement the `close`
   algorithm above (the teardown-then-guarded-sweep order); add `import logging` and the module
   logger; extend the `__init__`/`close` docstrings per the contract (the `cleanup` param: the
   cache lifecycle switch — `True`: close deletes the untouched step files of this test's cache
   key in its cache scope; `False`: keeps every file, the persistence mode of the committed-cache
   workflow)
-- [ ] **REPL check** (fresh process, temp cache root): re-run the baseline — the default close
+- [x] **REPL check** (fresh process, temp cache root): re-run the baseline — the default close
   sweeps the untouched file; `cleanup=False` keeps it; a sweep forced to raise (monkeypatched
   stub) is swallowed with a WARNING and `close()` returns normally; migrate into the source
-- [ ] **Interface verification**: `.venv/bin/python -m pytest tests/test_scenario.py -q`
-- [ ] **Logic tests** (design scenarios, verbatim):
+- [x] **Interface verification**: `.venv/bin/python -m pytest tests/test_scenario.py -q`
+- [x] **Logic tests** (design scenarios, verbatim):
   - `test_close_sweeps_untouched_entries_by_default`: `cfg = PrettyConfig(cache_root=str(
     tmp_path))`; hand-write an untouched step file of `cache_key="login-flow"` into `tmp_path`
     (valid metadata, digest name), plus a valid digest-named file of `cache_key="other-flow"`;
@@ -1423,17 +1423,17 @@ construction.
     teardown error is the raised one, the sweep is never reached
   - keep the existing scenario assertions — the composition, the lazy page, the context
     manager, the traceback folding, the hooks seeding
-- [ ] **Registered breakage sweep** (test debt, not implementation): grep the scenario and
+- [x] **Registered breakage sweep** (test debt, not implementation): grep the scenario and
   integration suites for tests that call `close()` and then assert cache files exist — align
   them with the default sweep (the test's own loaded/saved files survive; hand-written
   untouched fixtures are swept — use `cleanup=False` or pre-touched fixtures where persistence
   is the point of the test)
-- [ ] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — fix implementation code until
+- [x] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — fix implementation code until
   all tests pass (test-code changes happen only in the registered sweep above)
-- [ ] **Contract re-verification**: `.venv/bin/python -c "from prettyplay import PrettyPlay;
+- [x] **Contract re-verification**: `.venv/bin/python -c "from prettyplay import PrettyPlay;
   import inspect; assert 'cleanup' in inspect.signature(PrettyPlay.__init__).parameters"` —
   facade, API shape and behavior intact
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/scenario.py tests/test_scenario.py` and
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/scenario.py tests/test_scenario.py` and
   `.venv/bin/ruff format --check` on the same files — zero findings; both gates must also pass
   immediately before any local commit of this task
 

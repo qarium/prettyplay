@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import types
 from collections.abc import Callable
@@ -24,6 +25,9 @@ from .reporting import StepHooks, StepReporter
 from .runtime import PrettyplayRuntime
 
 _T = TypeVar("_T")
+
+#: The fixed library logger — the stable name for machine-readable filtering.
+logger = logging.getLogger("prettyplay")
 
 #: The inclusive pace range, in percent, a group's ``speed`` parameter accepts.
 _SPEED_RANGE = range(0, 101)
@@ -140,6 +144,7 @@ class PrettyPlay:
             generator — the recovery row regenerates through it.
         _executor: the owner of the step cycle of this test.
         _page: the isolated page of this test; ``None`` until the first step.
+        _cleanup: the cache lifecycle switch of this test; see :meth:`close`.
     """
 
     def __init__(
@@ -147,6 +152,7 @@ class PrettyPlay:
         cache_key: str,
         cache_path: str | None = None,
         *,
+        cleanup: bool = True,
         hooks: list[StepHooks] | None = None,
         config: PrettyConfig | None = None,
     ) -> None:
@@ -158,6 +164,10 @@ class PrettyPlay:
             cache_path: the optional subdirectory inside the cache; part of
                 the address, so steps of different subdirectories never
                 collide.
+            cleanup: the cache lifecycle switch, keyword-only — ``True``:
+                close deletes the untouched step files of this test's cache
+                key in its cache scope; ``False``: keeps every file, the
+                persistence mode of the committed-cache workflow.
             hooks: the optional integrator callbacks of this test,
                 keyword-only; the reporter is seeded with them at
                 construction, so every event of every step reaches them.
@@ -215,6 +225,7 @@ class PrettyPlay:
             provider=self._runtime.provider,  # cheap object construction; the SDK client stays lazy
         )
         self._page: PageFacade | None = None
+        self._cleanup = cleanup
 
     @property
     def cache_key(self) -> str:
@@ -432,7 +443,15 @@ class PrettyPlay:
         self._reporter.hooks.append(hooks)
 
     def close(self) -> None:
-        """Close the page, then unconditionally the whole runtime of this test; idempotent."""
+        """Close the page, then unconditionally the whole runtime; last, the guarded cache sweep.
+
+        The teardown is idempotent and never masked: a teardown error
+        propagates and skips the sweep. When the cleanup switch is on, the
+        close-time sweep deletes the untouched step files of this test's
+        cache key in its cache scope — best-effort and guarded: any
+        unexpected sweep error is caught and logged, never raised. A
+        repeated close sweeps again and deletes nothing new.
+        """
         page = self._page
         self._page = None
 
@@ -441,6 +460,12 @@ class PrettyPlay:
                 page.close()
         finally:
             self._runtime.close()
+
+        if self._cleanup:
+            try:
+                self._cache.sweep_untouched(self.cache_key)
+            except Exception:
+                logger.warning("cache sweep failed on close", exc_info=True)
 
     def __enter__(self) -> PrettyPlay:
         """Enter the scenario block of one test.
