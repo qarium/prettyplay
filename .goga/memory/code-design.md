@@ -1,12 +1,12 @@
 # Project rules
 
-## Owner-Confirmed Repair Target
-
-When no task or defect description exists anywhere in the run, stop immediately and ask the user to state the task in concrete terms — symptom, module or file, expected versus actual behavior — before doing any work; never select a self-invented interpretation of the work and start executing it. When every detectable check is green, present candidate findings to the user and request the actual symptom before acting: a failure surfaced by automated checks is only a candidate symptom, and the defect reported by the owner is the authoritative target, so scope and root-cause analysis are rebuilt around the reported evidence before repairing, while self-discovered issues are kept as secondary hygiene inside the same change.
-
 ## Self-Contained Step Code
 
-Generated and cached step code may consume only its declared arguments, bound to the literal values rendered into the step's instruction sentence; it must never read execution-context channels or runtime globals, so a cached step remains valid wherever its sentence addresses it. Every name the code binds, the code uses: unused bindings are dead weight, a defect of the generation system — the generation prompt teaches the binding-economy rule and the compliance gate blocks dead weight as a high adequacy finding, both always edited in lockstep across every frozen mirror (the generation prompt in three copies, the gate prompt in two).
+Generated and cached step code may consume only its declared arguments, bound to the literal values rendered into the step's instruction sentence; it must never read execution-context channels or runtime globals, so a cached step remains valid wherever its sentence addresses it. Every name the code binds, the code uses: unused bindings are dead weight, a defect of the generation system, and a candidate that binds a name without using it is a blocking adequacy violation in the compliance gate — the attempt is refused and retried with the violation text kept in the history, repeated failures escalate to a loud unrecoverable error, and dirty candidates are never admitted to the cache. The generation prompt teaches this binding-economy rule and the gate enforces it, and the two are always edited in lockstep across every frozen mirror (the generation prompt in three copies, the gate prompt in two).
+
+## Owner-Confirmed Repair Target
+
+When no task or defect description exists anywhere in the run, first exhaustively re-verify that absence across every artifact, then stop and ask the owner to state the task in concrete terms — symptom, module or file, expected versus actual behavior — before doing any work, presenting any observed candidate symptoms as informed options; never select a self-invented interpretation of the work and start executing it. When every detectable check is green, present candidate findings to the user and request the actual symptom before acting: a failure surfaced by automated checks is only a candidate symptom, and the owner's own formulation is the authoritative target — adopted even when it is broader than the option offered — so scope and root-cause analysis are rebuilt around the reported evidence before repairing, while self-discovered issues are kept as secondary hygiene inside the same change.
 
 ## Positive-Only Prompt Rules
 
