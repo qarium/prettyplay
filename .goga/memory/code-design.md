@@ -4,17 +4,21 @@
 
 When no task or defect description exists anywhere in the run, stop immediately and ask the user to state the task in concrete terms — symptom, module or file, expected versus actual behavior — before doing any work; never select a self-invented interpretation of the work and start executing it. When every detectable check is green, present candidate findings to the user and request the actual symptom before acting: a failure surfaced by automated checks is only a candidate symptom, and the defect reported by the owner is the authoritative target, so scope and root-cause analysis are rebuilt around the reported evidence before repairing, while self-discovered issues are kept as secondary hygiene inside the same change.
 
-## Foreign Environment Immutability
+## Self-Contained Step Code
 
-Treat tooling artifacts in the workspace that belong to another host or owner — such as an interpreter environment whose internals point into a foreign system — as untouchable: never delete, recreate, or repair them on your own initiative; run checks with an interpreter that already carries the project dependencies instead.
+Generated and cached step code may consume only its declared arguments, bound to the literal values rendered into the step's instruction sentence; it must never read execution-context channels or runtime globals, so a cached step remains valid wherever its sentence addresses it.
 
-## Error-Output Hygiene
+## Positive-Only Prompt Rules
 
-Keep failure texts, attempt records, and downstream log or model consumers readable: bulky machine-generated page-state blocks (such as accessibility snapshots) embedded in assertion messages must be stripped at the error-text formatting boundary, the same policy applies to generated assertion failure texts, and genuinely diagnostic sections are preserved verbatim.
+Generation prompts must state rules purely positively and stay unaware that a forbidden channel exists at all; even a negative clause naming the channel teaches the model that the channel exists, so every context-related clause, positive or negative, is stripped from the prompt.
 
 ## Breaking-Change Authorization Gate
 
-A change classified as breaking halts the pipeline at the compatibility guard; the stop is lifted only by explicit user approval of a presented change plan and escalation report, and the approval is recorded in the compatibility report.
+A change classified as breaking halts the pipeline at the compatibility guard; the stop is lifted only by explicit user approval of a presented change plan and escalation report, and the approval is recorded in the compatibility report. Removing a forbidden capability is such a breaking change and must be carried through every layer that grants, teaches, or enforces it — runtime binding sites, prompt copies, the compliance gate, the manifest guarantee, and the docs — because prompt-only or gate-only fixes leave the channel reachable and the contract unenforced.
+
+## Regenerate Caches, Never Hand-Edit
+
+Cached step files are local, gitignored outputs of the generation system rather than tracked source; the fix target is always the generation system end to end, and defective cache entries are purged so they regenerate from the corrected prompt rather than being hand-patched or committed.
 
 ## Tolerant Syntax, Strict Semantics
 
@@ -23,6 +27,10 @@ Parsing unreliable model output allows exactly one repair attempt at the syntax 
 ## Specification Precedence
 
 Prescribed specification manifests are the single source of truth for how the code must be written: keep implementation calls exactly as prescribed, resolve any drift by fixing the implementation side while leaving the specification and usage documents untouched, and when a lint rule demands a construct the specification forbids, suppress that rule narrowly with a justification comment rather than rewriting the code.
+
+## Error-Output Hygiene
+
+Keep failure texts, attempt records, and downstream log or model consumers readable: bulky machine-generated page-state blocks (such as accessibility snapshots) embedded in assertion messages must be stripped at the error-text formatting boundary, the same policy applies to generated assertion failure texts, and genuinely diagnostic sections are preserved verbatim.
 
 ## Compatibility-Floor Verification
 
@@ -35,6 +43,10 @@ Before hand-writing custom recovery logic for malformed model output, search for
 ## Atomic Dependency Onboarding
 
 Adopting a third-party dependency is complete only when it lands in the same change as its usage recipe and its wiring into the consuming component's manifest; adding the package declaration alone is an incomplete adoption.
+
+## Foreign Environment Immutability
+
+Treat tooling artifacts in the workspace that belong to another host or owner — such as an interpreter environment whose internals point into a foreign system — as untouchable: never delete, recreate, or repair them on your own initiative; run checks with an interpreter that already carries the project dependencies instead.
 
 ## Formatting Completion Gate
 
