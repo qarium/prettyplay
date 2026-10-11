@@ -126,10 +126,13 @@ class StepExecutor:
     ) -> None:
         """Run one step through the full cycle.
 
+        The addressing text of the render product builds the step address;
+        the prepared instruction reaches every engine call; the verbatim
+        NFC+trim normalization is an addressing key only.
+
         Args:
             step_text: the sentence of the step as written by the engineer —
-                the template source and the addressing artifact; never
-                rendered into a request.
+                the template source; never rendered into a request.
             step_type: the kind of the step sentence ({action, assertion}).
             page: the live page facade of the current test.
             group: the authoring group the step executes inside; ``None`` —
@@ -175,7 +178,7 @@ class StepExecutor:
             identity = StepIdentity(
                 cache_key=self.cache_key,
                 step_type=step_type,
-                normalized_text=normalize_step_text(step_text),
+                normalized_text=normalize_step_text(prepared.addressing_text),
             )
             window = SettleWindow(self._config.polling_timeout, self._config.polling_delay, tries)
             attempt_history: list[StepAttempt] = []  # the per-step history — created here, dies with the step

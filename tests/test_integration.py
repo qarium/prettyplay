@@ -1590,7 +1590,8 @@ def test_capture_flow_across_steps_embeds_the_value_in_model_and_failure_texts(t
     read_sentence = "Open the item named {{ name }}"
     capture_code = 'def step(page):\n    return {"name": "Book"}\n'
     failing_code = "def step(page) -> None:\n    raise RuntimeError('the item cannot open')\n"
-    seed_step(tmp_path, read_sentence, failing_code, cache_key="login-flow")  # the reading step replays broken
+    seed_step(tmp_path, "Open the item named Book", failing_code, cache_key="login-flow")
+    # the reading step replays broken — the committed cache addresses it by its rendered sentence
     provider = StubProvider(
         answers=[capture_code],
         verdict=FailureClassification(
@@ -1634,7 +1635,8 @@ def test_strict_template_step_replay_validates_and_publishes_without_llm(tmp_pat
     """Strict replay of a template step: render, hit, validate, publish — no LLM keys or calls at all."""
     sentence = "Read {{ vars.kind }} into {% var name %}"
     code = 'def step(page) -> None:\n    page.goto(\'https://app.example.com\')\n    return {"name": "Dune"}\n'
-    seed_step(tmp_path, sentence, code, cache_key="login-flow")
+    seed_step(tmp_path, "Read novel into {% var name %}", code, cache_key="login-flow")
+    # the committed cache addresses the template step by its rendered sentence — the reached tag kept
     provider = ForbiddenProvider()  # any LLM call fails the run — the replay path needs none
     page = FakePage()
     hook = RecorderHook()

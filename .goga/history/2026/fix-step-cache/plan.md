@@ -1095,21 +1095,21 @@ reaches every engine call; the verbatim NFC+trim normalization is an addressing 
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (in `tests/test_executor.py`; expected to hold, not fail — the
+- [x] **Contract tests** (in `tests/test_executor.py`; expected to hold, not fail — the
   signatures are unchanged): `execute` parameters and the `StepExecutor` constructor signature
   are unchanged (the regression backbone — the switch is behavioral, not structural)
-- [ ] **REPL baseline** (fresh `.venv/bin/python`): with
+- [x] **REPL baseline** (fresh `.venv/bin/python`): with
   `memory.publish({"name": "Book"})`, render
   `"Open the item named {{ name }}"` and build both identities by hand — today's
   `normalize_step_text(step_text)` gives the raw-template address; the product's
   `addressing_text` gives `"Open the item named Book"`; record both
-- [ ] **Code**: apply the switch (the single identity construction); update the `step_text`
+- [x] **Code**: apply the switch (the single identity construction); update the `step_text`
   param docstring and add the Requirement wording verbatim
-- [ ] **REPL check** (fresh process): re-evaluate — for the template, the identity built from
+- [x] **REPL check** (fresh process): re-evaluate — for the template, the identity built from
   `prepared.addressing_text` has `normalized_text == "Open the item named Book"`; for a plain
   sentence the identity equals the sentence's own normalization; migrate into the source
-- [ ] **Interface verification**: `.venv/bin/python -m pytest tests/test_executor.py -q`
-- [ ] **Logic tests**:
+- [x] **Interface verification**: `.venv/bin/python -m pytest tests/test_executor.py -q`
+- [x] **Logic tests**:
   - `test_execute_builds_identity_from_addressing_text` (design scenario, verbatim): executor
     suite fixtures (mocked cache/engine collaborators, page stub);
     `memory.publish({"name": "Book"})` on the executor's memory; execute
@@ -1120,11 +1120,11 @@ reaches every engine call; the verbatim NFC+trim normalization is an addressing 
   - update the identity expectations of the template-step executor tests (the rendered value,
     not the raw sentence); keep every still-valid old assertion — the hit/miss paths, the heal
     delegation, the strict paths, the event payloads, the scenario records
-- [ ] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — the generator/steering bridges
+- [x] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — the generator/steering bridges
   (Task 2) keep the engine paths green; fix implementation code until all tests pass
-- [ ] **Contract re-verification**: `.venv/bin/python -c "from prettyplay import
+- [x] **Contract re-verification**: `.venv/bin/python -c "from prettyplay import
   StepExecutor"` and the execute signature check — facade, API shape and behavior intact
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/executor.py tests/test_executor.py` and
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/executor.py tests/test_executor.py` and
   `.venv/bin/ruff format --check` on the same files — zero findings; both gates must also pass
   immediately before any local commit of this task
 

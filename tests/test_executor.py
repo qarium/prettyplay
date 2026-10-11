@@ -533,12 +533,19 @@ def seed_cached_step(
     step_text: str,
     code: str = BROKEN_CODE,
     step_type: str = "action",
+    vars: dict[str, str] | None = None,
 ) -> None:
-    """Save a cached step under the fixture cache key, so a run takes the cache-hit path."""
+    """Save a cached step under the fixture cache key, so a run takes the cache-hit path.
+
+    The seed addresses the step the way the executor does — by the rendered
+    addressing text of the sentence against the executor's current memory and
+    the given call-local vars.
+    """
+    prepared = render_step(step_text, step_type, fixture.executor._memory, vars)
     identity = StepIdentity(
         cache_key="login-flow",
         step_type=step_type,
-        normalized_text=normalize_step_text(step_text),
+        normalized_text=normalize_step_text(prepared.addressing_text),
     )
     fixture.cache.save(
         CachedStep(identity=identity, addressing_text=identity.normalized_text, code=code, created_at="2026-09-08")
@@ -612,8 +619,8 @@ class TestStepExecutorContract:
         assert isinstance(other.executor._memory, StepMemory)
         assert fixture.executor._memory is not other.executor._memory  # tests never share memory
 
-    def test_execute_renders_the_step_before_addressing_from_the_raw_sentence(self, tmp_path: Path) -> None:
-        """The render product rides every engine call; the identity addresses the original template."""
+    def test_execute_renders_the_step_before_addressing_from_the_render_product(self, tmp_path: Path) -> None:
+        """The render product rides every engine call; the identity addresses the rendered sentence."""
         generator = RecordingGenerator()
         fixture = ExecutorFixture(tmp_path, generator, RecordingHealer())
         fixture.executor._memory.publish({"kind": "novel"})
@@ -628,8 +635,8 @@ class TestStepExecutorContract:
         assert call["identity"] == StepIdentity(
             cache_key="login-flow",
             step_type="action",
-            normalized_text=normalize_step_text("Read {{ kind }} into {% var name %}"),
-        )  # addressing stays on the original sentence — template mode, verbatim
+            normalized_text=normalize_step_text("Read novel into {% var name %}"),
+        )  # addressing rides the render product's addressing text — the reached tag kept verbatim
 
     def test_execute_grows_the_typed_scenario_context(self, tmp_path: Path) -> None:
         """The scenario context holds typed records — the sentence plus the permanent group membership."""
@@ -769,6 +776,24 @@ class TestStepExecutorContract:
 
 class TestStepExecutorLogic:
     """Logic tests: hit and miss paths, scenario context, failures, healing delegation."""
+
+    def test_execute_builds_identity_from_addressing_text(self, tmp_path: Path) -> None:
+        """The identity derives from the render product's addressing text — the rendered value, not the raw sentence."""
+        generator = RecordingGenerator()
+        fixture = ExecutorFixture(tmp_path, generator, RecordingHealer())
+        fixture.executor._memory.publish({"name": "Book"})
+
+        fixture.executor.execute("Open the item named {{ name }}", "action", FakePage())
+
+        recorded = generator.calls[0]["identity"]  # the address the cache miss stored under
+        assert isinstance(recorded, StepIdentity)
+        assert recorded.normalized_text == "Open the item named Book"
+        assert (
+            recorded.filename
+            == StepIdentity(
+                cache_key="login-flow", step_type="action", normalized_text="Open the item named Book"
+            ).filename
+        )
 
     def test_hit_path_runs_cached_code_without_engines(self, tmp_path: Path) -> None:
         generator = RecordingGenerator()
@@ -1255,7 +1280,8 @@ class TestStepExecutorRenderAndMemory:
         fixture = ExecutorFixture(tmp_path, RecordingGenerator(), RecordingHealer())
         sentence = "Read {{ vars.item }} into {% var name %}"
         code = 'def step(page):\n    return {"name": step_inputs["vars"]["item"]}\n'
-        seed_cached_step(fixture, sentence, code=code)
+        seed_cached_step(fixture, sentence, code=code, vars={"item": "A"})
+        seed_cached_step(fixture, sentence, code=code, vars={"item": "B"})  # a distinct value — a distinct address
 
         fixture.executor.execute(sentence, "action", FakePage(), vars={"item": "A"})
         assert fixture.executor._memory.snapshot() == {"name": "A"}

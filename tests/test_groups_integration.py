@@ -633,7 +633,9 @@ def test_group_template_flow_traces_instruction_and_vars_and_requests_carry_inst
     confirm_template = "the code {{ vars.code }} is confirmed"
     check_code = "def step(page) -> None:\n    page.get_by_role('button', name='A1').expect_visible()\n"
     confirm_code = "def step(page) -> None:\n    page.get_by_text('A1').expect_visible()\n"
-    seed_step(tmp_path, confirm_template, confirm_code, cache_key="checkout-flow", step_type="assertion")
+    seed_step(
+        tmp_path, "the code A1 is confirmed", confirm_code, cache_key="checkout-flow", step_type="assertion"
+    )  # the committed cache addresses the confirmation by its rendered sentence — the value A1 embedded
     provider = TemplateGroupProvider(
         answers=[check_code],
         group_verdict=GroupFailureClassification(
@@ -664,8 +666,8 @@ def test_group_template_flow_traces_instruction_and_vars_and_requests_carry_inst
         url_before="https://shop.example.com/checkout",
         url_after="https://shop.example.com/checkout",
         identity=StepIdentity(
-            cache_key="checkout-flow", step_type="action", normalized_text=normalize_step_text(check_template)
-        ),
+            cache_key="checkout-flow", step_type="action", normalized_text=normalize_step_text("Check A1")
+        ),  # the trace carries the execution-time identity — built from the rendered addressing text
     )
     assert group.traces[0].render().startswith("Check A1\n")  # the instruction line renders first
     assert group.traces[1].sentence == confirm_template
