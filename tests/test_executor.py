@@ -1276,12 +1276,12 @@ class TestStepExecutorStrictMode:
 class TestStepExecutorRenderAndMemory:
     """Logic tests: the render point, replay publication and the memory ownership."""
 
-    def test_template_cache_replay_uses_current_call_inputs(self, tmp_path: Path) -> None:
+    def test_template_cache_replays_each_rendered_value_entry(self, tmp_path: Path) -> None:
         fixture = ExecutorFixture(tmp_path, RecordingGenerator(), RecordingHealer())
         sentence = "Read {{ vars.item }} into {% var name %}"
-        code = 'def step(page):\n    return {"name": step_inputs["vars"]["item"]}\n'
-        seed_cached_step(fixture, sentence, code=code, vars={"item": "A"})
-        seed_cached_step(fixture, sentence, code=code, vars={"item": "B"})  # a distinct value — a distinct address
+        seed_cached_step(fixture, sentence, code='def step(page):\n    return {"name": "A"}\n', vars={"item": "A"})
+        # a distinct value — a distinct address carrying its own self-contained code
+        seed_cached_step(fixture, sentence, code='def step(page):\n    return {"name": "B"}\n', vars={"item": "B"})
 
         fixture.executor.execute(sentence, "action", FakePage(), vars={"item": "A"})
         assert fixture.executor._memory.snapshot() == {"name": "A"}

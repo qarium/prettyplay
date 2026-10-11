@@ -2650,6 +2650,14 @@ class TestPromptConstants:
         assert "read every declared value from the current page" in SYSTEM_PROMPT
         assert "never fabricate, never reuse values from HISTORY" in SYSTEM_PROMPT
 
+    def test_system_prompt_treats_the_step_as_a_ready_instruction(self) -> None:
+        """The step is a ready instruction: values come from the STEP sentence, no execution context exists."""
+        assert (
+            "The step is a ready instruction: every value it needs is in the STEP sentence — "
+            "use those values in the code exactly as written" in SYSTEM_PROMPT
+        )
+        assert "step_inputs" not in SYSTEM_PROMPT  # the prompt is not aware of any execution context
+
     def test_classification_prompt_moved_out_of_generator(self) -> None:
         assert not hasattr(generator_module, "CLASSIFICATION_PROMPT")  # moved to classification.py
 
@@ -2670,11 +2678,7 @@ class TestStepGeneratorMemory:
     ) -> None:
         """Invalid results consume healing attempts without publishing partial captures."""
         invalid = 'def step(page):\n    return {"name": "", "kind": "changed"}\n'
-        valid = (
-            'def step(page):\n    assert step_inputs["name"] == "Before"\n'
-            '    assert step_inputs["kind"] == "novel"\n'
-            '    return {"name": "After", "kind": "book"}\n'
-        )
+        valid = 'def step(page):\n    assert page is not None\n    return {"name": "After", "kind": "book"}\n'
         provider = StubProvider([invalid, valid] if corrected else [invalid], compliance_verdicts=[[]])
         fixture = GeneratorFixture(
             tmp_path, provider, limits=(3, 2 if corrected else 1), generation_prompt="Read the page"

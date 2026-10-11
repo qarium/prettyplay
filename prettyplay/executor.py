@@ -11,7 +11,6 @@ from .config import PrettyConfig
 from .driver import PageFacade
 from .engine import StepGenerator, StepHealer, classify_step_failure, format_step_error, run_step_code
 from .engine.attempts import OUTCOME_ORIGINAL, StepAttempt
-from .engine.execution import bind_step_inputs
 from .engine.groups import GroupRecovery, GroupStepOutcome
 from .engine.polling import SettleWindow, settle
 from .engine.renderer import PreparedStep, StepMemory, render_step, validate_step_result
@@ -188,8 +187,7 @@ class StepExecutor:
             if cached is not None:
                 url_before = group_url_before if group is not None else _read_url(page)
                 try:
-                    with bind_step_inputs(self._memory.snapshot(), prepared.inputs):
-                        result = settle(run_step_code, cached.code, page, window)
+                    result = settle(run_step_code, cached.code, page, window)
                     captures = validate_step_result(prepared, result)
                 except Exception as error:  # the replay failed or its result violated the contract — the mode reacts
                     traced = self._replay_failure(

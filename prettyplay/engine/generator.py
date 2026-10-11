@@ -18,7 +18,7 @@ from .attempts import (
 )
 from .classification import classify_step_failure
 from .compliance import check_step_compliance
-from .execution import bind_step_inputs, run_step_code
+from .execution import run_step_code
 from .polling import SettleWindow, settle
 from .renderer import PreparedStep, StepMemory, validate_step_result
 from .text import format_step_error
@@ -52,7 +52,7 @@ Output exactly one Python code block with one function of the fixed form:
 
 Rules:
 - The function receives exactly one argument: the page — the genuine Playwright sync Page; the whole step runs inside the driver worker thread
-- The global `step_inputs` is supplied fresh on every execution: captured values are available by name and call-local INPUTS under `step_inputs["vars"]`. Read changing values from it instead of hardcoding the current STEP or INPUTS values into cached code
+- The step is a ready instruction: every value it needs is in the STEP sentence — use those values in the code exactly as written
 - Import from playwright.sync_api and the Python standard library only — no third-party
   libraries; imports are global only: at the top level of the code block, before `def
   step`, never inside the function body
@@ -415,8 +415,7 @@ class StepGenerator:
 
             url_before = _read_url(page)
             try:
-                with bind_step_inputs(memory.snapshot(), prepared.inputs):
-                    result = settle(run_step_code, code, page, window)
+                result = settle(run_step_code, code, page, window)
             except AssertionError as check_failure:
                 # failed check survived the window — the decision table, never blind retries
                 url_after = _read_url(page)
@@ -542,8 +541,7 @@ class StepGenerator:
 
             url_before = _read_url(page)
             try:
-                with bind_step_inputs(memory.snapshot(), prepared.inputs):
-                    result = settle(run_step_code, code, page, window)
+                result = settle(run_step_code, code, page, window)
             except AssertionError as check_failure:  # failed checks included — the entry classification guards
                 url_after = _read_url(page)
                 history.append(
@@ -844,8 +842,7 @@ class StepGenerator:
         code = self._request(prepared, step_type, previous_steps, None, page, history, recommendation)
         url_before = _read_url(page)
         try:
-            with bind_step_inputs(memory.snapshot(), prepared.inputs):
-                result = settle(run_step_code, code, page, window)
+            result = settle(run_step_code, code, page, window)
         except AssertionError as check_failure:
             url_after = _read_url(page)
             history.append(_record(code, format_step_error(check_failure), OUTCOME_FAILED_CHECK, url_before, url_after))

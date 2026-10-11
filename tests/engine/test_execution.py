@@ -10,7 +10,6 @@ from playwright.sync_api import Error
 from prettyplay.driver import PageFacade
 from prettyplay.driver.page import _DialogRouter
 from prettyplay.engine import run_step_code
-from prettyplay.engine.execution import bind_step_inputs
 
 #: the generated import header — executes on the calling thread, inert without a Playwright session
 GENERATED_HEADER_CODE = "from playwright.sync_api import expect\n\n\ndef step(page):\n    assert page is not None\n"
@@ -74,14 +73,12 @@ class TestRunStepCodeContract:
 
         assert result is None
 
-    def test_cached_code_reads_fresh_bindings_on_each_execution(self) -> None:
+    def test_step_code_namespace_exposes_no_context(self) -> None:
         handle = RecordingHandle()
-        code = 'def step(page):\n    return {"seen": step_inputs["vars"]["item"] + step_inputs["name"]}\n'
+        code = 'def step(page):\n    return {"seen": step_inputs["vars"]["item"]}\n'
 
-        with bind_step_inputs({"name": " one"}, {"item": "A"}):
-            assert run_step_code(code, handle) == {"seen": "A one"}
-        with bind_step_inputs({"name": " two"}, {"item": "B"}):
-            assert run_step_code(code, handle) == {"seen": "B two"}
+        with pytest.raises(NameError, match="step_inputs"):  # self-contained code: no context global exists
+            run_step_code(code, handle)
 
 
 class TestRunStepCodeLogic:

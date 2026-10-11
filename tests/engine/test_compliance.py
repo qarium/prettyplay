@@ -104,6 +104,13 @@ class TestComplianceGateContract:
         assert "the declared names to non-blank strings observed on the page" in COMPLIANCE_PROMPT
         assert "code that cannot produce it" in COMPLIANCE_PROMPT
 
+    def test_compliance_prompt_treats_embedded_step_values_as_correct(self) -> None:
+        """The values of the STEP sentence embedded in the code are correct — never a finding."""
+        assert "The code uses the values of the STEP sentence exactly as the step states them" in COMPLIANCE_PROMPT
+        assert "embedding" in COMPLIANCE_PROMPT
+        assert "them in the code is correct, never a finding" in COMPLIANCE_PROMPT
+        assert "step_inputs" not in COMPLIANCE_PROMPT  # the gate is not aware of any execution context
+
 
 class TestCheckStepComplianceLogic:
     """Logic tests: the off switch, the empty-instructions guard, the request shape."""
