@@ -44,7 +44,8 @@ Priority calibration:
   material behavior the step never asked for: an assertion step that
   changes page state (a navigation, a click, a fill), a trailing check in
   an action step that only confirms the action's own completion, a check
-  of a fact the step sentence never names; only high blocks the candidate
+  of a fact the step sentence never names, dead weight — a binding the code
+  assigns and never reads serves no part of the step; only high blocks the candidate
 - medium and low — minor observations, partial compliance or doubt: visible,
   never blocking; when in doubt, never high
 - an empty list [] means the code complies and accomplishes the step
@@ -57,7 +58,8 @@ Rules:
 - Adequacy covers both directions: falling short of the step and exceeding
   it — extra actions inside an assertion step, a trailing confirmation of
   the action's own completion, extra checks of facts the step sentence
-  never names are adequacy findings too
+  never names are adequacy findings too, and so is dead weight: a binding
+  the code assigns and never reads
 - Conditional prefer-type instructions are checked conditionally: when the code shows
   a graceful fallback attempt, that is compliance; judge followability from the code
   and the step sentence alone — never speculate about page state beyond the attempt

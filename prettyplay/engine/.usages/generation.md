@@ -158,6 +158,6 @@ the top level of the code block, before `def step`, never inside the function bo
 `with page.expect_event("dialog") as info: ... info.value.accept()`,
 `with page.expect_popup() as popup_info: ... popup_info.value`,
 `page.frame_locator("#checkout").get_by_role("button", name="Pay").click()`,
-`locator.scroll_into_view_if_needed()`, `page.mouse.wheel(0, 600)`. No provider constructs, no fixed delays, no
-page.close()/context.close(), no stateful actions (route, clock, add_init_script, tracing, HAR, CDP) — the prompt
-rules; the runtime never enforces them.
+`locator.scroll_into_view_if_needed()`, `page.mouse.wheel(0, 600)`. Every name the code binds, the code uses — no
+dead weight. No provider constructs, no fixed delays, no page.close()/context.close(), no stateful actions (route,
+clock, add_init_script, tracing, HAR, CDP) — the prompt rules; the runtime never enforces them.

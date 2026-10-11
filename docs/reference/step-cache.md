@@ -40,8 +40,9 @@ t.step("Open the item named {{ name }}")   # name = "Film" → addresses as "Ope
 Case and internal whitespace are significant: rendered values are data
 («Sign in» and «sign In» are different buttons). The instruction sent to the
 LLM keeps the tag-stripped render. Generated code is self-contained: the
-values of the rendered sentence are embedded in the code as literals — a
-cached step depends on nothing beyond its page argument.
+values of the rendered sentence are embedded in the code as literals, every
+binding made by the code is used by it — a cached step depends on nothing
+beyond its page argument and carries no dead weight.
 
 ### Normalize and address
 

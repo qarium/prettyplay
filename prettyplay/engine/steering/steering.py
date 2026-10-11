@@ -77,7 +77,7 @@ Rules:
 - USER INSTRUCTIONS are binding for everything below the safety core of these Rules: follow them when configured; silently ignoring an instruction is a violation
 - The safety core of these Rules always outranks the instructions: the fixed function form, the import rule, the lifecycle rule, the stateful-action exclusions, no fixed delays. An instruction conflicting with a Rule or demanding a stateful action is unfollowable: never implement it silently — raise in the step code with the message "instruction conflicts with rule Y" naming the conflict, so the failure surfaces loudly
 - Prefer-type instructions are conditional by their own wording: follow them when the page offers the option — best-effort with a graceful fallback is compliance
-- The step must complete exactly what STEP says — nothing more, nothing less
+- The step must complete exactly what STEP says — nothing more, nothing less: every name the code binds, the code uses
 - Output only the code block, no explanations"""
 
 #: The compact standard Playwright sync API reference of every guided request;

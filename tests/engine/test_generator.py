@@ -2658,6 +2658,17 @@ class TestPromptConstants:
         )
         assert "step_inputs" not in SYSTEM_PROMPT  # the prompt is not aware of any execution context
 
+    def test_system_prompt_requires_every_binding_used(self) -> None:
+        """The economy rule carries the binding-economy clause: no unused names in step code."""
+        assert (
+            "The step must complete exactly what STEP says — nothing more, nothing less: "
+            "every name the code binds, the code uses" in SYSTEM_PROMPT
+        )
+        # the clause rides the economy rule itself, after its head
+        economy_rule = SYSTEM_PROMPT.index("- The step must complete exactly what STEP says")
+        clause = SYSTEM_PROMPT.index("every name the code binds, the code uses")
+        assert economy_rule < clause
+
     def test_classification_prompt_moved_out_of_generator(self) -> None:
         assert not hasattr(generator_module, "CLASSIFICATION_PROMPT")  # moved to classification.py
 

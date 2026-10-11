@@ -105,7 +105,8 @@ Usages:
       material behavior the step never asked for: an assertion step that
       changes page state (a navigation, a click, a fill), a trailing check in
       an action step that only confirms the action's own completion, a check
-      of a fact the step sentence never names; only high blocks the candidate
+      of a fact the step sentence never names, dead weight — a binding the code
+      assigns and never reads serves no part of the step; only high blocks the candidate
     - medium and low — minor observations, partial compliance or doubt: visible,
       never blocking; when in doubt, never high
     - an empty list [] means the code complies and accomplishes the step
@@ -118,7 +119,8 @@ Usages:
     - Adequacy covers both directions: falling short of the step and exceeding
       it — extra actions inside an assertion step, a trailing confirmation of
       the action's own completion, extra checks of facts the step sentence
-      never names are adequacy findings too
+      never names are adequacy findings too, and so is dead weight: a binding
+      the code assigns and never reads
     - Conditional prefer-type instructions are checked conditionally: when the code shows
       a graceful fallback attempt, that is compliance; judge followability from the code
       and the step sentence alone — never speculate about page state beyond the attempt
@@ -144,7 +146,7 @@ Annotations: |
   Use `compliance_prompt` as the system prompt of every compliance verdict request.
   Use `group_framing` from Usages as the single source of the additive group framing of generation and regeneration requests of group steps — the block structure and the marking change together with the practice.
 
-  The fixed form of step code: one function receiving exactly one argument — the genuine sync Page of the test; the function body works through the standard Playwright sync API with the values of its prepared instruction embedded in the code as literals — self-contained code that holds nothing beyond its page argument and its allowed imports; imports allowed from playwright.sync_api and the Python standard library only — third-party libraries are forbidden; imports are global only: at the top level of the code block, before def step, never inside the function body — a prompt rule carried by `system_prompt`, no runtime enforcement; the whole step executes inside the driver worker thread through the run primitive of `PageFacade` — the calling thread never touches Playwright.
+  The fixed form of step code: one function receiving exactly one argument — the genuine sync Page of the test; the function body works through the standard Playwright sync API with the values of its prepared instruction embedded in the code as literals — self-contained code that holds nothing beyond its page argument and its allowed imports, every binding used — no dead weight; imports allowed from playwright.sync_api and the Python standard library only — third-party libraries are forbidden; imports are global only: at the top level of the code block, before def step, never inside the function body — a prompt rule carried by `system_prompt`, no runtime enforcement; the whole step executes inside the driver worker thread through the run primitive of `PageFacade` — the calling thread never touches Playwright.
   Every attempt — generation or healing — consumes the shared per-step budget of the test; exhaustion is the incurable failure, never an infinite loop.
   One continuous per-step attempt history threads through generation, healing and steering: every step-code request of the engines carries it verbatim — every record complete (the outcome, the URL before -> after line, the complete candidate code, the complete error); the original cached code anchors it as record 0 when it exists; the history is bounded by the attempt budgets alone — no collapsing, no truncation, no size limits.
   Honest inputs in every step request: the step type and prepared instruction, with current input bindings and result declarations when present, reach generation, regeneration and compliance; scenario records render their instruction fields. The raw template sentence remains the render and re-render source, never a request input; the addressing text of the render product establishes the cache identity.

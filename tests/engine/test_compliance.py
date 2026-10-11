@@ -111,6 +111,17 @@ class TestComplianceGateContract:
         assert "them in the code is correct, never a finding" in COMPLIANCE_PROMPT
         assert "step_inputs" not in COMPLIANCE_PROMPT  # the gate is not aware of any execution context
 
+    def test_compliance_prompt_blocks_dead_weight(self) -> None:
+        """A binding the code assigns and never reads is a blocking adequacy finding."""
+        flat = " ".join(COMPLIANCE_PROMPT.split())  # wrap-agnostic — the constant hard-wraps its lines
+        assert "dead weight — a binding the code assigns and never reads serves no part of the step" in flat
+        # the clause sits inside the high calibration — dead weight blocks the candidate
+        dead_weight = COMPLIANCE_PROMPT.index("dead weight")
+        only_high = COMPLIANCE_PROMPT.index("only high blocks the candidate")
+        assert dead_weight < only_high
+        # the adequacy dimension names it in the same class as extra actions and checks
+        assert "so is dead weight: a binding the code assigns and never reads" in flat
+
 
 class TestCheckStepComplianceLogic:
     """Logic tests: the off switch, the empty-instructions guard, the request shape."""
