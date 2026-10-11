@@ -225,7 +225,11 @@ class StepGenerator:
                 bindings, result declarations; every request renders the
                 instruction with its INPUTS and RESULTS blocks; declarations
                 present — the candidate code must return the result
-                dictionary of exactly the declared names.
+                dictionary of exactly the declared names. The
+                ``addressing_text`` of ``prepared`` is carried unchanged into
+                every newly constructed ``CachedStep``; the
+                ``normalized_text`` of its ``identity`` is the NFC+trim
+                normalization of that text.
             step_type: action or assertion — carried into every request.
             previous_steps: the typed scenario records of the previous steps
                 of the test, in execution order — each the prepared
@@ -291,7 +295,10 @@ class StepGenerator:
                 into every request with its INPUTS and RESULTS blocks;
                 passed by the calling path: the healer threads the
                 executor's product, the recovery re-renders the row step
-                against the current context.
+                against the current context. The ``addressing_text`` of
+                ``prepared`` is carried unchanged into every newly
+                constructed ``CachedStep``; the ``normalized_text`` of its
+                ``identity`` is the NFC+trim normalization of that text.
             step_type: action or assertion — carried into every request.
             previous_steps: the typed scenario records of the previous steps
                 of the test, in execution order.
@@ -471,7 +478,7 @@ class StepGenerator:
                     _medium_warning(prepared.instruction, findings)
 
                 memory.publish(captures)  # publication exactly once — after validation and the gate
-                return self._store(identity, code)
+                return self._store(identity, prepared.addressing_text, code)
 
     def _healing_loop(  # noqa: PLR0913, PLR0917 — the shared attempt loop with its fixed inputs
         self,
@@ -567,7 +574,7 @@ class StepGenerator:
                 _medium_warning(prepared.instruction, findings)
 
             memory.publish(captures)  # publication exactly once — after validation and the gate
-            return self._store(identity, code)
+            return self._store(identity, prepared.addressing_text, code)
 
     def _failed_check_outcome(  # noqa: PLR0913, PLR0917 — the decision table of one failed candidate check
         self,
@@ -865,7 +872,7 @@ class StepGenerator:
             _medium_warning(prepared.instruction, findings)
 
         memory.publish(captures)  # publication exactly once — after validation and the gate
-        return self._store(identity, code), code, "", False
+        return self._store(identity, prepared.addressing_text, code), code, "", False
 
     def _request(  # noqa: PLR0913, PLR0917 — the fixed request inputs of the port signature
         self,
@@ -929,11 +936,14 @@ class StepGenerator:
         """
         self._reporter.emit("on_generation_started", {"step_text": step_text, "attempt": attempt})
 
-    def _store(self, identity: StepIdentity, code: str) -> CachedStep:
+    def _store(self, identity: StepIdentity, addressing_text: str, code: str) -> CachedStep:
         """Save the proven candidate as the cached step of the identity.
 
         Args:
-            identity: the address of the step.
+            identity: the address of the step — its ``normalized_text`` is the
+                NFC+trim normalization of ``addressing_text``.
+            addressing_text: the verbatim rendered sentence of the prepared
+                product — carried unchanged, never normalized at storage.
             code: the proven step code.
 
         Returns:
@@ -941,9 +951,7 @@ class StepGenerator:
         """
         step = CachedStep(
             identity=identity,
-            # the bridge preserves today's STEP_TEXT content — replaced by the
-            # prepared.addressing_text threading in Task 7
-            addressing_text=identity.normalized_text,
+            addressing_text=addressing_text,
             code=code,
             created_at=date.today().isoformat(),  # noqa: DTZ011 — calendar date of step creation
         )

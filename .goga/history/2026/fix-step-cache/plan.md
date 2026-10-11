@@ -1245,21 +1245,21 @@ reads the loaded step's metadata for storage.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (in `tests/engine/test_generator.py`; expected to hold): the
+- [x] **Contract tests** (in `tests/engine/test_generator.py`; expected to hold): the
   `generate`/`regenerate` signatures are unchanged — the engine contract fixes them
-- [ ] **REPL baseline** (fresh `.venv/bin/python`): with a fake provider returning a fixed
+- [x] **REPL baseline** (fresh `.venv/bin/python`): with a fake provider returning a fixed
   green code and a real store on a temp directory, run one `generate` — observe today's saved
   `STEP_TEXT` literal (the bridge's normalized form) and the returned step
-- [ ] **Code**: change `_store` to the `(identity, addressing_text, code)` signature and the
+- [x] **Code**: change `_store` to the `(identity, addressing_text, code)` signature and the
   construction above; update the three call sites to pass `prepared.addressing_text`; remove
   the Task 2 bridge; add the contract sentence to the `generate`/`regenerate` `prepared` param
   docstrings
-- [ ] **REPL check** (fresh process): re-run the baseline generation — the returned
+- [x] **REPL check** (fresh process): re-run the baseline generation — the returned
   `CachedStep.addressing_text` equals the prepared product's text; the file's `STEP_TEXT`
   keeps the capture tag verbatim; a `load` roundtrip restores it; migrate into the source
-- [ ] **Interface verification**: `.venv/bin/python -m pytest tests/engine/test_generator.py
+- [x] **Interface verification**: `.venv/bin/python -m pytest tests/engine/test_generator.py
   -q`
-- [ ] **Logic tests**:
+- [x] **Logic tests**:
   - `test_generate_stores_addressing_text_of_prepared` (design scenario, verbatim): generator
     suite fixtures (fake provider returning a fixed code, page stub, real `StepCache` on
     `tmp_path`); `identity` built from
@@ -1284,12 +1284,12 @@ reads the loaded step's metadata for storage.
   - update the generator/healer fixtures: every `PreparedStep` reaching `_store` now carries an
     `addressing_text` consistent with its identity (the empty default would violate the
     invariant once the threading lands)
-- [ ] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — the executor (Task 5) and the
+- [x] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — the executor (Task 5) and the
   recovery (Task 6) already pass consistent (identity, prepared) pairs, so the threading holds
   everywhere; fix implementation code until all tests pass
-- [ ] **Contract re-verification**: `.venv/bin/python -c "from prettyplay.engine import
+- [x] **Contract re-verification**: `.venv/bin/python -c "from prettyplay.engine import
   StepGenerator, StepHealer"` — facade, API shape and behavior intact
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/engine/generator.py
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/engine/generator.py
   prettyplay/engine/healer.py tests/engine/test_generator.py tests/engine/test_healer.py` and
   `.venv/bin/ruff format --check` on the same files — zero findings; both gates must also pass
   immediately before any local commit of this task

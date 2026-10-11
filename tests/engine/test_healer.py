@@ -11,7 +11,7 @@ from prettyplay.engine import StepAttempt, StepGenerator, StepHealer
 from prettyplay.engine.attempts import OUTCOME_ORIGINAL
 from prettyplay.engine.classification import CLASSIFICATION_PROMPT
 from prettyplay.engine.polling import SettleWindow
-from prettyplay.engine.renderer import PreparedStep, StepMemory
+from prettyplay.engine.renderer import PreparedStep, StepMemory, render_step
 from prettyplay.failures import (
     FailureVerdict,
     IncurableStepError,
@@ -46,7 +46,7 @@ GATE_FINDING = ComplianceFinding(
 
 def prepared(instruction: str = STEP_SENTENCE, declarations: list[str] | None = None) -> PreparedStep:
     """Build the render product of the heal tests with the given instruction and declarations."""
-    return PreparedStep(instruction=instruction, declarations=declarations or [])
+    return PreparedStep(instruction=instruction, addressing_text=instruction, declarations=declarations or [])
 
 
 class FakePage:
@@ -621,6 +621,59 @@ class TestStepHealerLogic:
         assert request["previous_steps"] is SCENARIO_RECORDS  # the typed records reach the request verbatim
         assert request["group_prompt"] is None  # the ordinary heal carries no group framing — never a group step
         assert request["instruction"] == STEP_SENTENCE  # the prepared instruction of the render product
+
+    def test_heal_retains_render_addressing_text_not_old_metadata(self, tmp_path: Path) -> None:
+        """The healed write-back carries the current render's addressing text — never the loaded entry's metadata."""
+        provider = FakeProvider(
+            classifications=[
+                FailureClassification(
+                    category="rot",
+                    explanation="the selector rotted",
+                    recommendation="refresh the cache",
+                )
+            ],
+            answers=["def step(page) -> None:\n    pass\n"],
+        )
+        recorder = RecorderHook()
+        reporter = StepReporter(hooks=[recorder])
+        config = Config(cache_root=str(tmp_path))
+        cache = StepCache(config, None, reporter)
+        memory = StepMemory()
+        generator = StepGenerator(config, provider, cache, RunBudgets(3, 2), reporter)
+        healer = StepHealer(config, provider, generator, cache, RunBudgets(3, 2), reporter)
+        identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="Open Book")
+
+        memory.publish({"name": "Book "})  # the earlier steps captured the trailing space
+        stale = render_step("Open {{ name }}", "action", memory, None)
+        assert stale.addressing_text == "Open Book "
+        cache.save(
+            CachedStep(identity=identity, addressing_text="Open Book ", code=FAILED_CODE, created_at="2026-09-07")
+        )
+
+        memory.publish({"name": "Book"})  # the replay-time capture lost the trailing space
+        fresh = render_step("Open {{ name }}", "action", memory, None)
+        assert fresh.addressing_text == "Open Book"
+
+        loaded = cache.load(identity)  # both metadata texts normalize to "Open Book" — the legacy entry loads
+        assert loaded is not None
+        assert loaded.addressing_text == "Open Book "
+
+        healed = healer.heal(
+            loaded,
+            "element not found",
+            fresh,
+            "action",
+            [],
+            FakePage(),
+            anchored_history(),
+            SettleWindow(None, 0.5),
+            memory,
+        )
+
+        assert healed.addressing_text == "Open Book"  # the current render's text, not the old entry's
+        assert healed.addressing_text != loaded.addressing_text
+        file_text = (tmp_path / identity.filename).read_text(encoding="utf-8")
+        assert "STEP_TEXT = 'Open Book'" in file_text  # the digest filename is unchanged — same address
 
     def test_heal_fixable_category_regenerates_with_recommendation(self, tmp_path: Path) -> None:
         """The fixable verdict takes the rot path — the code is at fault, the intent stands."""

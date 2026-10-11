@@ -133,7 +133,9 @@ class TestTransportRetriesBudgetNeutrality:
         with mock.patch.object(provider, "_get_client", return_value=sdk_client):
             cached_step = generator.generate(
                 identity,
-                PreparedStep(instruction="open the shop page"),  # the pre-render interim sentence
+                PreparedStep(
+                    instruction="open the shop page", addressing_text="open the shop page"
+                ),  # the pre-render interim sentence
                 "action",
                 [],
                 None,
@@ -207,7 +209,9 @@ class TestTransportRetriesBudgetNeutrality:
             if recovers:
                 cached_step = generator.generate(
                     identity,
-                    PreparedStep(instruction="open the shop page"),  # the pre-render interim sentence
+                    PreparedStep(
+                        instruction="open the shop page", addressing_text="open the shop page"
+                    ),  # the pre-render interim sentence
                     "action",
                     [],
                     None,
@@ -221,7 +225,9 @@ class TestTransportRetriesBudgetNeutrality:
                 with pytest.raises(LLMUnavailableError):
                     generator.generate(
                         identity,
-                        PreparedStep(instruction="open the shop page"),  # the pre-render interim sentence
+                        PreparedStep(
+                            instruction="open the shop page", addressing_text="open the shop page"
+                        ),  # the pre-render interim sentence
                         "action",
                         [],
                         None,

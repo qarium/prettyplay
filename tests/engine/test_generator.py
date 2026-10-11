@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
-from prettyplay.cache import RunBudgets, StepCache, StepIdentity
+from prettyplay.cache import RunBudgets, StepCache, StepIdentity, normalize_step_text
 from prettyplay.config import Config
 from prettyplay.engine import StepAttempt, StepGenerator
 from prettyplay.engine import generator as generator_module  # to verify the CLASSIFICATION_PROMPT move
@@ -340,7 +340,7 @@ class TestStepGeneratorContract:
 
         generated = fixture.generator.generate(
             identity=make_identity(),
-            prepared=PreparedStep(instruction="открыть страницу"),
+            prepared=PreparedStep(addressing_text="открыть страницу", instruction="открыть страницу"),
             step_type="action",
             previous_steps=records,
             group_prompt=None,
@@ -351,7 +351,7 @@ class TestStepGeneratorContract:
         )
         regenerated = fixture.generator.regenerate(
             identity=make_identity(),
-            prepared=PreparedStep(instruction="click Sign in"),
+            prepared=PreparedStep(addressing_text="открыть страницу", instruction="click Sign in"),
             step_type="action",
             previous_steps=records,
             group_prompt="the checkout flow",
@@ -375,7 +375,12 @@ class TestStepGeneratorContract:
         provider = StubProvider(['def step(page) -> dict:\n    return {"name": "Dune"}\n'])
         fixture = GeneratorFixture(tmp_path, provider)
         page = FakePage()
-        prepared = PreparedStep(instruction="read the novel name", inputs={"reader": "ada"}, declarations=["name"])
+        prepared = PreparedStep(
+            addressing_text="открыть страницу",
+            instruction="read the novel name",
+            inputs={"reader": "ada"},
+            declarations=["name"],
+        )
 
         fixture.generator.generate(
             make_identity(), prepared, "action", [], None, page, [], fixture.window, fixture.memory
@@ -468,7 +473,7 @@ class TestStepGeneratorLogic:
 
         step = fixture.generator.generate(
             identity,
-            PreparedStep(instruction="открыть страницу"),
+            PreparedStep(addressing_text="открыть страницу", instruction="открыть страницу"),
             "action",
             [],
             None,
@@ -498,7 +503,7 @@ class TestStepGeneratorLogic:
 
         fixture.generator.generate(
             make_identity(),
-            PreparedStep(instruction="open the videos page"),
+            PreparedStep(addressing_text="открыть страницу", instruction="open the videos page"),
             "action",
             [],
             None,
@@ -523,7 +528,7 @@ class TestStepGeneratorLogic:
 
         fixture.generator.generate(
             make_identity(),
-            PreparedStep(instruction="open the page"),
+            PreparedStep(addressing_text="открыть страницу", instruction="open the page"),
             "action",
             [],
             None,
@@ -534,7 +539,7 @@ class TestStepGeneratorLogic:
         )
         fixture.generator.regenerate(
             make_identity(),
-            PreparedStep(instruction="click Sign in"),
+            PreparedStep(addressing_text="открыть страницу", instruction="click Sign in"),
             "action",
             [],
             None,
@@ -560,7 +565,7 @@ class TestStepGeneratorLogic:
 
         generator.generate(
             make_identity(),
-            PreparedStep(instruction="открыть страницу"),
+            PreparedStep(addressing_text="открыть страницу", instruction="открыть страницу"),
             "action",
             [],
             None,
@@ -582,7 +587,7 @@ class TestStepGeneratorLogic:
 
         generator.generate(
             make_identity(),
-            PreparedStep(instruction="click Sign in"),
+            PreparedStep(addressing_text="открыть страницу", instruction="click Sign in"),
             "action",
             [],
             None,
@@ -610,7 +615,7 @@ class TestStepGeneratorLogic:
 
         generator.regenerate(
             make_identity(),
-            PreparedStep(instruction="click Sign in"),
+            PreparedStep(addressing_text="открыть страницу", instruction="click Sign in"),
             "action",
             [],
             None,
@@ -635,7 +640,7 @@ class TestStepGeneratorLogic:
 
         fixture.generator.generate(
             make_identity(),
-            PreparedStep(instruction="click Sign in"),
+            PreparedStep(addressing_text="открыть страницу", instruction="click Sign in"),
             "action",
             [],
             None,
@@ -656,7 +661,7 @@ class TestStepGeneratorLogic:
 
         step = fixture.generator.generate(
             make_identity(),
-            PreparedStep(instruction="нажать Войти"),
+            PreparedStep(addressing_text="открыть страницу", instruction="нажать Войти"),
             "action",
             [],
             None,
@@ -687,7 +692,7 @@ class TestStepGeneratorLogic:
 
         step = fixture.generator.generate(
             identity,
-            PreparedStep(instruction="open the page"),
+            PreparedStep(addressing_text="открыть страницу", instruction="open the page"),
             "action",
             [],
             None,
@@ -787,7 +792,7 @@ class TestStepGeneratorLogic:
 
         step = fixture.generator.regenerate(
             identity,
-            PreparedStep(instruction="открыть страницу"),
+            PreparedStep(addressing_text="открыть страницу", instruction="открыть страницу"),
             "action",
             [],
             None,
@@ -843,7 +848,7 @@ class TestStepGeneratorLogic:
 
         first = fixture.generator.generate(
             make_identity(),
-            PreparedStep(instruction="проверить страницу"),
+            PreparedStep(addressing_text="открыть страницу", instruction="проверить страницу"),
             "action",
             [],
             None,
@@ -890,7 +895,7 @@ class TestStepGeneratorLogic:
 
         fixture.generator.generate(
             identity,
-            PreparedStep(instruction="открыть страницу"),
+            PreparedStep(addressing_text="открыть страницу", instruction="открыть страницу"),
             "action",
             [],
             None,
@@ -905,6 +910,31 @@ class TestStepGeneratorLogic:
         assert loaded.code.rstrip("\n") == WORKING_CODE.rstrip("\n")  # the serializer appends a trailing \n
         assert loaded.created_at
 
+    def test_generate_stores_addressing_text_of_prepared(self, tmp_path: Path) -> None:
+        """The caching choke point stores prepared.addressing_text verbatim — the capture tag stays in the file."""
+        provider = StubProvider(['def step(page) -> dict:\n    return {"n": "7"}\n'])
+        fixture = GeneratorFixture(tmp_path, provider)
+        page = FakePage()
+        identity = StepIdentity(
+            cache_key="login-flow",
+            step_type="action",
+            normalized_text=normalize_step_text("Read the count into {% var n %}"),
+        )
+        prepared = PreparedStep(
+            instruction="Read the count into ",
+            addressing_text="Read the count into {% var n %}",
+            declarations=["n"],
+        )
+
+        returned = fixture.generator.generate(
+            identity, prepared, "action", [], None, page, [], fixture.window, fixture.memory
+        )
+
+        assert returned.addressing_text == "Read the count into {% var n %}"
+        assert returned.identity.normalized_text == normalize_step_text(returned.addressing_text)
+        file_text = (tmp_path / identity.filename).read_text(encoding="utf-8")
+        assert "STEP_TEXT = 'Read the count into {% var n %}'" in file_text  # the tag stays in the metadata
+
     def test_incident_narrowing_candidate_runs_green(self, tmp_path: Path) -> None:
         """AC2: the narrowing idiom as a first candidate runs green — no retries, cached as-is."""
         provider = StubProvider([NARROWING_CODE])
@@ -914,7 +944,7 @@ class TestStepGeneratorLogic:
 
         step = fixture.generator.generate(
             identity,
-            PreparedStep(instruction="the «Welcome back» message appears"),
+            PreparedStep(addressing_text="открыть страницу", instruction="the «Welcome back» message appears"),
             "action",
             [],
             None,
@@ -939,7 +969,7 @@ class TestStepGeneratorLogic:
 
         step = fixture.generator.generate(
             make_identity(),
-            PreparedStep(instruction="открыть страницу"),
+            PreparedStep(addressing_text="открыть страницу", instruction="открыть страницу"),
             "action",
             [],
             None,
@@ -1115,7 +1145,7 @@ class TestStepGeneratorLogic:
 
         step = fixture.generator.generate(
             make_identity(),
-            PreparedStep(instruction="press the sign in button"),
+            PreparedStep(addressing_text="открыть страницу", instruction="press the sign in button"),
             "action",
             [],
             None,
@@ -1146,7 +1176,7 @@ class TestStepGeneratorLogic:
 
         step = fixture.generator.generate(
             make_identity(),
-            PreparedStep(instruction="click Pay"),
+            PreparedStep(addressing_text="открыть страницу", instruction="click Pay"),
             "action",
             [],
             None,
@@ -1191,7 +1221,7 @@ class TestStepGeneratorLogic:
 
         step = fixture.generator.generate(
             make_identity(),
-            PreparedStep(instruction="click Pay"),
+            PreparedStep(addressing_text="открыть страницу", instruction="click Pay"),
             "action",
             [],
             None,
@@ -1535,7 +1565,7 @@ class TestStepGeneratorLogic:
 
         step = fixture.generator.generate(
             identity,
-            PreparedStep(instruction="click Pay"),
+            PreparedStep(addressing_text="открыть страницу", instruction="click Pay"),
             "action",
             [],
             None,
@@ -1568,7 +1598,7 @@ class TestStepGeneratorLogic:
         with caplog.at_level(logging.INFO, logger="prettyplay"):
             step = fixture.generator.generate(
                 identity,
-                PreparedStep(instruction="open the page"),
+                PreparedStep(addressing_text="открыть страницу", instruction="open the page"),
                 "action",
                 [],
                 None,
@@ -1688,7 +1718,7 @@ class TestStepGeneratorAttemptHistory:
 
         step = fixture.generator.generate(
             make_identity(),
-            PreparedStep(instruction="open the videos page"),
+            PreparedStep(addressing_text="открыть страницу", instruction="open the videos page"),
             "action",
             [],
             None,
@@ -1723,7 +1753,7 @@ class TestStepGeneratorAttemptHistory:
 
         step = fixture.generator.generate(
             make_identity(),
-            PreparedStep(instruction="click the «Sign in» button"),
+            PreparedStep(addressing_text="открыть страницу", instruction="click the «Sign in» button"),
             "action",
             [],
             None,
@@ -1747,7 +1777,7 @@ class TestStepGeneratorAttemptHistory:
 
         step = fixture.generator.regenerate(
             make_identity(),
-            PreparedStep(instruction="click the «Sign in» button"),
+            PreparedStep(addressing_text="открыть страницу", instruction="click the «Sign in» button"),
             "action",
             [],
             None,
@@ -1773,7 +1803,7 @@ class TestStepGeneratorAttemptHistory:
 
         step = fixture.generator.generate(
             make_identity(),
-            PreparedStep(instruction="open the page"),
+            PreparedStep(addressing_text="открыть страницу", instruction="open the page"),
             "action",
             [],
             None,
@@ -1873,7 +1903,7 @@ class TestStepGeneratorComplianceGate:
 
         step = fixture.generator.generate(
             identity,
-            PreparedStep(instruction="open the page"),
+            PreparedStep(addressing_text="открыть страницу", instruction="open the page"),
             "action",
             [],
             None,
@@ -1906,7 +1936,7 @@ class TestStepGeneratorComplianceGate:
         with caplog.at_level(logging.WARNING, logger="prettyplay"):
             step = fixture.generator.generate(
                 identity,
-                PreparedStep(instruction="click Sign in"),
+                PreparedStep(addressing_text="открыть страницу", instruction="click Sign in"),
                 "action",
                 [],
                 None,
@@ -1948,7 +1978,7 @@ class TestStepGeneratorComplianceGate:
         with caplog.at_level(logging.WARNING, logger="prettyplay"):
             step = fixture.generator.generate(
                 identity,
-                PreparedStep(instruction="click Sign in"),
+                PreparedStep(addressing_text="открыть страницу", instruction="click Sign in"),
                 "action",
                 [],
                 None,
@@ -2035,7 +2065,7 @@ class TestStepGeneratorComplianceGate:
 
         step = fixture.generator.regenerate(
             identity,
-            PreparedStep(instruction="click Sign in"),
+            PreparedStep(addressing_text="открыть страницу", instruction="click Sign in"),
             "action",
             [],
             None,
@@ -2312,7 +2342,7 @@ class TestStepGeneratorComplianceGate:
         with caplog.at_level(logging.WARNING, logger="prettyplay"):
             step = fixture.generator.regenerate(
                 identity,
-                PreparedStep(instruction="click Sign in"),
+                PreparedStep(addressing_text="открыть страницу", instruction="click Sign in"),
                 "action",
                 [],
                 None,
@@ -2352,7 +2382,7 @@ class TestStepGeneratorComplianceGate:
         with caplog.at_level(logging.WARNING, logger="prettyplay"):
             step = fixture.generator.generate(
                 identity,
-                PreparedStep(instruction="click Pay"),
+                PreparedStep(addressing_text="открыть страницу", instruction="click Pay"),
                 "action",
                 [],
                 None,
@@ -2498,7 +2528,7 @@ class TestStepGeneratorGroupBranches:
         with caplog.at_level(logging.WARNING, logger="prettyplay"):
             step = fixture.generator.generate(
                 identity,
-                PreparedStep(instruction="fill the email field"),
+                PreparedStep(addressing_text="открыть страницу", instruction="fill the email field"),
                 "action",
                 [],
                 "the checkout flow",
@@ -2524,7 +2554,7 @@ class TestStepGeneratorGroupBranches:
 
         step = fixture.generator.generate(
             identity,
-            PreparedStep(instruction="fill the email field"),
+            PreparedStep(addressing_text="открыть страницу", instruction="fill the email field"),
             "action",
             [],
             "the checkout flow",
@@ -2652,7 +2682,9 @@ class TestStepGeneratorMemory:
         fixture.memory.publish({"name": "Before", "kind": "novel", "other": "retained"})
         identity = make_identity()
         history = make_anchored_history()
-        prepared = PreparedStep(instruction="Read the item", declarations=["name", "kind"])
+        prepared = PreparedStep(
+            addressing_text="открыть страницу", instruction="Read the item", declarations=["name", "kind"]
+        )
 
         def regenerate():
             return fixture.generator.regenerate(
@@ -2721,7 +2753,9 @@ class TestStepGeneratorMemory:
         fixture = GeneratorFixture(tmp_path, provider)
         identity = make_identity()
         page = FakePage()
-        prepared = PreparedStep(instruction="read the novel name into name", declarations=["name"])
+        prepared = PreparedStep(
+            addressing_text="открыть страницу", instruction="read the novel name into name", declarations=["name"]
+        )
 
         step = fixture.generator.generate(
             identity, prepared, "action", [], None, page, [], fixture.window, fixture.memory
@@ -2766,7 +2800,9 @@ class TestStepGeneratorMemory:
         fixture = GeneratorFixture(tmp_path, provider)
         identity = make_identity()
         history: list[StepAttempt] = []
-        prepared = PreparedStep(instruction="read the item name", declarations=["name"])
+        prepared = PreparedStep(
+            addressing_text="открыть страницу", instruction="read the item name", declarations=["name"]
+        )
 
         step = fixture.generator.generate(
             identity, prepared, "action", [], None, FakePage(), history, fixture.window, fixture.memory
