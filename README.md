@@ -55,12 +55,14 @@ starts with fresh attempt budgets. The old process-wide
 `prettyplay.PrettyplayRuntime(config)` directly if you composed objects over
 it.
 
-The constructor arguments form the cache address: `cache_key` (mandatory) and
-`cache_path` (optional subdirectory). Equal keys in the shared root reuse one
-cached step across tests; a different language, step type or key is a
-different step.
+The cache address uses `cache_key` (mandatory), `cache_path` (optional
+subdirectory), step type, and the rendered step sentence. Template values
+therefore change the address; case and internal spaces remain significant.
+By default, `close()` removes cache files for this key that this test did not
+load or save. Pass `cleanup=False` to keep unused entries, including a
+committed cache intended for later runs.
 
-The third argument overrides settings per test — only the fields you pass
+The `config` argument overrides settings per test — only the fields you pass
 count: explicitly set values win over pyproject.toml and the environment,
 everything else resolves from the file layer as before. Browser settings form
 the nested `BrowserConfig` group; an empty string inside the group means unset,

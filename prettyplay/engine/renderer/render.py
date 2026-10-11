@@ -117,10 +117,10 @@ class VarExtension(Extension):
 
 
 #: The tag grammar of the source scan — tag begins with the optional whitespace-control
-#: characters Jinja accepts (``-``, ``+``, ``~``), the block and variable ends, the exact
-#: ``{% var name %}`` shape the capture extension parses, and one leading identifier.
+#: characters Jinja accepts (``-``, ``+``, ``~``), the block and variable ends, the
+#: ``{% var name %}`` shape, and one leading identifier. Jinja validates names.
 _TAG_BEGIN = re.compile(r"\{[{%#][-+~]?")
-_VAR_TAG = re.compile(r"\{%[-+~]?\s*var\s+([A-Za-z_][A-Za-z0-9_]*)\s*[-+~]?%\}")
+_VAR_TAG = re.compile(r"\{%[-+~]?\s*var\s+([^\s%}]+)\s*[-+~]?%\}")
 _BLOCK_END = re.compile(r"[-+~]?%\}")
 _VARIABLE_END = re.compile(r"[-+~]?\}\}")
 _RAW_BLOCK_END = re.compile(r"\s*[-+~]?%\}")

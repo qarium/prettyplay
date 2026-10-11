@@ -120,6 +120,15 @@ class TestRenderStepLogic:
         assert prepared.has_declarations is True
         assert prepared.instruction == "Read the first item name into "
 
+    def test_render_unicode_capture_name_preserves_its_tag_in_address(self) -> None:
+        sentence = "Read the drink into {% var café %}"
+
+        prepared = render_step(sentence, "action", StepMemory(), None)
+
+        assert prepared.declarations == ["café"]
+        assert prepared.instruction == "Read the drink into "
+        assert prepared.addressing_text == sentence
+
     def test_render_inactive_branch_declares_nothing(self) -> None:
         prepared = render_step("{% if false %}{% var x %}{% endif %}click Save", "action", StepMemory(), None)
 

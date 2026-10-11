@@ -217,6 +217,24 @@ class TestStepCacheLogic:
 
         assert result is None
 
+    def test_load_non_string_step_text_is_a_cache_miss(self, tmp_path: Path) -> None:
+        cache, _ = make_cache(tmp_path)
+        identity = StepIdentity(cache_key="k", step_type="action", normalized_text="open page")
+        target = tmp_path / "checkout" / identity.filename
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            "STEP_TEXT = 42\n"
+            "CACHE_KEY = 'k'\n"
+            "STEP_TYPE = 'action'\n"
+            "CREATED_AT = '2026-01-01'\n"
+            "\n# --- step code ---\n"
+            "def step(page) -> None:\n    pass\n",
+            encoding="utf-8",
+        )
+
+        assert cache.load(identity) is None
+        assert cache._touched == set()
+
     def test_load_metadata_mismatch_treated_as_miss(self, tmp_path: Path) -> None:
         cache, _ = make_cache(tmp_path)
         identity = StepIdentity(cache_key="k", step_type="action", normalized_text="оригинальный шаг")

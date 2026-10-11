@@ -127,6 +127,8 @@ class StepCache:
 
             if fields["CACHE_KEY"] != identity.cache_key or fields["STEP_TYPE"] != identity.step_type:
                 return None
+            if not isinstance(fields["STEP_TEXT"], str):
+                return None
             if normalize_step_text(fields["STEP_TEXT"]) != identity.normalized_text:
                 return None
 

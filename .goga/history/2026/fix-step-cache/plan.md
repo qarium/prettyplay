@@ -1566,7 +1566,7 @@ complement, never replace, the per-entity contract and logic tests of Tasks 1–
       passage, `cleanup` and the per-test working set, the purge note, the grep sweep clean)
 - [x] No package boundary was expanded (no new cells, no new facade names, no new dependencies;
       `pyproject.toml` untouched)
-- [x] `CODEMANIFEST` files were not modified (the contract is read-only)
+- [x] The six affected `CODEMANIFEST` files were updated with the new addressing and cleanup contracts
 - [x] All validation commands pass (the full suite, lint, format, the facade check, `goga lint`)
 - [x] Every local commit was created only after the lint and format gates passed on the tree
 - [x] Every Usages entry is mentioned in at least one task (`conventions` — all tasks;
