@@ -1324,19 +1324,19 @@ nothing is written, nothing touched.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (in `tests/engine/steering/test_steering.py`; expected to hold): the
+- [x] **Contract tests** (in `tests/engine/steering/test_steering.py`; expected to hold): the
   `steer` signature is unchanged — the change is the private helper and the docstring
-- [ ] **REPL baseline** (fresh `.venv/bin/python`): run one scripted write-back today (guidance
+- [x] **REPL baseline** (fresh `.venv/bin/python`): run one scripted write-back today (guidance
   line + `y` approval, fake provider, real store on a temp directory) — observe the saved
   `STEP_TEXT` (the bridge's normalized form)
-- [ ] **Code**: change `_write_back` to the `(instruction, addressing_text, identity, code)`
+- [x] **Code**: change `_write_back` to the `(instruction, addressing_text, identity, code)`
   signature and the algorithm above; update the call site; remove the Task 2 bridge; redefine
   the `identity` param docstring of `steer`
-- [ ] **REPL check** (fresh process): re-run the scripted write-back — the cached file's
+- [x] **REPL check** (fresh process): re-run the scripted write-back — the cached file's
   `STEP_TEXT` equals the prepared product's addressing text verbatim; a following sweep of the
   key keeps the file; migrate into the source
-- [ ] **Interface verification**: `.venv/bin/python -m pytest tests/engine/steering/ -q`
-- [ ] **Logic tests**:
+- [x] **Interface verification**: `.venv/bin/python -m pytest tests/engine/steering/ -q`
+- [x] **Logic tests**:
   - `test_write_back_carries_stuck_render_addressing_text` (design scenario, verbatim):
     steering fixtures — scripted stdin guidance + `y` approval, fake provider code that
     executes green, real store on `tmp_path`; call
@@ -1345,11 +1345,11 @@ nothing is written, nothing touched.
     `STEP_TEXT == prepared.addressing_text`; a following `sweep_untouched(key)` keeps it
   - keep the existing steering assertions — the banner, the rejected-turn history, the
     gate-blocked paths, the decline path
-- [ ] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — fix implementation code until
+- [x] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — fix implementation code until
   all tests pass
-- [ ] **Contract re-verification**: `.venv/bin/python -c "from prettyplay.engine.steering
+- [x] **Contract re-verification**: `.venv/bin/python -c "from prettyplay.engine.steering
   import StepSteering"` — facade, API shape and behavior intact
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/engine/steering/steering.py
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/engine/steering/steering.py
   tests/engine/steering/test_steering.py` and `.venv/bin/ruff format --check` on the same
   files — zero findings; both gates must also pass immediately before any local commit of this
   task

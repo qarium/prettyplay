@@ -246,8 +246,10 @@ class StepSteering:
         Args:
             failure: the terminal failure about to propagate — the source of
                 the failed code, the underlying error and the verdict.
-            identity: the address of the stuck step — the healed step is
-                written back under it.
+            identity: the address of the stuck step, built by the executor
+                from the addressing text of the render product — the healed
+                step is written back under it, and the successful write
+                joins the test's touched set.
             prepared: the render product of the stuck step — threaded from
                 the executor; the banner and every guided request carry the
                 prepared instruction with its INPUTS and RESULTS blocks; the
@@ -368,7 +370,7 @@ class StepSteering:
             _medium_warning(prepared.instruction, findings)  # medium and low findings are visible, never blocking
 
             memory.publish(captures)  # publication rides the acceptance — after validation and the gate
-            return self._write_back(prepared.instruction, identity, code)
+            return self._write_back(prepared.instruction, prepared.addressing_text, identity, code)
 
     def _render_banner(self, failure: IncurableStepError, instruction: str, page: PageFacade) -> None:
         """Render the context banner of the dialog.
@@ -566,12 +568,14 @@ class StepSteering:
             guidance=guidance,
         )
 
-    def _write_back(self, instruction: str, identity: StepIdentity, code: str) -> CachedStep:
+    def _write_back(self, instruction: str, addressing_text: str, identity: StepIdentity, code: str) -> CachedStep:
         """Write the proven guided step back to the cache and report it healed.
 
         Args:
             instruction: the prepared instruction of the stuck step — the
                 healed event names it.
+            addressing_text: the addressing text of the stuck step's render —
+                the metadata sentence field preserves it verbatim.
             identity: the address of the stuck step.
             code: the step code that just worked on the live page.
 
@@ -580,9 +584,7 @@ class StepSteering:
         """
         step = CachedStep(
             identity=identity,
-            # the bridge preserves today's STEP_TEXT content — replaced by the
-            # prepared.addressing_text threading in Task 8
-            addressing_text=identity.normalized_text,
+            addressing_text=addressing_text,
             code=code,
             created_at=date.today().isoformat(),  # noqa: DTZ011 — calendar date of the healed step
         )

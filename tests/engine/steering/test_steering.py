@@ -12,7 +12,7 @@ from unittest import mock
 
 import pytest
 from playwright.sync_api import Error as PlaywrightError
-from prettyplay.cache import CachedStep, StepCache, StepIdentity
+from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step_text
 from prettyplay.config import Config
 from prettyplay.engine import StepAttempt
 from prettyplay.engine.attempts import (
@@ -247,9 +247,16 @@ def _identity() -> StepIdentity:
     return StepIdentity(cache_key="checkout", step_type="action", normalized_text="click Pay")
 
 
-def _prepared(instruction: str = "click Pay") -> PreparedStep:
-    """The render product of the stuck step carrying the given prepared instruction."""
-    return PreparedStep(instruction=instruction)
+def _prepared(instruction: str = "click Pay", addressing_text: str = "click Pay") -> PreparedStep:
+    """The render product of the stuck step — the fixture step always addresses as «click Pay»."""
+    return PreparedStep(instruction=instruction, addressing_text=addressing_text)
+
+
+def _identity_of(prepared: PreparedStep) -> StepIdentity:
+    """The address of a render product — the executor's own rule: the addressing text, NFC+trim."""
+    return StepIdentity(
+        cache_key="checkout", step_type="action", normalized_text=normalize_step_text(prepared.addressing_text)
+    )
 
 
 class SteeringFixture:
@@ -384,13 +391,15 @@ class TestStepSteeringContract:
         steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
         prepared = PreparedStep(
             instruction="Check the item named Book",
+            addressing_text="Check the item named Book",
             inputs={"expected": "Book"},
             declarations=["name"],
         )
+        identity = _identity_of(prepared)
         _script_input(monkeypatch, ["dismiss the modal first", "y"])
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value={"name": "Dune"}))
 
-        steering.steer(_failure(), _identity(), prepared, "action", [], None, FakePage(), [], StepMemory())
+        steering.steer(_failure(), identity, prepared, "action", [], None, FakePage(), [], StepMemory())
 
         request = provider.calls[0]
         assert request["instruction"] == "Check the item named Book"  # the prepared instruction, by identity
@@ -542,6 +551,36 @@ class TestStepSteeringLogic:
         assert GENERATED_CODE in out
         assert "healed step written to the cache" in out
 
+    def test_write_back_carries_stuck_render_addressing_text(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The write-back stores the stuck render's addressing text verbatim — the stored file survives the sweep."""
+        from prettyplay.engine.steering import StepSteering  # noqa: PLC0415 — cell facade check
+
+        provider = FakeProvider(answers=[GENERATED_CODE])
+        fixture = SteeringFixture(provider, tmp_path)
+        cache = StepCache(fixture.config)  # the real store on tmp_path — the file lands on disk
+        steering = StepSteering(fixture.config, fixture.provider, cache, fixture.reporter)
+        prepared = _prepared(
+            instruction="Open the sign-in page",
+            addressing_text="Open the {% var portal %} sign-in page",
+        )
+        identity = _identity_of(prepared)  # the executor-built address of the render's addressing text
+        _script_input(monkeypatch, ["the button moved into the modal", "y"])
+        monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
+
+        healed = steering.steer(_failure(), identity, prepared, "action", [], None, FakePage(), [], StepMemory())
+
+        assert healed is not None
+        assert healed.addressing_text == "Open the {% var portal %} sign-in page"  # verbatim, the capture tag kept
+        assert healed.identity == identity  # under the executor-built address
+        stored = (tmp_path / identity.filename).read_text(encoding="utf-8")
+        assert stored.startswith("STEP_TEXT = 'Open the {% var portal %} sign-in page'")  # the metadata literal
+        assert cache.sweep_untouched("checkout") == []  # the stored write joined the touched set — nothing to sweep
+        assert (tmp_path / identity.filename).exists()  # the swept scope keeps the healed step
+
     def test_steer_validates_green_turn_and_publishes_with_writeback(
         self,
         tmp_path: Path,
@@ -555,14 +594,19 @@ class TestStepSteeringLogic:
         fixture = SteeringFixture(provider, tmp_path)
         fixture.config = Config(cache_root=str(tmp_path), generation_prompt=INSTRUCTIONS)
         steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
-        prepared = PreparedStep(instruction="Read the item name into ", declarations=["name"])
+        prepared = PreparedStep(
+            instruction="Read the item name into ",
+            addressing_text="Read the item name into {% var name %}",
+            declarations=["name"],
+        )
+        identity = _identity_of(prepared)
         memory = StepMemory()
         history: list[StepAttempt] = []
         _script_input(monkeypatch, ["guidance", "y"])
         execute = mock.Mock(return_value={"name": "Dune"})
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", execute)
 
-        healed = steering.steer(_failure(), _identity(), prepared, "action", [], None, FakePage(), history, memory)
+        healed = steering.steer(_failure(), identity, prepared, "action", [], None, FakePage(), history, memory)
 
         assert healed is not None
         assert healed.code == DECLARING_CODE
@@ -590,13 +634,18 @@ class TestStepSteeringLogic:
         fixture = SteeringFixture(provider, tmp_path)
         fixture.config = Config(cache_root=str(tmp_path), generation_prompt=INSTRUCTIONS)
         steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
-        prepared = PreparedStep(instruction="Read the item name into ", declarations=["name"])
+        prepared = PreparedStep(
+            instruction="Read the item name into ",
+            addressing_text="Read the item name into {% var name %}",
+            declarations=["name"],
+        )
+        identity = _identity_of(prepared)
         memory = StepMemory()
         history: list[StepAttempt] = []
         _script_input(monkeypatch, ["guidance", "y", "quit"])
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value={"name": ""}))
 
-        healed = steering.steer(_failure(), _identity(), prepared, "action", [], None, FakePage(), history, memory)
+        healed = steering.steer(_failure(), identity, prepared, "action", [], None, FakePage(), history, memory)
 
         assert healed is None  # back to the prompt, then declined — the original failure propagates
         assert memory.snapshot() == {}  # nothing published
