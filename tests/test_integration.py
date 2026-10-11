@@ -1658,3 +1658,162 @@ def test_strict_template_step_replay_validates_and_publishes_without_llm(tmp_pat
         "on_step_finished",
     ]
     assert hook.events[0][1]["step_text"] == sentence  # the lifecycle surface carries the raw template
+
+
+def test_template_step_addresses_by_rendered_value_across_the_wired_cycle(tmp_path: Path) -> None:
+    """The wired template addressing: one address per rendered value — replay on identity, generation on change."""
+    capture_sentence = "Read the item name into {% var name %}"
+    recapture_sentence = "Read the film title into {% var name %}"
+    template_sentence = "Open the item named {{ name }} into {% var opened %}"
+    capture_code = 'def step(page):\n    return {"name": "Book"}\n'
+    film_capture_code = 'def step(page):\n    return {"name": "Film"}\n'
+    book_code = 'def step(page) -> None:\n    page.goto("https://book.example.com")\n    return {"opened": "yes"}\n'
+    film_code = 'def step(page) -> None:\n    page.goto("https://film.example.com")\n    return {"opened": "yes"}\n'
+    provider = StubProvider(answers=[capture_code, book_code, film_capture_code, film_code])
+    page = FakePage()
+
+    with installed_test(tmp_path, provider, page, "login-flow") as test:
+        test.step(capture_sentence)  # miss: generate — the acceptance publishes name=Book
+        test.step(template_sentence)  # miss: generate under the Book address
+        test.step(template_sentence)  # the identical render replays — no provider call
+        test.step(recapture_sentence)  # miss: generate — the acceptance replaces name with Film
+        test.step(template_sentence)  # a different value is a different address: generate again
+        test.close()
+
+    book_identity = StepIdentity(
+        cache_key="login-flow",
+        step_type="action",
+        normalized_text=normalize_step_text("Open the item named Book into {% var opened %}"),
+    )
+    film_identity = StepIdentity(
+        cache_key="login-flow",
+        step_type="action",
+        normalized_text=normalize_step_text("Open the item named Film into {% var opened %}"),
+    )
+
+    # exactly one generation per distinct address — the identical replay generated nothing
+    assert len(provider.generation_requests) == 4
+    assert [request["instruction"] for request in provider.generation_requests[1::2]] == [
+        "Open the item named Book into ",
+        "Open the item named Film into ",
+    ]
+
+    # each rendered value owns its file: the digest name of its identity, the verbatim addressing text inside
+    assert book_identity.filename != film_identity.filename
+    assert (
+        (tmp_path / book_identity.filename)
+        .read_text(encoding="utf-8")
+        .startswith("STEP_TEXT = 'Open the item named Book into {% var opened %}'\n")
+    )
+    assert (
+        (tmp_path / film_identity.filename)
+        .read_text(encoding="utf-8")
+        .startswith("STEP_TEXT = 'Open the item named Film into {% var opened %}'\n")
+    )
+
+    # the Book code ran twice (generation, then replay); the Film code once — no code crossed the values
+    assert page.calls == [
+        ("goto", "https://book.example.com"),
+        ("goto", "https://book.example.com"),
+        ("goto", "https://film.example.com"),
+    ]
+    assert test._executor._memory.snapshot() == {"name": "Film", "opened": "yes"}
+
+
+def test_plain_sentence_and_identical_render_share_one_address_across_the_wired_cycle(tmp_path: Path) -> None:
+    """The wired unification: a plain sentence and a template rendering the same text replay one cache entry."""
+    capture_sentence = "Read the item name into {% var name %}"
+    template_sentence = "Open the item named {{ name }}"
+    plain_sentence = "Open the item named Book"
+    capture_code = 'def step(page):\n    return {"name": "Book"}\n'
+    provider = StubProvider(answers=[capture_code, WORKING_CODE])
+    page = FakePage()
+    hook = RecorderHook()
+
+    with installed_test(tmp_path, provider, page, "login-flow") as test:
+        test.add_hooks(hook)
+        test.step(capture_sentence)  # publishes name=Book at the acceptance
+        test.step(template_sentence)  # miss: generates and saves under the rendered address
+        test.step(plain_sentence)  # the plain twin addresses identically — a pure replay
+        test.close()
+
+    # one generation each for the capture and the template — the plain twin generated nothing
+    assert len(provider.generation_requests) == 2
+
+    # the shared address holds one file whose metadata is the rendered sentence both forms normalize to
+    identity = StepIdentity(
+        cache_key="login-flow",
+        step_type="action",
+        normalized_text=normalize_step_text("Open the item named Book"),
+    )
+    capture_identity = StepIdentity(
+        cache_key="login-flow",
+        step_type="action",
+        normalized_text=normalize_step_text(capture_sentence),
+    )
+    assert sorted(path.name for path in tmp_path.iterdir()) == sorted([identity.filename, capture_identity.filename])
+    assert (
+        (tmp_path / identity.filename)
+        .read_text(encoding="utf-8")
+        .startswith("STEP_TEXT = 'Open the item named Book'\n")
+    )
+
+    # the template's code executed for both forms — the replay ran it a second time
+    assert page.calls == [("goto", "https://app.example.com"), ("goto", "https://app.example.com")]
+
+    # the plain twin's lifecycle is replay-pure: no engine or cache events, only the step events
+    assert [event for event, _payload in hook.events].count("on_generation_started") == 2
+    assert [event for event, _payload in hook.events].count("on_cache_saved") == 2
+    assert hook.events[-3:] == [
+        ("on_step_started", {"step_text": plain_sentence, "step_type": "action"}),
+        ("on_step_passed", {"step_text": plain_sentence, "step_type": "action"}),
+        ("on_step_finished", {"step_text": plain_sentence, "step_type": "action", "outcome": "passed"}),
+    ]
+
+
+def test_close_lifecycle_keeps_working_set_and_sweeps_untouched_entries(tmp_path: Path) -> None:
+    """The wired close lifecycle: the working set survives the default sweep; ``cleanup=False`` keeps every file."""
+    swept_root = tmp_path / "swept"
+    kept_root = tmp_path / "kept"
+    swept_root.mkdir()
+    kept_root.mkdir()
+    generated_sentence = "open the app page"
+
+    # the default close: replayed (loaded) and generated (saved) files survive, the untouched twin goes
+    replayed = seed_step(swept_root, "открыть страницу логина", OPEN_LOGIN_CODE, cache_key="login-flow")
+    untouched = seed_step(swept_root, "нажать Войти", WORKING_CODE, cache_key="login-flow")
+    foreign = seed_step(swept_root, "открыть страницу", WORKING_CODE, cache_key="other-flow")
+    provider = StubProvider(answers=[WORKING_CODE, WORKING_CODE])
+    page = FakePage()
+
+    with installed_test(swept_root, provider, page, "login-flow") as test:
+        test.step("открыть страницу логина")  # replay: the load touches the file
+        test.step(generated_sentence)  # miss: the save touches the file
+        test.close()
+
+    generated = StepIdentity(
+        cache_key="login-flow",
+        step_type="action",
+        normalized_text=normalize_step_text(generated_sentence),
+    )
+    assert (swept_root / replayed.filename).exists()  # loaded by this test — the working set
+    assert (swept_root / generated.filename).exists()  # saved by this test — the working set
+    assert not (swept_root / untouched.filename).exists()  # never executed — swept on close
+    assert (swept_root / foreign.filename).exists()  # a foreign key never enters this test's scope
+    assert sorted(path.name for path in swept_root.iterdir()) == sorted(
+        [replayed.filename, generated.filename, foreign.filename]
+    )
+
+    # cleanup=False: the committed-cache persistence mode — every file of the scope survives the close
+    kept_untouched = seed_step(kept_root, "нажать Войти", WORKING_CODE, cache_key="login-flow")
+    with (
+        mock.patch("prettyplay.scenario.load_config", return_value=Config(cache_root=str(kept_root))),
+        mock.patch("prettyplay.runtime.create_provider", return_value=provider),
+    ):
+        test = PrettyPlay("login-flow", cleanup=False)
+        with mock.patch.object(test._runtime, "open_page", return_value=page):
+            test.step(generated_sentence)
+            test.close()
+
+    assert (kept_root / kept_untouched.filename).exists()  # untouched, yet kept by the switch
+    assert (kept_root / generated.filename).exists()

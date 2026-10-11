@@ -1486,25 +1486,25 @@ complement, never replace, the per-entity contract and logic tests of Tasks 1–
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **REPL check** (fresh `.venv/bin/python`): drive one wired scenario by hand before
+- [x] **REPL check** (fresh `.venv/bin/python`): drive one wired scenario by hand before
   writing the test — a fake provider, a real store on a temp directory, one template step
   through the executor — and observe the generated file's name (the rendered-value identity)
   and its `STEP_TEXT` (the verbatim addressing text)
-- [ ] **Code**: add the wired template-addressing scenario — a template step with a memory
+- [x] **Code**: add the wired template-addressing scenario — a template step with a memory
   value generates; the file is named by the rendered-value identity and carries
   `STEP_TEXT` = the verbatim addressing text (the capture tag included); the identical second
   execution replays without a second provider call; a changed memory value produces a
   different address and a new generation (cross-value replay is impossible)
-- [ ] **Code**: add the unification scenario — a plain sentence and a template producing the
+- [x] **Code**: add the unification scenario — a plain sentence and a template producing the
   exact same text share one address end-to-end (the second form replays the first form's cache
   entry)
-- [ ] **Code**: add the close-lifecycle scenario — after executed steps, the default `close()`
+- [x] **Code**: add the close-lifecycle scenario — after executed steps, the default `close()`
   keeps the test's working set (the loaded/saved files survive) and sweeps an untouched
   hand-written entry of the same key; `cleanup=False` keeps every file
-- [ ] **Run validation**: `.venv/bin/python -m pytest tests/test_integration.py
+- [x] **Run validation**: `.venv/bin/python -m pytest tests/test_integration.py
   tests/test_groups_integration.py -q` — all pass
-- [ ] **Run the full suite**: `.venv/bin/python -m pytest tests/ -x` — all pass
-- [ ] **Lint**: `.venv/bin/ruff check tests/test_integration.py
+- [x] **Run the full suite**: `.venv/bin/python -m pytest tests/ -x` — all pass
+- [x] **Lint**: `.venv/bin/ruff check tests/test_integration.py
   tests/test_groups_integration.py` and `.venv/bin/ruff format --check` on the same files —
   zero findings; both gates must also pass immediately before any local commit of this task
 
@@ -1529,7 +1529,7 @@ complement, never replace, the per-entity contract and logic tests of Tasks 1–
 
 ## Completion Criteria
 
-- [ ] Every contract entity is implemented in the correct `location` (`normalize_step_text` in
+- [x] Every contract entity is implemented in the correct `location` (`normalize_step_text` in
       `prettyplay/cache/text.py`; `CachedStep.addressing_text` + the validator in
       `prettyplay/cache/models.py`; the touched set, the `STEP_TEXT` validation/serialization
       and `sweep_untouched` in `prettyplay/cache/store.py`; `PreparedStep.addressing_text` and
@@ -1539,37 +1539,37 @@ complement, never replace, the per-entity contract and logic tests of Tasks 1–
       `prettyplay/engine/generator.py`; the `_write_back` threading in
       `prettyplay/engine/steering/steering.py`; the `cleanup` switch and the guarded sweep in
       `prettyplay/scenario.py`)
-- [ ] Every contract entity is accessible from the facade (all names ride the existing exports;
+- [x] Every contract entity is accessible from the facade (all names ride the existing exports;
       the facade check command passes)
-- [ ] Properties and methods match the declared API (`sweep_untouched(cache_key) ->
+- [x] Properties and methods match the declared API (`sweep_untouched(cache_key) ->
       removed: list[str]`; the `CachedStep`/`PreparedStep` field sets; the `PrettyPlay`
       constructor with the keyword-only `cleanup=True`; no public signature changed anywhere)
-- [ ] Descriptions are reflected in behavior (the verbatim NFC+trim rule; both texts of one
+- [x] Descriptions are reflected in behavior (the verbatim NFC+trim rule; both texts of one
       evaluation with tag-source preservation and the collision guard; the identity from the
       addressing text; the verbatim `STEP_TEXT` metadata and its normalization validation; the
       success-only touched set; the never-raising idempotent sweep; the teardown-then-guarded
       close)
-- [ ] Contract dependencies are met (groups → cache gains `normalize_step_text` in its Types
+- [x] Contract dependencies are met (groups → cache gains `normalize_step_text` in its Types
       payload; the facade → cache `sweep_untouched` call rides the existing edge; no import
       edge added or removed)
-- [ ] The three re-exports (`->PrettyConfig`, `->BrowserConfig`, `->StepHooks`) remain
+- [x] The three re-exports (`->PrettyConfig`, `->BrowserConfig`, `->StepHooks`) remain
       accessible from the facade
-- [ ] Every coding task followed the TDD workflow (contract tests → code → interface
+- [x] Every coding task followed the TDD workflow (contract tests → code → interface
       verification → logic tests → debugging → contract re-verification → lint) **and** the
       REPL cycle (baseline evaluation, continuous evaluation, hot-reload discipline, code
       migration to source files)
-- [ ] Contract tests and logic tests cover facade, API and behavior within each coding task
-- [ ] All 25 design test scenarios are implemented (Tasks 1–9) and the integration scenarios
+- [x] Contract tests and logic tests cover facade, API and behavior within each coding task
+- [x] All 25 design test scenarios are implemented (Tasks 1–9) and the integration scenarios
       exist (Task 11)
-- [ ] The three mechanical bridges of Task 2 are all replaced — no bridge remains in the tree
-- [ ] The documentation riders are complete (Task 10: the addressing table, the limitation
+- [x] The three mechanical bridges of Task 2 are all replaced — no bridge remains in the tree
+- [x] The documentation riders are complete (Task 10: the addressing table, the limitation
       passage, `cleanup` and the per-test working set, the purge note, the grep sweep clean)
-- [ ] No package boundary was expanded (no new cells, no new facade names, no new dependencies;
+- [x] No package boundary was expanded (no new cells, no new facade names, no new dependencies;
       `pyproject.toml` untouched)
-- [ ] `CODEMANIFEST` files were not modified (the contract is read-only)
-- [ ] All validation commands pass (the full suite, lint, format, the facade check, `goga lint`)
-- [ ] Every local commit was created only after the lint and format gates passed on the tree
-- [ ] Every Usages entry is mentioned in at least one task (`conventions` — all tasks;
+- [x] `CODEMANIFEST` files were not modified (the contract is read-only)
+- [x] All validation commands pass (the full suite, lint, format, the facade check, `goga lint`)
+- [x] Every local commit was created only after the lint and format gates passed on the tree
+- [x] Every Usages entry is mentioned in at least one task (`conventions` — all tasks;
       `jinja` — Task 4; `taxonomy` — Task 4; `hooks` — Task 3; `rendering` — Tasks 4, 5, 11;
       `memory`/`validation` — Tasks 5, 11; `generation`/`healing` — Tasks 7, 11; `recovery` —
       Tasks 6, 11; the local `lifecycle` — Task 9)
