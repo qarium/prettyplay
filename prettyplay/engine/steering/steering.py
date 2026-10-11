@@ -580,6 +580,9 @@ class StepSteering:
         """
         step = CachedStep(
             identity=identity,
+            # the bridge preserves today's STEP_TEXT content — replaced by the
+            # prepared.addressing_text threading in Task 8
+            addressing_text=identity.normalized_text,
             code=code,
             created_at=date.today().isoformat(),  # noqa: DTZ011 — calendar date of the healed step
         )

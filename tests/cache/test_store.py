@@ -86,7 +86,11 @@ class TestStepCacheLogic:
         identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="открыть страницу логина")
 
         with caplog.at_level(logging.INFO, logger="prettyplay"):
-            stored = cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
+            stored = cache.save(
+                CachedStep(
+                    identity=identity, addressing_text=identity.normalized_text, code=STEP_CODE, created_at="2026-09-07"
+                )
+            )
         loaded = cache.load(identity)
 
         assert stored is True  # the atomic replace landed
@@ -119,7 +123,14 @@ class TestStepCacheLogic:
         cache, _ = make_cache(tmp_path)
         identity = StepIdentity(cache_key="videos", step_type="assertion", normalized_text="видео больше одного")
 
-        cache.save(CachedStep(identity=identity, code=IMPORTING_STEP_CODE, created_at="2026-09-14"))
+        cache.save(
+            CachedStep(
+                identity=identity,
+                addressing_text=identity.normalized_text,
+                code=IMPORTING_STEP_CODE,
+                created_at="2026-09-14",
+            )
+        )
         loaded = cache.load(identity)
 
         assert loaded is not None
@@ -162,7 +173,11 @@ class TestStepCacheLogic:
             cache = StepCache(Config(cache_root=str(root)), "checkout", reporter)
             identity = StepIdentity(cache_key="k", step_type="action", normalized_text="шаг")
 
-            stored = cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
+            stored = cache.save(
+                CachedStep(
+                    identity=identity, addressing_text=identity.normalized_text, code=STEP_CODE, created_at="2026-09-07"
+                )
+            )
 
             assert stored is False  # the skipped write reports itself
             assert not (root / "checkout").exists()  # no file created
@@ -182,7 +197,11 @@ class TestStepCacheLogic:
         cache, _ = make_cache(tmp_path)
         identity = StepIdentity(cache_key="k", step_type="action", normalized_text="оригинальный шаг")
 
-        cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
+        cache.save(
+            CachedStep(
+                identity=identity, addressing_text=identity.normalized_text, code=STEP_CODE, created_at="2026-09-07"
+            )
+        )
         file_path = tmp_path / "checkout" / identity.filename
         text = file_path.read_text(encoding="utf-8")
         file_path.write_text(
@@ -207,7 +226,11 @@ class TestStepCacheLogic:
         cache, _ = make_cache(tmp_path)
         identity = StepIdentity(cache_key="k", step_type="action", normalized_text="шаг модуль")
 
-        cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
+        cache.save(
+            CachedStep(
+                identity=identity, addressing_text=identity.normalized_text, code=STEP_CODE, created_at="2026-09-07"
+            )
+        )
         path = tmp_path / "checkout" / identity.filename
 
         spec = importlib.util.spec_from_file_location("cached_step", path)
@@ -225,8 +248,16 @@ class TestStepCacheLogic:
         cache, _ = make_cache(tmp_path)
         identity = StepIdentity(cache_key="k", step_type="action", normalized_text="шаг атомарно")
 
-        cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
-        cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-08"))  # overwrite
+        cache.save(
+            CachedStep(
+                identity=identity, addressing_text=identity.normalized_text, code=STEP_CODE, created_at="2026-09-07"
+            )
+        )
+        cache.save(
+            CachedStep(
+                identity=identity, addressing_text=identity.normalized_text, code=STEP_CODE, created_at="2026-09-08"
+            )
+        )  # overwrite
 
         files = sorted(entry.name for entry in (tmp_path / "checkout").iterdir())
         assert files == [identity.filename]  # last writer wins, temp removed
@@ -237,7 +268,11 @@ class TestStepCacheLogic:
         identity = StepIdentity(cache_key="k", step_type="action", normalized_text="занятая цель")
 
         with mock.patch("prettyplay.cache.store.os.replace", side_effect=PermissionError("busy")):
-            cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
+            cache.save(
+                CachedStep(
+                    identity=identity, addressing_text=identity.normalized_text, code=STEP_CODE, created_at="2026-09-07"
+                )
+            )
 
         skipped_events = [call for call in recorder.calls if call[0] == "on_cache_skipped"]
         assert skipped_events == [("on_cache_skipped", {"step_text": "занятая цель", "reason": "cache target busy"})]
@@ -249,7 +284,11 @@ class TestStepCacheLogic:
         identity = StepIdentity(cache_key="k", step_type="action", normalized_text="пропавшая цель")
 
         with mock.patch("prettyplay.cache.store.os.replace", side_effect=FileNotFoundError("dir gone")):
-            cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
+            cache.save(
+                CachedStep(
+                    identity=identity, addressing_text=identity.normalized_text, code=STEP_CODE, created_at="2026-09-07"
+                )
+            )
 
         skipped_events = [call for call in recorder.calls if call[0] == "on_cache_skipped"]
         assert skipped_events == [("on_cache_skipped", {"step_text": "пропавшая цель", "reason": "cache target busy"})]
@@ -260,7 +299,11 @@ class TestStepCacheLogic:
         identity = StepIdentity(cache_key="k", step_type="action", normalized_text="нет temp")
 
         with mock.patch("prettyplay.cache.store.tempfile.mkstemp", side_effect=OSError("no space")):
-            cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
+            cache.save(
+                CachedStep(
+                    identity=identity, addressing_text=identity.normalized_text, code=STEP_CODE, created_at="2026-09-07"
+                )
+            )
 
         skipped_events = [call for call in recorder.calls if call[0] == "on_cache_skipped"]
         assert skipped_events == [("on_cache_skipped", {"step_text": "нет temp", "reason": "cache target busy"})]
@@ -271,7 +314,11 @@ class TestStepCacheLogic:
         identity = StepIdentity(cache_key="k", step_type="action", normalized_text="сбой записи")
 
         with mock.patch("prettyplay.cache.store.os.fsync", side_effect=OSError("io error")):
-            cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
+            cache.save(
+                CachedStep(
+                    identity=identity, addressing_text=identity.normalized_text, code=STEP_CODE, created_at="2026-09-07"
+                )
+            )
 
         files = sorted(entry.name for entry in (tmp_path / "checkout").iterdir())
         assert files == []  # temp file removed, no target
@@ -285,7 +332,11 @@ class TestStepCacheLogic:
         cache, recorder = make_cache(tmp_path)
         identity = StepIdentity(cache_key="k", step_type="action", normalized_text="шаг с \udcff суррогатом")
 
-        cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
+        cache.save(
+            CachedStep(
+                identity=identity, addressing_text=identity.normalized_text, code=STEP_CODE, created_at="2026-09-07"
+            )
+        )
 
         files = sorted(entry.name for entry in (tmp_path / "checkout").iterdir())
         assert files == []  # temp file removed, no target
@@ -325,7 +376,11 @@ class TestStepCacheLogic:
         cache, _ = make_cache(tmp_path)
         identity = StepIdentity(cache_key="k", step_type="action", normalized_text="шаг чужого ключа")
 
-        cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
+        cache.save(
+            CachedStep(
+                identity=identity, addressing_text=identity.normalized_text, code=STEP_CODE, created_at="2026-09-07"
+            )
+        )
         file_path = tmp_path / "checkout" / identity.filename
         text = file_path.read_text(encoding="utf-8")
         file_path.write_text(text.replace("CACHE_KEY = 'k'", "CACHE_KEY = 'другой'"), encoding="utf-8")
@@ -337,7 +392,11 @@ class TestStepCacheLogic:
         cache = StepCache(Config(cache_root=str(tmp_path)), "checkout")
         identity = StepIdentity(cache_key="k", step_type="action", normalized_text="шаг без репортёра")
 
-        cache.save(CachedStep(identity=identity, code=STEP_CODE, created_at="2026-09-07"))
+        cache.save(
+            CachedStep(
+                identity=identity, addressing_text=identity.normalized_text, code=STEP_CODE, created_at="2026-09-07"
+            )
+        )
         loaded = cache.load(identity)
 
         assert loaded is not None  # write and read without AttributeError

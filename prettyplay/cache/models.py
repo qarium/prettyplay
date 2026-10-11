@@ -2,7 +2,9 @@
 
 import hashlib
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
+
+from .text import normalize_step_text
 
 #: Unit Separator: makes the identity concatenation unambiguous.
 _IDENTITY_SEPARATOR = "\x1f"
@@ -40,8 +42,14 @@ class StepIdentity(BaseModel):
 class CachedStep(BaseModel):
     """One unit of the step cache: a working step bound to its identity.
 
+    Every newly built cached step satisfies the addressing invariant:
+    ``normalize_step_text(addressing_text) == identity.normalized_text`` —
+    a construction-time programming error, never a runtime path.
+
     Attributes:
         identity: the address of the step.
+        addressing_text: the verbatim rendered sentence before NFC and trim;
+            the metadata sentence field carries it.
         code: the step code — top-level imports when present, then the fixed
             form ``def step(page) -> None:``; the cache stores and restores
             the whole text verbatim.
@@ -51,5 +59,19 @@ class CachedStep(BaseModel):
     model_config = ConfigDict(kw_only=True)
 
     identity: StepIdentity
+    addressing_text: str = ""
     code: str
     created_at: str
+
+    @model_validator(mode="after")
+    def _check_addressing_invariant(self) -> "CachedStep":
+        """Enforce that the addressing text normalizes to the identity's normalized text.
+
+        Raises:
+            ValueError: the addressing text and the identity address different
+                sentences — a construction-time programming error.
+        """
+        if normalize_step_text(self.addressing_text) != self.identity.normalized_text:
+            raise ValueError("cached step addressing text does not normalize to the identity's normalized text")
+
+        return self

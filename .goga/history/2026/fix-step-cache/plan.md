@@ -765,22 +765,22 @@ the replacing task):
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (in `tests/cache/test_models.py`; expected to fail at this stage):
+- [x] **Contract tests** (in `tests/cache/test_models.py`; expected to fail at this stage):
   `CachedStep.__init__` parameters are exactly `identity`, `addressing_text`, `code`,
   `created_at`; positional construction is rejected (kw_only — the existing type-ignore test
   stays valid); the constructed model exposes the four attributes
-- [ ] **REPL baseline**: in a fresh `.venv/bin/python` REPL, construct
+- [x] **REPL baseline**: in a fresh `.venv/bin/python` REPL, construct
   `CachedStep(identity=StepIdentity(cache_key="k", step_type="action",
   normalized_text="open the login page"), code="...", created_at="...")` — it succeeds today
   (no addressing_text); this is the pre-change baseline that must start failing
-- [ ] **Code**: add `addressing_text: str = ""` to `CachedStep`; add the
+- [x] **Code**: add `addressing_text: str = ""` to `CachedStep`; add the
   `model_validator(mode="after")` enforcing
   `normalize_step_text(self.addressing_text) == self.identity.normalized_text` (raise
   `ValueError` with a concise lowercase message naming the violation); extend the class and
   attribute docstrings per the contract
-- [ ] **Code (bridges)**: add the three one-line mechanical bridges listed in the cascade
+- [x] **Code (bridges)**: add the three one-line mechanical bridges listed in the cascade
   contract, each with a brief comment naming the replacing task
-- [ ] **Code (mechanical sweep)**: every `CachedStep(` construction in the test tree gains a
+- [x] **Code (mechanical sweep)**: every `CachedStep(` construction in the test tree gains a
   consistent `addressing_text=` (each fixture's value normalizes to its identity's
   `normalized_text`). The files constructing `CachedStep` directly (verified by
   `grep -rln "CachedStep(" tests/`): `tests/cache/test_models.py`,
@@ -788,15 +788,15 @@ the replacing task):
   `tests/engine/test_healer.py`, `tests/test_executor.py`, `tests/test_scenario.py`,
   `tests/test_integration.py`, `tests/test_groups_integration.py` — re-run the grep at
   implementation time and cover whatever it lists
-- [ ] **REPL check** (fresh process): construct a valid pair — `addressing_text=" Open the
+- [x] **REPL check** (fresh process): construct a valid pair — `addressing_text=" Open the
   login page "` with `identity.normalized_text="Open the login page"` (the NFC+trim
   relationship: the verbatim sentence with surrounding whitespace against its normalization);
   construct the mismatched pair `"Open the LOGIN page"` against
   `normalized_text="open the login page"` and observe the `ValidationError`;
   confirm the exception type is a `ValueError` subclass
-- [ ] **Interface verification**: `.venv/bin/python -m pytest tests/cache/test_models.py -q` —
+- [x] **Interface verification**: `.venv/bin/python -m pytest tests/cache/test_models.py -q` —
   the contract tests pass
-- [ ] **Logic tests**:
+- [x] **Logic tests**:
   - `test_cached_step_rejects_addressing_invariant_violation` (design scenario, verbatim):
     `identity = StepIdentity(cache_key="k", step_type="action",
     normalized_text="open the login page")`;
@@ -808,14 +808,14 @@ the replacing task):
     restores legacy files whose `STEP_TEXT` already contains the normalized sentence
   - keep the still-valid `StepIdentity` tests (filename determinism, the separator) and the
     CachedStep defaults tests (adjusted to the matching pair)
-- [ ] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — the bridges and the mechanical
+- [x] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — the bridges and the mechanical
   sweep keep it green; fix implementation code until all tests pass
-- [ ] **Contract re-verification**: `.venv/bin/python -c "from prettyplay.cache import
+- [x] **Contract re-verification**: `.venv/bin/python -c "from prettyplay.cache import
   CachedStep, StepIdentity; s = CachedStep(identity=StepIdentity(cache_key='k',
   step_type='action', normalized_text='open the login page'), addressing_text='open the login
   page', code='x', created_at='2026-10-11'); assert s.addressing_text == 'open the login
   page'"` — facade, API shape and the invariant intact
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/cache/models.py prettyplay/cache/store.py
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/cache/models.py prettyplay/cache/store.py
   prettyplay/engine/generator.py prettyplay/engine/steering/steering.py tests/` and
   `.venv/bin/ruff format --check` on the same paths — zero findings; both gates must also pass
   immediately before any local commit of this task

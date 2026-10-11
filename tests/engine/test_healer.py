@@ -413,11 +413,13 @@ class HealerFixture:
                 step_type="action",
                 normalized_text="click the sign in button",
             ),
+            addressing_text="click the sign in button",
             code=FAILED_CODE,
             created_at="2026-09-07",
         )
         self.healed_step = CachedStep(
             identity=self.failed_step.identity,
+            addressing_text=self.failed_step.identity.normalized_text,
             code=HEALED_CODE,
             created_at="2026-09-08",
         )
@@ -634,6 +636,7 @@ class TestStepHealerLogic:
         fixture = HealerFixture(provider, tmp_path)
         ambiguous_step = CachedStep(
             identity=fixture.failed_step.identity,
+            addressing_text=fixture.failed_step.identity.normalized_text,
             code="old",
             created_at="2026-09-07",
         )
@@ -697,6 +700,7 @@ class TestStepHealerLogic:
         config = Config(cache_root=str(tmp_path), send_screenshots=True)
         failed_step = CachedStep(
             identity=StepIdentity(cache_key="k", step_type="action", normalized_text="click submit"),
+            addressing_text="click submit",
             code=FAILED_CODE,
             created_at="2026-09-07",
         )
@@ -841,13 +845,20 @@ class TestStepHealerLogic:
         )
         identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="click the sign in button")
         inner = IncurableStepError(STEP_SENTENCE, "healing attempt budget exhausted", "TimeoutError: boom")
-        generator = SpyGenerator(CachedStep(identity=identity, code="new", created_at="2026-09-08"), failure=inner)
+        generator = SpyGenerator(
+            CachedStep(
+                identity=identity, addressing_text=identity.normalized_text, code="new", created_at="2026-09-08"
+            ),
+            failure=inner,
+        )
         recorder = RecorderHook()
         reporter = StepReporter(hooks=[recorder])
         healer = StepHealer(
             Config(cache_root=str(tmp_path)), provider, generator, SpyCache(), RunBudgets(3, 2), reporter
         )
-        rotted_step = CachedStep(identity=identity, code="old", created_at="2026-09-07")
+        rotted_step = CachedStep(
+            identity=identity, addressing_text=identity.normalized_text, code="old", created_at="2026-09-07"
+        )
 
         with pytest.raises(IncurableStepError) as excinfo:
             healer.heal(
@@ -1089,6 +1100,7 @@ def test_real_cache_spy_not_needed_for_healer(tmp_path: Path) -> None:
     cache = StepCache(config, None, reporter)
     failed_step = CachedStep(
         identity=StepIdentity(cache_key="k", step_type="action", normalized_text="click submit"),
+        addressing_text="click submit",
         code=FAILED_CODE,
         created_at="2026-09-07",
     )

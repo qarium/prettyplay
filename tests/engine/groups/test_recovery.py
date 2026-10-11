@@ -186,7 +186,10 @@ def _trace(
 
 
 def _cached(sentence: str, step_type: str = "action") -> CachedStep:
-    return CachedStep(identity=_identity(sentence, step_type), code=WORKING_CODE, created_at="2026-09-16")
+    identity = _identity(sentence, step_type)
+    return CachedStep(
+        identity=identity, addressing_text=identity.normalized_text, code=WORKING_CODE, created_at="2026-09-16"
+    )
 
 
 def _attempt(code: str = WORKING_CODE, error: str = "the check failure text") -> StepAttempt:
@@ -358,8 +361,12 @@ class TestGroupRecoveryReferenceScenario:
         provider = RecoveryProvider(verdicts=[verdict], answers=[WORKING_CODE] * 3)
         fixture = RecoveryFixture(tmp_path, provider)
         # the earlier row steps passed their original execution — their caches exist
-        fixture.cache.save(CachedStep(identity=_identity(FILL), code=WORKING_CODE, created_at="2026-09-15"))
-        fixture.cache.save(CachedStep(identity=_identity(SUBMIT), code=WORKING_CODE, created_at="2026-09-15"))
+        fixture.cache.save(
+            CachedStep(identity=_identity(FILL), addressing_text=FILL, code=WORKING_CODE, created_at="2026-09-15")
+        )
+        fixture.cache.save(
+            CachedStep(identity=_identity(SUBMIT), addressing_text=SUBMIT, code=WORKING_CODE, created_at="2026-09-15")
+        )
 
         traces = _group_traces()
         history = [
@@ -864,7 +871,9 @@ class TestGroupRecoveryEdgePins:
             FakeGenerator([_cached(FILL), _cached(SUBMIT), _cached(STATUS, "assertion")]),
         )
         # the submit step's cache exists — record 0 anchors its cached code; the fill step's does not
-        fixture.cache.save(CachedStep(identity=_identity(SUBMIT), code=original_code, created_at="2026-09-15"))
+        fixture.cache.save(
+            CachedStep(identity=_identity(SUBMIT), addressing_text=SUBMIT, code=original_code, created_at="2026-09-15")
+        )
 
         history = [_attempt()]
         fixture.recovery.recover(

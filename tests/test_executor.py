@@ -540,7 +540,9 @@ def seed_cached_step(
         step_type=step_type,
         normalized_text=normalize_step_text(step_text),
     )
-    fixture.cache.save(CachedStep(identity=identity, code=code, created_at="2026-09-08"))
+    fixture.cache.save(
+        CachedStep(identity=identity, addressing_text=identity.normalized_text, code=code, created_at="2026-09-08")
+    )
 
 
 def strict_fixture(
@@ -670,7 +672,11 @@ class TestStepExecutorContract:
         healer = RaisingHealer(failure)
         fixture = ExecutorFixture(tmp_path, RecordingGenerator(), healer)
         identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="open the dashboard")
-        fixture.cache.save(CachedStep(identity=identity, code=BROKEN_CODE, created_at="2026-09-08"))
+        fixture.cache.save(
+            CachedStep(
+                identity=identity, addressing_text=identity.normalized_text, code=BROKEN_CODE, created_at="2026-09-08"
+            )
+        )
 
         with pytest.raises(type(failure)):
             fixture.executor.execute("open the dashboard", "action", FakePage())
@@ -688,7 +694,11 @@ class TestStepExecutorContract:
         healer = RaisingHealer(LLMUnavailableError("llm unavailable: openai request failed"))
         fixture = ExecutorFixture(tmp_path, RecordingGenerator(), healer)
         identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="open the dashboard")
-        fixture.cache.save(CachedStep(identity=identity, code=BROKEN_CODE, created_at="2026-09-08"))
+        fixture.cache.save(
+            CachedStep(
+                identity=identity, addressing_text=identity.normalized_text, code=BROKEN_CODE, created_at="2026-09-08"
+            )
+        )
 
         with pytest.raises(LLMUnavailableError):
             fixture.executor.execute("open the dashboard", "action", FakePage())
@@ -767,7 +777,11 @@ class TestStepExecutorLogic:
         identity = StepIdentity(
             cache_key="login-flow", step_type="action", normalized_text=normalize_step_text("  Открыть   страницу ")
         )
-        fixture.cache.save(CachedStep(identity=identity, code=CACHED_CODE, created_at="2026-09-07"))
+        fixture.cache.save(
+            CachedStep(
+                identity=identity, addressing_text=identity.normalized_text, code=CACHED_CODE, created_at="2026-09-07"
+            )
+        )
         page = FakePage()
 
         # the saved identity matches the executed sentence's NFC+trim normalization
@@ -876,7 +890,11 @@ class TestStepExecutorLogic:
         healer = RaisingHealer(failure)
         fixture = ExecutorFixture(tmp_path, RecordingGenerator(), healer)
         identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="s")
-        fixture.cache.save(CachedStep(identity=identity, code=BROKEN_CODE, created_at="2026-09-08"))
+        fixture.cache.save(
+            CachedStep(
+                identity=identity, addressing_text=identity.normalized_text, code=BROKEN_CODE, created_at="2026-09-08"
+            )
+        )
 
         with pytest.raises(IncurableStepError):
             fixture.executor.execute("s", "action", FakePage())
@@ -891,7 +909,11 @@ class TestStepExecutorLogic:
         healer = RaisingHealer(LLMUnavailableError("down"))
         fixture = ExecutorFixture(tmp_path, RecordingGenerator(), healer)
         identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="s")
-        fixture.cache.save(CachedStep(identity=identity, code=BROKEN_CODE, created_at="2026-09-08"))
+        fixture.cache.save(
+            CachedStep(
+                identity=identity, addressing_text=identity.normalized_text, code=BROKEN_CODE, created_at="2026-09-08"
+            )
+        )
 
         with pytest.raises(LLMUnavailableError):
             fixture.executor.execute("s", "action", FakePage())
@@ -904,7 +926,11 @@ class TestStepExecutorLogic:
         healer = RaisingHealer(failure)
         fixture = ExecutorFixture(tmp_path, RecordingGenerator(), healer)
         identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="s")
-        fixture.cache.save(CachedStep(identity=identity, code=BROKEN_CODE, created_at="2026-09-08"))
+        fixture.cache.save(
+            CachedStep(
+                identity=identity, addressing_text=identity.normalized_text, code=BROKEN_CODE, created_at="2026-09-08"
+            )
+        )
         page = FakePage()
 
         with caplog.at_level(logging.INFO, logger="prettyplay"), pytest.raises(IncurableStepError):
@@ -955,7 +981,14 @@ class TestStepExecutorLogic:
         fixture = ExecutorFixture(tmp_path, generator, healer)
         identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="проверить")
         bare_assert_code = "def step(page) -> None:\n    assert 1 == 2\n"  # assert with no message
-        fixture.cache.save(CachedStep(identity=identity, code=bare_assert_code, created_at="2026-09-08"))
+        fixture.cache.save(
+            CachedStep(
+                identity=identity,
+                addressing_text=identity.normalized_text,
+                code=bare_assert_code,
+                created_at="2026-09-08",
+            )
+        )
         page = FakePage()
 
         fixture.executor.execute("проверить", "action", page)
@@ -979,13 +1012,18 @@ class TestStepExecutorLogic:
         generator = RecordingGenerator()
         healed_step = CachedStep(
             identity=StepIdentity(cache_key="login-flow", step_type="action", normalized_text="нажать Войти"),
+            addressing_text="нажать Войти",
             code=CACHED_CODE,
             created_at="2026-09-08",
         )
         healer = RecordingHealer(healed_step)
         fixture = ExecutorFixture(tmp_path, generator, healer)
         identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="нажать Войти")
-        fixture.cache.save(CachedStep(identity=identity, code=BROKEN_CODE, created_at="2026-09-07"))
+        fixture.cache.save(
+            CachedStep(
+                identity=identity, addressing_text=identity.normalized_text, code=BROKEN_CODE, created_at="2026-09-07"
+            )
+        )
         page = FakePage()
 
         fixture.executor.execute("шаг один", "action", page)
@@ -1017,7 +1055,11 @@ class TestStepExecutorLogic:
         healer = RaisingHealer(failure)
         fixture = ExecutorFixture(tmp_path, RecordingGenerator(), healer)
         identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="нажать Войти")
-        fixture.cache.save(CachedStep(identity=identity, code=BROKEN_CODE, created_at="2026-09-07"))
+        fixture.cache.save(
+            CachedStep(
+                identity=identity, addressing_text=identity.normalized_text, code=BROKEN_CODE, created_at="2026-09-07"
+            )
+        )
         page = FakePage()
 
         with pytest.raises(type(failure)) as excinfo:
@@ -1409,6 +1451,7 @@ class TestStepExecutorSteeringAndClosingEvent:
         failure = IncurableStepError("нажать войти", "budget exhausted", "Timeout …", verdict=None)
         healed = CachedStep(
             identity=StepIdentity(cache_key="login-flow", step_type="action", normalized_text="нажать войти"),
+            addressing_text="нажать войти",
             code=CACHED_CODE,
             created_at="2026-09-08",
         )
@@ -1438,6 +1481,7 @@ class TestStepExecutorSteeringAndClosingEvent:
             identity=StepIdentity(
                 cache_key="login-flow", step_type="action", normalized_text=normalize_step_text("click Pay")
             ),
+            addressing_text="click Pay",
             code=CACHED_CODE,
             created_at="2026-09-08",
         )
@@ -1474,6 +1518,7 @@ class TestStepExecutorSteeringAndClosingEvent:
         failure = IncurableStepError("нажать войти", "budget exhausted", "Timeout …", verdict=None)
         healed = CachedStep(
             identity=StepIdentity(cache_key="login-flow", step_type="action", normalized_text="нажать войти"),
+            addressing_text="нажать войти",
             code=CACHED_CODE,
             created_at="2026-09-08",
         )
@@ -1521,6 +1566,7 @@ class TestStepExecutorSteeringAndClosingEvent:
     ) -> None:
         healed = CachedStep(
             identity=StepIdentity(cache_key="login-flow", step_type="action", normalized_text="s"),
+            addressing_text="s",
             code=CACHED_CODE,
             created_at="2026-09-08",
         )
@@ -1754,6 +1800,7 @@ class TestStepExecutorGroupCycle:
                 step_type="assertion",
                 normalized_text=normalize_step_text("the status shows order confirmed"),
             ),
+            addressing_text="the status shows order confirmed",
             code=CACHED_CODE,
             created_at="2026-09-08",
         )
@@ -1837,6 +1884,7 @@ class TestStepExecutorGroupCycle:
                 step_type="assertion",
                 normalized_text=normalize_step_text("the status shows order confirmed"),
             ),
+            addressing_text="the status shows order confirmed",
             code=CACHED_CODE,
             created_at="2026-09-08",
         )
@@ -1873,6 +1921,7 @@ class TestStepExecutorGroupCycle:
                 step_type="assertion",
                 normalized_text=normalize_step_text("the status shows order confirmed"),
             ),
+            addressing_text="the status shows order confirmed",
             code=CACHED_CODE,
             created_at="2026-09-08",
         )
@@ -1902,7 +1951,11 @@ class TestStepExecutorGroupCycle:
         """SC5: the declared delay passes quietly — the started event, the seconds, then the code runs."""
         fixture = ExecutorFixture(tmp_path, RecordingGenerator(), RecordingHealer())
         identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="open the inbox")
-        fixture.cache.save(CachedStep(identity=identity, code=CACHED_CODE, created_at="2026-09-08"))
+        fixture.cache.save(
+            CachedStep(
+                identity=identity, addressing_text=identity.normalized_text, code=CACHED_CODE, created_at="2026-09-08"
+            )
+        )
         page = FakePage()
 
         recorded: list[tuple[str, float | str]] = []
@@ -1968,6 +2021,7 @@ class TestStepExecutorGroupCycle:
                 identity=StepIdentity(
                     cache_key="login-flow", step_type="assertion", normalized_text=normalize_step_text("the status")
                 ),
+                addressing_text="the status",
                 code=CACHED_CODE,
                 created_at="2026-09-08",
             )
@@ -1995,6 +2049,7 @@ class TestStepExecutorGroupCycle:
                 identity=StepIdentity(
                     cache_key="login-flow", step_type="action", normalized_text=normalize_step_text("open the tool")
                 ),
+                addressing_text="open the tool",
                 code=CACHED_CODE,
                 created_at="2026-09-08",
             )
@@ -2026,6 +2081,7 @@ class TestStepExecutorGroupCycle:
             identity=StepIdentity(
                 cache_key="login-flow", step_type="action", normalized_text=normalize_step_text("click Pay")
             ),
+            addressing_text="click Pay",
             code=CACHED_CODE,
             created_at="2026-09-08",
         )

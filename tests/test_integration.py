@@ -386,7 +386,7 @@ def seed_step(  # noqa: PLR0913 — the address fields mirror the identity tripl
         normalized_text=normalize_step_text(step_text),
     )
     StepCache(Config(cache_root=str(cache_root)), cache_path, StepReporter(hooks=[])).save(
-        CachedStep(identity=identity, code=code, created_at="2026-09-08")
+        CachedStep(identity=identity, addressing_text=identity.normalized_text, code=code, created_at="2026-09-08")
     )
     return identity
 

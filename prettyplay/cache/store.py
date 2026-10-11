@@ -118,7 +118,14 @@ class StepCache:
             if fields["STEP_TEXT"] != identity.normalized_text:
                 return None
 
-            return CachedStep(identity=identity, code=code, created_at=fields["CREATED_AT"])
+            # the bridge passes the metadata sentence; the exact check above guarantees the
+            # invariant holds — replaced by the normalization validation in Task 3
+            return CachedStep(
+                identity=identity,
+                addressing_text=fields["STEP_TEXT"],
+                code=code,
+                created_at=fields["CREATED_AT"],
+            )
         except (ValueError, SyntaxError, KeyError, IndexError, OSError):
             return None  # cache corruption never cripples the run
 

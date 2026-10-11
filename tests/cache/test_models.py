@@ -34,7 +34,7 @@ class TestStepIdentityContract:
 
 
 class TestCachedStepContract:
-    """Contract tests: facade import, kw_only shape, unit fields."""
+    """Contract tests: facade import, kw_only shape, the four unit fields."""
 
     def test_cached_step_is_importable_from_facade(self) -> None:
         assert isinstance(CachedStep, type)
@@ -49,18 +49,19 @@ class TestCachedStepContract:
         identity = StepIdentity(cache_key="k", step_type="action", normalized_text="нажать войти")
 
         with pytest.raises(TypeError):
-            CachedStep(identity, "def step(page) -> None:\n    pass\n", "2026-09-07")  # type: ignore[misc]
+            CachedStep(identity, "нажать войти", "def step(page) -> None:\n    pass\n", "2026-09-07")  # type: ignore[misc]
 
-    def test_cached_step_declares_exactly_three_fields(self) -> None:
-        assert set(CachedStep.model_fields) == {"identity", "code", "created_at"}
+    def test_cached_step_declares_exactly_the_four_fields(self) -> None:
+        assert set(CachedStep.model_fields) == {"identity", "addressing_text", "code", "created_at"}
 
-    def test_cached_step_holds_identity_code_and_created_at(self) -> None:
+    def test_cached_step_holds_identity_addressing_code_and_created_at(self) -> None:
         identity = StepIdentity(cache_key="k", step_type="action", normalized_text="нажать войти")
         code = "def step(page) -> None:\n    page.goto('https://example.com')\n"
 
-        step = CachedStep(identity=identity, code=code, created_at="2026-09-07")
+        step = CachedStep(identity=identity, addressing_text="нажать войти", code=code, created_at="2026-09-07")
 
         assert step.identity == identity
+        assert step.addressing_text == "нажать войти"
         assert step.code == code
         assert step.created_at == "2026-09-07"
 
@@ -94,13 +95,55 @@ class TestStepIdentityLogic:
 
 
 class TestCachedStepLogic:
-    """Logic tests: value equality, required fields."""
+    """Logic tests: the addressing invariant, value equality, required fields."""
+
+    def test_cached_step_rejects_addressing_invariant_violation(self) -> None:
+        identity = StepIdentity(cache_key="k", step_type="action", normalized_text="open the login page")
+
+        with pytest.raises(pydantic.ValidationError) as excinfo:
+            CachedStep(identity=identity, addressing_text="Open the LOGIN page", code="...", created_at="2026-10-11")
+
+        assert isinstance(excinfo.value, ValueError)  # the model validator raises a ValueError
+
+    def test_cached_step_restores_legacy_normalized_addressing(self) -> None:
+        identity = StepIdentity(cache_key="k", step_type="action", normalized_text="open the login page")
+
+        step = CachedStep(
+            identity=identity,
+            addressing_text="open the login page",
+            code="def step(page) -> None:\n    pass\n",
+            created_at="2026-09-07",
+        )
+
+        assert step.addressing_text == "open the login page"  # a legacy file's STEP_TEXT is the normalized sentence
+
+    def test_cached_step_accepts_verbatim_addressing_with_surrounding_whitespace(self) -> None:
+        identity = StepIdentity(cache_key="k", step_type="action", normalized_text="Open the login page")
+
+        step = CachedStep(
+            identity=identity,
+            addressing_text=" Open the login page ",
+            code="def step(page) -> None:\n    pass\n",
+            created_at="2026-09-07",
+        )
+
+        assert step.addressing_text == " Open the login page "  # verbatim — NFC + trim only at the identity
 
     def test_cached_step_equal_by_value(self) -> None:
         identity = StepIdentity(cache_key="k", step_type="action", normalized_text="нажать войти")
 
-        first = CachedStep(identity=identity, code="def step(page) -> None:\n    pass\n", created_at="2026-09-07")
-        second = CachedStep(identity=identity, code="def step(page) -> None:\n    pass\n", created_at="2026-09-07")
+        first = CachedStep(
+            identity=identity,
+            addressing_text="нажать войти",
+            code="def step(page) -> None:\n    pass\n",
+            created_at="2026-09-07",
+        )
+        second = CachedStep(
+            identity=identity,
+            addressing_text="нажать войти",
+            code="def step(page) -> None:\n    pass\n",
+            created_at="2026-09-07",
+        )
 
         assert first == second
 
@@ -108,11 +151,16 @@ class TestCachedStepLogic:
         identity = StepIdentity(cache_key="k", step_type="action", normalized_text="нажать войти")
 
         with pytest.raises(pydantic.ValidationError):
-            CachedStep(identity=identity, code="def step(page) -> None:\n    pass\n")
+            CachedStep(identity=identity, addressing_text="нажать войти", code="def step(page) -> None:\n    pass\n")
 
     def test_cached_step_carries_identity_filename(self) -> None:
         identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="открыть страницу")
 
-        step = CachedStep(identity=identity, code="def step(page) -> None:\n    pass\n", created_at="2026-09-07")
+        step = CachedStep(
+            identity=identity,
+            addressing_text="открыть страницу",
+            code="def step(page) -> None:\n    pass\n",
+            created_at="2026-09-07",
+        )
 
         assert step.identity.filename == identity.filename
