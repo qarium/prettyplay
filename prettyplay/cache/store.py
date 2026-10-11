@@ -2,7 +2,9 @@
 
 import ast
 import contextlib
+import logging
 import os
+import re
 import tempfile
 import time
 from pathlib import Path
@@ -10,6 +12,9 @@ from pathlib import Path
 from ..config import Config
 from ..reporting import StepReporter
 from .models import CachedStep, StepIdentity
+from .text import normalize_step_text
+
+logger = logging.getLogger("prettyplay")
 
 #: Header constants of a cache file: metadata first, then the step code.
 _HEADER_FIELDS = ("STEP_TEXT", "CACHE_KEY", "STEP_TYPE", "CREATED_AT")
@@ -27,6 +32,10 @@ _STEP_MARKER = "\ndef step("
 _REPLACE_ATTEMPTS = 3
 _REPLACE_BACKOFF_SECONDS = 0.1
 
+#: Digest-named step files — the sha256 of an address triple (64 lowercase hex
+#: characters) with the ``.py`` extension; only these belong to the sweep.
+_STEP_FILE_NAME = re.compile(r"^[0-9a-f]{64}\.py$")
+
 
 class StepCache:
     """The repository store of cache steps: addressing, atomic writes and the read-only mode.
@@ -37,6 +46,8 @@ class StepCache:
             different subdirectories never collide.
         _reporter: the visibility point for the cache events.
         _writable: the lazily probed writability flag; ``None`` until first use.
+        _touched: the per-test working set — file names of the steps this store
+            successfully loaded or saved; memory only, never persisted.
     """
 
     def __init__(
@@ -61,6 +72,7 @@ class StepCache:
         self._subdir = self._validated_subdir(path)
         self._reporter = reporter if reporter is not None else StepReporter(hooks=[])
         self._writable: bool | None = None
+        self._touched: set[str] = set()
 
     @property
     def root(self) -> str:
@@ -115,17 +127,18 @@ class StepCache:
 
             if fields["CACHE_KEY"] != identity.cache_key or fields["STEP_TYPE"] != identity.step_type:
                 return None
-            if fields["STEP_TEXT"] != identity.normalized_text:
+            if normalize_step_text(fields["STEP_TEXT"]) != identity.normalized_text:
                 return None
 
-            # the bridge passes the metadata sentence; the exact check above guarantees the
-            # invariant holds — replaced by the normalization validation in Task 3
-            return CachedStep(
+            step = CachedStep(
                 identity=identity,
                 addressing_text=fields["STEP_TEXT"],
                 code=code,
                 created_at=fields["CREATED_AT"],
             )
+            self._touched.add(identity.filename)
+
+            return step
         except (ValueError, SyntaxError, KeyError, IndexError, OSError):
             return None  # cache corruption never cripples the run
 
@@ -181,7 +194,59 @@ class StepCache:
             "on_cache_saved",
             {"step_text": step.identity.normalized_text, "filename": step.identity.filename},
         )
+        self._touched.add(step.identity.filename)
         return True
+
+    def sweep_untouched(self, cache_key: str) -> list[str]:
+        """Delete the untouched step files of one cache key in this store's scope.
+
+        Args:
+            cache_key: the key of the test whose untouched entries are swept.
+
+        Returns:
+            The names of the deleted files. Never raises: unreadable metadata,
+            foreign cache keys and per-file failures are skipped (the last with
+            a WARNING); touched files survive, so a repeated call deletes
+            nothing new.
+        """
+        removed: list[str] = []
+
+        scope = self._target_dir()
+        if not scope.is_dir():
+            return removed
+
+        try:
+            candidates = sorted(entry for entry in scope.iterdir() if _STEP_FILE_NAME.fullmatch(entry.name))
+        except OSError:
+            logger.warning("cache sweep failed to list the scope", extra={"cache_key": cache_key})
+            return removed
+
+        # ``filename`` is a reserved LogRecord attribute — the direct records below use the
+        # ``ctx_filename`` key, the established record-attribute pattern of the reporter.
+        for candidate in candidates:
+            try:
+                fields = _parse_header(candidate.read_text(encoding="utf-8"))
+            except (OSError, ValueError, SyntaxError, KeyError, IndexError):
+                logger.warning(
+                    "cache sweep skipped a file with unreadable metadata", extra={"ctx_filename": candidate.name}
+                )
+                continue
+
+            if fields["CACHE_KEY"] != cache_key:
+                continue
+            if candidate.name in self._touched:
+                continue
+
+            try:
+                candidate.unlink()
+            except OSError:
+                logger.warning("cache sweep failed on a file", extra={"ctx_filename": candidate.name})
+                continue
+
+            removed.append(candidate.name)
+            logger.info("cache file swept", extra={"ctx_filename": candidate.name, "cache_key": cache_key})
+
+        return removed
 
     def _target_dir(self) -> Path:
         """Return the directory holding the steps of this address."""
@@ -268,7 +333,7 @@ def _serialize(step: CachedStep) -> str:
     header = "".join(
         f"{name} = {value!r}\n"
         for name, value in (
-            ("STEP_TEXT", step.identity.normalized_text),
+            ("STEP_TEXT", step.addressing_text),
             ("CACHE_KEY", step.identity.cache_key),
             ("STEP_TYPE", step.identity.step_type),
             ("CREATED_AT", step.created_at),

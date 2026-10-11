@@ -886,33 +886,33 @@ the touched set is per `StepCache` instance — the facade's per-test compositio
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (in `tests/cache/test_store.py`; expected to fail at this stage):
+- [x] **Contract tests** (in `tests/cache/test_store.py`; expected to fail at this stage):
   `StepCache` declares the callable `sweep_untouched`;
   `inspect.signature(StepCache.sweep_untouched)` parameters are exactly `["cache_key"]`;
   `load`/`save` signatures are unchanged; the constructor signature is unchanged
-- [ ] **REPL baseline** (fresh `.venv/bin/python`): build a real store on a temp directory
+- [x] **REPL baseline** (fresh `.venv/bin/python`): build a real store on a temp directory
   (`Config(cache_root=...)`), save a step, read the file — observe the `STEP_TEXT` literal
   (today the bridge's normalized form) and a `load` roundtrip
-- [ ] **Code**: add `self._touched: set[str] = set()` to `__init__` (extend the Attributes
+- [x] **Code**: add `self._touched: set[str] = set()` to `__init__` (extend the Attributes
   docstring); in `load`, replace the exact `STEP_TEXT` equality with
   `normalize_step_text(fields["STEP_TEXT"]) != identity.normalized_text` (a mismatched sentence
   is a miss), construct `CachedStep(identity=identity, addressing_text=fields["STEP_TEXT"],
   code=code, created_at=fields["CREATED_AT"])` (replacing the Task 2 bridge) and add
   `self._touched.add(identity.filename)` on the success path only; import `normalize_step_text`
   from `.text`
-- [ ] **Code**: in `save`, `_serialize` writes `("STEP_TEXT", step.addressing_text)` and the
+- [x] **Code**: in `save`, `_serialize` writes `("STEP_TEXT", step.addressing_text)` and the
   success path adds `self._touched.add(step.identity.filename)` after the atomic replace
-- [ ] **Code**: add the module logger and the digest-name constant; implement
+- [x] **Code**: add the module logger and the digest-name constant; implement
   `sweep_untouched` exactly per the algorithm above (sorted enumeration; the per-file guards;
   the enumeration guard returning the partial `removed`; the stable log record names)
-- [ ] **REPL check** (fresh process, temp directory): save two steps of one key and one of
+- [x] **REPL check** (fresh process, temp directory): save two steps of one key and one of
   another key; `load` one of them; call `sweep_untouched(key)` and list the directory — the
   untouched file of the key is gone, the loaded one and the foreign-key file survive; the
   return value names the deleted file; a second call returns `[]`; migrate the verified
   behavior into the source
-- [ ] **Interface verification**: `.venv/bin/python -m pytest tests/cache/test_store.py -q` —
+- [x] **Interface verification**: `.venv/bin/python -m pytest tests/cache/test_store.py -q` —
   the contract tests pass
-- [ ] **Logic tests** (design scenarios, verbatim; every filesystem fixture on `tmp_path`):
+- [x] **Logic tests** (design scenarios, verbatim; every filesystem fixture on `tmp_path`):
   - `test_save_serializes_step_text_from_addressing_text`: `stored is True`; the file text
     starts with `STEP_TEXT = 'Open the item named Book'`; a `load` roundtrip restores
     `round.addressing_text == "Open the item named Book"` — the metadata sentence is the
@@ -945,12 +945,12 @@ the touched set is per `StepCache` instance — the facade's per-test compositio
   - keep every still-valid old assertion: the roundtrip, top-level imports, the legacy
     sentinel load, read-only skip, busy-target retry, no temp files left behind, path
     validation, the event payloads
-- [ ] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — fix implementation code until all
+- [x] **Debugging**: `.venv/bin/python -m pytest tests/ -x` — fix implementation code until all
   tests pass
-- [ ] **Contract re-verification**: `.venv/bin/python -c "from prettyplay.cache import
+- [x] **Contract re-verification**: `.venv/bin/python -c "from prettyplay.cache import
   StepCache; assert callable(StepCache.sweep_untouched)"` plus the facade importability of the
   whole cache surface — facade, API shape and behavior intact
-- [ ] **Lint**: `.venv/bin/ruff check prettyplay/cache/store.py tests/cache/test_store.py` and
+- [x] **Lint**: `.venv/bin/ruff check prettyplay/cache/store.py tests/cache/test_store.py` and
   `.venv/bin/ruff format --check` on the same files — zero findings; both gates must also pass
   immediately before any local commit of this task
 

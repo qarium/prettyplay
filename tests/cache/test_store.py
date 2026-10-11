@@ -4,11 +4,12 @@ import importlib.util
 import inspect
 import logging
 import os
+import pathlib
 from pathlib import Path
 from unittest import mock
 
 import pytest
-from prettyplay.cache import CachedStep, StepCache, StepIdentity
+from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step_text
 from prettyplay.config import Config
 from prettyplay.reporting import StepHooks, StepReporter
 
@@ -43,6 +44,14 @@ class TestStepCacheContract:
         assert [parameter.name for parameter in load_parameters] == ["identity"]
         assert [parameter.name for parameter in save_parameters] == ["step"]
 
+    def test_declares_callable_sweep_untouched(self) -> None:
+        assert callable(StepCache.sweep_untouched)
+
+    def test_sweep_untouched_signature_is_cache_key(self) -> None:
+        parameters = list(inspect.signature(StepCache.sweep_untouched).parameters.values())[1:]
+
+        assert [parameter.name for parameter in parameters] == ["cache_key"]
+
 
 class EventRecorder(StepHooks):
     """Hook recording cache events into a shared ``calls`` list for assertions."""
@@ -63,6 +72,21 @@ def make_cache(tmp_path: Path, path: str | None = "checkout") -> tuple[StepCache
     reporter = StepReporter(hooks=[recorder])
     config = Config(cache_root=str(tmp_path))
     return StepCache(config, path, reporter), recorder
+
+
+def write_step_file(target: Path, step_text: str, cache_key: str) -> None:
+    """Hand-write a parseable cache file in the serialized on-disk format."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        f"STEP_TEXT = {step_text!r}\n"
+        f"CACHE_KEY = {cache_key!r}\n"
+        "STEP_TYPE = 'action'\n"
+        "CREATED_AT = '2026-01-01'\n"
+        "\n# --- step code ---\n"
+        "def step(page) -> None:\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
 
 
 STEP_CODE = "def step(page) -> None:\n    page.goto('https://x')\n"
@@ -413,3 +437,185 @@ class TestStepCacheLogic:
         cache = StepCache(Config(cache_root=str(tmp_path)), good_path)
 
         assert cache.root == str(tmp_path)
+
+
+class TestStepCacheWorkingSet:
+    """Logic tests: the STEP_TEXT contract and the per-test working-set sweep."""
+
+    def test_save_serializes_step_text_from_addressing_text(self, tmp_path: Path) -> None:
+        """The metadata sentence is the addressing text — verbatim, pre-normalization."""
+        cache, _ = make_cache(tmp_path, path=None)
+        identity = StepIdentity(
+            cache_key="k", step_type="action", normalized_text=normalize_step_text("Open the item named Book")
+        )
+
+        stored = cache.save(
+            CachedStep(
+                identity=identity,
+                addressing_text="Open the item named Book",
+                code="def step(page):\n    ...",
+                created_at="2026-10-11",
+            )
+        )
+
+        assert stored is True
+        text = (tmp_path / identity.filename).read_text(encoding="utf-8")
+        assert text.startswith("STEP_TEXT = 'Open the item named Book'")
+        round_step = cache.load(identity)
+
+        assert round_step is not None
+        assert round_step.addressing_text == "Open the item named Book"
+
+        padded = StepIdentity(cache_key="k", step_type="action", normalized_text="Open the padded page")
+        cache.save(
+            CachedStep(
+                identity=padded, addressing_text="  Open the padded page  ", code=STEP_CODE, created_at="2026-10-11"
+            )
+        )
+        padded_text = (tmp_path / padded.filename).read_text(encoding="utf-8")
+
+        assert padded_text.startswith("STEP_TEXT = '  Open the padded page  '")
+        round_padded = cache.load(padded)
+
+        assert round_padded is not None
+        assert round_padded.addressing_text == "  Open the padded page  "
+
+    def test_load_rejects_mismatched_step_text(self, tmp_path: Path) -> None:
+        """A same-key file whose sentence normalizes elsewhere is a miss — and stays sweepable."""
+        cache, _ = make_cache(tmp_path, path=None)
+        identity = StepIdentity(cache_key="k", step_type="action", normalized_text="Open the page")
+        write_step_file(tmp_path / identity.filename, "Open  the PAGE", "k")
+
+        assert cache.load(identity) is None  # a different sentence never replays
+
+        removed = cache.sweep_untouched("k")
+
+        assert removed == [identity.filename]  # the miss touched nothing
+
+    def test_touch_marks_only_successful_load_and_save(self, tmp_path: Path) -> None:
+        """Misses, sentence mismatches and skipped writes touch nothing; successes do."""
+        cache, _ = make_cache(tmp_path, path=None)
+        missing = StepIdentity(cache_key="k", step_type="action", normalized_text="missing address")
+        mismatched = StepIdentity(cache_key="k", step_type="action", normalized_text="the address I claim")
+        loadable = StepIdentity(cache_key="k", step_type="action", normalized_text="a loadable step")
+        savable = StepIdentity(cache_key="k", step_type="action", normalized_text="a saved step")
+
+        assert cache.load(missing) is None  # (a) a missing address touches nothing
+        write_step_file(tmp_path / mismatched.filename, "an entirely different sentence", "k")
+        assert cache.load(mismatched) is None  # (b) parseable and key-matching, sentence mismatch
+
+        step = CachedStep(identity=savable, addressing_text="a saved step", code=STEP_CODE, created_at="2026-10-11")
+        cache._writable = False  # (c) the skipped write touches nothing
+        assert cache.save(step) is False
+        cache._writable = None  # reset the lazily probed flag
+
+        write_step_file(tmp_path / loadable.filename, "a loadable step", "k")
+        assert cache.load(loadable) is not None  # (d) a good load touches
+        assert cache.save(step) is True  # (e) a good save touches
+
+        removed = cache.sweep_untouched("k")
+
+        assert removed == [mismatched.filename]  # only (b) is gone
+        assert (tmp_path / loadable.filename).exists()
+        assert (tmp_path / savable.filename).exists()
+
+    def test_strict_replay_self_preserving_committed_cache(self, tmp_path: Path) -> None:
+        """A replayed entry is loaded, hence touched — the committed strict run keeps it."""
+        cache, _ = make_cache(tmp_path, path=None)
+        identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="open the login page")
+        write_step_file(tmp_path / identity.filename, "open the login page", "login-flow")
+
+        loaded = cache.load(identity)
+
+        assert loaded is not None
+
+        removed = cache.sweep_untouched("login-flow")
+
+        assert removed == []
+        assert (tmp_path / identity.filename).exists()
+
+    def test_sweep_skips_unreadable_metadata_with_warning(self, tmp_path: Path, caplog) -> None:
+        """Ownership of an unparseable file is unprovable — skip loudly, never delete."""
+        cache, _ = make_cache(tmp_path, path=None)
+        digest_name = StepIdentity(cache_key="k", step_type="action", normalized_text="broken").filename
+        target = tmp_path / digest_name
+        target.write_text("not python !!!", encoding="utf-8")
+
+        with caplog.at_level(logging.WARNING, logger="prettyplay"):
+            removed = cache.sweep_untouched("k")
+
+        assert target.exists()
+        assert removed == []
+
+        warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
+
+        assert len(warnings) == 1
+        assert warnings[0].msg == "cache sweep skipped a file with unreadable metadata"
+        assert warnings[0].ctx_filename == digest_name  # type: ignore[attr-defined]
+
+    def test_sweep_swallows_per_file_delete_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog
+    ) -> None:
+        """A poisoned file must not fail the closing test — the deletion failure is a WARNING."""
+
+        def raise_os_error(self: Path) -> None:
+            raise OSError("locked")
+
+        cache, _ = make_cache(tmp_path, path=None)
+        identity = StepIdentity(cache_key="k", step_type="action", normalized_text="locked file")
+        write_step_file(tmp_path / identity.filename, "locked file", "k")
+
+        with caplog.at_level(logging.WARNING, logger="prettyplay"):
+            monkeypatch.setattr(pathlib.Path, "unlink", raise_os_error)
+            removed = cache.sweep_untouched("k")
+
+        assert removed == []
+        assert (tmp_path / identity.filename).exists()
+
+        warnings = [
+            record
+            for record in caplog.records
+            if record.levelno == logging.WARNING and record.msg == "cache sweep failed on a file"
+        ]
+
+        assert len(warnings) == 1
+
+    def test_sweep_is_idempotent_and_repeat_close_safe(self, tmp_path: Path) -> None:
+        """A repeated sweep re-enumerates and deletes nothing new — repeat closes are safe."""
+        cache, _ = make_cache(tmp_path, path=None)
+        untouched = StepIdentity(cache_key="k", step_type="action", normalized_text="an untouched leftover")
+        touched = StepIdentity(cache_key="k", step_type="action", normalized_text="a replayed step")
+        write_step_file(tmp_path / untouched.filename, "an untouched leftover", "k")
+        write_step_file(tmp_path / touched.filename, "a replayed step", "k")
+
+        assert cache.load(touched) is not None
+
+        removed1 = cache.sweep_untouched("k")
+        removed2 = cache.sweep_untouched("k")
+
+        assert removed1 == [untouched.filename]
+        assert removed2 == []
+        assert (tmp_path / touched.filename).exists()
+
+    def test_sweep_ignores_non_digest_and_foreign_files(self, tmp_path: Path, caplog) -> None:
+        """Foreign artifacts and other tests' entries are invisible to the sweep."""
+        cache, _ = make_cache(tmp_path, path=None)
+        foreign = StepIdentity(cache_key="other", step_type="action", normalized_text="a foreign step")
+        write_step_file(tmp_path / "notes.py", "notes", "k")
+        (tmp_path / ".tmp-abc.py").write_text("garbage", encoding="utf-8")
+        write_step_file(tmp_path / foreign.filename, "a foreign step", "other")
+
+        with caplog.at_level(logging.WARNING, logger="prettyplay"):
+            removed = cache.sweep_untouched("k")
+
+        assert removed == []
+        assert [record for record in caplog.records if record.levelno == logging.WARNING] == []
+        assert (tmp_path / "notes.py").exists()
+        assert (tmp_path / ".tmp-abc.py").exists()
+        assert (tmp_path / foreign.filename).exists()
+
+    def test_sweep_of_missing_scope_returns_empty(self, tmp_path: Path) -> None:
+        """A fresh test that never wrote has no scope directory — the sweep is a no-op."""
+        cache = StepCache(Config(cache_root=str(tmp_path / "never-created")), None, StepReporter(hooks=[]))
+
+        assert cache.sweep_untouched("k") == []
