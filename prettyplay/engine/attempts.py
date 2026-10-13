@@ -24,6 +24,9 @@ OUTCOME_COMPLIANCE_BLOCKED = "compliance blocked"
 #: The engineer rejected the candidate in the steering dialog; it never executed.
 OUTCOME_REJECTED = "rejected by the engineer, not executed"
 
+#: The candidate failed the deterministic pre-flight check; it never executed.
+OUTCOME_PREFLIGHT_BLOCKED = "preflight blocked"
+
 
 class StepAttempt(BaseModel):
     """One immutable verbatim record of the per-step attempt history — never rewritten or truncated.
@@ -32,7 +35,7 @@ class StepAttempt(BaseModel):
         code: the complete candidate code of the attempt, verbatim.
         error: the complete failure text — the execution error, the failed
             check text, or the gate violation text; empty on no error.
-        outcome: the outcome label of the closed five-label set (the
+        outcome: the outcome label of the closed six-label set (the
             ``OUTCOME_*`` constants of this module).
         url_before: the page URL read immediately before the attempt's
             execution.

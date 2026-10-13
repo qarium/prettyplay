@@ -13,6 +13,15 @@ Domain: classifying a failed cached step before healing. Audience: engineers rea
 
 An unrecognized label of the model answer parses to `incurable` — the protective fallback: an unknown verdict never grants a regeneration.
 
+## Deterministic fast path
+
+An error text starting with `SyntaxError: `, `NameError: `, `ImportError: ` or `ModuleNotFoundError: ` is a
+deterministic code defect — the step code's own failure, never the product's behavior. The shared engine
+routine (`classify_step_failure` of the engine cell) answers it without a page read and without a provider
+request: a synthesized `fixable` verdict naming the defect. The category is provably safe — only
+`product_defect` masks, and it is never synthesized; every downstream table row treats `fixable` exactly as
+intended: regeneration for the same intent.
+
 ## Call
 
 ```python

@@ -322,8 +322,10 @@ the verbatim per-step attempt history of what was already tried) — one extra
 LLM call through the effective classification model, never the model that
 wrote the candidate; a `high` finding in either dimension fails the
 attempt and the retry carries the violation with the grown history,
-`medium` and `low` findings pass with a `WARNING`, and a malformed verdict is
-a loud `ComplianceVerdictError` (the candidate is never cached unchecked).
+`medium` and `low` findings pass with a `WARNING`. The parser rejects a
+malformed verdict with `ComplianceVerdictError`; the engine re-asks once and,
+if that answer is also malformed, logs a `WARNING` and permits an unchecked
+pass and cache write. Provider unavailability remains a hard failure.
 `generation_approve = false` (env `PRETTYPLAY_GENERATION_APPROVE`) removes the
 gate entirely — the old behavior. The instructions are not part of the cache
 address: changing them never invalidates cached steps — a cached step runs
@@ -400,7 +402,7 @@ Every library failure derives from `PrettyplayError`:
 | ProductDefectError | real product regression | treat as a bug: this failure is the value of the suite |
 | IncurableStepError | the step cannot be (re)generated — budget exhausted, step text stale, or a strict-mode cache miss | follow `recommendation`: reword the step or refresh the cache |
 | LLMUnavailableError | LLM infrastructure down | restore provider access; cached steps are unaffected |
-| ComplianceVerdictError | the compliance gate could not obtain a usable verdict | rerun the step to retry generation; the candidate was never cached |
+| ComplianceVerdictError | a provider compliance answer did not parse | the built-in gate re-asks once, then permits an unchecked pass with a WARNING; direct parser/provider callers handle the error |
 | ConfigurationError | invalid `[tool.prettyplay]` settings | fix the named setting — the message lists received and allowed values |
 
 `ProductDefectError` and `IncurableStepError` render one structured terminal

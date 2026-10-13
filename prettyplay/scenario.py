@@ -279,8 +279,6 @@ class PrettyPlay:
             IncurableStepError: the step never generated successfully, or the verdict
                 says regeneration cannot help.
             LLMUnavailableError: the provider service failed; no retry.
-            ComplianceVerdictError: the compliance gate could not obtain a
-                usable verdict; the executed candidate is never cached.
         """
         try:
             _validate_tries(tries)
@@ -320,8 +318,6 @@ class PrettyPlay:
             IncurableStepError: the step never generated successfully, or the verdict
                 says regeneration cannot help.
             LLMUnavailableError: the provider service failed; no retry.
-            ComplianceVerdictError: the compliance gate could not obtain a
-                usable verdict; the executed candidate is never cached.
         """
         try:
             _validate_tries(tries)
@@ -465,7 +461,14 @@ class PrettyPlay:
             try:
                 self._cache.sweep_untouched(self.cache_key)
             except Exception:
-                logger.warning("cache sweep failed on close", exc_info=True)
+                logger.warning(
+                    "cache sweep failed on close",
+                    exc_info=True,
+                    extra={
+                        "event": "cache_sweep_failed",
+                        "cleanup": self._cleanup,
+                    },
+                )
 
     def __enter__(self) -> PrettyPlay:
         """Enter the scenario block of one test.

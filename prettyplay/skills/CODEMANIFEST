@@ -1,0 +1,37 @@
+Usages:
+  conventions: .goga/usages/conventions.md
+
+Annotations: |
+  Use `conventions` for code writing rules and testing.
+  The cell packages domain skills as data files inside the wheel and exposes them through
+  a cached facade — one filesystem read per skill per runtime, never per request.
+  Each skill lives in its own subdirectory as SKILL.md; the content belongs to the skill
+  file alone and is never restated in any manifest.
+
+---
+"load_skill(name: str) -> text: str":
+  location: __init__.py
+  annotations: |
+    Read a packaged skill by name — the content is cached after the first read.
+
+    `name`: the skill directory name under the cell package (e.g. playwright).
+    `text`: the verbatim content of the skill's SKILL.md.
+
+    Algorithm:
+    1. The process-level cache holds the content — a hit returns without touching the filesystem
+    2. A miss reads SKILL.md from the named subdirectory through importlib.resources
+    3. The content lands in the cache and returns
+
+    Requirements:
+    - One filesystem read per skill per runtime — the cache is process-level and unconditional
+    - The SKILL.md files ship in the wheel via package-data
+    - No validation of the content — the consumer owns the interpretation
+
+---
+
+Author: Goga
+CreatedAt: 12/10/26
+Description: |
+  The skills cell of prettyplay: packaged domain knowledge (the Playwright pattern library)
+  exposed through a cached facade function, consumed by the engine cell for every
+  step-code generation request.

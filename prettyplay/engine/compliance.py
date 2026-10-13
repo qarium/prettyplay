@@ -1,9 +1,19 @@
 """The two-dimension compliance gate: instruction compliance and step adequacy of a green candidate."""
 
-from ..config import Config
+import logging
+
+from ..config import PrettyConfig
+from ..failures import ComplianceVerdictError
 from ..llm import ComplianceFinding, LLMProvider
 from .attempts import StepAttempt
 from .renderer import PreparedStep
+
+logger = logging.getLogger("prettyplay")
+
+#: The verdict request budget of the gate: the initial ask plus one re-ask — a fresh
+#: sample usually parses; a persistently unparsable verdict degrades to an unchecked
+#: pass instead of failing a green step.
+_VERDICT_ATTEMPTS = 2
 
 #: System prompt of every compliance verdict request; used by the engine gate, applied verbatim.
 #: Frozen mirror of the ``compliance_prompt`` practice of the engine CODEMANIFEST —
@@ -78,7 +88,7 @@ Rules:
 
 
 def check_step_compliance(  # noqa: PLR0913, PLR0917 — the parameter list is fixed by the engine contract
-    config: Config,
+    config: PrettyConfig,
     provider: LLMProvider,
     prepared: PreparedStep,
     step_type: str,
@@ -102,26 +112,40 @@ def check_step_compliance(  # noqa: PLR0913, PLR0917 — the parameter list is f
 
     Returns:
         The verdict findings of both dimensions; an empty list — compliant
-        and adequate, or the gate is off. The single check of every caching
-        path — generation, healing and steering alike; never runs on
-        replayed cached code.
+        and adequate, the gate is off, or the verdict stayed unparsable
+        after the bounded re-asks and the green candidate passed unchecked
+        with a WARNING. The single check of every caching path —
+        generation, healing and steering alike; never runs on replayed
+        cached code.
 
     Raises:
         LLMUnavailableError: the provider service failed after the bounded
             transport retries; the calling path never caches the candidate.
-        ComplianceVerdictError: the provider answer did not parse into
-            findings; the calling path never caches the candidate.
     """
     if not config.generation_approve or not config.generation_prompt:
         return []  # the gate is off or nothing to check against — zero provider calls
 
-    return provider.check_instruction_compliance(
-        prompt=COMPLIANCE_PROMPT,
-        user_instructions=config.generation_prompt,
-        instruction=prepared.instruction,
-        step_type=step_type,
-        inputs=prepared.inputs,
-        declarations=prepared.declarations,
-        code=code,
-        attempt_history=[record.render() for record in attempt_history],
-    )
+    for attempt in range(1, _VERDICT_ATTEMPTS + 1):
+        try:
+            return provider.check_instruction_compliance(
+                prompt=COMPLIANCE_PROMPT,
+                user_instructions=config.generation_prompt,
+                instruction=prepared.instruction,
+                step_type=step_type,
+                inputs=prepared.inputs,
+                declarations=prepared.declarations,
+                code=code,
+                attempt_history=[record.render() for record in attempt_history],
+            )
+        except ComplianceVerdictError:
+            if attempt == _VERDICT_ATTEMPTS:
+                # a green step never dies on verdict quality — the degraded pass is loud
+                logger.warning(
+                    "compliance verdict unparsable after a retry — the green candidate passes unchecked",
+                    extra={"instruction": prepared.instruction, "attempt": attempt},
+                )
+                return []
+            logger.warning(
+                "compliance verdict unparsable — retrying the verdict request",
+                extra={"instruction": prepared.instruction, "attempt": attempt},
+            )

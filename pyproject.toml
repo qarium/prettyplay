@@ -47,7 +47,7 @@ docs = [
 include = ["prettyplay*"]
 
 [tool.setuptools.package-data]
-swax = []
+"prettyplay.skills" = ["*/SKILL.md"]
 
 [tool.ruff]
 target-version = "py310"

@@ -68,3 +68,15 @@ class StepReporter:
                 getattr(hook, event)(**payload)
             except Exception:
                 self._logger.warning("hook call failed", extra={"event": event, "hook": type(hook).__name__})
+
+    def log_event(self, event: str, payload: dict[str, str | int]) -> None:
+        """Write one structured log record without hook fan-out.
+
+        Args:
+            event: the log record name — snake_case, never an ``on_*`` hook
+                event name.
+            payload: the payload fields of the record; values are strings or
+                ints (timings).
+        """
+        extra = {f"ctx_{key}" if key in _LOG_RECORD_RESERVED else key: value for key, value in payload.items()}
+        self._logger.log(logging.INFO, event, extra=extra)

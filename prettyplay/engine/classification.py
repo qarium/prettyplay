@@ -1,6 +1,6 @@
 """The shared classification call: collect the page state and ask the provider."""
 
-from ..config import Config
+from ..config import PrettyConfig
 from ..driver import PageFacade
 from ..llm import FailureClassification, LLMProvider
 
@@ -27,16 +27,40 @@ where category is one of:
 explanation: one short sentence why. recommendation: one short sentence what the engineer should do.
 Output only that single line — no code, no extra text."""
 
+#: Formatted-error prefixes of deterministic code defects — a failure the step code itself
+#: caused, never the product's behavior; ``format_step_error`` supplies the type-name prefix.
+_CODE_DEFECT_PREFIXES = ("SyntaxError: ", "NameError: ", "ImportError: ", "ModuleNotFoundError: ")
+
+
+def _code_defect_classification(error: str) -> FailureClassification | None:
+    """Synthesize the verdict of a deterministic code defect — no page read, no provider request.
+
+    Args:
+        error: the formatted failure description — the type-name prefix decides.
+
+    Returns:
+        The fixable verdict naming the defect; ``None`` — the failure is not
+        deterministic, the provider decides.
+    """
+    for prefix in _CODE_DEFECT_PREFIXES:
+        if error.startswith(prefix):
+            return FailureClassification(
+                category="fixable",
+                explanation=f"the step code has a deterministic defect — {error.splitlines()[0]}",
+                recommendation="regenerate the step code removing the named defect",
+            )
+    return None
+
 
 def classify_step_failure(  # noqa: PLR0913, PLR0917 — the parameter list is fixed by the engine contract
-    config: Config,
+    config: PrettyConfig,
     provider: LLMProvider,
     step_text: str,
     code: str,
     error: str,
     page: PageFacade,
 ) -> FailureClassification:
-    """Classify a step failure: collect the page state and ask the provider.
+    """Classify a step failure: collect the page state and ask the provider; a deterministic code defect returns a synthesized fixable verdict with neither.
 
     Args:
         config: project settings; ``send_screenshots`` attaches page images
@@ -56,6 +80,10 @@ def classify_step_failure(  # noqa: PLR0913, PLR0917 — the parameter list is f
         LLMUnavailableError: the provider service failed — propagates
             untouched, the calling path decides the handling.
     """
+    code_defect = _code_defect_classification(error)
+    if code_defect is not None:  # a deterministic code defect — no page read, no provider request
+        return code_defect
+
     snapshot = page.aria_snapshot()
     screenshot = page.screenshot() if config.send_screenshots else None
 

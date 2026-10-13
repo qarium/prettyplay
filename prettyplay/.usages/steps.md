@@ -34,8 +34,9 @@ with PrettyPlay("login-flow") as t:
 - step(text, tries=3) — the total number of executions of the step's code (the first included);
   replaces the time-bounded settle window for that step; the global polling settings stay
   untouched; absorbed retries appear as settle_retry records only, the step stays green
-- step(text, delay=1.5) — a quiet pause in seconds before the step's code runs: the started event
-  fires, the declared seconds pass, then the code; a step never reached never pauses
+- step(text, delay=1.5) — a quiet pause in seconds before the step runs: the declared seconds
+  pass first, then the render happens and the started event fires with the ready layer, then the
+  code; a step never reached never pauses
 - step(text, vars={"expected": "Details"}) — the call-local string inputs; separate namespace from memory
 - The optional tries, delay and vars parameters are keyword-only and accepted by both step kinds; invalid values (zero/negative
   tries, negative delay) and non-string vars values fail loudly at the call

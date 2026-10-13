@@ -7,7 +7,7 @@ Annotations: |
   Use `playwright` for the error message shapes the decomposition recognizes.
 
   The failure taxonomy of the library: four distinct, user-distinguishable step failure kinds plus the shared verdict type; every failure carries an actionable message.
-  The compliance verdict hard failure joins the LLM contour of the taxonomy — it blocks only the generation contour and never touches cached step execution; it is raised when the compliance gate cannot obtain a usable verdict, so unchecked candidate code is never cached.
+  The compliance verdict parse failure joins the LLM contour of the taxonomy: the parser/provider raises it when an answer cannot become usable findings. The engine gate catches it, re-asks once and, on a second malformed verdict, logs a WARNING and permits the successfully executed candidate to pass unchecked and be cached. The parse failure never reaches the built-in step boundary; a provider outage remains a hard infrastructure failure. Cached replay never requests a compliance verdict.
   All failure types derive from the single library base `PrettyplayError`; ProductDefectError additionally derives from AssertionError — the failed check is a failure, never an error, in any runner.
   The rendered message of a terminal failure follows the single structured template: the first line — the class name of the terminal failure and the authored reason; then --- separated blocks: the step section (step/error), the conditional details section (received/cause/Call log), the verdict block. No label padding; a page snapshot never appears in any terminal error output.
   One render — produced at exception construction through `render_terminal_message` from the decomposed parts of the underlying error — feeds the exception message, the log record and the on_step_failed hook payload; consumers never re-compose.
@@ -23,6 +23,9 @@ Annotations: |
     The common base of every library failure. Exists for one consumer need: catch any prettyplay failure with a single except clause at the test-suite boundary.
 
     `message`: the failure description.
+  properties:
+    "message -> str": |
+      The failure description kept by the library base.
 
 "decompose_error_text(error: str) -> parts: ErrorParts":
   location: errors.py
@@ -238,20 +241,23 @@ Annotations: |
 "PrettyplayError::ComplianceVerdictError(message: str)":
   location: errors.py
   annotations: |
-    The compliance gate could not obtain a usable verdict: the provider answer did not
-    parse into findings. The successfully executed candidate stays unchecked and is never
-    cached — a loud hard failure, never a silent pass.
+    The provider answer did not parse into usable compliance findings. This is a
+    parser/provider failure, not the terminal policy of the calling engine gate.
+    The engine re-asks once, then logs a WARNING and permits an unchecked pass
+    if the second verdict is malformed; the accepted candidate may then be cached.
 
     `message`: the rendered actionable text — names the compliance gate, the parse failure
     and a fragment of the raw verdict answer.
 
     Requirements:
     - Derives from `PrettyplayError`: catchable with the single library except clause
-    - Raised only on the compliance gate paths — generation, healing and steering
-      candidates; never on a cached step execution path
+    - Raised by the compliance parser/provider when its verdict is malformed; the
+      built-in generation, healing and steering gate catches it; never requested
+      on a cached step execution path
     - Carries no verdict: a verdict parse failure is not a step failure classification —
       uniform with the LLM infrastructure failure
-    - The raiser guarantees nothing was written to the step cache
+    - The parser/provider never writes the step cache; the caller decides acceptance
+      and caching after handling this error — the error itself gives no no-cache guarantee
   properties:
     "message -> str": |
       The rendered actionable text naming the gate and the raw answer fragment.

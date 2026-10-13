@@ -4,7 +4,7 @@ import inspect
 from pathlib import Path
 
 import pytest
-from prettyplay.config import BrowserConfig, Config, ConfigurationError, PrettyConfig, load_config
+from prettyplay.config import BrowserConfig, ConfigurationError, PrettyConfig, load_config
 from prettyplay.config import loader as _loader
 from prettyplay.failures import PrettyplayError
 from pydantic import ValidationError
@@ -34,6 +34,8 @@ _ALL_ENV_FIELDS = (
     "POLLING_TIMEOUT",
     "POLLING_DELAY",
     "INTERACTIVE",
+    "PROBE_TIMEOUT",
+    "BROWSER_TIMEOUT",
     "BROWSER",
 )
 
@@ -125,19 +127,21 @@ class TestLoadConfigContract:
             "PRETTYPLAY_HEALING_ATTEMPTS",
             "PRETTYPLAY_SEND_SCREENSHOTS",
             "PRETTYPLAY_GENERATION_APPROVE",
+            "PRETTYPLAY_PROBE_TIMEOUT",
             "PRETTYPLAY_BROWSER_NAME",
             "PRETTYPLAY_BROWSER_SCREEN",
             "PRETTYPLAY_BROWSER_HEADLESS",
             "PRETTYPLAY_BROWSER_ENDPOINT",
             "PRETTYPLAY_BROWSER_ACCEPT_DIALOGS",
             "PRETTYPLAY_BROWSER_SPEED",
+            "PRETTYPLAY_BROWSER_TIMEOUT",
         }
 
         values = set(_loader._ENV_NAMES.values())
 
-        assert expected <= values  # every setting present — all six browser variables included
+        assert expected <= values  # every setting present — all seven browser variables included
         # one entry per top-level scalar field (the group itself excluded) plus per group field
-        wired = [name for name in Config.model_fields if name != "browser"]
+        wired = [name for name in PrettyConfig.model_fields if name != "browser"]
         assert len(_loader._ENV_NAMES) == len(wired) + len(BrowserConfig.model_fields)
 
     def test_browser_speed_env_name_and_allowed_text(self) -> None:
@@ -309,10 +313,10 @@ class TestLoadConfigLogic:
     def test_pretty_config_rejects_removed_flat_fields_loudly(self) -> None:
         """Negative: the removed 0.0.x flat names fail at construction — never a silent no-op."""
         with pytest.raises(ValidationError):
-            Config(headless=False)
+            PrettyConfig(headless=False)
 
         with pytest.raises(ValidationError):
-            Config(browser_endpoint="ws://x")
+            PrettyConfig(browser_endpoint="ws://x")
 
         with pytest.raises(ValidationError):
             BrowserConfig(engine="chromium")
@@ -418,7 +422,7 @@ class TestLoadConfigLogic:
 
         assert config.provider == "openai"
         assert config.generation_attempts == 3
-        assert isinstance(config, Config)
+        assert isinstance(config, PrettyConfig)
 
     def test_browser_config_validation_failures(self, tmp_path) -> None:
         """Negative: nested locs render dotted; non-WxH screens pass through unresolved."""
@@ -431,7 +435,7 @@ class TestLoadConfigLogic:
         assert ("endpoint",) in [entry["loc"] for entry in excinfo.value.errors()]
 
         with pytest.raises(ValidationError) as excinfo:
-            Config(browser={"screen": "0x720"})
+            PrettyConfig(browser={"screen": "0x720"})
         assert ("browser", "screen") in [entry["loc"] for entry in excinfo.value.errors()]
 
         # through load_config the rendered line carries the dotted loc
@@ -527,7 +531,7 @@ class TestLoadConfigOverlay:
 
         config = load_config(
             path,
-            Config(browser=BrowserConfig(name="firefox", endpoint="ws://ci-grid:3000/playwright/firefox")),
+            PrettyConfig(browser=BrowserConfig(name="firefox", endpoint="ws://ci-grid:3000/playwright/firefox")),
         )
 
         assert config.browser.name == "firefox"
@@ -562,7 +566,7 @@ class TestLoadConfigOverlay:
     def test_load_config_empty_string_override_does_not_win(self, tmp_path) -> None:
         path = write_section(tmp_path, '[tool.prettyplay]\ncache_root = "/custom/cache"\nmodel = "gpt-5"\n')
 
-        config = load_config(path, Config(model="", cache_root=""))
+        config = load_config(path, PrettyConfig(model="", cache_root=""))
 
         assert config.model == "gpt-5"
         assert config.cache_root == "/custom/cache"
@@ -570,7 +574,7 @@ class TestLoadConfigOverlay:
     def test_load_config_explicit_false_overrides_file_true(self, tmp_path) -> None:
         path = write_section(tmp_path, "[tool.prettyplay.browser]\nheadless = true\n")
 
-        config = load_config(path, Config(browser=BrowserConfig(headless=False)))
+        config = load_config(path, PrettyConfig(browser=BrowserConfig(headless=False)))
 
         assert config.browser.headless is False
 
@@ -628,7 +632,7 @@ class TestLoadConfigOverlay:
         path = write_section(tmp_path, '[tool.prettyplay.browser]\nname = "chromium"\n')
         monkeypatch.setenv("PRETTYPLAY_BROWSER_NAME", "webkit")
 
-        config = load_config(path, Config(browser=BrowserConfig(name="firefox")))
+        config = load_config(path, PrettyConfig(browser=BrowserConfig(name="firefox")))
 
         # pyproject → env → PrettyConfig observable through the whole chain
         assert config.browser.name == "firefox"
@@ -857,3 +861,96 @@ class TestLlmRequestAttemptsEnv:
             "llm_request_attempts: received 'three' — allowed: a decimal integer"
         ]
         assert isinstance(excinfo.value, PrettyplayError)
+
+
+class TestProbeTimeoutEnv:
+    """The candidate probe bound loads from every layer and fails loudly on bad values."""
+
+    def test_probe_timeout_env_parses_decimal_number_of_seconds(self, write_pyproject, monkeypatch) -> None:
+        """Contract: PRETTYPLAY_PROBE_TIMEOUT parses as a decimal number of seconds and wins over the file."""
+        monkeypatch.setenv("PRETTYPLAY_PROBE_TIMEOUT", "1.5")
+
+        config = load_config(pyproject_path=write_pyproject())
+
+        assert config.probe_timeout == 1.5
+
+    def test_probe_timeout_file_value_accepts_int_and_float_seconds(self, write_pyproject) -> None:
+        """Contract: the file layer carries int and float seconds alike."""
+        config = load_config(pyproject_path=write_pyproject(probe_timeout=8))
+
+        assert config.probe_timeout == 8.0
+
+    def test_negative_file_value_fails_loudly(self, write_pyproject) -> None:
+        """Negative: a negative file value fails loudly naming the setting, the value and the range."""
+        with pytest.raises(ConfigurationError) as excinfo:
+            load_config(pyproject_path=write_pyproject(probe_timeout=-1))
+
+        assert str(excinfo.value).splitlines() == [
+            "probe_timeout: received -1 — allowed: a non-negative number of seconds (finite)"
+        ]
+        assert isinstance(excinfo.value, PrettyplayError)
+        assert isinstance(excinfo.value.__cause__, ValidationError)
+
+    def test_unparseable_env_probe_timeout_fails_loudly(self, write_pyproject, monkeypatch) -> None:
+        """Negative: a non-decimal env value fails loudly naming the setting, the value and the form."""
+        monkeypatch.setenv("PRETTYPLAY_PROBE_TIMEOUT", "soon")
+
+        with pytest.raises(ConfigurationError) as excinfo:
+            load_config(pyproject_path=write_pyproject())
+
+        assert str(excinfo.value).splitlines() == ["probe_timeout: received 'soon' — allowed: a decimal float"]
+        assert isinstance(excinfo.value, PrettyplayError)
+
+    def test_negative_env_value_fails_at_load(self, write_pyproject, monkeypatch) -> None:
+        """Negative: a decimal but negative env value parses at the env layer and fails at validation."""
+        monkeypatch.setenv("PRETTYPLAY_PROBE_TIMEOUT", "-5")
+
+        with pytest.raises(ConfigurationError) as excinfo:
+            load_config(pyproject_path=write_pyproject())
+
+        assert str(excinfo.value).splitlines() == [
+            "probe_timeout: received -5.0 — allowed: a non-negative number of seconds (finite)"
+        ]
+        assert isinstance(excinfo.value, PrettyplayError)
+
+
+class TestBrowserTimeoutEnv:
+    """The page action timeout baseline of the browser group loads from every layer."""
+
+    def test_browser_timeout_env_parses_decimal_number_of_seconds(self, write_pyproject, monkeypatch) -> None:
+        """Contract: PRETTYPLAY_BROWSER_TIMEOUT parses as a decimal number of seconds and wins over the file."""
+        monkeypatch.setenv("PRETTYPLAY_BROWSER_TIMEOUT", "2.5")
+
+        config = load_config(pyproject_path=write_pyproject())
+
+        assert config.browser.timeout == 2.5
+
+    def test_browser_timeout_file_value_reaches_the_group(self, tmp_path) -> None:
+        """Contract: the file layer carries the group value; the default stays the explicit 30."""
+        config = load_config(
+            pyproject_path=write_section(tmp_path, "[tool.prettyplay]\n\n[tool.prettyplay.browser]\ntimeout = 60\n")
+        )
+
+        assert config.browser.timeout == 60.0
+        assert load_config(pyproject_path=write_section(tmp_path, "[tool.prettyplay]\n")).browser.timeout == 30
+
+    def test_browser_timeout_zero_is_the_legal_real_zero(self, tmp_path) -> None:
+        """Contract: 0 passes validation — auto-wait off, never a sentinel."""
+        config = load_config(
+            pyproject_path=write_section(tmp_path, "[tool.prettyplay]\n\n[tool.prettyplay.browser]\ntimeout = 0\n")
+        )
+
+        assert config.browser.timeout == 0.0
+
+    def test_negative_file_value_fails_loudly(self, tmp_path) -> None:
+        """Negative: a negative file value fails loudly naming the setting, the value and the range."""
+        with pytest.raises(ConfigurationError) as excinfo:
+            load_config(
+                pyproject_path=write_section(tmp_path, "[tool.prettyplay]\n\n[tool.prettyplay.browser]\ntimeout = -1\n")
+            )
+
+        assert str(excinfo.value).splitlines() == [
+            "browser.timeout: received -1 — allowed: a non-negative number of seconds (finite)"
+        ]
+        assert isinstance(excinfo.value, PrettyplayError)
+        assert isinstance(excinfo.value.__cause__, ValidationError)

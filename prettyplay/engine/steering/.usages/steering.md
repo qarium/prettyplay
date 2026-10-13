@@ -81,11 +81,12 @@ shared attempt history — the same gate as unattended generation:
   lands in the history with the violation text and the guidance prompt reopens — steer the
   model to fix the finding
 - medium and low findings pass with a WARNING naming the instructions
-- a malformed verdict (ComplianceVerdictError) or provider unavailability
-  (LLMUnavailableError) ends the dialog — the gate failure is shown in the dialog and
-  logged as a WARNING naming the step before the dialog ends, so the engineer sees why the
-  green candidate was not written back; the original terminal failure propagates and
-  nothing is cached
+- an unparsable verdict is re-asked once inside the gate and then degrades to a loud
+  unchecked pass — the write-back happens, the WARNING lands in the log; provider
+  unavailability (LLMUnavailableError) ends the dialog — the gate failure is shown in the
+  dialog and logged as a WARNING naming the step before the dialog ends, so the engineer
+  sees why the green candidate was not written back; the original terminal failure
+  propagates and nothing is cached
 - the gate adds no budget consumption: interactive attempts stay free, the human in the
   loop is the bound
 

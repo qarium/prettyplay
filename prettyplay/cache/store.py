@@ -9,7 +9,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from ..config import Config
+from ..config import PrettyConfig
 from ..reporting import StepReporter
 from .models import CachedStep, StepIdentity
 from .text import normalize_step_text
@@ -52,7 +52,7 @@ class StepCache:
 
     def __init__(
         self,
-        config: Config,
+        config: PrettyConfig,
         path: str | None = None,
         reporter: StepReporter | None = None,
     ) -> None:

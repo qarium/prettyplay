@@ -21,12 +21,16 @@ class RawPage:
     def __init__(self) -> None:
         self.seen_failures: list[BaseException] = []
         self.seen_values: list[object] = []
+        self.default_timeouts: list[float] = []
 
     def remember(self, failure: BaseException) -> None:
         self.seen_failures.append(failure)
 
     def observe(self, value: object) -> None:
         self.seen_values.append(value)
+
+    def set_default_timeout(self, timeout: float) -> None:
+        self.default_timeouts.append(timeout)
 
 
 class RecordingHandle:
@@ -52,9 +56,18 @@ class TestRunStepCodeContract:
         signature = inspect.signature(run_step_code)
         parameters = list(signature.parameters.values())
 
-        assert [parameter.name for parameter in parameters] == ["code", "page"]
+        assert [parameter.name for parameter in parameters] == [
+            "code",
+            "page",
+            "action_timeout_ms",
+            "baseline_timeout_ms",
+        ]
         assert parameters[0].annotation in (str, "str")
         assert parameters[1].annotation in (PageFacade, PageFacade.__name__)
+        assert parameters[2].kind == inspect.Parameter.KEYWORD_ONLY
+        assert parameters[2].default is None
+        assert parameters[3].kind == inspect.Parameter.KEYWORD_ONLY
+        assert parameters[3].default == 30_000.0
         assert signature.return_annotation == dict[str, str] | None
 
     def test_returning_step_function_dictionary_comes_back(self) -> None:
@@ -90,6 +103,40 @@ class TestRunStepCodeLogic:
         assert run_step_code(GENERATED_HEADER_CODE, handle) is None  # the header code's step returns None implicitly
 
         assert len(handle.calls) == 1  # one run unit — the whole step-function call
+
+    def test_the_probe_bound_sets_and_restores_the_page_default_timeout_inside_the_worker(self) -> None:
+        handle = RecordingHandle()
+        code = "def step(page):\n    return {'name': str(page is not None)}\n"
+
+        result = run_step_code(code, handle, action_timeout_ms=8000)
+
+        assert result == {"name": "True"}
+        # set before the step call, restored to the library default after — the probe never leaks
+        assert handle.raw.default_timeouts == [8000, 30_000.0]
+
+    def test_the_probe_bound_restores_the_passed_baseline(self) -> None:
+        handle = RecordingHandle()
+        code = "def step(page):\n    return None\n"
+
+        run_step_code(code, handle, action_timeout_ms=8000, baseline_timeout_ms=60_000)
+
+        assert handle.raw.default_timeouts == [8000, 60_000]  # the configured browser timeout baseline
+
+    def test_the_probe_bound_restores_on_a_failing_step(self) -> None:
+        handle = RecordingHandle()
+        code = "def step(page):\n    raise AssertionError('boom')\n"
+
+        with pytest.raises(AssertionError, match="boom"):
+            run_step_code(code, handle, action_timeout_ms=8000)
+
+        assert handle.raw.default_timeouts == [8000, 30_000.0]  # the finally restores on the failure path too
+
+    def test_without_the_probe_bound_no_timeout_is_set(self) -> None:
+        handle = RecordingHandle()
+
+        run_step_code(GENERATED_HEADER_CODE, handle)
+
+        assert handle.raw.default_timeouts == []  # the normal default timeouts apply untouched
         kind, action = handle.calls[0]
         assert kind == "run"
         assert callable(action)
@@ -318,7 +365,7 @@ def capture_handle(page: object) -> PageFacade:
 
 
 class TestRunStepCodeStockCaptures:
-    """Logic tests: the CHEAT_SHEET-taught dialog/popup capture forms run as step code."""
+    """Logic tests: the dialog/popup capture forms run as step code."""
 
     def test_taught_dialog_capture_resolves_once_through_the_router_interplay(
         self, caplog: pytest.LogCaptureFixture

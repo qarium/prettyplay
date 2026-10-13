@@ -4,7 +4,7 @@ import inspect
 from pathlib import Path
 
 import pytest
-from prettyplay.config import Config
+from prettyplay.config import PrettyConfig
 from prettyplay.engine import classify_step_failure
 from prettyplay.failures import LLMUnavailableError
 from prettyplay.llm import FailureClassification
@@ -13,12 +13,14 @@ STEP_CODE = "def step(page) -> None:\n    page.get_by_role('button', name='Sign 
 
 
 class FakePage:
-    """Fake page facade boundary: snapshot plus counted screenshot calls."""
+    """Fake page facade boundary: snapshot plus counted snapshot and screenshot calls."""
 
     def __init__(self) -> None:
+        self.snapshot_calls = 0
         self.screenshot_calls = 0
 
     def aria_snapshot(self) -> str:
+        self.snapshot_calls += 1
         return "body: main"
 
     def screenshot(self) -> bytes:
@@ -74,7 +76,7 @@ class TestClassifyStepFailureContract:
         )
         assert not hasattr(provider, "classify_failure")  # the stub carries the renamed method only
 
-        classify_step_failure(Config(cache_root=str(tmp_path)), provider, "s", "code", "err", FakePage())
+        classify_step_failure(PrettyConfig(cache_root=str(tmp_path)), provider, "s", "code", "err", FakePage())
 
         assert len(provider.classify_step_failure_calls) == 1  # reached through the renamed name
 
@@ -89,7 +91,7 @@ class TestClassifyStepFailureContract:
         page = FakePage()
 
         classify_step_failure(
-            Config(cache_root=str(tmp_path), classification_prompt="answer in Russian"),
+            PrettyConfig(cache_root=str(tmp_path), classification_prompt="answer in Russian"),
             provider,
             "step",
             "code",
@@ -98,6 +100,62 @@ class TestClassifyStepFailureContract:
         )
 
         assert provider.classify_step_failure_calls[0]["user_instructions"] == "answer in Russian"
+
+
+class TestClassifyStepFailureFastPath:
+    """Logic tests: the deterministic code-defect fast path — no page read, no provider request."""
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            "SyntaxError: invalid syntax (line 2)",
+            "NameError: name 're' is not defined",
+            "ImportError: cannot import name 'expect'",
+            "ModuleNotFoundError: No module named 're'",
+        ],
+    )
+    def test_deterministic_code_defects_return_the_fixable_verdict_without_the_llm(
+        self, tmp_path: Path, error: str
+    ) -> None:
+        provider = ClassificationProvider(
+            FailureClassification(category="incurable", explanation="e", recommendation="r")
+        )
+        page = FakePage()
+
+        result = classify_step_failure(PrettyConfig(cache_root=str(tmp_path)), provider, "step", STEP_CODE, error, page)
+
+        assert result.category == "fixable"
+        assert error in result.explanation  # the verdict names the defect
+        assert result.recommendation == "regenerate the step code removing the named defect"
+        assert provider.classify_step_failure_calls == []
+        assert page.snapshot_calls == 0
+        assert page.screenshot_calls == 0
+
+    def test_non_deterministic_errors_reach_the_provider(self, tmp_path: Path) -> None:
+        provider = ClassificationProvider(FailureClassification(category="rot", explanation="e", recommendation="r"))
+        page = FakePage()
+
+        classify_step_failure(
+            PrettyConfig(cache_root=str(tmp_path)), provider, "step", STEP_CODE, "UnboundLocalError: boom", page
+        )
+
+        assert len(provider.classify_step_failure_calls) == 1  # branch-sensitive — the LLM decides
+        assert page.snapshot_calls == 1
+
+    def test_a_prefix_mid_text_does_not_trigger_the_fast_path(self, tmp_path: Path) -> None:
+        provider = ClassificationProvider(FailureClassification(category="rot", explanation="e", recommendation="r"))
+        page = FakePage()
+
+        classify_step_failure(
+            PrettyConfig(cache_root=str(tmp_path)),
+            provider,
+            "step",
+            STEP_CODE,
+            "TimeoutError: NameError mentioned in the message body",
+            page,
+        )
+
+        assert len(provider.classify_step_failure_calls) == 1
 
 
 class TestClassifyStepFailureLogic:
@@ -114,7 +172,7 @@ class TestClassifyStepFailureLogic:
         page = FakePage()
 
         result = classify_step_failure(
-            Config(cache_root=str(tmp_path), send_screenshots=True),
+            PrettyConfig(cache_root=str(tmp_path), send_screenshots=True),
             provider,
             "click Sign in",
             STEP_CODE,
@@ -137,7 +195,7 @@ class TestClassifyStepFailureLogic:
         page = FakePage()
 
         classify_step_failure(
-            Config(cache_root=str(tmp_path), send_screenshots=False),
+            PrettyConfig(cache_root=str(tmp_path), send_screenshots=False),
             provider,
             "click Sign in",
             STEP_CODE,
@@ -150,7 +208,7 @@ class TestClassifyStepFailureLogic:
         assert page.screenshot_calls == 0
 
     def test_provider_unavailability_propagates_untouched(self, tmp_path: Path) -> None:
-        config = Config(cache_root=str(tmp_path))
+        config = PrettyConfig(cache_root=str(tmp_path))
 
         with pytest.raises(LLMUnavailableError) as excinfo:
             classify_step_failure(config, UnavailableProvider(), "s", STEP_CODE, "err", FakePage())
@@ -168,7 +226,7 @@ class TestClassifyStepFailureLogic:
         page = FakePage()
 
         classify_step_failure(
-            Config(cache_root=str(tmp_path), classification_prompt="answer in Russian"),
+            PrettyConfig(cache_root=str(tmp_path), classification_prompt="answer in Russian"),
             provider,
             "step",
             "code",
@@ -184,6 +242,6 @@ class TestClassifyStepFailureLogic:
         )
 
         empty = ClassificationProvider(FailureClassification(category="rot", explanation="e", recommendation="r"))
-        classify_step_failure(Config(cache_root=str(tmp_path)), empty, "step", "code", "err", FakePage())
+        classify_step_failure(PrettyConfig(cache_root=str(tmp_path)), empty, "step", "code", "err", FakePage())
 
         assert empty.classify_step_failure_calls[0]["user_instructions"] == ""

@@ -49,7 +49,7 @@ prepared.addressing_text  # "For the item named Book, read its tags into {% var 
 
 ## Authoring errors
 
-Raised as the loud actionable `PrettyplayError` before any browser execution:
+Raised as the loud actionable `PrettyplayError` before any step-code execution. The facade has already resolved or opened its page before calling the renderer; rendering itself touches no browser:
 
 - a duplicate capture name within one render
 - the reserved capture name `vars` or a non-Jinja-identifier name

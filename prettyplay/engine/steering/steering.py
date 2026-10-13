@@ -7,11 +7,12 @@ from datetime import date
 from pathlib import Path
 
 from ...cache import CachedStep, StepCache, StepIdentity
-from ...config import Config
+from ...config import PrettyConfig
 from ...driver import PageFacade
-from ...failures import ComplianceVerdictError, IncurableStepError, LLMUnavailableError
+from ...failures import IncurableStepError, LLMUnavailableError
 from ...llm import ComplianceFinding, LLMProvider, ScenarioStep
 from ...reporting import StepReporter
+from ...skills import load_skill
 from ..attempts import (
     OUTCOME_COMPLIANCE_BLOCKED,
     OUTCOME_EXECUTION_FAILED,
@@ -43,7 +44,7 @@ Input you receive:
 - PAGE SNAPSHOT: the accessibility snapshot of the current page
 - PAGE URL: the current URL of the page, when present
 - SCREENSHOT: an image of the page, when attached
-- CHEAT SHEET: a compact reference of useful Playwright sync API idioms — guidance, not an allowlist; everything standard stays allowed
+- SKILL: the Playwright skill — battle-tested idioms and failure-avoidance patterns; guidance, not an allowlist; everything standard stays allowed
 - USER INSTRUCTIONS: the project's binding code style guidance, when configured
 - HISTORY: the verbatim record of every attempt of this step so far, when present — the original cached code first when it exists; each record carries the attempt outcome, the URL before -> after line, the complete candidate code and the complete error
 - RECOMMENDATION: the diagnosis of the classification that preceded this regeneration, when present
@@ -60,12 +61,12 @@ Rules:
 - Import from playwright.sync_api and the Python standard library only — no third-party
   libraries; imports are global only: at the top level of the code block, before `def
   step`, never inside the function body
-- Work through the standard Playwright sync API: locator factories, actions, waits, expect chains, plain asserts on immediate reads — everything standard is allowed; the CHEAT SHEET is guidance, never a boundary
+- Work through the standard Playwright sync API: locator factories, actions, waits, expect chains, plain asserts on immediate reads — everything standard is allowed; the SKILL is guidance, never a boundary
 - Assertions: for an assertion sentence end with a check — a waiting expect(...) chain for dynamic content, or an immediate read with a plain Python assert (assert locator.count() > 1)
 - When the request carries a RESULTS block: read every declared value from the current page — never fabricate, never reuse values from HISTORY; return all declared names in one dictionary; every value is a non-blank string; a missing observation fails the step rather than fabricating a value
 - No fixed delays, no sleeps, no wait_for_timeout — locators and expect chains auto-wait
 - The runtime owns the page lifecycle: never call page.close() or context.close()
-- No stateful actions that outlive the step on the page shared by the whole test: page.route, page.clock, add_init_script, tracing, HAR, CDP — excluded from generated code; a cached step would poison every later step far from the cause
+- No stateful actions that outlive the step on the page shared by the whole test: page.clock, add_init_script, tracing, HAR, CDP — excluded from generated code; a cached step would poison every later step far from the cause. The one bounded exception: page.route paired with page.unroute inside the same step — mock one request and remove the route before the step ends; a route without its unroute fails the pre-flight check
 - Dialogs: capture with the stock means — with page.expect_event("dialog") as info: — perform the triggering action inside the block, read info.value.type, info.value.message, info.value.default_value, then info.value.accept() or info.value.dismiss()
 - Popups and new tabs: capture with with page.expect_popup() as popup_info: — trigger the opening action inside the block, work through popup_info.value; page.bring_to_front() raises a page above the others
 - Content inside an iframe goes through page.frame_locator(selector) — locate elements within the returned scope; nested frames chain
@@ -80,101 +81,6 @@ Rules:
 - The step must complete exactly what STEP says — nothing more, nothing less: every name the code binds, the code uses
 - Output only the code block, no explanations"""
 
-#: The compact standard Playwright sync API reference of every guided request;
-#: guidance, not an allowlist — everything standard stays allowed.
-#: Frozen mirror of ``.goga/usages/prompts/step_cheatsheet.md`` — the whole file, verbatim
-#: (the practice has no ``---`` separator, so the whole-file rule is the only mirror
-#: rule with no extraction logic to drift); the constant changes only together with
-#: the file. A local copy of the engine constant, not an import — the same
-#: frozen-mirror rule; no runtime read of ``.goga/`` ever happens.
-CHEAT_SHEET = """# Playwright cheat sheet
-
-The compact standard Playwright sync API reference carried by every step-code generation and regeneration request
-of prettyplay — referenced by the engine and steering cells as the `cheat_sheet` practice; rendered by the provider
-implementations as the leading CHEAT SHEET block of the user content. Guidance, not an allowlist: everything
-standard stays allowed — the error-driven regeneration loop is the second line of defense against hallucinated
-calls. Target audience: the generation model — a model that knows Playwright weakly writes a correct step from
-this reference alone.
-
-## Locator factories
-
-    page.get_by_role("button", name="Sign in")
-    page.get_by_label("Username")
-    page.get_by_text("Welcome back")
-    page.get_by_placeholder("Search")
-    page.get_by_alt_text("Logo")
-    page.get_by_title("Close")
-    page.get_by_test_id("submit")
-    page.locator("css selector | //xpath | [data-qa=row]")
-
-## Narrowing
-
-    locator.first / locator.last / locator.nth(2)
-    locator.filter(has_text="Product X")
-    locator.and_(other) / locator.or_(other)
-
-## Actions
-
-    .click() / .dblclick() / .click(button="right")
-    .fill("text") / .clear() / .press("Enter") / .press("Control+A")
-    .check() / .uncheck() / .hover() / .select_option("v")
-    .drag_to(target) / .set_input_files("path.png")
-
-## Navigation and waits
-
-    page.goto(url) / page.go_back() / page.go_forward() / page.reload()
-    page.wait_for_url("**/dashboard") / page.wait_for_load_state("networkidle")
-    page.url  # the current URL — an immediate read beside the waiting forms
-
-## Waiting assertions — expect chains
-
-    from playwright.sync_api import expect
-
-    expect(locator).to_be_visible() / to_be_hidden()
-    expect(locator).to_be_enabled() / to_be_checked()
-    expect(locator).to_have_text("...") / to_contain_text("...")
-    expect(locator).to_have_value("v") / to_have_attribute("href", "/docs")
-    expect(page).to_have_url("**/dashboard") / to_have_title("Dashboard")
-
-## Count forms — "the page shows a list of X"
-
-    items = page.get_by_role("listitem")
-    assert items.count() > 1
-
-An exact count: `expect(items).to_have_count(3)`. One check per meaning — a visibility expect
-plus a count assert on the same locator verifies one fact twice.
-
-## Immediate reads with plain asserts
-
-    assert locator.count() >= 1
-    assert "Dashboard" in page.title()
-    assert "/dashboard" in page.url
-
-## Dialogs
-
-    with page.expect_event("dialog") as info:
-        page.get_by_role("button", name="Delete").click()
-    dialog = info.value
-    dialog.type / dialog.message / dialog.default_value
-    dialog.accept() / dialog.dismiss() / dialog.accept("the answer")
-
-## Popups and new tabs
-
-    with page.expect_popup() as popup_info:
-        page.get_by_role("link", name="Open docs").click()
-    popup = popup_info.value
-    popup.bring_to_front()
-
-## Frames
-
-    frame = page.frame_locator("#checkout")
-    frame.get_by_role("button", name="Pay").click()
-
-## Scrolling
-
-    locator.scroll_into_view_if_needed()
-    page.mouse.wheel(0, 600)
-"""
 
 #: The local commands of the dialog — context services without an LLM request.
 _LOCAL_COMMANDS = frozenset({"snapshot", "screenshot", "error", "code"})
@@ -207,7 +113,7 @@ class StepSteering:
 
     def __init__(
         self,
-        config: Config,
+        config: PrettyConfig,
         provider: LLMProvider,
         cache: StepCache,
         reporter: StepReporter | None,
@@ -220,8 +126,8 @@ class StepSteering:
             provider: the LLM port implementation of the guided requests.
             cache: the store the healed step is written back to.
             reporter: the visibility point of the healed step; ``None`` — the
-                hook-less default reporter, so an omitted reporter never
-                breaks the healed-step report.
+                hook-less default reporter. The argument is required: pass None
+                explicitly to select that default.
         """
         self._config = config
         self._provider = provider
@@ -351,7 +257,7 @@ class StepSteering:
                     code,
                     attempt_history,
                 )
-            except (LLMUnavailableError, ComplianceVerdictError) as gate_failure:
+            except LLMUnavailableError as gate_failure:
                 print(f"compliance gate failed: {gate_failure}")
                 logger.warning(
                     "compliance gate failed",
@@ -369,7 +275,7 @@ class StepSteering:
             _medium_warning(prepared.instruction, findings)  # medium and low findings are visible, never blocking
 
             memory.publish(captures)  # publication rides the acceptance — after validation and the gate
-            return self._write_back(prepared.instruction, prepared.addressing_text, identity, code)
+            return self._write_back(prepared.addressing_text, identity, code)
 
     def _render_banner(self, failure: IncurableStepError, instruction: str, page: PageFacade) -> None:
         """Render the context banner of the dialog.
@@ -561,20 +467,19 @@ class StepSteering:
             snapshot=self._guarded_snapshot(page),
             page_url=self._guarded_url(page),
             screenshot=screenshot,
-            cheat_sheet=CHEAT_SHEET,
+            skill=load_skill("playwright"),
             attempt_history=[record.render() for record in attempt_history],
             recommendation=None,  # the verdict diagnosis is banner-only — the live guidance replaces it
             guidance=guidance,
         )
 
-    def _write_back(self, instruction: str, addressing_text: str, identity: StepIdentity, code: str) -> CachedStep:
+    def _write_back(self, addressing_text: str, identity: StepIdentity, code: str) -> CachedStep:
         """Write the proven guided step back to the cache and report it healed.
 
         Args:
-            instruction: the prepared instruction of the stuck step — the
-                healed event names it.
             addressing_text: the addressing text of the stuck step's render —
-                the metadata sentence field preserves it verbatim.
+                the ready layer the healed event names and the metadata
+                sentence field preserves verbatim.
             identity: the address of the stuck step.
             code: the step code that just worked on the live page.
 
@@ -589,7 +494,7 @@ class StepSteering:
         )
         stored = self._cache.save(step)
 
-        self._reporter.emit("on_healed", {"step_text": instruction, "explanation": _HEALED_EXPLANATION})
+        self._reporter.emit("on_healed", {"step_text": addressing_text, "explanation": _HEALED_EXPLANATION})
 
         if stored:
             print("step green — healed step written to the cache")

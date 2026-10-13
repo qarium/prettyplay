@@ -6,10 +6,10 @@ Domain: reading and writing the step cache. Audience: engineers inspecting cache
 
 ```python
 from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step_text
-from prettyplay.config import Config
+from prettyplay.config import PrettyConfig
 from prettyplay.reporting import StepReporter
 
-cache = StepCache(config=Config(), path="checkout", reporter=StepReporter(hooks=[]))
+cache = StepCache(config=PrettyConfig(), path="checkout", reporter=StepReporter(hooks=[]))
 addressing_text = "open the login page"
 identity = StepIdentity(
     cache_key="login-flow",

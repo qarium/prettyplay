@@ -15,7 +15,7 @@ from unittest import mock
 import pytest
 from openai import APIConnectionError
 from prettyplay.cache import RunBudgets, StepCache, StepIdentity
-from prettyplay.config import Config
+from prettyplay.config import PrettyConfig
 from prettyplay.engine import StepGenerator
 from prettyplay.engine.polling import SettleWindow
 from prettyplay.engine.renderer import PreparedStep, StepMemory
@@ -112,7 +112,7 @@ class TestTransportRetriesBudgetNeutrality:
         sdk_client = SimpleNamespace(
             chat=SimpleNamespace(completions=SimpleNamespace(create=mock.MagicMock(side_effect=create)))
         )
-        config = Config(cache_root=str(tmp_path), model="gpt-5", llm_request_attempts=2, generation_attempts=1)
+        config = PrettyConfig(cache_root=str(tmp_path), model="gpt-5", llm_request_attempts=2, generation_attempts=1)
         provider = OpenAIProvider(config)
         recorder = RecorderHook()
         reporter = StepReporter(hooks=[recorder])
@@ -183,7 +183,7 @@ class TestTransportRetriesBudgetNeutrality:
         sdk_client = SimpleNamespace(
             chat=SimpleNamespace(completions=SimpleNamespace(create=mock.MagicMock(side_effect=create)))
         )
-        config = Config(
+        config = PrettyConfig(
             cache_root=str(tmp_path),
             model="gpt-5",
             generation_prompt="Only navigate to the requested page.",

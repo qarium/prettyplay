@@ -1,6 +1,6 @@
 Imports:
   - Types:
-      - Config
+      - PrettyConfig
     From: prettyplay/config
   - Types:
       - StepReporter
@@ -95,7 +95,7 @@ Annotations: |
     "created_at -> str": |
       The creation date.
 
-"StepCache(config: Config, path: str | None, reporter: StepReporter | None)":
+"StepCache(config: PrettyConfig, path: str | None, reporter: StepReporter | None)":
   location: store.py
   annotations: |
     The repository store of cache steps: addressing, atomic writes, the read-only mode — and the per-test working-set lifecycle: the touched-address accumulation and the close-time sweep.

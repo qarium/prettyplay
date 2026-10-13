@@ -11,7 +11,7 @@ from typing import TypeVar, cast
 
 from playwright.sync_api import Browser, BrowserContext, Error, Page, Playwright, sync_playwright
 
-from ..config import Config
+from ..config import PrettyConfig
 from .page import PageFacade, _DialogRouter
 
 _T = TypeVar("_T")
@@ -138,7 +138,7 @@ class DriverSession:
         _worker: the thread owning the Playwright session; ``None`` until first start.
     """
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: PrettyConfig) -> None:
         """Keep the config; nothing is started yet.
 
         Args:
@@ -156,7 +156,9 @@ class DriverSession:
             The page handle of a fresh isolated context — the driver and the
             browser start lazily on the first call; the dialog router is
             registered before ``new_page()``: every page of the context,
-            popups included, registers exactly one handler.
+            popups included, registers exactly one handler. The
+            ``browser.timeout`` setting sets the page default action timeout
+            at creation — explicit on every page, in milliseconds.
 
         Raises:
             Error: the ``screen`` value names a device absent from the
@@ -181,6 +183,9 @@ class DriverSession:
             # registered before new_page: the first page fires the event and registers once
             context.on("page", lambda opened: opened.on("dialog", router.record))
             page = context.new_page()
+            # the configured baseline of the page default action timeout — explicit on
+            # every page; the probe bound of the engine loops restores to it
+            page.set_default_timeout(self._config.browser.timeout * 1000)
             return page, context, router
 
         page, context, router = worker.run(open_isolated)

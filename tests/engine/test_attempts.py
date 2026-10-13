@@ -9,6 +9,7 @@ from prettyplay.engine.attempts import (
     OUTCOME_EXECUTION_FAILED,
     OUTCOME_FAILED_CHECK,
     OUTCOME_ORIGINAL,
+    OUTCOME_PREFLIGHT_BLOCKED,
     OUTCOME_REJECTED,
     _read_url,
 )
@@ -63,6 +64,7 @@ class TestStepAttemptContract:
         assert OUTCOME_FAILED_CHECK == "failed check"
         assert OUTCOME_EXECUTION_FAILED == "execution failed"
         assert OUTCOME_COMPLIANCE_BLOCKED == "compliance blocked"
+        assert OUTCOME_PREFLIGHT_BLOCKED == "preflight blocked"
         assert OUTCOME_REJECTED == "rejected by the engineer, not executed"
 
 

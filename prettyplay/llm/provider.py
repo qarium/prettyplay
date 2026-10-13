@@ -1,6 +1,6 @@
 """The unified LLM port of the library and the provider factory."""
 
-from ..config import Config
+from ..config import PrettyConfig
 from .models import ComplianceFinding, FailureClassification, GroupFailureClassification, ScenarioStep
 
 
@@ -20,7 +20,7 @@ class LLMProvider:
         snapshot: str,
         page_url: str | None,
         screenshot: bytes | None,
-        cheat_sheet: str,
+        skill: str,
         attempt_history: list[str],
         recommendation: str | None,
         guidance: str | None,
@@ -72,8 +72,9 @@ class LLMProvider:
                 the engine and steering generation paths.
             screenshot: an optional PNG image of the page; passed only when
                 the project enables screenshots.
-            cheat_sheet: the compact standard Playwright sync API reference
-                supplied by the calling engine — rendered as the CHEAT SHEET
+            skill: the packaged Playwright skill — battle-tested idioms and
+                failure-avoidance patterns
+                supplied by the calling engine — rendered as the PLAYWRIGHT SKILL
                 block after the scenario inputs of the user content,
                 identically in both implementations; guidance, not an
                 allowlist — everything standard stays allowed.
@@ -252,7 +253,7 @@ class LLMProvider:
         raise NotImplementedError("LLMProvider is a port; use create_provider() to select an implementation")
 
 
-def create_provider(config: Config) -> LLMProvider:
+def create_provider(config: PrettyConfig) -> LLMProvider:
     """Select and construct the LLM provider from configuration — the implementations are interchangeable.
 
     Args:

@@ -14,6 +14,7 @@ base_url = ""
 cache_root = ""            # empty -> <cwd>/.prettyplay/cache/
 generation_attempts = 3
 healing_attempts = 2
+probe_timeout = 0          # candidate probe bound, seconds; 0 -> off (the page default applies)
 llm_request_attempts = 3  # total sends per LLM request; 1 disables request retries
 send_screenshots = false
 strict = false             # replay-only mode; default false
@@ -31,6 +32,7 @@ headless = true            # false — run with a visible window
 endpoint = ""              # ws endpoint of a remote browser; empty -> local launch
 accept_dialogs = false     # true — accept (else dismiss) dialogs no in-step capture claims, at the run-unit tail
 speed = 100            # pace of the run: 0–100 %, 100 — full speed (default)
+timeout = 30           # page default action timeout, seconds; explicitly applied at page creation; 0 disables the timeout, not auto-wait
 ```
 
 ## Environment overrides
@@ -46,6 +48,7 @@ Every setting has an override for CI — env variable PRETTYPLAY_<SETTING> in up
 | browser.endpoint | PRETTYPLAY_BROWSER_ENDPOINT |
 | browser.accept_dialogs | PRETTYPLAY_BROWSER_ACCEPT_DIALOGS |
 | browser.speed | PRETTYPLAY_BROWSER_SPEED |
+| browser.timeout | PRETTYPLAY_BROWSER_TIMEOUT |
 | model | PRETTYPLAY_MODEL |
 | generation_model | PRETTYPLAY_GENERATION_MODEL |
 | classification_model | PRETTYPLAY_CLASSIFICATION_MODEL |
@@ -53,6 +56,7 @@ Every setting has an override for CI — env variable PRETTYPLAY_<SETTING> in up
 | cache_root | PRETTYPLAY_CACHE_ROOT |
 | generation_attempts | PRETTYPLAY_GENERATION_ATTEMPTS |
 | healing_attempts | PRETTYPLAY_HEALING_ATTEMPTS |
+| probe_timeout | PRETTYPLAY_PROBE_TIMEOUT |
 | llm_request_attempts | PRETTYPLAY_LLM_REQUEST_ATTEMPTS |
 | send_screenshots | PRETTYPLAY_SEND_SCREENSHOTS |
 | strict | PRETTYPLAY_STRICT |
@@ -120,8 +124,8 @@ test = PrettyPlay(
 
 - `1` disables request retries — fully the old single-send behavior
 - a value below `1` fails loudly at configuration load — never a silent ignore
-- the retry delays are fixed policy (1–10 s with jitter and the Retry-After rule) — not
-  configurable; only the attempt count is
+- the retry delays are fixed policy (1–10 s with jitter; a Retry-After above 10 s terminates
+  the request instead of waiting) — not configurable; only the attempt count is
 
 ## Pace
 
@@ -143,6 +147,34 @@ test = PrettyPlay(
   (local headed, local headless, remote connect); replays and strict runs take it identically
 - An out-of-range or malformed value fails at configuration load — the error names the setting,
   the received value and the allowed range; never a silent ignore
+
+## Page action timeout and the probe bound
+
+`timeout` of the browser group (seconds, int or float, default 30) is the default action timeout
+of the page — explicitly applied at the creation of every page; the default 30 mirrors the
+Playwright library default made visible, 0 disables the timeout without disabling auto-wait: an unready action can wait indefinitely. It is the baseline every probe restores to: a positive
+`probe_timeout` setting (seconds, int or float, default 0) shortens the default action timeout
+of every candidate execution inside the generation and healing loops — a wrong locator fails in
+the probe bound instead of burning the page default — and after every candidate the page default
+restores to the configured baseline.
+
+```python
+from prettyplay import BrowserConfig, PrettyConfig, PrettyPlay
+
+test = PrettyPlay(
+    cache_key="demo",
+    config=PrettyConfig(
+        probe_timeout=3,  # candidates fail fast on a wrong locator
+        browser=BrowserConfig(timeout=60),  # the page baseline every probe restores to
+    ),
+)
+```
+
+- Replayed cached code and steering always run under the baseline — a probe never leaks its
+  bound onto later executions
+- Navigations keep their own default timeout — neither setting touches `set_default_navigation_timeout`
+- Negative or non-finite values of either setting fail at configuration load — the error names
+  the setting, the received value and the allowed range; never a silent ignore
 
 ## Interactive steering
 

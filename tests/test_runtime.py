@@ -6,7 +6,7 @@ from unittest import mock
 import pytest
 from prettyplay import PrettyplayRuntime
 from prettyplay.cache import RunBudgets, StepIdentity
-from prettyplay.config import Config
+from prettyplay.config import PrettyConfig
 from prettyplay.driver import DriverSession
 
 
@@ -40,7 +40,7 @@ class TestPrettyplayRuntime:
             mock.patch("prettyplay.runtime.create_provider") as create_provider_mock,
             mock.patch("prettyplay.runtime.DriverSession") as driver_session_mock,
         ):
-            runtime = PrettyplayRuntime(Config(model="gpt-5"))
+            runtime = PrettyplayRuntime(PrettyConfig(model="gpt-5"))
 
             config = runtime.config
             budgets = runtime.budgets
@@ -51,7 +51,7 @@ class TestPrettyplayRuntime:
         driver_session_mock.assert_not_called()
 
     def test_runtime_registers_own_atexit_close(self) -> None:
-        config = Config(model="gpt-5")
+        config = PrettyConfig(model="gpt-5")
 
         with mock.patch("prettyplay.runtime.atexit.register") as register_mock:
             runtime1 = PrettyplayRuntime(config)
@@ -63,7 +63,7 @@ class TestPrettyplayRuntime:
         assert runtime2.close in registered
 
     def test_close_unregisters_own_atexit_hook(self) -> None:
-        runtime = PrettyplayRuntime(Config())
+        runtime = PrettyplayRuntime(PrettyConfig())
 
         with mock.patch("prettyplay.runtime.atexit.unregister") as unregister_mock:
             runtime.close()
@@ -71,7 +71,7 @@ class TestPrettyplayRuntime:
         unregister_mock.assert_called_once_with(runtime.close)  # closed runtime no longer pinned until process exit
 
     def test_driver_started_after_close_rearms_atexit_hook(self) -> None:
-        runtime = PrettyplayRuntime(Config())
+        runtime = PrettyplayRuntime(PrettyConfig())
 
         with (
             mock.patch("prettyplay.runtime.atexit.register") as register_mock,
@@ -86,12 +86,12 @@ class TestPrettyplayRuntime:
         assert register_mock.call_count == 1  # restarted driver re-registers its exit shutdown
 
     def test_close_before_open_page_is_noop(self) -> None:
-        runtime = PrettyplayRuntime(Config())
+        runtime = PrettyplayRuntime(PrettyConfig())
 
         runtime.close()
 
     def test_budgets_carry_config_limits(self) -> None:
-        runtime = PrettyplayRuntime(Config())
+        runtime = PrettyplayRuntime(PrettyConfig())
         identity = StepIdentity(cache_key="k", step_type="action", normalized_text="шаг")
 
         assert isinstance(runtime.budgets, RunBudgets)
@@ -99,7 +99,7 @@ class TestPrettyplayRuntime:
         assert [runtime.budgets.try_healing(identity) for _ in range(3)] == [True, True, False]
 
     def test_reused_step_gets_fresh_budget_per_test(self) -> None:
-        config = Config(generation_attempts=1, healing_attempts=1)
+        config = PrettyConfig(generation_attempts=1, healing_attempts=1)
         identity = StepIdentity(cache_key="k", step_type="action", normalized_text="шаг")
         first = PrettyplayRuntime(config)
         second = PrettyplayRuntime(config)
@@ -110,7 +110,7 @@ class TestPrettyplayRuntime:
         assert second.budgets.try_generation(identity) is True
 
     def test_driver_is_lazy_and_memoized(self) -> None:
-        runtime = PrettyplayRuntime(Config())
+        runtime = PrettyplayRuntime(PrettyConfig())
 
         assert runtime._driver is None
 
@@ -120,7 +120,7 @@ class TestPrettyplayRuntime:
         assert runtime.driver is driver
 
     def test_provider_is_lazy_and_memoized(self) -> None:
-        runtime = PrettyplayRuntime(Config(provider="anthropic", model="claude-sonnet-4-5"))
+        runtime = PrettyplayRuntime(PrettyConfig(provider="anthropic", model="claude-sonnet-4-5"))
 
         with mock.patch("prettyplay.runtime.create_provider") as create_provider_mock:
             provider = runtime.provider
@@ -131,7 +131,7 @@ class TestPrettyplayRuntime:
         assert provider is create_provider_mock.return_value
 
     def test_open_page_delegates_to_driver(self) -> None:
-        runtime = PrettyplayRuntime(Config())
+        runtime = PrettyplayRuntime(PrettyConfig())
 
         with mock.patch("prettyplay.runtime.DriverSession") as driver_session_mock:
             page = runtime.open_page()
@@ -141,7 +141,7 @@ class TestPrettyplayRuntime:
         assert page is driver_session_mock.return_value.open_context.return_value
 
     def test_close_stops_started_driver(self) -> None:
-        runtime = PrettyplayRuntime(Config())
+        runtime = PrettyplayRuntime(PrettyConfig())
 
         with mock.patch("prettyplay.runtime.DriverSession") as driver_session_mock:
             runtime.open_page()

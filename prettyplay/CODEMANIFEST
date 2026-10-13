@@ -1,6 +1,6 @@
 Imports:
   - Types:
-      - Config AS PrettyConfig
+      - PrettyConfig
       - BrowserConfig
       - load_config
     From: prettyplay/config
@@ -14,7 +14,6 @@ Imports:
       - ProductDefectError
       - IncurableStepError
       - LLMUnavailableError
-      - ComplianceVerdictError
       - PrettyplayError
       - FailureVerdict
     Usages:
@@ -92,13 +91,13 @@ Annotations: |
   The group pace and pauses are library-level behavior around steps: the pauses between the group's steps follow the same percent→ms mapping as the browser speed setting — never slow_mo, which cannot change mid-run.
   Honest inputs thread end to end through the executor: the addressing text of the render product establishes the cache identity; the raw sentence is the render and re-render source; the prepared instruction, input bindings, declarations and scenario instruction fields reach engine and LLM requests. The per-step attempt history remains anchored by the original cached code on failed replay.
   Use `rendering`, `memory` and `validation` from Imports for the render point, the test memory and the result acceptance of the executor.
-  The render point lives in the executor: every step — facade or group — is prepared through `render_step` from Imports before its cycle; authoring errors (a duplicate capture declaration, the reserved name vars, an invalid capture name, a capture tag in an expect, an unavailable name) raise the loud actionable `PrettyplayError` before any browser execution; memory and vars stay separate namespaces.
+  The render point lives in the executor: every step — facade or group — is prepared through `render_step` from Imports before its cycle; authoring errors (a duplicate capture declaration, the reserved name vars, an invalid capture name, a capture tag in an expect, an unavailable name) raise the loud actionable `PrettyplayError` before any step-code execution; the facade resolves or opens the test page before entering the executor render; memory and vars stay separate namespaces.
   The memory of the test lives in the executor: one `StepMemory` from Imports per test execution; rendering reads its snapshot; validated captures publish after full acceptance — the executor publishes the validated result of a cached replay, the engines publish at their acceptance points; navigation never discards memory; memory never crosses tests.
   The authoring surface: step and expect accept the keyword-only retry count, start pause and the string input mapping vars; non-string values of vars raise the loud actionable `PrettyplayError` naming the parameter, the received value and the allowed form; sentences render to prepared instructions every request carries, and their rendered form — the addressing text — addresses the cache.
   The scenario records carry both texts: the raw sentence and the prepared instruction (what requests render); failures carry the prepared instruction; the addressing text — the second render product — addresses the cache and takes no part in requests.
   The cache lifecycle lives on the facade: the keyword-only cleanup constructor parameter — default True — makes close() delete the untouched step files of this test's cache key in its cache scope; cleanup=False keeps every file, the persistence mode of the committed-cache workflow. There is no config, env or pyproject surface for the switch.
   The interactive gate lives in the executor: the steering dialog opens exactly at a caught IncurableStepError on a non-strict interactive run — never on product_defect, never in replay-strict, never when the LLM is unavailable; the dialog receives the same anchored history, the prepared render product and the step type, and continues growing it.
-  The author escape hatch: run_on_page executes an author callable wholly inside the driver worker thread with the genuine sync Page — the stateful actions excluded from generated code (page.route, page.clock, add_init_script, tracing, HAR, CDP) are performed by the author explicitly; Playwright objects never cross back to the calling thread — the callable returns plain data.
+  The author escape hatch: run_on_page executes an author callable wholly inside the driver worker thread with the genuine sync Page — the stateful actions excluded from generated code (page.clock, add_init_script, tracing, HAR, CDP; the bounded exception: page.route paired with page.unroute inside the same step — gated deterministically by the pre-flight check of the engine) are performed by the author explicitly; Playwright objects never cross back to the calling thread — the callable returns plain data.
 
 ---
 
@@ -128,7 +127,7 @@ Annotations: |
     4. Construct the per-test `StepCache` from the runtime config, `cache_path` and the reporter
     5. Construct `StepGenerator`, `StepHealer` and `StepSteering` from the runtime config, provider, budgets, the step cache and the reporter; construct `GroupRecovery` from the runtime config, provider, budgets, the step cache, the generator and the reporter
     6. Construct `StepExecutor` with `cache_key`, the cache, the engines, the steering, the recovery engine, the runtime budgets, the reporter, the runtime config and the runtime provider
-    7. The test page opens lazily on the first step via the runtime open_page
+    7. The facade resolves the test page before calling the executor on each step or expect; a missing page opens lazily via the runtime open_page before template rendering. The group delegate follows the same order after its group-level pauses
 
     Requirements:
     - Construction is cheap: the browser starts lazily on the first step; no LLM credentials are required to construct
@@ -145,13 +144,13 @@ Annotations: |
       `delay`: keyword-only — the quiet pre-step pause in seconds, non-negative, fractional allowed; a negative or malformed value raises the same loud error.
       `vars`: keyword-only — the call-local string inputs; every value must be a str, otherwise the loud actionable `PrettyplayError` naming the parameter, the received value and the allowed form; a separate namespace from memory — `{{ name }}` reads memory, `{{ vars.name }}` reads the input; call inputs never establish memory.
 
-      Delegates to the executor execute with the step type action, the sentence, `vars` and the test page; failures propagate by kind — `ProductDefectError`, `IncurableStepError`, `LLMUnavailableError`, `ComplianceVerdictError` (see `taxonomy`); authoring errors of the template surface as the loud actionable `PrettyplayError` before any browser execution.
+      Delegates to the executor execute with the step type action, the sentence, `vars` and the test page; failures propagate by kind — `ProductDefectError`, `IncurableStepError`, `LLMUnavailableError` (see `taxonomy`); the compliance gate owns its unparsable verdicts — a malformed verdict degrades to the loud unchecked pass inside the engine and never reaches this boundary; authoring errors of the template surface as the loud actionable `PrettyplayError` before any step-code execution; the facade resolves or opens the test page before entering the executor render.
       A `PrettyplayError` leaving this method carries its traceback folded to the library boundary — the existing guarantee preserved verbatim.
     "expect(text: str, tries: int | None, delay: float | None, vars: dict[str, str] | None)": |
       Execute the assertion step `text` — a legitimately failed expectation surfaces as the product defect failure.
 
       (the same keyword-only `tries`, `delay` and `vars` parameters and the same validation as step)
-      Delegates to the executor execute with the step type assertion; capture declarations in the sentence are authoring errors raised by the render before any browser execution; failures propagate by kind (see `taxonomy`); the traceback folding guarantee is preserved verbatim.
+      Delegates to the executor execute with the step type assertion; capture declarations in the sentence are authoring errors raised by the render before any step-code execution; the facade resolves or opens the test page before entering the executor render; failures propagate by kind (see `taxonomy`); the traceback folding guarantee is preserved verbatim.
     "group(prompt: str, speed: int | None, delay: float | None) -> g: StepGroup": |
       Open the group authoring block — one coherent mini-scenario with a shared goal.
 
@@ -162,7 +161,7 @@ Annotations: |
     "run_on_page(action: Callable[[Page], T]) -> result: T": |
       Execute the author action wholly inside the driver worker thread against the genuine sync Page of the test — the author escape hatch.
 
-      `action`: the callable to execute; receives the genuine sync Page — the stateful actions excluded from generated code (page.route, page.clock, add_init_script, tracing, HAR, CDP) are the author's explicit tools here.
+      `action`: the callable to execute; receives the genuine sync Page — the stateful actions excluded from generated code (page.clock, add_init_script, tracing, HAR, CDP; generated code allows the one bounded exception: page.route paired with page.unroute inside the same step) are the author's explicit tools here.
       `result`: the outcome of `action` as-is — plain data only.
 
       Algorithm:
@@ -200,7 +199,7 @@ Annotations: |
 
       Algorithm:
       1. Stop the runtime teardown as today — idempotent
-      2. When cleanup is on, run the cache sweep with this test's cache_key — best-effort, guarded: any unexpected sweep error is caught and logged, never raised, never masking the teardown; a repeated close sweeps again and deletes nothing new; deletions are log records
+      2. When cleanup is on, run the cache sweep with this test's cache_key — best-effort, guarded: any unexpected sweep error is caught and logged, never raised, never masking the teardown; a repeated close sweeps again and deletes nothing new; deletions are log records; an unexpected sweep failure keeps its WARNING message and traceback while attaching event cache_sweep_failed and the cleanup flag
 
 "StepGroup(prompt: str, speed: int | None, delay: float | None, executor: StepExecutor, reporter: StepReporter)":
   location: groups.py
@@ -265,6 +264,9 @@ Annotations: |
     `config`: the effective settings of the test — the source of the strict switch.
     `provider`: the LLM port of the test — the source of the strict-path classification.
     A classification reached on the strict path is carried by the raised terminal failure as a `FailureVerdict`.
+  properties:
+    "cache_key -> str": |
+      The context key supplied at construction, used for step cache addressing.
   methods:
     "execute(step_text: str, step_type: str, page: PageFacade, group: StepGroup | None, tries: int | None, delay: float | None, vars: dict[str, str] | None)": |
       Run one step through the full cycle.
@@ -272,21 +274,23 @@ Annotations: |
       `vars`: the validated call-local string inputs — passed by the facade/group methods; rendered into the step's `PreparedStep`, never published to memory.
 
       Algorithm:
-      1. Report on_step_started with the sentence and the step type; a declared `delay` passes quietly — the step's started event fires, the declared seconds pass, then the step's code runs; a step never reached after a terminal failure never pauses
-      2. Render through `render_step` from Imports — a snapshot of the test memory plus `vars` produces the `PreparedStep` with the instruction and the addressing text; authoring errors raise the loud actionable `PrettyplayError` — identity untouched, browser untouched. Build the step identity from the render product's addressing text: `normalize_step_text` on the addressing text, then `StepIdentity` with the test cache key and the step type; create a `SettleWindow` of this step execution from the polling settings of the effective config and the declared `tries` — a declared count switches the window to the count-bounded mode; create the per-step attempt history — an empty `StepAttempt` record list
+      1. A declared `delay` passes quietly first; render through `render_step` from Imports, then report on_step_started with the ready layer — the render product's addressing text, values embedded and capture tags kept — and the step type; a render that never succeeded (an authoring error) reports on_step_started with the authored template, the only layer that exists; a step never reached after a terminal failure never pauses
+      2. Render through `render_step` from Imports — a snapshot of the test memory plus `vars` produces the `PreparedStep` with the instruction and the addressing text; authoring errors raise the loud actionable `PrettyplayError` — identity untouched and no step code executed; the caller has already resolved or opened the test page, so a page-open failure can precede rendering. Build the step identity from the render product's addressing text: `normalize_step_text` on the addressing text, then `StepIdentity` with the test cache key and the step type; create a `SettleWindow` of this step execution from the polling settings of the effective config and the declared `tries` — a declared count switches the window to the count-bounded mode; create the per-step attempt history — an empty `StepAttempt` record list
       3. Load the cached step. Strict mode and a miss: raise `IncurableStepError` — the reason states that strict mode forbids generation and names the cache miss, the error field empty, the verdict absent; no generation request is made, no budget consumed. A hit: read the page URL, execute its code under the settle window — `settle` with `run_step_code` returning the step's result, `page` and the window; read the page URL again — the pair brackets the replay. Validate the result through `validate_step_result` from Imports: valid captures — publish through the test `StepMemory` (the gate never runs on replay — acceptance is the validated successful execution); a violation enters the failed-check paths of step 4
       4. On a hit execution failure. Strict mode — classification only: classify via `classify_step_failure` passing the prepared instruction and the full underlying error; a product_defect classification raises `ProductDefectError` carrying the verdict and the full underlying error; a rot, fixable or incurable classification raises `IncurableStepError` carrying them — the reason names the classification explanation; both authored colon-free; never regenerated: the healer is not invoked, the healing budget stays untouched, on_healing_started never fires; an unavailable LLM at this classification is skipped quietly with a WARNING and the failure raises immediately by step type without a verdict — colon-free. Otherwise, a group step (a non-null `group`): delegate to the recovery engine recover with the group prompt, the traces of `group`, the prepared step render product, the step type, the scenario context, the identity, the anchored history, the window and the memory — instead of the healer; a recovered step continues as success. Otherwise: seed the attempt history with record 0 — a `StepAttempt` of outcome original cached code carrying the cached code, the full replay error formatted by `format_step_error` and the URL pair of the replay — then delegate to the healer heal with the prepared render product, the step type, the scenario context, the anchored history, the window and the memory — a healed step is already re-executed, stored and published by the engine
       5. Otherwise on a miss: the generator generate with the window, the prepared render product, the step type, the group prompt as the framing input for a group step, the empty attempt history and the memory — the engine stores the step and publishes the accepted captures on success; the group-step generation failures arrive unclassified (the engine suppresses its classification points) and route to the recovery
       6. Steering intercept — wrap the engine paths of steps 4 and 5: a group step's `IncurableStepError` reaches the recovery first on a non-strict run; steering remains the terminal gate for the still-terminal failure — the dialog receives the group context; a raised `IncurableStepError` on a non-strict interactive run goes to the steering steer with the failure, the identity, the prepared render product, the step type, the group prompt, the scenario context, the anchored attempt history, the memory and `page` before it propagates; a healed return continues as success — the cache write-back and the capture publication already happened inside the dialog; None — the original failure propagates unchanged. The intercept never triggers on `ProductDefectError`, on `LLMUnavailableError`, in strict mode or when interactive is off
       7. Append the `ScenarioStep` record — the raw sentence, the prepared instruction, plus the group prompt of `group` when inside one, permanent for the test — the previous steps feed the next generation and the row regeneration of the group recovery
-      8. Report on_step_passed; on a failed step report on_step_failed with the sentence, the step type and the full render — the rendered message of the raised error, never re-composed; then, when the terminal failure carries a verdict, report on_step_verdict with the sentence and the three verdict fields taken from the verdict object; finally raise by kind — `ProductDefectError`, `IncurableStepError`, `LLMUnavailableError`, `ComplianceVerdictError` (see `taxonomy`)
-      9. Report on_step_finished with the sentence, the step type and the outcome — passed or failed — exactly once at the very end of every step, after every other event, regardless of outcome
+      8. Report on_step_passed; on a failed step report on_step_failed with the ready layer, the step type and the full render — the rendered message of the raised error, never re-composed; then, when the terminal failure carries a verdict, report on_step_verdict with the ready layer and the three verdict fields taken from the verdict object; finally raise by kind — `ProductDefectError`, `IncurableStepError`, `LLMUnavailableError` (see `taxonomy`) — a malformed compliance verdict never reaches this boundary: the engine gate owns its one bounded re-ask and the degraded unchecked pass
+      9. Report on_step_finished with the ready layer, the step type and the outcome — passed or failed — exactly once at the very end of every step, after every other event, regardless of outcome
 
       Requirements:
       - The scenario context lives per test: steps of different tests never mix
-      - The pre-step pause is quiet — elapsed time, no output noise; uniform for the first step of a test, every following step and every re-execution inside a recovery row — the recovery applies the row step's declared delay
+      - The pre-step pause is quiet — elapsed time, no output noise; it passes before the render and the started event; uniform for the first step of a test, every following step and every re-execution inside a recovery row — the recovery applies the row step's declared delay
+      - The lifecycle events address the ready layer — the rendered sentence with values embedded and capture tags kept (the addressing text); hooks never see the authored template unless the render itself failed
       - The scenario context lives per test as typed records; group membership is permanent once recorded
       - A cached step executes with no LLM involvement whatsoever
+      - The replay observability lines — log-only, never hook events: a cache-hit step logs the saves into line (the comma-joined declared result names, exactly when the step declares captures) and its complete code under the cached code (replay) heading at INFO; the validated acceptance of a capturing replay logs the captured line (every published name = value pair) — the same records the engine loops emit for candidates; these unchanged human-readable messages also carry stable event identifiers and structured fields: step_results_declared (step_text, declarations), step_cached_code (step_text, code), step_captured (step_text, captures); step_text is the addressing text, declarations is a tuple and captures is a copied snapshot
       - An assertion step surfaces a legitimately failed expectation as the product defect failure
       - Strict mode: the only LLM calls are classifications; the generation and healing budgets are never consumed; the engines are never invoked; the settle window still applies to the cached code
       - The addressing text of the render product builds the step address; the prepared instruction reaches every engine call; the verbatim NFC+trim normalization is an addressing key only

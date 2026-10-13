@@ -4,7 +4,7 @@ import logging
 import time
 
 from ...cache import CachedStep, RunBudgets, StepCache, StepIdentity, normalize_step_text
-from ...config import Config
+from ...config import PrettyConfig
 from ...driver import PageFacade
 from ...failures import FailureVerdict, IncurableStepError, ProductDefectError
 from ...llm import GroupFailureClassification, LLMProvider, ScenarioStep
@@ -101,7 +101,7 @@ class GroupRecovery:
 
     def __init__(  # noqa: PLR0913, PLR0917 — the signature is fixed by the groups cell contract
         self,
-        config: Config,
+        config: PrettyConfig,
         provider: LLMProvider,
         generator: StepGenerator,
         cache: StepCache,
@@ -329,8 +329,6 @@ class GroupRecovery:
                 that step's failure, loud, never silently skipped.
             LLMUnavailableError: the provider service failed after the
                 bounded transport retries; no engine retry.
-            ComplianceVerdictError: the compliance verdict of a green row
-                candidate did not parse; nothing is cached.
         """
         healed: CachedStep | None = None
 
@@ -356,7 +354,7 @@ class GroupRecovery:
             row_history = active.history if occurrence == active.occurrence else self._anchored_history(trace)
             row_window = SettleWindow(self._config.polling_timeout, self._config.polling_delay, trace.tries)
 
-            self._reporter.emit("on_healing_started", {"step_text": fresh.instruction, "category": "recoverable"})
+            self._reporter.emit("on_healing_started", {"step_text": fresh.addressing_text, "category": "recoverable"})
             try:
                 healed = self._generator.regenerate(
                     identity=fresh_identity,
@@ -393,7 +391,7 @@ class GroupRecovery:
                     update={"instruction": fresh.instruction}
                 )
 
-            self._reporter.emit("on_healed", {"step_text": fresh.instruction, "explanation": verdict.root_cause})
+            self._reporter.emit("on_healed", {"step_text": fresh.addressing_text, "explanation": verdict.root_cause})
             logger.info(
                 "group_row_recovered",
                 extra={"group": group_prompt, "step": fresh.instruction, "earliest": verdict.earliest_step},

@@ -11,7 +11,7 @@ import pytest
 from playwright.sync_api import Error as PlaywrightError
 from prettyplay import StepExecutor
 from prettyplay.cache import CachedStep, RunBudgets, StepCache, StepIdentity, normalize_step_text
-from prettyplay.config import Config
+from prettyplay.config import PrettyConfig
 from prettyplay.engine import StepAttempt
 from prettyplay.engine.attempts import OUTCOME_ORIGINAL
 from prettyplay.engine.groups import GroupStepOutcome
@@ -32,6 +32,7 @@ BROKEN_CODE = "def step(page) -> None:\n    page.get_by_role('button', name='В�
 CAPTURING_CODE = 'def step(page):\n    return {"name": "Dune"}\n'
 BLANK_CODE = 'def step(page):\n    return {"name": ""}\n'
 TEMPLATE_STEP = "Read {{ kind }} into {% var name %}"
+READY_STEP = "Read novel into {% var name %}"  # the same sentence rendered — the value embedded, the capture tag kept
 
 
 class FakePage:
@@ -331,7 +332,7 @@ class ScriptedProvider(LLMProvider):
         snapshot: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
-        cheat_sheet: str = "",
+        skill: str = "",
         attempt_history: list[str] | None = None,
         recommendation: str | None = None,
         guidance: str | None = None,
@@ -373,7 +374,7 @@ class UnavailableProvider(LLMProvider):
         snapshot: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
-        cheat_sheet: str = "",
+        skill: str = "",
         attempt_history: list[str] | None = None,
         recommendation: str | None = None,
         guidance: str | None = None,
@@ -412,7 +413,7 @@ class CrashingProvider(LLMProvider):
         snapshot: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
-        cheat_sheet: str = "",
+        skill: str = "",
         attempt_history: list[str] | None = None,
         recommendation: str | None = None,
         guidance: str | None = None,
@@ -493,7 +494,7 @@ class ExecutorFixture:
         generator: object,
         healer: object,
         cache_key: str = "login-flow",
-        config: Config | None = None,
+        config: PrettyConfig | None = None,
         provider: LLMProvider | None = None,
         steering: object | None = None,
         recovery: object | None = None,
@@ -501,7 +502,7 @@ class ExecutorFixture:
     ) -> None:
         self.recorder = RecorderHook()
         self.reporter = StepReporter(hooks=[self.recorder])
-        self.config = config if config is not None else Config(cache_root=str(tmp_path))
+        self.config = config if config is not None else PrettyConfig(cache_root=str(tmp_path))
         self.cache = StepCache(self.config, None, self.reporter)
         self.budgets = budgets if budgets is not None else RunBudgets(3, 2)
         self.generator = generator
@@ -564,7 +565,7 @@ def strict_fixture(
         tmp_path,
         generator,
         healer,
-        config=Config(cache_root=str(tmp_path), strict=True),
+        config=PrettyConfig(cache_root=str(tmp_path), strict=True),
         provider=provider,
         recovery=recovery,
     )
@@ -1241,6 +1242,9 @@ class TestStepExecutorStrictMode:
         assert not events_named(fixture.recorder, "on_step_verdict")
         skipped = [record for record in caplog.records if record.levelno == logging.WARNING]
         assert [record.message for record in skipped] == ["verdict skipped: llm unavailable"]
+        assert skipped[0].event == "verdict_skipped"
+        assert skipped[0].instruction == "нажать Войти"
+        assert skipped[0].reason == "llm_unavailable"
         assert provider.generation_calls == 0
 
     def test_incurable_fallback_verdict_never_fires_the_event(self, tmp_path: Path) -> None:
@@ -1333,9 +1337,9 @@ class TestStepExecutorRenderAndMemory:
         assert fixture.provider.classification_calls == 0  # no LLM calls whatsoever
         assert gate.call_count == 0  # the gate never runs on replay
         assert events_named(fixture.recorder, "on_step_started") == [
-            {"step_text": TEMPLATE_STEP, "step_type": "action"}
-        ]  # the hook surface carries the raw sentence
-        assert events_named(fixture.recorder, "on_step_passed") == [{"step_text": TEMPLATE_STEP, "step_type": "action"}]
+            {"step_text": READY_STEP, "step_type": "action"}
+        ]  # the hook surface carries the ready layer — values embedded, capture tags kept
+        assert events_named(fixture.recorder, "on_step_passed") == [{"step_text": READY_STEP, "step_type": "action"}]
 
     def test_executor_strict_template_step_validates_and_publishes_on_replay(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1414,6 +1418,23 @@ class TestStepExecutorRenderAndMemory:
         assert load.call_count == 0  # the authoring error precedes cache access — the address is never built
         assert fixture.executor._memory.snapshot() == {}  # nothing rendered in, nothing published
 
+    def test_authoring_error_events_carry_the_authored_template(self, tmp_path: Path) -> None:
+        """A render that never succeeded has one layer only — the authored template carries the events."""
+        fixture = ExecutorFixture(tmp_path, RecordingGenerator(), RecordingHealer())
+
+        with pytest.raises(PrettyplayError, match="missing"):
+            fixture.executor.execute("Open {{ missing }}", "action", FakePage())
+
+        assert events_named(fixture.recorder, "on_step_started") == [
+            {"step_text": "Open {{ missing }}", "step_type": "action"}
+        ]
+        failed = events_named(fixture.recorder, "on_step_failed")
+        assert len(failed) == 1
+        assert failed[0]["step_text"] == "Open {{ missing }}"
+        assert events_named(fixture.recorder, "on_step_finished") == [
+            {"step_text": "Open {{ missing }}", "step_type": "action", "outcome": "failed"}
+        ]
+
     def test_executor_renders_exactly_once_per_step_execution(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1462,7 +1483,7 @@ def interactive_fixture(  # noqa: PLR0913, PLR0917 — the assembly inputs of th
         tmp_path,
         generator,
         healer,
-        config=Config(cache_root=str(tmp_path), strict=False, interactive=True, polling_timeout=None),
+        config=PrettyConfig(cache_root=str(tmp_path), strict=False, interactive=True, polling_timeout=None),
         provider=provider,
         steering=steering,
         budgets=budgets,
@@ -1615,7 +1636,7 @@ class TestStepExecutorSteeringAndClosingEvent:
                 tmp_path,
                 RecordingGenerator(),
                 RecordingHealer(),
-                config=Config(cache_root=str(tmp_path), strict=True, interactive=True),
+                config=PrettyConfig(cache_root=str(tmp_path), strict=True, interactive=True),
                 provider=provider,
                 steering=steering,
             )
@@ -1711,7 +1732,7 @@ class TestStepExecutorSteeringAndClosingEvent:
             tmp_path,
             RecordingGenerator(),
             RecordingHealer(),
-            config=Config(cache_root=str(tmp_path), strict=True, polling_timeout=10.0, polling_delay=0),
+            config=PrettyConfig(cache_root=str(tmp_path), strict=True, polling_timeout=10.0, polling_delay=0),
             provider=provider,
         )
         seed_cached_step(fixture, "нажать Войти")
@@ -1745,7 +1766,7 @@ class TestStepExecutorSteeringAndClosingEvent:
             tmp_path,
             RecordingGenerator(),
             healer,
-            config=Config(cache_root=str(tmp_path), polling_timeout=10.0, polling_delay=0),
+            config=PrettyConfig(cache_root=str(tmp_path), polling_timeout=10.0, polling_delay=0),
         )
         seed_cached_step(fixture, "s")
         page = FakePage(ValueError("boom"))  # a Python-level error never polls — one execution, straight to the heal
@@ -1769,7 +1790,7 @@ class TestStepExecutorSteeringAndClosingEvent:
             tmp_path,
             RecordingGenerator(),
             RecordingHealer(),
-            config=Config(cache_root=str(tmp_path), polling_timeout=10.0, polling_delay=0),
+            config=PrettyConfig(cache_root=str(tmp_path), polling_timeout=10.0, polling_delay=0),
         )
         miss.executor.execute("другой шаг", "action", FakePage())  # a cache miss — the generator gets the window
 
@@ -1968,13 +1989,13 @@ class TestStepExecutorGroupCycle:
         assert provider.classification_calls == 1  # the classification is the only LLM call, as today
         assert group.traces == []  # the strict failure path never traces
 
-    def test_step_delay_pauses_quietly_after_started_event(
+    def test_step_delay_pauses_quietly_before_the_started_event(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """SC5: the declared delay passes quietly — the started event, the seconds, then the code runs."""
+        """SC5: the declared delay passes quietly — the seconds, the started event, then the code runs."""
         fixture = ExecutorFixture(tmp_path, RecordingGenerator(), RecordingHealer())
         identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="open the inbox")
         fixture.cache.save(
@@ -1996,16 +2017,52 @@ class TestStepExecutorGroupCycle:
             fixture.executor.execute("open the inbox", "action", page, group=None, tries=None, delay=1.5)
 
         assert recorded == [
+            ("sleep", 1.5),  # the only sleep — the pause sits before the render and the started event
             ("event", "on_step_started"),
-            ("sleep", 1.5),  # the only sleep — the pause sits between the started event and the code
             ("event", "on_step_passed"),
             ("event", "on_step_finished"),
         ]
         assert [record.msg for record in caplog.records] == [
             "on_step_started",
+            "cached code (replay):\n%s",
             "on_step_passed",
             "on_step_finished",
-        ]  # only the lifecycle events — the pause leaves no log record
+        ]  # the lifecycle events plus the code visibility record — the pause leaves no log record
+
+    def test_the_replay_observability_lines_of_a_capturing_step(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A capturing replay logs the saves into line, the cached code and the captured line."""
+        fixture = ExecutorFixture(tmp_path, RecordingGenerator(), RecordingHealer())
+        fixture.executor._memory.publish({"kind": "novel"})
+        seed_cached_step(fixture, TEMPLATE_STEP, code=CAPTURING_CODE)
+        page = FakePage()
+
+        with caplog.at_level(logging.INFO, logger="prettyplay"):
+            fixture.executor.execute(TEMPLATE_STEP, "action", page, vars=None)
+
+        assert [record.msg for record in caplog.records] == [
+            "on_step_started",
+            "saves into: %s",
+            "cached code (replay):\n%s",
+            "captured: %s",
+            "on_step_passed",
+            "on_step_finished",
+        ]  # the replay names its captures, its code and its observed values — log-only, never hook events
+        assert caplog.records[1].getMessage() == "saves into: name"  # exactly when the step declares captures
+        assert caplog.records[3].getMessage() == "captured: name = 'Dune'"
+
+        context_records = [caplog.records[index] for index in (1, 2, 3)]
+        assert [record.event for record in context_records] == [
+            "step_results_declared",
+            "step_cached_code",
+            "step_captured",
+        ]
+        assert all(record.step_text == "Read novel into {% var name %}" for record in context_records)
+        assert caplog.records[1].declarations == ("name",)
+        assert caplog.records[2].code == caplog.records[2].args[0]  # the loaded code, verbatim in both channels
+        assert caplog.records[2].code.startswith(CAPTURING_CODE)
+        assert caplog.records[3].captures == {"name": "Dune"}
 
     def test_tries_threads_into_the_cached_replay_and_generation_windows(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture

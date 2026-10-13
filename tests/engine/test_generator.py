@@ -11,7 +11,7 @@ import pytest
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from prettyplay.cache import RunBudgets, StepCache, StepIdentity, normalize_step_text
-from prettyplay.config import Config
+from prettyplay.config import BrowserConfig, PrettyConfig
 from prettyplay.engine import StepAttempt, StepGenerator
 from prettyplay.engine import generator as generator_module  # to verify the CLASSIFICATION_PROMPT move
 from prettyplay.engine.attempts import (
@@ -19,13 +19,15 @@ from prettyplay.engine.attempts import (
     OUTCOME_EXECUTION_FAILED,
     OUTCOME_FAILED_CHECK,
     OUTCOME_ORIGINAL,
+    OUTCOME_PREFLIGHT_BLOCKED,
 )
-from prettyplay.engine.generator import CHEAT_SHEET, SYSTEM_PROMPT
+from prettyplay.engine.generator import SYSTEM_PROMPT
 from prettyplay.engine.polling import SettleWindow
 from prettyplay.engine.renderer import PreparedStep, StepMemory
 from prettyplay.failures import ComplianceVerdictError, IncurableStepError, LLMUnavailableError, ProductDefectError
 from prettyplay.llm import ComplianceFinding, FailureClassification, ScenarioStep
 from prettyplay.reporting import StepHooks, StepReporter
+from prettyplay.skills import load_skill
 
 WORKING_CODE = "def step(page) -> None:\n    page.goto('https://example.com')\n"
 BROKEN_CODE = "def step(page) -> None:\n    page.get_by_role('button', name='Войти').click()\n"
@@ -45,8 +47,13 @@ TYPING_BROKEN_CODE = "def step(page) -> None:\n    page.get_by_role('button', na
 #: a candidate whose execution fails with a NameError inside the step
 NAMEERROR_CODE = "def step(page) -> None:\n    missing_symbol()\n"
 
+#: a candidate that does not compile — blocked by the deterministic pre-flight gate
+SYNTAX_BROKEN_CODE = "def step(page) -> None:\n    page.goto('https://a.example'\n"
+
+#: a candidate with no module-level step function of the fixed form
+NO_STEP_CODE = "def run(page) -> None:\n    page.goto('https://a.example')\n"
+
 GENERATION_PROMPT_PRACTICE = Path(__file__).resolve().parents[2] / ".goga" / "usages" / "prompts" / "step_generation.md"
-CHEAT_SHEET_PRACTICE = Path(__file__).resolve().parents[2] / ".goga" / "usages" / "prompts" / "step_cheatsheet.md"
 
 
 class FakeLocator:
@@ -118,6 +125,9 @@ class FakePage:
     def goto(self, url: str) -> None:
         self.calls.append(("goto", url))
 
+    def set_default_timeout(self, timeout: float) -> None:
+        self.calls.append(("set_default_timeout", timeout))
+
     def run(self, action: Callable[[object], object]) -> object:
         """Minimal page-handle shim: the run primitive executes the action against the fake itself."""
         return action(self)
@@ -166,7 +176,7 @@ class StubProvider:
         snapshot: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
-        cheat_sheet: str = "",
+        skill: str = "",
         attempt_history: list[str] | None = None,
         recommendation: str | None = None,
         guidance: str | None = None,
@@ -184,7 +194,7 @@ class StubProvider:
                 "snapshot": snapshot,
                 "page_url": page_url,
                 "screenshot": screenshot,
-                "cheat_sheet": cheat_sheet,
+                "skill": skill,
                 "attempt_history": attempt_history,
                 "recommendation": recommendation,
                 "guidance": guidance,
@@ -407,17 +417,24 @@ class TestStepGeneratorContract:
 class GeneratorFixture:
     """Generator assembled on a tmp cache with recording visibility, for logic tests."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913, PLR0917 — the fixture parameters mirror the generator inputs
         self,
         tmp_path: Path,
         provider: object,
         limits: tuple[int, int] = (3, 2),
         generation_prompt: str = "",
+        probe_timeout: float = 0,
+        browser_timeout: float = 30,
     ) -> None:
         self.recorder = RecorderHook()
         self.reporter = StepReporter(hooks=[self.recorder])
         # a non-empty generation_prompt switches the instruction compliance gate on
-        self.config = Config(cache_root=str(tmp_path), generation_prompt=generation_prompt)
+        self.config = PrettyConfig(
+            cache_root=str(tmp_path),
+            generation_prompt=generation_prompt,
+            probe_timeout=probe_timeout,
+            browser=BrowserConfig(timeout=browser_timeout),
+        )
         self.cache = StepCache(self.config, None, self.reporter)
         self.budgets = RunBudgets(*limits)
         self.window = SettleWindow(None, 0.5)  # polling off — one execution per candidate
@@ -496,7 +513,7 @@ class TestStepGeneratorLogic:
         saved = [event for event in fixture.recorder.events if event[0] == "on_cache_saved"]
         assert saved == [("on_cache_saved", {"step_text": "открыть страницу", "filename": identity.filename})]
 
-    def test_generate_request_carries_the_cheat_sheet(self, tmp_path: Path) -> None:
+    def test_generate_request_carries_the_packaged_skill(self, tmp_path: Path) -> None:
         provider = StubProvider([WORKING_CODE])
         fixture = GeneratorFixture(tmp_path, provider)
         page = FakePage()
@@ -515,7 +532,7 @@ class TestStepGeneratorLogic:
 
         request = provider.calls[0]
         assert request["prompt"] == SYSTEM_PROMPT
-        assert request["cheat_sheet"] == CHEAT_SHEET
+        assert request["skill"] == load_skill("playwright")
         assert ("page" + "_api") not in request  # the dead slot name, assembled — no literal for the sweep
         assert request["snapshot"] == "- snapshot"
         assert request["screenshot"] is None  # send_screenshots defaults to False
@@ -559,7 +576,7 @@ class TestStepGeneratorLogic:
         provider = StubProvider([WORKING_CODE])
         recorder = RecorderHook()
         reporter = StepReporter(hooks=[recorder])
-        config = Config(cache_root=str(tmp_path), send_screenshots=True)
+        config = PrettyConfig(cache_root=str(tmp_path), send_screenshots=True)
         generator = StepGenerator(config, provider, StepCache(config, None, reporter), RunBudgets(3, 2), reporter)
         page = FakePage()
 
@@ -581,7 +598,7 @@ class TestStepGeneratorLogic:
         provider = StubProvider([WORKING_CODE])
         recorder = RecorderHook()
         reporter = StepReporter(hooks=[recorder])
-        config = Config(cache_root=str(tmp_path), generation_prompt="prefer data-test-id")
+        config = PrettyConfig(cache_root=str(tmp_path), generation_prompt="prefer data-test-id")
         generator = StepGenerator(config, provider, StepCache(config, None, reporter), RunBudgets(3, 2), reporter)
         page = FakePage()
 
@@ -600,7 +617,7 @@ class TestStepGeneratorLogic:
         captured = provider.calls[0]
         assert captured["user_instructions"] == "prefer data-test-id"
         assert captured["prompt"] == SYSTEM_PROMPT
-        assert 'page.get_by_test_id("submit")' in captured["cheat_sheet"]
+        assert "re.compile" in captured["skill"]  # the packaged skill ships the regex idiom
 
     def test_regenerate_carries_user_instructions_with_recommendation_and_anchored_history(
         self, tmp_path: Path
@@ -608,7 +625,7 @@ class TestStepGeneratorLogic:
         provider = StubProvider([WORKING_CODE])
         recorder = RecorderHook()
         reporter = StepReporter(hooks=[recorder])
-        config = Config(cache_root=str(tmp_path), generation_prompt="prefer data-test-id")
+        config = PrettyConfig(cache_root=str(tmp_path), generation_prompt="prefer data-test-id")
         generator = StepGenerator(config, provider, StepCache(config, None, reporter), RunBudgets(1, 1), reporter)
         page = FakePage()
         history = make_anchored_history()
@@ -683,7 +700,7 @@ class TestStepGeneratorLogic:
         assert attempts == [1, 2]
 
     def test_step_code_error_fails_the_generation_attempt(self, tmp_path: Path) -> None:
-        """A NameError inside the step code fails the attempt and drives the retry's HISTORY record."""
+        """A statically undefined name never executes: the pre-flight gate fails the attempt pre-execution."""
         provider = StubProvider([NAMEERROR_CODE, WORKING_CODE])
         fixture = GeneratorFixture(tmp_path, provider)
         identity = make_identity()
@@ -703,13 +720,22 @@ class TestStepGeneratorLogic:
         )
 
         assert step.code == WORKING_CODE
-        assert len(provider.calls) == 2  # the failing candidate + the retry it funded
+        assert len(provider.calls) == 2  # the blocked candidate + the retry it funded
         retry = provider.calls[1]
         assert retry["attempt_history"] == [history[0].render()]
-        assert history[0].outcome == OUTCOME_EXECUTION_FAILED
+        assert history[0].outcome == OUTCOME_PREFLIGHT_BLOCKED
         assert history[0].code == NAMEERROR_CODE
-        assert "NameError" in history[0].error
-        assert "missing_symbol" in history[0].error
+        assert "undefined name 'missing_symbol'" in history[0].error
+        assert history[0].url_before == history[0].url_after  # never executed — the equal URL pair
+        assert not provider.compliance_calls  # the compliance gate never saw the blocked candidate
+        assert page.calls == [
+            ("aria_snapshot",),
+            ("aria_snapshot",),
+            (
+                "goto",
+                "https://example.com",
+            ),  # request snapshots only, then the retry's action — the blocked candidate never acted
+        ]
         attempts = [
             payload["attempt"] for event, payload in fixture.recorder.events if event == "on_generation_started"
         ]
@@ -956,7 +982,7 @@ class TestStepGeneratorLogic:
 
         assert step.code == NARROWING_CODE
         assert len(provider.calls) == 1  # the first candidate is green — zero retries
-        assert "locator.first" in provider.calls[0]["cheat_sheet"]  # the cheat sheet listed the member
+        assert "strict mode" in provider.calls[0]["skill"]  # the packaged skill names the strict-mode trap
         assert ("get_by_text", "Welcome back") in page.calls  # the narrowing chain executed through the page
         loaded = fixture.cache.load(identity)  # StepCache has no save recording — load back
         assert loaded is not None
@@ -1198,8 +1224,11 @@ class TestStepGeneratorLogic:
         assert second["page_url"] == "https://example.com"  # the funded regeneration shares the same _request shape
         attempts = [event for event in fixture.recorder.events if event[0] == "on_generation_started"]
         assert attempts == [
-            ("on_generation_started", {"step_text": "click Pay", "attempt": 1}),
-            ("on_generation_started", {"step_text": "click Pay", "attempt": 2}),  # the funded request is an attempt
+            ("on_generation_started", {"step_text": "открыть страницу", "attempt": 1}),
+            (
+                "on_generation_started",
+                {"step_text": "открыть страницу", "attempt": 2},
+            ),  # the funded request is an attempt
         ]
         saved = [event for event in fixture.recorder.events if event[0] == "on_cache_saved"]
         assert len(saved) == 1  # only the healed code is stored
@@ -1610,7 +1639,7 @@ class TestStepGeneratorLogic:
 
         assert step.code == WORKING_CODE
         started = [event for event in fixture.recorder.events if event[0] == "on_generation_started"]
-        assert started == [("on_generation_started", {"step_text": "open the page", "attempt": 1})]
+        assert started == [("on_generation_started", {"step_text": "открыть страницу", "attempt": 1})]
         retries = [record for record in caplog.records if record.message == "settle_retry"]
         assert len(retries) == 2  # both re-executions happened inside the one attempt
         assert [record.attempt for record in retries] == [1, 2]
@@ -1892,6 +1921,531 @@ class TestStepGeneratorAttemptHistory:
         assert history[1].outcome == OUTCOME_EXECUTION_FAILED
 
 
+class TestStepGeneratorPreflight:
+    """Logic tests: the deterministic pre-flight gate of every candidate-execution site."""
+
+    def test_generate_blocks_a_syntax_error_candidate_without_execution(self, tmp_path: Path) -> None:
+        provider = StubProvider([SYNTAX_BROKEN_CODE, WORKING_CODE])
+        fixture = GeneratorFixture(tmp_path, provider)
+        page = FakePage()
+        history: list[StepAttempt] = []
+
+        step = fixture.generator.generate(
+            make_identity(),
+            PreparedStep(addressing_text="открыть страницу", instruction="open the page"),
+            "action",
+            [],
+            None,
+            page,
+            history,
+            fixture.window,
+            fixture.memory,
+        )
+
+        assert step.code == WORKING_CODE
+        assert history[0].outcome == OUTCOME_PREFLIGHT_BLOCKED
+        assert "does not compile" in history[0].error
+        assert "(line 2)" in history[0].error
+        assert history[0].url_before == history[0].url_after
+        assert not provider.compliance_calls
+        assert page.calls == [
+            ("aria_snapshot",),
+            ("aria_snapshot",),
+            ("goto", "https://example.com"),  # the blocked candidate acted never — only the retry did
+        ]
+
+    def test_generate_blocks_a_candidate_without_the_step_function(self, tmp_path: Path) -> None:
+        provider = StubProvider([NO_STEP_CODE, WORKING_CODE])
+        fixture = GeneratorFixture(tmp_path, provider)
+
+        step = fixture.generator.generate(
+            make_identity(),
+            PreparedStep(addressing_text="открыть страницу", instruction="open the page"),
+            "action",
+            [],
+            None,
+            FakePage(),
+            [],
+            fixture.window,
+            fixture.memory,
+        )
+
+        assert step.code == WORKING_CODE
+
+    def test_preflight_exhaustion_classifies_the_last_blocked_candidate(self, tmp_path: Path) -> None:
+        provider = StubProvider(
+            [SYNTAX_BROKEN_CODE],
+            verdict=FailureClassification(category="incurable", explanation="e", recommendation="r"),
+        )
+        fixture = GeneratorFixture(tmp_path, provider, limits=(1, 2))  # generation budget 1
+        history: list[StepAttempt] = []
+
+        with pytest.raises(IncurableStepError) as excinfo:
+            fixture.generator.generate(
+                make_identity(),
+                PreparedStep(addressing_text="открыть страницу", instruction="open the page"),
+                "action",
+                [],
+                None,
+                FakePage(),
+                history,
+                fixture.window,
+                fixture.memory,
+            )
+
+        assert excinfo.value.reason == "generation attempt budget exhausted"
+        assert excinfo.value.code == SYNTAX_BROKEN_CODE
+        assert excinfo.value.error.startswith("preflight violation")  # the last record carries the facts
+        assert history[0].outcome == OUTCOME_PREFLIGHT_BLOCKED
+        assert len(provider.calls) == 1
+        assert provider.classify_step_failure_calls[0]["error"].startswith("preflight violation")
+
+    def test_regenerate_blocks_a_preflight_violation_and_retries(self, tmp_path: Path) -> None:
+        provider = StubProvider([SYNTAX_BROKEN_CODE, WORKING_CODE])
+        fixture = GeneratorFixture(tmp_path, provider)
+        anchored = make_anchored_history()
+
+        step = fixture.generator.regenerate(
+            make_identity(),
+            PreparedStep(addressing_text="открыть страницу", instruction="click Sign in"),
+            "action",
+            [],
+            None,
+            FakePage(),
+            anchored,
+            "use an id locator",
+            fixture.window,
+            fixture.memory,
+        )
+
+        assert step.code == WORKING_CODE
+        assert anchored[0].outcome == OUTCOME_ORIGINAL  # the anchor stays untouched
+        assert anchored[1].outcome == OUTCOME_PREFLIGHT_BLOCKED
+        assert anchored[1].url_before == anchored[1].url_after
+        assert provider.calls[1]["attempt_history"] == [anchored[0].render(), anchored[1].render()]
+        assert provider.calls[1]["recommendation"] == "use an id locator"
+
+    def test_funded_regeneration_preflight_violation_is_a_candidate_failure(self, tmp_path: Path) -> None:
+        """A preflight-blocked funded candidate repeats the failure: terminal, the reason colon-free."""
+        provider = StubProvider(
+            [CHECK_CODE, SYNTAX_BROKEN_CODE],
+            verdict=FailureClassification(
+                category="rot",
+                explanation="the button was renamed",
+                recommendation="retry with an id locator",
+            ),
+        )
+        fixture = GeneratorFixture(tmp_path, provider)  # RunBudgets(3, 2)
+        page = FakePage(assertion_message="button is hidden")
+        history: list[StepAttempt] = []
+
+        with pytest.raises(IncurableStepError) as excinfo:
+            fixture.generator.generate(
+                make_identity(),
+                PreparedStep(addressing_text="открыть страницу", instruction="click Pay"),
+                "action",
+                [],
+                None,
+                page,
+                history,
+                fixture.window,
+                fixture.memory,
+            )
+
+        assert excinfo.value.reason.startswith("candidate failed — preflight violation")
+        assert ":" not in excinfo.value.reason  # the first-line contract — colons sanitized
+        assert excinfo.value.code == SYNTAX_BROKEN_CODE
+        assert excinfo.value.error.startswith("preflight violation")
+        assert history[-1].outcome == OUTCOME_PREFLIGHT_BLOCKED
+        assert len(provider.calls) == 2  # the failed check + the one funded regeneration
+        assert len(provider.classify_step_failure_calls) == 2  # the entry verdict + the final terminal-kind one
+
+
+class TestStepGeneratorStandingProhibition:
+    """Logic tests: the standing gate finding rides the next request's recommendation channel."""
+
+    def test_generate_retry_carries_the_standing_finding_as_a_prohibition(self, tmp_path: Path) -> None:
+        provider = StubProvider(
+            [CHECK_CODE, WORKING_CODE],  # CHECK_CODE is green on a plain page — it violates the instructions
+            compliance_verdicts=[[HIGH_FINDING], []],
+        )
+        fixture = GeneratorFixture(tmp_path, provider, generation_prompt="Prefer id attributes")
+
+        fixture.generator.generate(
+            make_identity(),
+            PreparedStep(addressing_text="открыть страницу", instruction="click Sign in"),
+            "action",
+            [],
+            None,
+            FakePage(),
+            [],
+            fixture.window,
+            fixture.memory,
+        )
+
+        assert provider.calls[0]["recommendation"] is None  # the first attempt stays byte-identical
+        assert provider.calls[1]["recommendation"] == (
+            f"Do not repeat the violation that blocked the previous attempt — {VIOLATION_TEXT}"
+        )
+
+    def test_a_fresh_candidate_failure_supersedes_the_standing_finding(self, tmp_path: Path) -> None:
+        provider = StubProvider(
+            [CHECK_CODE, TYPING_BROKEN_CODE, WORKING_CODE],
+            compliance_verdicts=[[HIGH_FINDING], []],
+        )
+        fixture = GeneratorFixture(tmp_path, provider, generation_prompt="Prefer id attributes")
+        page = TypeErrorPage()
+
+        fixture.generator.generate(
+            make_identity(),
+            PreparedStep(addressing_text="открыть страницу", instruction="click Sign in"),
+            "action",
+            [],
+            None,
+            page,
+            [],
+            fixture.window,
+            fixture.memory,
+        )
+
+        assert provider.calls[1]["recommendation"] is not None  # the gate-blocked retry carries the prohibition
+        assert provider.calls[2]["recommendation"] is None  # the execution failure superseded the finding
+
+    def test_regenerate_composes_the_prohibition_with_the_entry_diagnosis(self, tmp_path: Path) -> None:
+        provider = StubProvider(
+            [CHECK_CODE, WORKING_CODE],
+            compliance_verdicts=[[HIGH_FINDING], []],
+        )
+        fixture = GeneratorFixture(tmp_path, provider, generation_prompt="Prefer id attributes")
+
+        step = fixture.generator.regenerate(
+            make_identity(),
+            PreparedStep(addressing_text="открыть страницу", instruction="click Sign in"),
+            "action",
+            [],
+            None,
+            FakePage(),
+            make_anchored_history(),
+            "use an id locator",
+            fixture.window,
+            fixture.memory,
+        )
+
+        assert step.code == WORKING_CODE
+        first, second = provider.calls
+        assert first["recommendation"] == "use an id locator"  # the entry diagnosis alone renders first
+        assert second["recommendation"] == (
+            f"use an id locator\nDo not repeat the violation that blocked the previous attempt — {VIOLATION_TEXT}"
+        )
+
+
+class TestStepGeneratorTimingRecords:
+    """Logic tests: the log-only timing records of requests and settle windows."""
+
+    def test_generate_writes_the_request_and_execution_timings(self, tmp_path: Path, caplog) -> None:
+        provider = StubProvider([WORKING_CODE])
+        fixture = GeneratorFixture(tmp_path, provider)
+
+        with caplog.at_level(logging.INFO, logger="prettyplay"):
+            fixture.generator.generate(
+                make_identity(),
+                PreparedStep(addressing_text="открыть страницу", instruction="open the page"),
+                "action",
+                [],
+                None,
+                FakePage(),
+                [],
+                fixture.window,
+                fixture.memory,
+            )
+
+        requests = [record for record in caplog.records if record.message == "generation_request"]
+        executions = [record for record in caplog.records if record.message == "step_execution"]
+        assert len(requests) == 1  # one record per provider request
+        assert requests[0].step_text == "открыть страницу"  # the ready layer — the addressing text
+        assert isinstance(requests[0].request_ms, int)
+        assert len(executions) == 1  # one record per settle window — the whole window, retries included
+        assert executions[0].step_text == "открыть страницу"
+        assert executions[0].attempt == 1
+        assert isinstance(executions[0].execution_ms, int)
+
+    def test_the_timing_records_carry_the_capture_tag_inline(self, tmp_path: Path, caplog) -> None:
+        provider = StubProvider(['def step(page) -> dict:\n    return {"name": "Dune"}\n'])
+        fixture = GeneratorFixture(tmp_path, provider)
+
+        with caplog.at_level(logging.INFO, logger="prettyplay"):
+            fixture.generator.generate(
+                StepIdentity(
+                    cache_key="login-flow",
+                    step_type="action",
+                    normalized_text=normalize_step_text("открыть страницу в {% var name %}"),
+                ),
+                PreparedStep(
+                    addressing_text="открыть страницу в {% var name %}",
+                    instruction="read the name",
+                    declarations=["name"],
+                ),
+                "action",
+                [],
+                None,
+                FakePage(),
+                [],
+                fixture.window,
+                fixture.memory,
+            )
+
+        requests = [record for record in caplog.records if record.message == "generation_request"]
+        executions = [record for record in caplog.records if record.message == "step_execution"]
+        # the ready layer names the destination inline — no side field, no stripped text
+        assert requests[0].step_text == "открыть страницу в {% var name %}"
+        assert executions[0].step_text == "открыть страницу в {% var name %}"
+
+    def test_the_candidate_observability_lines_surround_the_execution(self, tmp_path: Path, caplog) -> None:
+        """The log-only context lines: saves into, inputs and the code precede the run; captured closes it."""
+        code = 'def step(page) -> dict:\n    return {"name": "Dune"}\n'
+        provider = StubProvider([code])
+        fixture = GeneratorFixture(tmp_path, provider)
+
+        with caplog.at_level(logging.INFO, logger="prettyplay"):
+            fixture.generator.generate(
+                StepIdentity(
+                    cache_key="login-flow",
+                    step_type="action",
+                    normalized_text=normalize_step_text("read the title into {% var name %}"),
+                ),
+                PreparedStep(
+                    addressing_text="read the title into {% var name %}",
+                    instruction="read the title",
+                    inputs={"title": "Dune"},
+                    declarations=["name"],
+                ),
+                "action",
+                [],
+                None,
+                FakePage(),
+                [],
+                fixture.window,
+                fixture.memory,
+            )
+
+        assert [record.msg for record in caplog.records] == [
+            "on_generation_started",
+            "generation_request",
+            "saves into: %s",
+            "inputs: %s",
+            "candidate code (attempt %d):\n%s",
+            "step_execution",
+            "captured: %s",
+            "on_cache_saved",
+        ]  # the context lines precede the execution, the captured line closes the acceptance
+        assert caplog.records[2].getMessage() == "saves into: name"  # exactly when the step declares captures
+        assert caplog.records[3].getMessage() == "inputs: title = 'Dune'"
+        assert caplog.records[4].getMessage() == "candidate code (attempt 1):\n" + code
+        assert caplog.records[6].getMessage() == "captured: name = 'Dune'"
+
+        context_records = [caplog.records[index] for index in (2, 3, 4, 6)]
+        assert [record.event for record in context_records] == [
+            "step_results_declared",
+            "step_inputs",
+            "step_candidate_code",
+            "step_captured",
+        ]
+        assert all(record.step_text == "read the title into {% var name %}" for record in context_records)
+        assert caplog.records[2].declarations == ("name",)
+        assert caplog.records[3].inputs == {"title": "Dune"}
+        assert caplog.records[4].code == code
+        assert caplog.records[4].attempt == 1
+        assert caplog.records[6].captures == {"name": "Dune"}
+
+    @pytest.mark.parametrize("pool", ["generation", "healing", "funded"])
+    def test_capture_metadata_is_present_on_every_acceptance_path(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture, pool: str
+    ) -> None:
+        """Verify structured capture records without extra execution or publication.
+
+        Args:
+            tmp_path: the isolated cache directory.
+            caplog: the fixture collecting library log records.
+            pool: the generation, healing or funded acceptance path.
+        """
+        code = 'def step(page):\n    return {"name": "Dune"}\n'
+        provider = StubProvider(
+            [CHECK_CODE, code] if pool == "funded" else [code],
+            verdict=FailureClassification(category="fixable", explanation="not ready", recommendation="read again"),
+        )
+        fixture = GeneratorFixture(tmp_path, provider)
+        prepared = PreparedStep(addressing_text="открыть страницу", instruction="Read title", declarations=["name"])
+
+        with caplog.at_level(logging.INFO, logger="prettyplay"):
+            if pool == "healing":
+                fixture.generator.regenerate(
+                    make_identity(),
+                    prepared,
+                    "action",
+                    [],
+                    None,
+                    FakePage(),
+                    [],
+                    "read again",
+                    fixture.window,
+                    fixture.memory,
+                )
+            else:
+                fixture.generator.generate(
+                    make_identity(),
+                    prepared,
+                    "action",
+                    [],
+                    None,
+                    FakePage(assertion_message="not ready"),
+                    [],
+                    fixture.window,
+                    fixture.memory,
+                )
+
+        records = [record for record in caplog.records if getattr(record, "event", None) == "step_captured"]
+        assert len(records) == 1
+        assert records[0].step_text == prepared.addressing_text
+        assert records[0].captures == {"name": "Dune"}
+        assert fixture.memory.snapshot() == {"name": "Dune"}
+        assert len(provider.calls) == (2 if pool == "funded" else 1)
+
+    def test_the_timing_records_never_reach_the_hooks(self, tmp_path: Path) -> None:
+        provider = StubProvider([WORKING_CODE])
+        fixture = GeneratorFixture(tmp_path, provider)
+
+        fixture.generator.generate(
+            make_identity(),
+            PreparedStep(addressing_text="открыть страницу", instruction="open the page"),
+            "action",
+            [],
+            None,
+            FakePage(),
+            [],
+            fixture.window,
+            fixture.memory,
+        )
+
+        assert fixture.recorder.events  # the hook wiring itself works
+        assert not [event for event, _payload in fixture.recorder.events if event.startswith("generation_request")]
+        assert not [event for event, _payload in fixture.recorder.events if event.startswith("step_execution")]
+
+    def test_a_failed_execution_still_writes_the_execution_record(self, tmp_path: Path, caplog) -> None:
+        provider = StubProvider([TYPING_BROKEN_CODE, WORKING_CODE])
+        fixture = GeneratorFixture(tmp_path, provider)
+
+        with caplog.at_level(logging.INFO, logger="prettyplay"):
+            fixture.generator.generate(
+                make_identity(),
+                PreparedStep(addressing_text="открыть страницу", instruction="open the page"),
+                "action",
+                [],
+                None,
+                TypeErrorPage(),
+                [],
+                fixture.window,
+                fixture.memory,
+            )
+
+        executions = [record for record in caplog.records if record.message == "step_execution"]
+        assert [record.attempt for record in executions] == [1, 2]  # the failed window records too — the finally path
+
+
+class TestStepGeneratorProbeTimeout:
+    """Logic tests: the probe bound of candidate executions — short action timeouts inside the loops."""
+
+    def test_candidates_run_under_the_probe_bound_and_restore_the_default_baseline(self, tmp_path: Path) -> None:
+        provider = StubProvider([WORKING_CODE])
+        fixture = GeneratorFixture(tmp_path, provider, probe_timeout=8)
+        page = FakePage()
+
+        fixture.generator.generate(
+            make_identity(),
+            PreparedStep(addressing_text="открыть страницу", instruction="open the page"),
+            "action",
+            [],
+            None,
+            page,
+            [],
+            fixture.window,
+            fixture.memory,
+        )
+
+        assert page.calls == [
+            ("aria_snapshot",),
+            ("set_default_timeout", 8000.0),  # set inside the worker, right before the step call
+            ("goto", "https://example.com"),
+            ("set_default_timeout", 30_000.0),  # the finally restores the configured baseline — never leaks
+        ]
+
+    def test_candidates_restore_the_configured_browser_timeout_baseline(self, tmp_path: Path) -> None:
+        provider = StubProvider([WORKING_CODE])
+        fixture = GeneratorFixture(tmp_path, provider, probe_timeout=8, browser_timeout=60)
+        page = FakePage()
+
+        fixture.generator.generate(
+            make_identity(),
+            PreparedStep(addressing_text="открыть страницу", instruction="open the page"),
+            "action",
+            [],
+            None,
+            page,
+            [],
+            fixture.window,
+            fixture.memory,
+        )
+
+        assert page.calls == [
+            ("aria_snapshot",),
+            ("set_default_timeout", 8000.0),
+            ("goto", "https://example.com"),
+            ("set_default_timeout", 60_000.0),  # the browser timeout setting is the restore baseline
+        ]
+
+    def test_candidates_restore_the_real_zero_baseline(self, tmp_path: Path) -> None:
+        provider = StubProvider([WORKING_CODE])
+        fixture = GeneratorFixture(tmp_path, provider, probe_timeout=8, browser_timeout=0)
+        page = FakePage()
+
+        fixture.generator.generate(
+            make_identity(),
+            PreparedStep(addressing_text="открыть страницу", instruction="open the page"),
+            "action",
+            [],
+            None,
+            page,
+            [],
+            fixture.window,
+            fixture.memory,
+        )
+
+        assert page.calls == [
+            ("aria_snapshot",),
+            ("set_default_timeout", 8000.0),
+            ("goto", "https://example.com"),
+            ("set_default_timeout", 0.0),  # the legal real zero baseline — no sentinel, restored verbatim
+        ]
+
+    def test_without_the_probe_bound_no_timeout_is_set(self, tmp_path: Path) -> None:
+        provider = StubProvider([WORKING_CODE])
+        fixture = GeneratorFixture(tmp_path, provider)  # probe off — the library default
+        page = FakePage()
+
+        fixture.generator.generate(
+            make_identity(),
+            PreparedStep(addressing_text="открыть страницу", instruction="open the page"),
+            "action",
+            [],
+            None,
+            page,
+            [],
+            fixture.window,
+            fixture.memory,
+        )
+
+        assert page.calls == [("aria_snapshot",), ("goto", "https://example.com")]
+
+
 class TestStepGeneratorComplianceGate:
     """Logic tests: the two-dimension compliance gate on every caching path of the generator."""
 
@@ -2029,14 +2583,14 @@ class TestStepGeneratorComplianceGate:
         assert provider.classify_step_failure_calls == []  # zero classifications on the standing-high branch
         assert fixture.cache.load(identity) is None  # nothing in the cache
 
-    def test_generate_gate_hard_failure_propagates_and_caches_nothing(self, tmp_path: Path) -> None:
-        outage = ComplianceVerdictError("compliance verdict unparsable — received fragment: nope")
+    def test_generate_gate_provider_outage_propagates_and_caches_nothing(self, tmp_path: Path) -> None:
+        outage = LLMUnavailableError("llm unavailable: openai request failed")
         provider = StubProvider([WORKING_CODE], compliance_verdicts=[outage])
         fixture = GeneratorFixture(tmp_path, provider, generation_prompt="Prefer id attributes")
         identity = make_identity()
         page = FakePage()
 
-        with pytest.raises(ComplianceVerdictError) as excinfo:
+        with pytest.raises(LLMUnavailableError) as excinfo:
             fixture.generator.generate(
                 identity,
                 PreparedStep(instruction="click Sign in"),
@@ -2052,6 +2606,37 @@ class TestStepGeneratorComplianceGate:
         assert excinfo.value is outage  # propagates — no retry, no budget table
         assert len(provider.calls) == 1  # exactly one generation call
         assert fixture.cache.load(identity) is None  # the unchecked candidate is never cached
+
+    def test_generate_unparsable_verdict_degrades_to_unchecked_pass(self, tmp_path: Path, caplog) -> None:
+        """A persistently unparsable verdict never kills the green candidate — a loud unchecked pass."""
+        outage = ComplianceVerdictError("compliance verdict unparsable — received fragment: nope")
+        provider = StubProvider([WORKING_CODE], compliance_verdicts=[outage, outage])
+        fixture = GeneratorFixture(tmp_path, provider, generation_prompt="Prefer id attributes")
+        identity = make_identity()
+
+        with caplog.at_level(logging.WARNING, logger="prettyplay"):
+            step = fixture.generator.generate(
+                identity,
+                PreparedStep(addressing_text="открыть страницу", instruction="click Sign in"),
+                "action",
+                [],
+                None,
+                FakePage(),
+                [],
+                fixture.window,
+                fixture.memory,
+            )
+
+        assert step.code == WORKING_CODE  # the green candidate passed
+        assert len(provider.compliance_calls) == 2  # the initial ask plus the one bounded re-ask
+        assert fixture.cache.load(identity) is not None  # cached — unchecked, loudly
+        degraded = [
+            record
+            for record in caplog.records
+            if record.getMessage()
+            == "compliance verdict unparsable after a retry — the green candidate passes unchecked"
+        ]
+        assert len(degraded) == 1
 
     def test_regenerate_gates_healed_candidate_before_write_back(self, tmp_path: Path) -> None:
         provider = StubProvider(
@@ -2200,16 +2785,16 @@ class TestStepGeneratorComplianceGate:
         warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
         assert any("verdict skipped" in record.message for record in warnings)
 
-    def test_regenerate_gate_hard_failure_propagates_and_caches_nothing(self, tmp_path: Path) -> None:
-        """A malformed verdict of a green healed candidate propagates — never swallowed into a retry."""
-        outage = ComplianceVerdictError("compliance verdict unparsable — received fragment: nope")
+    def test_regenerate_gate_provider_outage_propagates_and_caches_nothing(self, tmp_path: Path) -> None:
+        """A provider outage of a green healed candidate propagates — never swallowed into a retry."""
+        outage = LLMUnavailableError("llm unavailable: openai request failed")
         provider = StubProvider([WORKING_CODE], compliance_verdicts=[outage])
         fixture = GeneratorFixture(tmp_path, provider, generation_prompt="Prefer id attributes")
         identity = make_identity()
         page = FakePage()
         history = make_anchored_history()
 
-        with pytest.raises(ComplianceVerdictError) as excinfo:
+        with pytest.raises(LLMUnavailableError) as excinfo:
             fixture.generator.regenerate(
                 identity,
                 PreparedStep(instruction="click Sign in"),
@@ -2228,9 +2813,9 @@ class TestStepGeneratorComplianceGate:
         assert len(provider.compliance_calls) == 1
         assert fixture.cache.load(identity) is None  # the unchecked candidate is never cached
 
-    def test_funded_regeneration_gate_hard_failure_propagates_and_caches_nothing(self, tmp_path: Path) -> None:
-        """A malformed verdict of the funded candidate propagates — no final classification, nothing cached."""
-        outage = ComplianceVerdictError("compliance verdict unparsable — received fragment: nope")
+    def test_funded_regeneration_gate_provider_outage_propagates_and_caches_nothing(self, tmp_path: Path) -> None:
+        """A provider outage of the funded candidate propagates — no final classification, nothing cached."""
+        outage = LLMUnavailableError("llm unavailable: openai request failed")
         provider = StubProvider(
             [CHECK_CODE, WORKING_CODE],  # the entry candidate fails the check; the funded one is green
             verdicts=[
@@ -2242,7 +2827,7 @@ class TestStepGeneratorComplianceGate:
         identity = make_identity()
         page = FakePage(assertion_message="button is hidden")
 
-        with pytest.raises(ComplianceVerdictError) as excinfo:
+        with pytest.raises(LLMUnavailableError) as excinfo:
             fixture.generator.generate(
                 identity,
                 PreparedStep(instruction="click Pay"),
@@ -2574,7 +3159,7 @@ class TestStepGeneratorGroupBranches:
 
 
 class TestPromptConstants:
-    """Constant tests: prompts and the frozen cheat sheet."""
+    """Constant tests: prompts and the packaged skill."""
 
     def test_generation_prompt_is_frozen_text(self) -> None:
         assert SYSTEM_PROMPT.startswith("You generate executable Python code")
@@ -2590,11 +3175,11 @@ class TestPromptConstants:
         assert work_through < assertion < no_delays < dialogs < scrolling
 
     def test_system_prompt_documents_user_instructions_input(self) -> None:
-        # the USER INSTRUCTIONS input line sits right after the CHEAT SHEET input line, before HISTORY
-        cheat_sheet_input = SYSTEM_PROMPT.index("- CHEAT SHEET: a compact reference")
+        # the USER INSTRUCTIONS input line sits right after the SKILL input line, before HISTORY
+        skill_input = SYSTEM_PROMPT.index("- SKILL: the Playwright skill")
         user_instructions_input = SYSTEM_PROMPT.index("- USER INSTRUCTIONS: the project's binding code style guidance")
         history_input = SYSTEM_PROMPT.index("- HISTORY: the verbatim record of every attempt")
-        assert cheat_sheet_input < user_instructions_input < history_input
+        assert skill_input < user_instructions_input < history_input
 
     def test_system_prompt_mirrors_the_generation_practice(self) -> None:
         practice = GENERATION_PROMPT_PRACTICE.read_text(encoding="utf-8")
@@ -2672,10 +3257,12 @@ class TestPromptConstants:
     def test_classification_prompt_moved_out_of_generator(self) -> None:
         assert not hasattr(generator_module, "CLASSIFICATION_PROMPT")  # moved to classification.py
 
-    def test_cheat_sheet_mirrors_the_practice(self) -> None:
-        practice = CHEAT_SHEET_PRACTICE.read_text(encoding="utf-8")
+    def test_the_packaged_skill_is_the_skill_module_text(self) -> None:
+        packaged = (
+            Path(__file__).resolve().parents[2] / "prettyplay" / "skills" / "playwright" / "SKILL.md"
+        ).read_text(encoding="utf-8")
 
-        assert practice == CHEAT_SHEET  # the whole file, verbatim — no extraction logic to drift
+        assert load_skill("playwright") == packaged  # read once per runtime, verbatim — no extraction logic to drift
         # the dead constant name is assembled — no literal survives the series-end leftover sweep
         assert not hasattr(generator_module, "PAGE" + "_API" + "_SURFACE")  # the surface listing is gone
 

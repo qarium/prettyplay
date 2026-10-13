@@ -7,7 +7,7 @@ from unittest import mock
 
 import pytest
 from openai import APIConnectionError, AuthenticationError, OpenAIError
-from prettyplay.config import Config
+from prettyplay.config import PrettyConfig
 from prettyplay.failures import ComplianceVerdictError, LLMUnavailableError, PrettyplayError
 from prettyplay.llm import (
     AnthropicProvider,
@@ -31,7 +31,7 @@ GENERATE_STEP_CODE_PARAMS = [
     "snapshot",
     "page_url",
     "screenshot",
-    "cheat_sheet",
+    "skill",
     "attempt_history",
     "recommendation",
     "guidance",
@@ -140,7 +140,7 @@ class TestOpenAIProviderContract:
     def test_constructor_reads_no_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
-        OpenAIProvider(Config())  # constructs without exceptions — the client is lazy
+        OpenAIProvider(PrettyConfig())  # constructs without exceptions — the client is lazy
 
 
 class TestOpenAIProviderLogic:
@@ -151,7 +151,7 @@ class TestOpenAIProviderLogic:
         client = SimpleNamespace(
             chat=SimpleNamespace(completions=SimpleNamespace(create=mock.MagicMock(side_effect=OpenAIError("timeout"))))
         )
-        provider = OpenAIProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(PrettyConfig(model="gpt-5"))
 
         with (
             mock.patch.object(provider, "_get_client", return_value=client),
@@ -169,7 +169,7 @@ class TestOpenAIProviderLogic:
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
-                cheat_sheet="expect(locator).to_be_visible()",
+                skill="expect(locator).to_be_visible()",
                 attempt_history=[],
                 recommendation=None,
                 guidance=None,
@@ -181,7 +181,7 @@ class TestOpenAIProviderLogic:
     def test_missing_api_key_surfaces_on_first_request(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
-        provider = OpenAIProvider(Config())  # does not fail — the constructor reads no env
+        provider = OpenAIProvider(PrettyConfig())  # does not fail — the constructor reads no env
 
         with pytest.raises(LLMUnavailableError) as excinfo:
             provider.classify_step_failure(
@@ -199,7 +199,7 @@ class TestOpenAIProviderLogic:
     def test_classification_unparsable_defaults_to_incurable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, requests = make_client_create(answer="sorry cannot answer")
-        provider = OpenAIProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(PrettyConfig(model="gpt-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             classification = provider.classify_step_failure(
@@ -220,7 +220,7 @@ class TestOpenAIProviderLogic:
     ) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, requests = make_client_create(answer=WORKING_CODE)
-        provider = OpenAIProvider(Config(model="gpt-5", generation_model="gpt-5-mini"))
+        provider = OpenAIProvider(PrettyConfig(model="gpt-5", generation_model="gpt-5-mini"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             code = provider.generate_step_code(
@@ -235,7 +235,7 @@ class TestOpenAIProviderLogic:
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
-                cheat_sheet="expect(locator).to_be_visible()",
+                skill="expect(locator).to_be_visible()",
                 attempt_history=[],
                 recommendation=None,
                 guidance=None,
@@ -259,7 +259,7 @@ class TestOpenAIProviderLogic:
     ) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, requests = make_client_create(answer=WORKING_CODE)
-        provider = OpenAIProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(PrettyConfig(model="gpt-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             provider.generate_step_code(
@@ -274,7 +274,7 @@ class TestOpenAIProviderLogic:
                 snapshot="- snap",
                 page_url="https://shop.example.com/cart",
                 screenshot=None,
-                cheat_sheet="expect(locator).to_be_visible()",
+                skill="expect(locator).to_be_visible()",
                 attempt_history=[],
                 recommendation=None,
                 guidance=None,
@@ -283,13 +283,13 @@ class TestOpenAIProviderLogic:
         user = requests[0]["messages"][1]["content"]
         assert "PAGE URL: https://shop.example.com/cart" in user
         assert user.index("PAGE SNAPSHOT:\n- snap") < user.index("PAGE URL: https://shop.example.com/cart")
-        assert user.index("PAGE URL: https://shop.example.com/cart") < user.index("CHEAT SHEET:")
+        assert user.index("PAGE URL: https://shop.example.com/cart") < user.index("PLAYWRIGHT SKILL:")
 
     def test_generate_returns_code_extracted_from_markdown_fence(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         fenced = f"```python\n{WORKING_CODE}```"
         client = make_client_create(answer=fenced)[0]
-        provider = OpenAIProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(PrettyConfig(model="gpt-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             code = provider.generate_step_code(
@@ -304,7 +304,7 @@ class TestOpenAIProviderLogic:
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
-                cheat_sheet="expect(locator).to_be_visible()",
+                skill="expect(locator).to_be_visible()",
                 attempt_history=[],
                 recommendation=None,
                 guidance=None,
@@ -317,7 +317,7 @@ class TestOpenAIProviderLogic:
     ) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, requests = make_client_create(answer=WORKING_CODE)
-        provider = OpenAIProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(PrettyConfig(model="gpt-5"))
         records = [
             "original cached code\nurl: https://a.example -> https://a.example\n"
             "code:\ndef step(page) -> None:\n    pass\nerror:\nAssertionError: boom",
@@ -338,7 +338,7 @@ class TestOpenAIProviderLogic:
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
-                cheat_sheet="expect(locator).to_be_visible()",
+                skill="expect(locator).to_be_visible()",
                 attempt_history=records,
                 recommendation="use role locators",
                 guidance=None,
@@ -353,7 +353,7 @@ class TestOpenAIProviderLogic:
     def test_generate_with_screenshot_attaches_image_block(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, requests = make_client_create(answer=WORKING_CODE)
-        provider = OpenAIProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(PrettyConfig(model="gpt-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             provider.generate_step_code(
@@ -368,7 +368,7 @@ class TestOpenAIProviderLogic:
                 snapshot="- snap",
                 page_url=None,
                 screenshot=b"png-bytes",
-                cheat_sheet="expect(locator).to_be_visible()",
+                skill="expect(locator).to_be_visible()",
                 attempt_history=[],
                 recommendation=None,
                 guidance=None,
@@ -384,7 +384,7 @@ class TestOpenAIProviderLogic:
     def test_classification_with_screenshot_uses_openai_image_block(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, requests = make_client_create(answer="rot | почему | что делать")
-        provider = OpenAIProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(PrettyConfig(model="gpt-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             provider.classify_step_failure(
@@ -406,7 +406,7 @@ class TestOpenAIProviderLogic:
 
     def test_client_constructed_with_base_url_when_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
-        provider = OpenAIProvider(Config(model="gpt-5", base_url="https://proxy.internal/v1"))
+        provider = OpenAIProvider(PrettyConfig(model="gpt-5", base_url="https://proxy.internal/v1"))
         client, _requests = make_client_create()
 
         with mock.patch("prettyplay.llm.openai_provider.OpenAI", return_value=client) as sdk:
@@ -422,7 +422,7 @@ class TestOpenAIProviderLogic:
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
-                cheat_sheet="expect(locator).to_be_visible()",
+                skill="expect(locator).to_be_visible()",
                 attempt_history=[],
                 recommendation=None,
                 guidance=None,
@@ -435,7 +435,7 @@ class TestOpenAIProviderLogic:
     def test_classification_parses_verdict_line(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, requests = make_client_create(answer="rot | кнопка переименована | проверить шаг")
-        provider = OpenAIProvider(Config(model="gpt-5", classification_model="gpt-5-mini"))
+        provider = OpenAIProvider(PrettyConfig(model="gpt-5", classification_model="gpt-5-mini"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             classification = provider.classify_step_failure(
@@ -456,7 +456,7 @@ class TestOpenAIProviderLogic:
     def test_classification_unknown_category_defaults_to_incurable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, _requests = make_client_create(answer="mystery | why | do something")
-        provider = OpenAIProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(PrettyConfig(model="gpt-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             classification = provider.classify_step_failure(
@@ -474,7 +474,7 @@ class TestOpenAIProviderLogic:
     def test_classification_null_content_maps_to_llm_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, _requests = make_client_create(answer=None)  # type: ignore[arg-type]
-        provider = OpenAIProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(PrettyConfig(model="gpt-5", llm_request_attempts=2))
 
         with (
             mock.patch.object(provider, "_get_client", return_value=client),
@@ -490,12 +490,13 @@ class TestOpenAIProviderLogic:
                 screenshot=None,
             )
 
-        assert "empty completion" in str(excinfo.value)
+        assert "empty completion" in str(excinfo.value)  # the closure's own honest label, re-raised
+        assert isinstance(excinfo.value, PrettyplayError)
 
     def test_classification_empty_answer_defaults_to_incurable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, _requests = make_client_create(answer="   ")
-        provider = OpenAIProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(PrettyConfig(model="gpt-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             classification = provider.classify_step_failure(
@@ -515,7 +516,7 @@ class TestOpenAIProviderLogic:
         client = SimpleNamespace(
             chat=SimpleNamespace(completions=SimpleNamespace(create=mock.MagicMock(side_effect=OpenAIError("boom"))))
         )
-        provider = OpenAIProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(PrettyConfig(model="gpt-5"))
 
         with (
             mock.patch.object(provider, "_get_client", return_value=client),
@@ -537,7 +538,7 @@ class TestOpenAIProviderLogic:
     def test_null_completion_content_maps_to_llm_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, _requests = make_client_create(answer=None)  # type: ignore[arg-type]
-        provider = OpenAIProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(PrettyConfig(model="gpt-5", llm_request_attempts=2))
 
         with (
             mock.patch.object(provider, "_get_client", return_value=client),
@@ -555,13 +556,13 @@ class TestOpenAIProviderLogic:
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
-                cheat_sheet="expect(locator).to_be_visible()",
+                skill="expect(locator).to_be_visible()",
                 attempt_history=[],
                 recommendation=None,
                 guidance=None,
             )
 
-        assert "empty completion" in str(excinfo.value)
+        assert "empty completion" in str(excinfo.value)  # the closure's own honest label, re-raised
         assert isinstance(excinfo.value, PrettyplayError)
 
     def test_empty_choices_maps_to_llm_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -570,7 +571,7 @@ class TestOpenAIProviderLogic:
         client = SimpleNamespace(
             chat=SimpleNamespace(completions=SimpleNamespace(create=mock.MagicMock(return_value=response)))
         )
-        provider = OpenAIProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(PrettyConfig(model="gpt-5", llm_request_attempts=2))
 
         with (
             mock.patch.object(provider, "_get_client", return_value=client),
@@ -588,20 +589,21 @@ class TestOpenAIProviderLogic:
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
-                cheat_sheet="expect(locator).to_be_visible()",
+                skill="expect(locator).to_be_visible()",
                 attempt_history=[],
                 recommendation=None,
                 guidance=None,
             )
 
-        assert "empty completion" in str(excinfo.value)
+        assert "empty completion" in str(excinfo.value)  # the closure's own honest label, re-raised
+        assert client.chat.completions.create.call_count == 2  # one bounded re-send, the second empty is terminal
         assert isinstance(excinfo.value, PrettyplayError)
 
     def test_openai_generate_step_code_carries_user_instructions(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         fenced = f"```python\n{WORKING_CODE}```"
         client, requests = make_client_create(answer=fenced)
-        provider = OpenAIProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(PrettyConfig(model="gpt-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             code = provider.generate_step_code(
@@ -616,7 +618,7 @@ class TestOpenAIProviderLogic:
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
-                cheat_sheet="expect(locator).to_be_visible()",
+                skill="expect(locator).to_be_visible()",
                 attempt_history=[],
                 recommendation=None,
                 guidance=None,
@@ -627,12 +629,12 @@ class TestOpenAIProviderLogic:
         assert request["messages"][0] == {"role": "system", "content": "SYS"}
         user = request["messages"][1]["content"]
         assert f"USER INSTRUCTIONS:\n{USER_INSTRUCTIONS}" in user
-        assert user.index("CHEAT SHEET:") < user.index("USER INSTRUCTIONS:")  # after the cheat-sheet block
+        assert user.index("PLAYWRIGHT SKILL:") < user.index("USER INSTRUCTIONS:")  # after the skill block
 
     def test_classify_failure_never_carries_generation_instructions(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, requests = make_client_create(answer="rot | e | r")
-        provider = OpenAIProvider(Config(model="gpt-5", generation_prompt=USER_INSTRUCTIONS))
+        provider = OpenAIProvider(PrettyConfig(model="gpt-5", generation_prompt=USER_INSTRUCTIONS))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             provider.classify_step_failure(
@@ -651,7 +653,7 @@ class TestOpenAIProviderLogic:
     def test_classification_carries_the_instructions_block_last(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, requests = make_client_create(answer="rot | e | r")
-        provider = OpenAIProvider(Config(model="gpt-5", classification_prompt=USER_INSTRUCTIONS))
+        provider = OpenAIProvider(PrettyConfig(model="gpt-5", classification_prompt=USER_INSTRUCTIONS))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             provider.classify_step_failure(
@@ -674,7 +676,7 @@ class TestOpenAIProviderLogic:
         client = SimpleNamespace(
             chat=SimpleNamespace(completions=SimpleNamespace(create=mock.MagicMock(return_value=response)))
         )
-        provider = OpenAIProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(PrettyConfig(model="gpt-5", llm_request_attempts=2))
 
         with (
             mock.patch.object(provider, "_get_client", return_value=client),
@@ -690,7 +692,8 @@ class TestOpenAIProviderLogic:
                 screenshot=None,
             )
 
-        assert "empty completion" in str(excinfo.value)
+        assert "empty completion" in str(excinfo.value)  # the closure's own honest label, re-raised
+        assert client.chat.completions.create.call_count == 2  # one bounded re-send, the second empty is terminal
         assert isinstance(excinfo.value, PrettyplayError)
 
     def test_openai_check_instruction_compliance_request_and_parse(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -700,7 +703,9 @@ class TestOpenAIProviderLogic:
             ' "dimension": "instruction"}]'
         )
         client, requests = make_client_create(answer=verdict)
-        provider = OpenAIProvider(Config(model="gpt-5", generation_model="gpt-5-mini", classification_model="gpt-x"))
+        provider = OpenAIProvider(
+            PrettyConfig(model="gpt-5", generation_model="gpt-5-mini", classification_model="gpt-x")
+        )
         record = (
             "original cached code\nurl: https://a.example -> https://a.example\n"
             f"code:\n{WORKING_CODE}error:\nAssertionError: boom"
@@ -743,7 +748,7 @@ class TestOpenAIProviderLogic:
         client = SimpleNamespace(
             chat=SimpleNamespace(completions=SimpleNamespace(create=mock.MagicMock(side_effect=OpenAIError("boom"))))
         )
-        provider = OpenAIProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(PrettyConfig(model="gpt-5"))
 
         with (
             mock.patch.object(provider, "_get_client", return_value=client),
@@ -781,7 +786,9 @@ class TestOpenAIGroupDiagnosis:
     def test_openai_classify_group_failure_request_and_parse(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, requests = make_client_create(answer=DIAGNOSIS_ANSWER)
-        provider = OpenAIProvider(Config(model="gpt-5", generation_model="gpt-5-mini", classification_model="gpt-x"))
+        provider = OpenAIProvider(
+            PrettyConfig(model="gpt-5", generation_model="gpt-5-mini", classification_model="gpt-x")
+        )
         record = (
             "original cached code\nurl: https://a.example -> https://a.example\n"
             f"code:\n{WORKING_CODE}error:\nAssertionError: boom"
@@ -832,7 +839,7 @@ class TestOpenAIGroupDiagnosis:
     ) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, requests = make_client_create(answer="the app is broken")
-        provider = OpenAIProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(PrettyConfig(model="gpt-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             verdict = provider.classify_group_failure(  # never raises across the port
@@ -857,7 +864,7 @@ class TestOpenAIGroupDiagnosis:
         client = SimpleNamespace(
             chat=SimpleNamespace(completions=SimpleNamespace(create=mock.MagicMock(side_effect=OpenAIError("boom"))))
         )
-        provider = OpenAIProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(PrettyConfig(model="gpt-5"))
 
         with (
             mock.patch.object(provider, "_get_client", return_value=client),
@@ -881,7 +888,7 @@ class TestOpenAIGroupDiagnosis:
     def test_openai_diagnosis_with_screenshot_uses_openai_image_block(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "test")
         client, requests = make_client_create(answer=DIAGNOSIS_ANSWER)
-        provider = OpenAIProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(PrettyConfig(model="gpt-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             provider.classify_group_failure(
@@ -914,7 +921,7 @@ class TestOpenAIProviderTransportWiring:
         cell: dict[str, str] = {"answer": WORKING_CODE}
         create = mock.MagicMock(side_effect=lambda **_kwargs: completion_answer(cell["answer"]))
         client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
-        provider = OpenAIProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(PrettyConfig(model="gpt-5"))
 
         calls: list[tuple[str, str, int, object]] = []
 
@@ -939,7 +946,7 @@ class TestOpenAIProviderTransportWiring:
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
-                cheat_sheet="expect(locator).to_be_visible()",
+                skill="expect(locator).to_be_visible()",
                 attempt_history=[],
                 recommendation=None,
                 guidance=None,
@@ -998,8 +1005,8 @@ class TestOpenAIProviderTransportWiring:
                 )
             )
         )
-        openai_llm = OpenAIProvider(Config(model="gpt-5"))
-        anthropic_llm = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+        openai_llm = OpenAIProvider(PrettyConfig(model="gpt-5"))
+        anthropic_llm = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5"))
         generate_kwargs = {
             "prompt": "p",
             "user_instructions": "",
@@ -1012,7 +1019,7 @@ class TestOpenAIProviderTransportWiring:
             "snapshot": "- snap",
             "page_url": None,
             "screenshot": None,
-            "cheat_sheet": "expect(locator).to_be_visible()",
+            "skill": "expect(locator).to_be_visible()",
             "attempt_history": [],
             "recommendation": None,
             "guidance": None,
@@ -1047,7 +1054,7 @@ class TestOpenAIProviderTransportWiring:
         client = SimpleNamespace(
             chat=SimpleNamespace(completions=SimpleNamespace(create=mock.MagicMock(side_effect=create)))
         )
-        provider = OpenAIProvider(Config(model="gpt-5", llm_request_attempts=2))
+        provider = OpenAIProvider(PrettyConfig(model="gpt-5", llm_request_attempts=2))
         sleeps: list[float] = []
 
         monkeypatch.setattr("time.sleep", sleeps.append)
@@ -1067,7 +1074,7 @@ class TestOpenAIProviderTransportWiring:
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
-                cheat_sheet="expect(locator).to_be_visible()",
+                skill="expect(locator).to_be_visible()",
                 attempt_history=[],
                 recommendation=None,
                 guidance=None,
@@ -1086,7 +1093,7 @@ class TestOpenAIProviderTransportWiring:
         error = make_status_error(AuthenticationError, 401)
         create = mock.MagicMock(side_effect=error)
         client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
-        provider = OpenAIProvider(Config(model="gpt-5"))
+        provider = OpenAIProvider(PrettyConfig(model="gpt-5"))
         sleeps: list[float] = []
 
         monkeypatch.setattr("time.sleep", sleeps.append)
@@ -1117,7 +1124,7 @@ class TestOpenAIProviderTransportWiring:
     ) -> None:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
-        provider = OpenAIProvider(Config())
+        provider = OpenAIProvider(PrettyConfig())
         sleeps: list[float] = []
 
         monkeypatch.setattr("time.sleep", sleeps.append)

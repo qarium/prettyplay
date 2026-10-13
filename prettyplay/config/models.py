@@ -46,6 +46,12 @@ class BrowserConfig(BaseModel):
             run linearly; 0 — the slowest supported pace; valid 0-100
             inclusive — an out-of-range or non-integer value fails loudly
             with the received value named, never a silent ignore.
+        timeout: the default action timeout of the page in seconds — int or
+            float, default 30 (the Playwright library default applied
+            explicitly); the page of every test starts with this default
+            action timeout — the baseline the probe bound of the engine loops
+            restores to; 0 disables the timeout, not auto-wait — an unready
+            action can wait indefinitely; navigations keep their own default timeout.
     """
 
     model_config = ConfigDict(kw_only=True, extra="forbid")
@@ -56,6 +62,7 @@ class BrowserConfig(BaseModel):
     endpoint: str = ""
     accept_dialogs: bool = False
     speed: int = 100
+    timeout: float = 30
 
     @field_validator("name")
     @classmethod
@@ -153,8 +160,28 @@ class BrowserConfig(BaseModel):
 
         return value
 
+    @field_validator("timeout")
+    @classmethod
+    def _validate_timeout(cls, value: float) -> float:
+        """Check that the page action timeout is a finite non-negative number of seconds.
 
-class Config(BaseModel):
+        Args:
+            value: the raw timeout setting in seconds; 0 disables the timeout
+                without disabling auto-wait.
+
+        Returns:
+            The unchanged timeout when finite and non-negative.
+
+        Raises:
+            ValueError: when the value is negative or non-finite (inf/nan).
+        """
+        if not math.isfinite(value) or value < 0:
+            raise ValueError("must be a non-negative number (finite)")
+
+        return value
+
+
+class PrettyConfig(BaseModel):
     """Validated project settings loaded from ``[tool.prettyplay]`` — fields default empty, load_config fills them.
 
     Attributes:
@@ -208,6 +235,16 @@ class Config(BaseModel):
             instructions (the non-empty generation_prompt) before it is cached;
             False — the gate never runs, fully the old behavior; default True
             (the opt-out default).
+        probe_timeout: the probe bound of candidate executions inside the
+            generation and healing loops, in seconds — int or float; 0 — off
+            (the default): every execution runs with the page default action
+            timeout; a positive value — every candidate of the loops runs
+            with this short action timeout so a wrong locator fails fast
+            instead of burning the page default; after every candidate the
+            page default restores to the baseline — the browser timeout
+            setting (default 30 s); replayed cached code and steering always
+            run under the baseline; navigations keep their own default
+            timeout.
     """
 
     model_config = ConfigDict(kw_only=True, extra="forbid")
@@ -230,6 +267,7 @@ class Config(BaseModel):
     llm_request_attempts: PositiveInt = 3
     send_screenshots: bool = False
     generation_approve: bool = True
+    probe_timeout: float = 0
 
     @field_validator("polling_timeout")
     @classmethod
@@ -273,6 +311,26 @@ class Config(BaseModel):
 
         return value
 
+    @field_validator("probe_timeout")
+    @classmethod
+    def _validate_probe_timeout(cls, value: float) -> float:
+        """Check that the probe bound is a finite non-negative number of seconds.
+
+        Args:
+            value: the raw probe bound in seconds; 0 means off — no probe
+                wrapping of candidate executions.
+
+        Returns:
+            The unchanged probe bound when finite and non-negative.
+
+        Raises:
+            ValueError: when the value is negative or non-finite (inf/nan).
+        """
+        if not math.isfinite(value) or value < 0:
+            raise ValueError("must be a non-negative number (finite)")
+
+        return value
+
     @property
     def effective_generation_model(self) -> str:
         """Return generation_model when non-empty, otherwise model."""
@@ -282,7 +340,3 @@ class Config(BaseModel):
     def effective_classification_model(self) -> str:
         """Return classification_model when non-empty, otherwise model."""
         return self.classification_model if self.classification_model else self.model
-
-
-#: The public name of ``Config``: the integrator-facing settings model.
-PrettyConfig = Config

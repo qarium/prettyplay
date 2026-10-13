@@ -1,19 +1,22 @@
 """Tests for the two-dimension compliance gate of the prettyplay.engine cell."""
 
 import inspect
+import logging
 import re
 import textwrap
 from pathlib import Path
 
-from prettyplay.config import Config
+import pytest
+from prettyplay.config import PrettyConfig
 from prettyplay.engine.attempts import OUTCOME_FAILED_CHECK, OUTCOME_ORIGINAL, StepAttempt
 from prettyplay.engine.compliance import COMPLIANCE_PROMPT, check_step_compliance
 from prettyplay.engine.renderer import PreparedStep
+from prettyplay.failures import ComplianceVerdictError, LLMUnavailableError
 from prettyplay.llm import ComplianceFinding
 
 ENGINE_CODEMANIFEST = Path(__file__).resolve().parents[2] / "prettyplay" / "engine" / "CODEMANIFEST"
 
-GATE_CONFIG = Config(generation_prompt="Prefer id attributes")
+GATE_CONFIG = PrettyConfig(generation_prompt="Prefer id attributes")
 
 STEP_CODE = "def step(page) -> None:\n    page.goto('https://example.com')\n"
 
@@ -76,6 +79,53 @@ class TestComplianceGateContract:
         assert call["declarations"] == ["name"]
         assert "step_text" not in call  # the raw text channel is gone — the render product replaced it
 
+
+class TestComplianceGateResilience:
+    """Logic tests: a verdict-quality flake never kills a green candidate."""
+
+    def test_an_unparsable_verdict_is_re_asked_once(self) -> None:
+        findings = [
+            ComplianceFinding(
+                instruction="Prefer id attributes",
+                priority="high",
+                explanation="locates by text",
+                dimension="instruction",
+            )
+        ]
+        provider = ComplianceStubProvider(
+            [ComplianceVerdictError("compliance verdict unparsable — received fragment: nope"), findings]
+        )
+
+        result = check_step_compliance(GATE_CONFIG, provider, prepared_step(), "action", STEP_CODE, [])
+
+        assert result == findings  # the fresh sample parsed — the finding blocks as it would
+        assert len(provider.compliance_calls) == 2  # the initial ask plus the one bounded re-ask
+
+    def test_a_persistently_unparsable_verdict_degrades_to_the_unchecked_pass(self, caplog) -> None:
+        outage = ComplianceVerdictError("compliance verdict unparsable — received fragment: nope")
+        provider = ComplianceStubProvider([outage, outage])
+
+        with caplog.at_level(logging.WARNING, logger="prettyplay"):
+            result = check_step_compliance(GATE_CONFIG, provider, prepared_step(), "action", STEP_CODE, [])
+
+        assert result == []  # compliant — the degraded unchecked pass
+        assert len(provider.compliance_calls) == 2
+        degraded = [
+            record
+            for record in caplog.records
+            if record.getMessage()
+            == "compliance verdict unparsable after a retry — the green candidate passes unchecked"
+        ]
+        assert len(degraded) == 1  # loud, never silent
+
+    def test_a_provider_outage_still_propagates(self) -> None:
+        provider = ComplianceStubProvider([LLMUnavailableError("llm unavailable: openai request failed")])
+
+        with pytest.raises(LLMUnavailableError):
+            check_step_compliance(GATE_CONFIG, provider, prepared_step(), "action", STEP_CODE, [])
+
+        assert len(provider.compliance_calls) == 1  # an outage is never re-asked at the gate level
+
     def test_compliance_prompt_is_a_frozen_constant(self) -> None:
         assert COMPLIANCE_PROMPT.startswith("You verify generated step code on two dimensions")
         assert "- STEP TYPE: action or assertion" in COMPLIANCE_PROMPT
@@ -128,7 +178,7 @@ class TestCheckStepComplianceLogic:
 
     def test_check_step_compliance_returns_empty_with_zero_calls_when_off(self) -> None:
         provider = ComplianceStubProvider()
-        config = Config(generation_approve=False, generation_prompt="Prefer id attributes")
+        config = PrettyConfig(generation_approve=False, generation_prompt="Prefer id attributes")
 
         findings = check_step_compliance(config, provider, prepared_step(), "action", STEP_CODE, [])
 
@@ -137,7 +187,7 @@ class TestCheckStepComplianceLogic:
 
     def test_check_step_compliance_returns_empty_when_instructions_empty(self) -> None:
         provider = ComplianceStubProvider()
-        config = Config(generation_approve=True, generation_prompt="")
+        config = PrettyConfig(generation_approve=True, generation_prompt="")
 
         findings = check_step_compliance(config, provider, prepared_step(), "action", STEP_CODE, [])
 

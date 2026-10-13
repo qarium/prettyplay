@@ -6,7 +6,7 @@ from typing import ClassVar
 from unittest import mock
 
 import pytest
-from prettyplay.config import Config
+from prettyplay.config import PrettyConfig
 from prettyplay.llm import AnthropicProvider, LLMProvider, OpenAIProvider, ScenarioStep, create_provider
 
 GENERATE_STEP_CODE_PARAMS = [
@@ -22,7 +22,7 @@ GENERATE_STEP_CODE_PARAMS = [
     "snapshot",
     "page_url",
     "screenshot",
-    "cheat_sheet",
+    "skill",
     "attempt_history",
     "recommendation",
     "guidance",
@@ -142,7 +142,7 @@ class TestLLMProviderContract:
             names = list(parameters)
 
             expected_tail = ["attempt_history", "recommendation", "guidance"]
-            assert names[names.index("cheat_sheet") + 1 :] == expected_tail, owner.__name__
+            assert names[names.index("skill") + 1 :] == expected_tail, owner.__name__
             assert parameters["step_type"].annotation is str, owner.__name__
             assert parameters["previous_steps"].annotation == list[ScenarioStep], owner.__name__
             assert parameters["group_prompt"].annotation == parameters["page_url"].annotation, owner.__name__
@@ -201,16 +201,16 @@ class TestLLMProviderContract:
             assert names[names.index("previous_steps") + 1] == "step_text", owner.__name__
             assert parameters["previous_steps"].default is inspect.Signature.empty, owner.__name__
 
-    def test_generate_step_code_signature_carries_cheat_sheet_after_screenshot(self) -> None:
+    def test_generate_step_code_signature_carries_skill_after_screenshot(self) -> None:
         for owner in (LLMProvider, OpenAIProvider, AnthropicProvider):
             parameters = inspect.signature(owner.generate_step_code).parameters
             names = list(parameters)
 
-            assert "cheat_sheet" in names, owner.__name__
+            assert "skill" in names, owner.__name__
             assert ("page" + "_api") not in names, owner.__name__  # the dead slot name, assembled — no literal
-            assert names[names.index("screenshot") + 1] == "cheat_sheet", owner.__name__
-            assert names[names.index("cheat_sheet") + 1] == "attempt_history", owner.__name__
-            assert parameters["cheat_sheet"].annotation is str, owner.__name__
+            assert names[names.index("screenshot") + 1] == "skill", owner.__name__
+            assert names[names.index("skill") + 1] == "attempt_history", owner.__name__
+            assert parameters["skill"].annotation is str, owner.__name__
 
     def test_base_methods_raise_not_implemented(self) -> None:
         port = LLMProvider()
@@ -228,7 +228,7 @@ class TestLLMProviderContract:
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
-                cheat_sheet="expect(locator).to_be_visible()",
+                skill="expect(locator).to_be_visible()",
                 attempt_history=[],
                 recommendation=None,
                 guidance=None,
@@ -284,16 +284,16 @@ class TestSkeletonImplementationsContract:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
 
-        OpenAIProvider(Config())  # constructs without exceptions
-        AnthropicProvider(Config())
+        OpenAIProvider(PrettyConfig())  # constructs without exceptions
+        AnthropicProvider(PrettyConfig())
 
 
 class TestCreateProviderLogic:
     """Logic tests: factory selection by config; unknown value fails loudly."""
 
     def test_create_provider_selects_by_config(self) -> None:
-        anthropic = create_provider(Config(provider="anthropic", model="claude-sonnet-4-5"))
-        openai = create_provider(Config(provider="openai", model="gpt-5"))
+        anthropic = create_provider(PrettyConfig(provider="anthropic", model="claude-sonnet-4-5"))
+        openai = create_provider(PrettyConfig(provider="openai", model="gpt-5"))
 
         assert isinstance(anthropic, AnthropicProvider)
         assert isinstance(anthropic, LLMProvider)  # port contract
@@ -302,13 +302,13 @@ class TestCreateProviderLogic:
         assert isinstance(openai, LLMProvider)
 
     def test_create_provider_returns_fresh_instance(self) -> None:
-        first = create_provider(Config(provider="openai"))
-        second = create_provider(Config(provider="openai"))
+        first = create_provider(PrettyConfig(provider="openai"))
+        second = create_provider(PrettyConfig(provider="openai"))
 
         assert first is not second
 
     def test_create_provider_unknown_fails_loudly(self) -> None:
-        config = Config.model_construct(provider="groq")  # validation bypassed intentionally:
+        config = PrettyConfig.model_construct(provider="groq")  # validation bypassed intentionally:
         # Literal would otherwise reject the value
 
         with pytest.raises(ValueError, match="unsupported provider") as excinfo:
@@ -337,7 +337,7 @@ class TestInitialismRenames:
         with pytest.raises(AttributeError):
             getattr(prettyplay.llm, "OpenAi" + "Provider")
 
-        provider = create_provider(Config(provider="openai"))
+        provider = create_provider(PrettyConfig(provider="openai"))
         assert isinstance(provider, prettyplay.llm.OpenAIProvider)
         assert isinstance(provider, prettyplay.llm.LLMProvider)
 
@@ -379,8 +379,8 @@ class TestClassificationInstructionsPlacement:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
 
         cases = (
-            (OpenAIProvider(Config(model="gpt-5")), _openai_client),
-            (AnthropicProvider(Config(model="claude-sonnet-4-5")), _anthropic_client),
+            (OpenAIProvider(PrettyConfig(model="gpt-5")), _openai_client),
+            (AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5")), _anthropic_client),
         )
 
         for provider, make_client in cases:
@@ -419,7 +419,7 @@ class TestClassificationInstructionsPlacement:
 
             assert "USER INSTRUCTIONS" not in empty_requests[0]["messages"][-1]["content"]
 
-            # generation placement: after CHEAT SHEET, before the HISTORY block
+            # generation placement: after the skill block, before the HISTORY block
             gen_client, gen_requests = make_client(GENERATION_ANSWER)
 
             with mock.patch.object(provider, "_get_client", return_value=gen_client):
@@ -435,14 +435,16 @@ class TestClassificationInstructionsPlacement:
                     snapshot="snap",
                     page_url=None,
                     screenshot=None,
-                    cheat_sheet="expect(locator).to_be_visible()",
+                    skill="expect(locator).to_be_visible()",
                     attempt_history=["execution failed\nurl: https://a.example -> https://b.example"],
                     recommendation=None,
                     guidance=None,
                 )
 
             gen_user = gen_requests[0]["messages"][-1]["content"]
-            assert gen_user.index("CHEAT SHEET:") < gen_user.index("USER INSTRUCTIONS:") < gen_user.index("HISTORY:")
+            assert (
+                gen_user.index("PLAYWRIGHT SKILL:") < gen_user.index("USER INSTRUCTIONS:") < gen_user.index("HISTORY:")
+            )
 
 
 class TestNewInputsParity:
@@ -476,8 +478,8 @@ class TestNewInputsParity:
         compliance_texts = []
 
         for provider, make_client in (
-            (OpenAIProvider(Config(model="gpt-5")), _openai_client),
-            (AnthropicProvider(Config(model="claude-sonnet-4-5")), _anthropic_client),
+            (OpenAIProvider(PrettyConfig(model="gpt-5")), _openai_client),
+            (AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5")), _anthropic_client),
         ):
             gen_client, gen_requests = make_client(GENERATION_ANSWER)
 
@@ -494,7 +496,7 @@ class TestNewInputsParity:
                     snapshot="snap",
                     page_url=self.PAGE_URL,
                     screenshot=None,
-                    cheat_sheet="expect(locator).to_be_visible()",
+                    skill="expect(locator).to_be_visible()",
                     attempt_history=self.ATTEMPT_RECORDS,
                     recommendation="use a role locator",
                     guidance="dismiss the modal first",
@@ -530,7 +532,7 @@ class TestNewInputsParity:
             assert "USER GUIDANCE:\ndismiss the modal first" in text
             assert f"PAGE URL: {self.PAGE_URL}" in text
             assert text.index("PAGE SNAPSHOT:\nsnap") < text.index(f"PAGE URL: {self.PAGE_URL}")
-            assert text.index(f"PAGE URL: {self.PAGE_URL}") < text.index("CHEAT SHEET:")
+            assert text.index(f"PAGE URL: {self.PAGE_URL}") < text.index("PLAYWRIGHT SKILL:")
 
         for text in compliance_texts:
             assert "STEP TYPE: assertion\nSTEP:\ns" in text
@@ -553,8 +555,8 @@ class TestPreparedInputsParity:
         texts = []
 
         for provider, make_client in (
-            (OpenAIProvider(Config(model="gpt-5")), _openai_client),
-            (AnthropicProvider(Config(model="claude-sonnet-4-5")), _anthropic_client),
+            (OpenAIProvider(PrettyConfig(model="gpt-5")), _openai_client),
+            (AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5")), _anthropic_client),
         ):
             client, requests = make_client(GENERATION_ANSWER)
 
@@ -571,7 +573,7 @@ class TestPreparedInputsParity:
                     snapshot="snap",
                     page_url="https://x",
                     screenshot=None,
-                    cheat_sheet="cs",
+                    skill="cs",
                     attempt_history=[],
                     recommendation=None,
                     guidance=None,
@@ -587,7 +589,7 @@ class TestPreparedInputsParity:
                 < text.index("RESULTS:")
                 < text.index("PAGE SNAPSHOT:")
                 < text.index("PAGE URL: https://x")
-                < text.index("CHEAT SHEET:")
+                < text.index("PLAYWRIGHT SKILL:")
             )  # the defect D1 lock — the prepared blocks directly after the STEP line
 
         assert texts[0] == texts[1]  # parity: the shared builder renders both providers identical
@@ -620,9 +622,9 @@ class TestGroupDiagnosisParity:
         diagnosis_texts = []
 
         for provider, make_client in (
-            (OpenAIProvider(Config(model="gpt-5", classification_model="the-classifier")), _openai_client),
+            (OpenAIProvider(PrettyConfig(model="gpt-5", classification_model="the-classifier")), _openai_client),
             (
-                AnthropicProvider(Config(model="claude-sonnet-4-5", classification_model="the-classifier")),
+                AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5", classification_model="the-classifier")),
                 _anthropic_client,
             ),
         ):
@@ -667,8 +669,8 @@ class TestGroupDiagnosisParity:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
 
         for provider, make_client in (
-            (OpenAIProvider(Config(model="gpt-5")), _openai_client),
-            (AnthropicProvider(Config(model="claude-sonnet-4-5")), _anthropic_client),
+            (OpenAIProvider(PrettyConfig(model="gpt-5")), _openai_client),
+            (AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5")), _anthropic_client),
         ):
             client, requests = make_client(GARBAGE_DIAGNOSIS_ANSWER)
 

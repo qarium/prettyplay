@@ -113,7 +113,7 @@ class StepExecutor:
         self._scenario: list[ScenarioStep] = []  # test scenario context
         self._memory = StepMemory()  # the per-test memory of captured observations
 
-    def execute(  # noqa: PLR0913, PLR0917 — the signature is fixed by the root cell contract
+    def execute(  # noqa: PLR0913, PLR0917, C901, PLR0912 — the signature and the step-cycle phases are fixed by the root cell contract
         self,
         step_text: str,
         step_type: str,
@@ -142,8 +142,8 @@ class StepExecutor:
                 the time-bounded settle mode; a declared count switches the
                 settle window to the count-bounded mode.
             delay: the declared quiet start pause in seconds; ``None`` — no
-                pause; passes quietly right after the started event, before
-                the render.
+                pause; passes quietly before the render and the started
+                event.
             vars: the validated call-local string inputs passed by the
                 facade/group methods; rendered into the step's
                 ``PreparedStep`` and never published to memory.
@@ -162,18 +162,23 @@ class StepExecutor:
                 cache miss or non-product-defect classification. Never raised
                 by an interactive non-strict step the steering dialog healed.
             LLMUnavailableError: the provider service failed; no retry.
-            ComplianceVerdictError: the compliance gate could not obtain a
-                usable verdict — the provider answer did not parse into
-                findings; the executed candidate is never cached.
         """
         outcome = "failed"
         traced = False  # this step's group trace record — appended exactly once, failed or passed
+        ready = step_text  # the authored template — the only layer until the render succeeds
         try:
-            self._reporter.emit("on_step_started", {"step_text": step_text, "step_type": step_type})
             if delay is not None:
                 time.sleep(delay)  # the quiet pre-step pause — no event, no log record
 
-            prepared = render_step(step_text, step_type, self._memory, vars)  # authoring errors precede addressing
+            try:
+                prepared = render_step(step_text, step_type, self._memory, vars)  # authoring errors precede addressing
+            except Exception:
+                # no ready layer exists — the authored template carries the events of the failed step
+                self._reporter.emit("on_step_started", {"step_text": step_text, "step_type": step_type})
+                raise
+
+            ready = prepared.addressing_text  # the ready layer — values embedded, capture tags kept
+            self._reporter.emit("on_step_started", {"step_text": ready, "step_type": step_type})
             identity = StepIdentity(
                 cache_key=self.cache_key,
                 step_type=step_type,
@@ -186,6 +191,25 @@ class StepExecutor:
 
             if cached is not None:
                 url_before = group_url_before if group is not None else _read_url(page)
+                if prepared.declarations:
+                    logger.info(
+                        "saves into: %s",
+                        ", ".join(prepared.declarations),
+                        extra={
+                            "event": "step_results_declared",
+                            "step_text": prepared.addressing_text,
+                            "declarations": tuple(prepared.declarations),
+                        },
+                    )
+                logger.info(
+                    "cached code (replay):\n%s",
+                    cached.code,
+                    extra={
+                        "event": "step_cached_code",
+                        "step_text": prepared.addressing_text,
+                        "code": cached.code,
+                    },
+                )
                 try:
                     result = settle(run_step_code, cached.code, page, window)
                     captures = validate_step_result(prepared, result)
@@ -209,6 +233,16 @@ class StepExecutor:
                 else:
                     # acceptance = the validated successful execution — the gate never runs on replay
                     self._memory.publish(captures)
+                    if captures:
+                        logger.info(
+                            "captured: %s",
+                            ", ".join(f"{name} = {value!r}" for name, value in captures.items()),
+                            extra={
+                                "event": "step_captured",
+                                "step_text": prepared.addressing_text,
+                                "captures": dict(captures),
+                            },
+                        )
             elif self._config.strict:
                 raise IncurableStepError(prepared.instruction, _STRICT_MISS_REASON, "", code="")
             else:
@@ -247,19 +281,20 @@ class StepExecutor:
                     _read_url(page),
                     "passed",
                 )
-            self._reporter.emit("on_step_passed", {"step_text": step_text, "step_type": step_type})
+
+            self._reporter.emit("on_step_passed", {"step_text": ready, "step_type": step_type})
             outcome = "passed"
         except Exception as error:
             self._reporter.emit(
                 "on_step_failed",
-                {"step_text": step_text, "step_type": step_type, "error": str(error)},  # the render, verbatim
+                {"step_text": ready, "step_type": step_type, "error": str(error)},  # the render, verbatim
             )
 
             if isinstance(error, (ProductDefectError, IncurableStepError)) and error.verdict is not None:
                 self._reporter.emit(
                     "on_step_verdict",
                     {
-                        "step_text": step_text,
+                        "step_text": ready,
                         "category": error.verdict.category,
                         "explanation": error.verdict.explanation,
                         "recommendation": error.verdict.recommendation,
@@ -271,7 +306,7 @@ class StepExecutor:
             # event, on pass, on failure and on the strict miss alike
             self._reporter.emit(
                 "on_step_finished",
-                {"step_text": step_text, "step_type": step_type, "outcome": outcome},
+                {"step_text": ready, "step_type": step_type, "outcome": outcome},
             )
 
     def _append_group_trace(  # noqa: PLR0913, PLR0917 — the record fields are fixed by the groups cell contract
@@ -637,7 +672,14 @@ class StepExecutor:
                 self._config, self._provider, instruction, step.code, error_text, page
             )
         except LLMUnavailableError:
-            logger.warning("verdict skipped: llm unavailable")
+            logger.warning(
+                "verdict skipped: llm unavailable",
+                extra={
+                    "event": "verdict_skipped",
+                    "instruction": instruction,
+                    "reason": "llm_unavailable",
+                },
+            )
 
             # from None: the skip is logged; the step failure itself travels in the error field
             if step_type == "assertion":

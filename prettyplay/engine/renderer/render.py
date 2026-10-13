@@ -342,8 +342,10 @@ def _restore_tag_sources(output: str, markers: dict[str, str]) -> tuple[str, str
         markers: The per-render map of emitted markers to their tag source spans.
 
     Returns:
-        The instruction — the markers removed — and the addressing text — the
-        markers replaced by their tag source spans.
+        The instruction — the markers removed, the clean sentence for LLM
+        requests — and the addressing text — the markers replaced by their
+        tag source spans, the ready layer every event and log record carries
+        and the cache identity addresses by.
 
     Raises:
         PrettyplayError: A marker appears in the output more than once, or its tag

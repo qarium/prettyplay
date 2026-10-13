@@ -16,6 +16,10 @@ this path: its failure routes to the group recovery — see
 | `product_defect` | the expectation legitimately failed | the test fails loudly — never healed green |
 | `incurable` | regeneration cannot help: budget exhausted, text no longer matches reality, ambiguity | the incurable failure carries step, reason, recommendation |
 
+A deterministic code defect — the error text starting with `SyntaxError: `, `NameError: `, `ImportError: `
+or `ModuleNotFoundError: ` — is answered by a fast path: a synthesized `fixable` verdict with no LLM call
+and no page snapshot. The failure is provably the step code's own, never the product's behavior.
+
 ## Heal
 
 ```python
@@ -41,7 +45,7 @@ The classification verdict decides the path:
 
 ## Rules
 
-- A healed candidate passes the [compliance gate](../configuration.md#the-compliance-gate) before the write-back: a `high` finding in either dimension fails the healing attempt — the violation text joins the attempt record's error and the retry carries the grown attempt history — `medium` and `low` findings pass with a `WARNING`, and a malformed verdict (`ComplianceVerdictError`) or provider unavailability (`LLMUnavailableError`) is a hard failure — nothing is cached unchecked
+- A healed candidate passes the [compliance gate](../configuration.md#the-compliance-gate) before the write-back: a `high` finding in either dimension fails the healing attempt — the violation text joins the attempt record's error and the retry carries the grown attempt history — `medium` and `low` findings pass with a `WARNING`, and a malformed verdict (`ComplianceVerdictError`) is re-asked once and then permits an unchecked pass with a WARNING if still malformed; provider unavailability (`LLMUnavailableError`) remains a hard failure — nothing is cached on that outage path
 - Anti-masking: healing never turns a product defect into a green test
 - The healed code replaces the cached code only after a successful execution
 - Generation and healing attempts live in one per-test registry — owned by the

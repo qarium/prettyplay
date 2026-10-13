@@ -7,7 +7,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from ..failures import PrettyplayError
-from .models import BrowserConfig, Config
+from .models import BrowserConfig, PrettyConfig
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -39,12 +39,14 @@ _ENV_NAMES: dict[str, str] = {
         "llm_request_attempts",
         "send_screenshots",
         "generation_approve",
+        "probe_timeout",
         "browser.name",
         "browser.screen",
         "browser.headless",
         "browser.endpoint",
         "browser.accept_dialogs",
         "browser.speed",
+        "browser.timeout",
     )
 }
 
@@ -64,7 +66,7 @@ _BOOL_ENV_SETTINGS = frozenset(
 _INT_ENV_SETTINGS = frozenset({"generation_attempts", "healing_attempts", "llm_request_attempts", "browser.speed"})
 
 #: The settings whose env values parse as decimal floats.
-_FLOAT_ENV_SETTINGS = frozenset({"polling_timeout", "polling_delay"})
+_FLOAT_ENV_SETTINGS = frozenset({"polling_timeout", "polling_delay", "probe_timeout", "browser.timeout"})
 
 #: The removed flat keys of the [tool.prettyplay] level and their new group homes.
 _FLAT_KEY_HOMES: dict[str, str] = {
@@ -88,6 +90,7 @@ _ALLOWED_TEXT: dict[str, str] = {
     "interactive": "a boolean",
     "send_screenshots": "a boolean",
     "generation_approve": "a boolean",
+    "probe_timeout": "a non-negative number of seconds (finite)",
     "model": "a non-empty string",
     "generation_model": "a non-empty string",
     "classification_model": "a non-empty string",
@@ -98,6 +101,7 @@ _ALLOWED_TEXT: dict[str, str] = {
     "browser.endpoint": "a valid ws/wss URL",
     "browser.screen": "an empty value, WxH (must be positive integers), fullscreen or a Playwright device name",
     "browser.speed": "an integer 0-100 inclusive",
+    "browser.timeout": "a non-negative number of seconds (finite)",
 }
 
 
@@ -232,7 +236,7 @@ def _reject_flat_keys(section: dict) -> None:
         raise ConfigurationError("\n".join(lines))
 
 
-def _apply_overrides(file_config: Config, overrides: Config) -> Config:
+def _apply_overrides(file_config: PrettyConfig, overrides: PrettyConfig) -> PrettyConfig:
     """Overlay the explicitly set fields of ``overrides`` onto the file layer.
 
     Args:
@@ -272,7 +276,7 @@ def _apply_overrides(file_config: Config, overrides: Config) -> Config:
     return file_config.model_copy(update=update)
 
 
-def load_config(pyproject_path: str | None = None, overrides: Config | None = None) -> Config:
+def load_config(pyproject_path: str | None = None, overrides: PrettyConfig | None = None) -> PrettyConfig:
     """Load validated settings layered pyproject → env → explicit programmatic values.
 
     Args:
@@ -326,7 +330,7 @@ def load_config(pyproject_path: str | None = None, overrides: Config | None = No
         merged["cache_root"] = str(Path.cwd() / ".prettyplay" / "cache")
 
     try:
-        file_config = Config(**merged)
+        file_config = PrettyConfig(**merged)
     except ValidationError as error:
         raise ConfigurationError(_render_validation(error)) from error
 

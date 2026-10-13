@@ -11,6 +11,7 @@ Annotations: |
   Hook events fire per step or per LLM attempt — never per execution retry: settle re-executions of the same code emit no hook events, their visibility is log-only.
   The error field of the on_step_failed event and its log record carry the full structured render of the terminal failure — the same multi-line text the raised exception carries: the first line with the class name of the terminal failure and the authored reason, the --- separated step/error section, the conditional received/cause/Call log details section and the unpadded verdict block; integrators display it verbatim.
   The on_step_verdict event keeps its structured fields built from the verdict object of the failure — never parsed from the render.
+  Log-only records through the log_event method carry observability data — the generation_request and step_execution timings of the engine — and never dispatch to hooks. Direct execution-context records keep their human-readable messages and attach an event identifier plus structured context; they do not call emit or dispatch to hooks. Their step_text fields carry the addressing text; a verdict_skipped record uses the prepared instruction field instead, and cache_sweep_failed carries the cleanup flag.
 
 ---
 
@@ -95,6 +96,10 @@ Annotations: |
     The single visibility point of the library: every step, group, generation, healing and cache event goes through the emit method — written to the logger prettyplay and forwarded to the registered `StepHooks` implementations.
 
     `hooks`: callback implementations registered by the integrator; the list may be empty.
+  properties:
+    "hooks -> list[StepHooks]": |
+      The registered callbacks in dispatch order; the mutable list supplied at construction.
+      Appending registers a callback for subsequent events.
   methods:
     "emit(event: str, payload: dict[str, str | int])": |
       Dispatch one event.
@@ -113,6 +118,21 @@ Annotations: |
       Constraints:
       - No secrets in log records (see `conventions`)
       - No own event bus: the emit call is a synchronous fan-out, nothing more
+
+    "log_event(event: str, payload: dict[str, str | int])": |
+      Write one structured log record — log-only visibility, no hook fan-out.
+
+      `event`: the log record name — snake_case, never an on_* StepHooks event name.
+      `payload`: the payload fields of the record; values are strings or ints.
+
+      Algorithm:
+      1. Write a structured INFO log record to the logger prettyplay: the event name as the message, the payload fields as contextual metadata
+
+      Requirements:
+      - Never dispatches to hooks — observability records (timings) stay out of the callback contract
+
+      Constraints:
+      - No own event bus (see `conventions`)
 
 ---
 

@@ -13,7 +13,7 @@ from unittest import mock
 import pytest
 from playwright.sync_api import Error as PlaywrightError
 from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step_text
-from prettyplay.config import Config
+from prettyplay.config import PrettyConfig
 from prettyplay.engine import StepAttempt
 from prettyplay.engine.attempts import (
     OUTCOME_COMPLIANCE_BLOCKED,
@@ -23,19 +23,18 @@ from prettyplay.engine.attempts import (
     OUTCOME_REJECTED,
 )
 from prettyplay.engine.compliance import COMPLIANCE_PROMPT
-from prettyplay.engine.generator import CHEAT_SHEET as ENGINE_CHEAT_SHEET
 from prettyplay.engine.generator import SYSTEM_PROMPT as ENGINE_SYSTEM_PROMPT
 from prettyplay.engine.renderer import PreparedStep, StepMemory
-from prettyplay.engine.steering.steering import CHEAT_SHEET, SYSTEM_PROMPT
+from prettyplay.engine.steering.steering import SYSTEM_PROMPT
 from prettyplay.engine.text import format_step_error
 from prettyplay.failures import ComplianceVerdictError, FailureVerdict, IncurableStepError, LLMUnavailableError
 from prettyplay.llm import ComplianceFinding, ScenarioStep
 from prettyplay.reporting import StepHooks, StepReporter
+from prettyplay.skills import load_skill
 
 STEPPING_MODULE = "prettyplay.engine.steering.steering"
 
 GENERATION_PROMPT_PRACTICE = Path(__file__).resolve().parents[3] / ".goga" / "usages" / "prompts" / "step_generation.md"
-CHEAT_SHEET_PRACTICE = Path(__file__).resolve().parents[3] / ".goga" / "usages" / "prompts" / "step_cheatsheet.md"
 
 GROUP_PROMPT = "the checkout flow"
 
@@ -165,7 +164,7 @@ class FakeProvider:
         snapshot: str,
         page_url: str | None,
         screenshot: bytes | None,
-        cheat_sheet: str,
+        skill: str,
         attempt_history: list[str],
         recommendation: str | None,
         guidance: str | None,
@@ -183,7 +182,7 @@ class FakeProvider:
                 "snapshot": snapshot,
                 "page_url": page_url,
                 "screenshot": screenshot,
-                "cheat_sheet": cheat_sheet,
+                "skill": skill,
                 "attempt_history": list(attempt_history),
                 "recommendation": recommendation,
                 "guidance": guidance,
@@ -265,7 +264,7 @@ class SteeringFixture:
     def __init__(self, provider: FakeProvider, tmp_path: Path) -> None:
         self.recorder = RecorderHook()
         self.reporter = StepReporter(hooks=[self.recorder])
-        self.config = Config(cache_root=str(tmp_path))
+        self.config = PrettyConfig(cache_root=str(tmp_path))
         self.cache = SpyCache()
         self.provider = provider
 
@@ -347,21 +346,17 @@ class TestStepSteeringContract:
 
         assert prompt == SYSTEM_PROMPT  # the frozen mirror of the generation practice
 
-        practice = CHEAT_SHEET_PRACTICE.read_text(encoding="utf-8")
-        assert practice == CHEAT_SHEET  # the frozen mirror of the cheat-sheet practice — the whole file, verbatim
-
         assert SYSTEM_PROMPT == ENGINE_SYSTEM_PROMPT  # the two frozen copies agree — no one-sided edit
-        assert CHEAT_SHEET == ENGINE_CHEAT_SHEET  # the guided request and the engine request carry identical payloads
 
-        # the cheat sheet is guidance, never an allowlist — the constant-comment wording carries
-        assert "Guidance, not an allowlist" in CHEAT_SHEET
+        # the packaged skill is guidance, never an allowlist — and one shared runtime read
+        assert "Guidance, not an allowlist" in load_skill("playwright")
 
-    def test_guided_request_carries_the_cheat_sheet(
+    def test_guided_request_carries_the_packaged_skill(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """The guided request carries the frozen cheat sheet — and the healed write-back lands."""
+        """The guided request carries the packaged skill — and the healed write-back lands."""
         from prettyplay.engine.steering import StepSteering  # noqa: PLC0415 — cell facade check
 
         provider = FakeProvider(answers=[GENERATED_CODE])
@@ -373,7 +368,7 @@ class TestStepSteeringContract:
         healed = steering.steer(_failure(), _identity(), _prepared(), "action", [], None, FakePage(), [], StepMemory())
 
         request = provider.calls[0]
-        assert request["cheat_sheet"] == CHEAT_SHEET  # the frozen mirror of the cheat-sheet practice
+        assert request["skill"] == load_skill("playwright")  # the single packaged skill, shared with the engine
         assert ("page" + "_api") not in request  # the dead slot name, assembled — no literal for the sweep
         assert healed is not None  # the green turn healed
         assert [step.code for step in fixture.cache.save_calls] == [GENERATED_CODE]  # the write-back happened
@@ -446,7 +441,7 @@ class TestStepSteeringContract:
 
         provider = FakeProvider(answers=[GENERATED_CODE])  # the default compliance verdict is [] — compliant
         fixture = SteeringFixture(provider, tmp_path)
-        fixture.config = Config(cache_root=str(tmp_path), generation_prompt=INSTRUCTIONS)
+        fixture.config = PrettyConfig(cache_root=str(tmp_path), generation_prompt=INSTRUCTIONS)
         steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
         _script_input(monkeypatch, ["dismiss the modal first", "y"])
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
@@ -536,7 +531,7 @@ class TestStepSteeringLogic:
         assert request["attempt_history"] == []  # the first turn carries no records yet
         assert history == []  # a green turn never appends a record
         assert request["prompt"] == SYSTEM_PROMPT  # the frozen mirror of the generation practice
-        assert request["cheat_sheet"] == CHEAT_SHEET  # the frozen mirror of the cheat-sheet practice
+        assert request["skill"] == load_skill("playwright")  # the single packaged skill, shared with the engine
         assert request["previous_steps"] == [ORDINARY_STEP]  # the typed records ride unchanged — no re-rendering here
         assert request["snapshot"] == "- heading: Pay\n- button: Pay now"
         assert request["page_url"] == DEFAULT_PAGE_URL  # the fresh URL rides every guided request
@@ -592,7 +587,7 @@ class TestStepSteeringLogic:
 
         provider = FakeProvider(answers=[DECLARING_CODE])
         fixture = SteeringFixture(provider, tmp_path)
-        fixture.config = Config(cache_root=str(tmp_path), generation_prompt=INSTRUCTIONS)
+        fixture.config = PrettyConfig(cache_root=str(tmp_path), generation_prompt=INSTRUCTIONS)
         steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
         prepared = PreparedStep(
             instruction="Read the item name into ",
@@ -632,7 +627,7 @@ class TestStepSteeringLogic:
 
         provider = FakeProvider(answers=[BLANK_CODE])
         fixture = SteeringFixture(provider, tmp_path)
-        fixture.config = Config(cache_root=str(tmp_path), generation_prompt=INSTRUCTIONS)
+        fixture.config = PrettyConfig(cache_root=str(tmp_path), generation_prompt=INSTRUCTIONS)
         steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
         prepared = PreparedStep(
             instruction="Read the item name into ",
@@ -736,7 +731,7 @@ class TestStepSteeringLogic:
             "snapshot",
             "page_url",
             "screenshot",
-            "cheat_sheet",
+            "skill",
             "attempt_history",
             "recommendation",
             "guidance",
@@ -1416,7 +1411,7 @@ class TestStepSteeringLogic:
 
         provider = FakeProvider(answers=[GENERATED_CODE])
         fixture = SteeringFixture(provider, tmp_path)
-        fixture.config = Config(cache_root=str(tmp_path), send_screenshots=True)
+        fixture.config = PrettyConfig(cache_root=str(tmp_path), send_screenshots=True)
         steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
         _script_input(monkeypatch, ["dismiss the modal first", "y"])
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
@@ -1437,7 +1432,7 @@ class TestStepSteeringLogic:
 
         provider = FakeProvider(answers=[GENERATED_CODE])
         fixture = SteeringFixture(provider, tmp_path)
-        fixture.config = Config(cache_root=str(tmp_path), send_screenshots=True)
+        fixture.config = PrettyConfig(cache_root=str(tmp_path), send_screenshots=True)
         steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
         _script_input(monkeypatch, ["dismiss the modal first", "y"])
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
@@ -1548,7 +1543,7 @@ class TestStepSteeringLogic:
             answers=[GENERATED_CODE, REGENERATED_CODE], compliance_verdicts=[[HIGH_FINDING], []]
         )
         fixture = SteeringFixture(provider, tmp_path)
-        fixture.config = Config(cache_root=str(tmp_path), generation_prompt=INSTRUCTIONS)
+        fixture.config = PrettyConfig(cache_root=str(tmp_path), generation_prompt=INSTRUCTIONS)
         steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
         _script_input(monkeypatch, ["use the id attribute", "y", "now click the button", "y"])
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
@@ -1587,7 +1582,7 @@ class TestStepSteeringLogic:
 
         provider = FakeProvider(answers=[GENERATED_CODE], compliance_verdicts=[[HIGH_FINDING]])
         fixture = SteeringFixture(provider, tmp_path)
-        fixture.config = Config(cache_root=str(tmp_path), generation_prompt=INSTRUCTIONS)
+        fixture.config = PrettyConfig(cache_root=str(tmp_path), generation_prompt=INSTRUCTIONS)
         steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
         _script_input(monkeypatch, ["msg", "y", "quit"])
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
@@ -1617,7 +1612,7 @@ class TestStepSteeringLogic:
 
         provider = FakeProvider(answers=[GENERATED_CODE], compliance_verdicts=[[MEDIUM_FINDING]])
         fixture = SteeringFixture(provider, tmp_path)
-        fixture.config = Config(cache_root=str(tmp_path), generation_prompt=INSTRUCTIONS)
+        fixture.config = PrettyConfig(cache_root=str(tmp_path), generation_prompt=INSTRUCTIONS)
         cache = StepCache(fixture.config)
         steering = StepSteering(fixture.config, fixture.provider, cache, fixture.reporter)
         _script_input(monkeypatch, ["dismiss the modal first", "y"])
@@ -1643,28 +1638,20 @@ class TestStepSteeringLogic:
         assert passed[0].findings == ["medium instruction: Prefer id attributes — minor"]
         assert "compliance violation" not in capsys.readouterr().out  # the passing path prints no blocking line
 
-    @pytest.mark.parametrize(
-        "outage",
-        [
-            ComplianceVerdictError("compliance verdict unparsable — received fragment: nope"),
-            LLMUnavailableError("llm unavailable: openai request failed"),
-        ],
-        ids=["malformed-verdict", "provider-outage"],
-    )
-    def test_steer_gate_hard_failure_ends_dialog_returning_none(
+    def test_steer_gate_provider_outage_ends_dialog_returning_none(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
         caplog: pytest.LogCaptureFixture,
-        outage: Exception,
     ) -> None:
-        """A gate hard failure ends the dialog declined — the green candidate stays unchecked, nothing cached."""
-        from prettyplay.engine.steering import StepSteering  # noqa: PLC0415 — cell facade check
+        """A provider outage of the gate ends the dialog declined — the green candidate stays unchecked."""
+        from prettyplay.engine.steering import StepSteering  # noqa: PLC0415 — facade check
 
+        outage = LLMUnavailableError("llm unavailable: openai request failed")
         provider = FakeProvider(answers=[GENERATED_CODE], compliance_verdicts=[outage])
         fixture = SteeringFixture(provider, tmp_path)
-        fixture.config = Config(cache_root=str(tmp_path), generation_prompt=INSTRUCTIONS)
+        fixture.config = PrettyConfig(cache_root=str(tmp_path), generation_prompt=INSTRUCTIONS)
         cache = StepCache(fixture.config)
         steering = StepSteering(fixture.config, fixture.provider, cache, fixture.reporter)
         _script_input(monkeypatch, ["dismiss the modal first", "y"])
@@ -1690,6 +1677,42 @@ class TestStepSteeringLogic:
         assert str(outage) in out  # the gate failure text shows in the dialog
         assert "compliance violation" not in out  # the dialog ended before any verdict handling
 
+    def test_steer_unparsable_verdict_degrades_to_unchecked_write_back(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A persistently unparsable verdict never kills the dialog — the green candidate is written back unchecked."""
+        from prettyplay.engine.steering import StepSteering  # noqa: PLC0415 — cell facade check
+
+        outage = ComplianceVerdictError("compliance verdict unparsable — received fragment: nope")
+        provider = FakeProvider(answers=[GENERATED_CODE], compliance_verdicts=[outage, outage])
+        fixture = SteeringFixture(provider, tmp_path)
+        fixture.config = PrettyConfig(cache_root=str(tmp_path), generation_prompt=INSTRUCTIONS)
+        cache = StepCache(fixture.config)
+        steering = StepSteering(fixture.config, fixture.provider, cache, fixture.reporter)
+        _script_input(monkeypatch, ["dismiss the modal first", "y"])
+        monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
+        history = _anchored_history()
+
+        with caplog.at_level(logging.WARNING, logger="prettyplay"):
+            healed = steering.steer(
+                _failure(), _identity(), _prepared(), "action", [], None, FakePage(), history, StepMemory()
+            )
+
+        assert healed is not None  # the dialog healed — the write-back happened, unchecked
+        assert cache.load(_identity()) is not None
+        degraded = [
+            record
+            for record in caplog.records
+            if record.getMessage()
+            == "compliance verdict unparsable after a retry — the green candidate passes unchecked"
+        ]
+        assert len(degraded) == 1
+        assert "compliance gate failed" not in capsys.readouterr().out
+
     def test_steer_sigint_at_the_compliance_gate_escapes_directly(
         self,
         tmp_path: Path,
@@ -1701,7 +1724,7 @@ class TestStepSteeringLogic:
 
         provider = FakeProvider(answers=[GENERATED_CODE], compliance_verdicts=[KeyboardInterrupt()])
         fixture = SteeringFixture(provider, tmp_path)
-        fixture.config = Config(cache_root=str(tmp_path), generation_prompt=INSTRUCTIONS)
+        fixture.config = PrettyConfig(cache_root=str(tmp_path), generation_prompt=INSTRUCTIONS)
         steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
         _script_input(monkeypatch, ["dismiss the modal first", "y"])
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
@@ -1763,7 +1786,7 @@ class TestStepSteeringLogic:
             answers=[GENERATED_CODE, REGENERATED_CODE], compliance_verdicts=[[HIGH_FINDING], []]
         )
         fixture = SteeringFixture(provider, tmp_path)
-        fixture.config = Config(cache_root=str(tmp_path), generation_prompt=INSTRUCTIONS)
+        fixture.config = PrettyConfig(cache_root=str(tmp_path), generation_prompt=INSTRUCTIONS)
         steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
         _script_input(monkeypatch, ["try again", "y", "once more", "y"])
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))

@@ -1,6 +1,6 @@
 Imports:
   - Types:
-      - Config
+      - PrettyConfig
     From: prettyplay/config
   - Types:
       - StepReporter
@@ -10,6 +10,7 @@ Imports:
       - IncurableStepError
       - LLMUnavailableError
       - FailureVerdict
+      - ComplianceVerdictError
     From: prettyplay/failures
   - Types:
       - PageFacade
@@ -29,6 +30,11 @@ Imports:
       - classification
     From: prettyplay/llm
   - Types:
+      - load_skill
+    Usages:
+      - playwright
+    From: prettyplay/skills
+  - Types:
       - SettleWindow
       - settle
     From: prettyplay/engine/polling
@@ -44,7 +50,6 @@ Imports:
 Usages:
   conventions: .goga/usages/conventions.md
   system_prompt: .goga/usages/prompts/step_generation.md
-  cheat_sheet: .goga/usages/prompts/step_cheatsheet.md
   group_framing: .goga/usages/prompts/group_framing.md
   classification_prompt: |
     You classify a failure of a web UI test step.
@@ -139,14 +144,14 @@ Usages:
 
 Annotations: |
   Use `conventions` for code writing rules and testing.
-  Use `cheat_sheet` from Usages as the single source of the standard Playwright API reference for generation requests — the listing and the practice change together; guidance, never an allowlist — everything standard stays allowed.
+  Use `playwright` from Imports as the packaged Playwright skill — the single source of its rules, threaded into every generation request; the imported usage is a connection note, never a copy — a test pins the connection, another test executes every fenced example against a live fixture.
   Use `classification` from Imports for the healing decision categories.
   Use `system_prompt` as the system prompt of every code generation request.
   Use `classification_prompt` as the system prompt of every failure classification request.
   Use `compliance_prompt` as the system prompt of every compliance verdict request.
   Use `group_framing` from Usages as the single source of the additive group framing of generation and regeneration requests of group steps — the block structure and the marking change together with the practice.
 
-  The fixed form of step code: one function receiving exactly one argument — the genuine sync Page of the test; the function body works through the standard Playwright sync API with the values of its prepared instruction embedded in the code as literals — self-contained code that holds nothing beyond its page argument and its allowed imports, every binding used — no dead weight; imports allowed from playwright.sync_api and the Python standard library only — third-party libraries are forbidden; imports are global only: at the top level of the code block, before def step, never inside the function body — a prompt rule carried by `system_prompt`, no runtime enforcement; the whole step executes inside the driver worker thread through the run primitive of `PageFacade` — the calling thread never touches Playwright.
+  The fixed form of step code: one function receiving exactly one argument — the genuine sync Page of the test; the function body works through the standard Playwright sync API with the values of its prepared instruction embedded in the code as literals — self-contained code that holds nothing beyond its page argument and its allowed imports, every binding used — no dead weight; imports allowed from playwright.sync_api and the Python standard library only — third-party libraries are forbidden; imports are global only: at the top level of the code block, before def step, never inside the function body — the placement rule is carried by `system_prompt` alone, while the runtime __import__ call is banned deterministically by the pre-flight gate `check_step_code`; the whole step executes inside the driver worker thread through the run primitive of `PageFacade` — the calling thread never touches Playwright.
   Every attempt — generation or healing — consumes the shared per-step budget of the test; exhaustion is the incurable failure, never an infinite loop.
   One continuous per-step attempt history threads through generation, healing and steering: every step-code request of the engines carries it verbatim — every record complete (the outcome, the URL before -> after line, the complete candidate code, the complete error); the original cached code anchors it as record 0 when it exists; the history is bounded by the attempt budgets alone — no collapsing, no truncation, no size limits.
   Honest inputs in every step request: the step type and prepared instruction, with current input bindings and result declarations when present, reach generation, regeneration and compliance; scenario records render their instruction fields. The raw template sentence remains the render and re-render source, never a request input; the addressing text of the render product establishes the cache identity.
@@ -155,20 +160,24 @@ Annotations: |
   A result-contract violation is a failed check: the deterministic AssertionError of `validate_step_result` from Imports enters the existing failed-check paths — classification, bounded healing, strict by step type; generation and healing never invent fallbacks and never substitute a new observation for an unavailable earlier one.
   Inside a group there is no isolated per-step classification: a group step (a non-empty group framing input) suppresses the generator's internal classification points — a failed check of a candidate and the generation-budget exhaustion surface as the unclassified incurable failure carrying the underlying error, and the calling executor routes it to the group recovery; with no group framing input the ordinary-step paths stay byte-identical (C13).
   Every attempt record carries the mechanical URL pair read from the page immediately before and after the attempt's execution — settle re-executions inside one attempt are covered by the single pair; an engineer-rejected turn carries the same URL on both sides.
-  A record is appended after every attempt that does not produce a cached step — a failed execution, a failed check, a gate-blocked candidate (the violation text in the error field) — with the closed outcome label set of `StepAttempt`.
+  A record is appended after every attempt that does not produce a cached step — a failed execution, a failed check, a gate-blocked candidate (the violation text in the error field), a preflight-blocked candidate (the violation text in the error field, never executed) — with the closed outcome label set of `StepAttempt`.
   The replayability requirement lands in `system_prompt` and its frozen mirror: the current page state may include effects of prior attempts or manual intervention — a regeneration never rides the leftover state of those attempts, an action step repeats its action; a first attempt works on the page the previous steps produced. The structural separation lands there too: an action step ends at its action, an assertion step observes without changing the page.
   Healing never masks a product defect: a classified product_defect fails the test loudly; a healed step is reported loudly and written back to the cache.
   Every terminal failure carries a verdict — a `FailureVerdict` of category, explanation, recommendation — fully present in the exception message, the verdict hook event and the log; an unavailable LLM skips the verdict quietly with a WARNING, the failure itself is never delayed or distorted — the quiet skip applies to verdicts enriching an already-decided failure; the classification driving the healing decision surfaces as the infrastructure failure.
   A failed check of a candidate stops the generation-budget retries: a check that executed and did not hold is classified first; a rot or fixable verdict grants exactly one healing-funded regeneration, a repeat failure gets the final terminal-kind classification — the attempt budget is never spent on a legitimately failing assertion beyond it.
-  The cheat-sheet sent to the provider mirrors `cheat_sheet` from Usages exactly — the listing and the practice change together.
+  The skill sent to the provider is the packaged Playwright skill read once per runtime through `load_skill` from Imports — the skills cell facade; the file is the single source of its bytes; the imported `playwright` usage is a connection note, never a copy; its content is the skill's own, never restated here.
   The system prompt sent to the provider is the frozen local mirror of `system_prompt` — the mirror and the practice change together.
-  The user instructions of the project settings reach their own requests only: the generation_prompt field of `Config` reaches generation and regeneration requests and the compliance verdict request — there as the checked INSTRUCTIONS block, never as guidance; the classification_prompt field reaches classification requests; neither crosses to the other kind; the instructions take no part in the step address: a cached step never regenerates because the instructions changed.
-  The instruction compliance gate runs inside the engines and judges two dimensions in one request — instruction compliance and step adequacy, the latter from the step type and the attempt history: every successfully executed candidate — generation, healing and steering alike — passes `check_step_compliance` before it is cached; the gate never runs on replayed cached code.
-  An unfollowed instruction and an inadequate candidate surface as a generation error, never as silent ignoring: a high finding of either dimension fails the attempt and the retry carries the finding in the attempt record's error field.
+  The user instructions of the project settings reach their own requests only: the generation_prompt field of `PrettyConfig` reaches generation and regeneration requests and the compliance verdict request — there as the checked INSTRUCTIONS block, never as guidance; the classification_prompt field reaches classification requests; neither crosses to the other kind; the instructions take no part in the step address: a cached step never regenerates because the instructions changed.
+  The instruction compliance gate runs inside the engines and judges two dimensions in one request — instruction compliance and step adequacy, the latter from the step type and the attempt history: every successfully executed candidate — generation, healing and steering alike — passes `check_step_compliance` before it is cached; the gate never runs on replayed cached code; a verdict that stays unparsable after its one bounded re-ask degrades to a loud unchecked pass — a green step never dies on verdict quality; a provider outage stays the hard failure it always was.
+  The probe bound of the loops: a positive probe_timeout setting of `PrettyConfig` (seconds) shortens the default action timeout of every candidate execution — generation, healing and funded regeneration alike — set on the genuine Page inside the worker right before the step call, so a wrong locator fails fast instead of burning the page default; the finally of the probe head restores the baseline on every path — the browser timeout setting of `PrettyConfig`, explicitly applied at page creation and carried by the loops — the probe bound never outlives its candidate; replayed cached code and steering keep the baseline; 0 — off, the page default.
+  The deterministic pre-flight gate runs inside the generator loops before every candidate execution — generation, healing and funded regeneration alike: `check_step_code` validates the syntax, the fixed step form and name resolution on the calling thread, before the settle window and any browser execution; a violation appends the attempt record (outcome preflight blocked, the violation text in the error field, the URL pair equal on both sides — the candidate never executed) and consumes the attempt like any candidate failure; the gate never runs on replayed cached code; an unexpected analysis error passes the candidate — the gate fails open, the execution channel stays the fallback.
+  An unfollowed instruction and an inadequate candidate surface as a generation error, never as silent ignoring: a high finding of either dimension fails the attempt and the retry carries the finding in the attempt record's error field; the next request's RECOMMENDATION channel carries the standing finding as an imperative prohibition — the healing loop composes it with the entry diagnosis, never replacing it; a fresh candidate failure supersedes the standing finding.
   The terminal failures raised by the engines carry the full underlying error of the failed code in the error field; reason and message texts are authored without colons — the first line of the rendered message carries the terminal failure's class name and the authored reason.
   The uniform decision table on every classification point: product_defect raises ProductDefectError — never healed; rot and fixable regenerate carrying the classification recommendation; incurable raises IncurableStepError carrying the verdict. The category decides, the path only delivers.
-  Polling runs before every costly move: every execution of step code — cached code and candidates alike — runs under the settle window threaded through the calling paths; per-attempt classification inside the loops is rejected (LLM cost): an attempt failure retries with the fresh error and snapshot plus the grown attempt history while budget remains.
+  Polling runs before every costly move: every execution of step code — cached code and candidates alike — runs under the settle window threaded through the calling paths; ordinary non-assertion execution failures retry with the fresh error, snapshot and grown history while budget remains. A failed check in ordinary generation is classified immediately under the bounded funded-regeneration rule; group generation suppresses that classification, and the healing loop retries under its entry diagnosis without per-attempt classification.
   on_generation_started fires once per LLM attempt regardless of the settle re-executions inside it; the raised IncurableStepError carries the failed step code in the code field.
+  The execution observability lines: every candidate execution logs its context at INFO before it runs — the saves into line (the comma-joined declared result names, exactly when the step declares captures), the inputs line (the call bindings, one name = value each) and the complete candidate code; the acceptance of a capturing step logs the captured line (every published name = value pair); a replayed cached step logs the same saves into line and its complete code under the cached code (replay) heading. These lines never dispatch to hooks. The same records carry a stable event identifier in structured metadata while keeping their existing human-readable messages: step_results_declared (step_text, declarations), step_inputs (step_text, inputs), step_candidate_code (step_text, attempt, code), step_captured (step_text, captures); step_text is the addressing text, declarations is a tuple of names, and input/capture mappings are copied snapshots. A quiet unavailable-verdict skip carries event verdict_skipped, the prepared instruction and reason llm_unavailable; no extra page reads, provider calls or hook events are introduced.
+  The timing of every provider request and every settle window is written as the log-only records generation_request (step_text, request_ms) and step_execution (step_text, attempt, execution_ms) through the reporter log_event method — never as hook events; both records carry the ready layer of the step — the addressing text with values embedded and capture tags kept; the request record brackets the provider call alone, the execution record brackets the whole settle window with its internal re-executions, so the two never sum to wall time.
 
 ---
 
@@ -179,11 +188,12 @@ Annotations: |
 
     `code`: the complete candidate code of the attempt, verbatim.
     `error`: the complete failure text of the attempt — the execution error, the failed check text, or the gate violation text; empty on no error.
-    `outcome`: the closed label set of five labels:
+    `outcome`: the closed label set of six labels:
     - original cached code — record 0, the anchored cached code and the error of its failed replay
     - failed check
     - execution failed
     - compliance blocked — executed green, blocked by the gate
+    - preflight blocked — failed the deterministic pre-flight check, never executed
     - rejected by the engineer, not executed — interactive steering
     `url_before`: the page URL read immediately before the attempt's execution.
     `url_after`: the page URL read immediately after the attempt's execution.
@@ -217,12 +227,12 @@ Annotations: |
       Requirements:
       - No collapsing, no size limits, no truncation of any field
 
-"StepGenerator(config: Config, provider: LLMProvider, cache: StepCache, budgets: RunBudgets, reporter: StepReporter)":
+"StepGenerator(config: PrettyConfig, provider: LLMProvider, cache: StepCache, budgets: RunBudgets, reporter: StepReporter)":
   location: generator.py
   annotations: |
     The generation engine: produce working step code for an unknown step, executing candidates against the live page and growing the per-step attempt history.
 
-    `config`: project settings — the screenshot flag, the generation instructions and the compliance gate switch.
+    `config`: project settings — the screenshot flag, the generation instructions, the compliance gate switch, the probe bound of the candidate executions and the browser timeout baseline every probe restores to.
     `provider`: the LLM port.
     `cache`: the step cache — a generated step is stored on success.
     `budgets`: the per-test attempt registry.
@@ -239,17 +249,17 @@ Annotations: |
 
       Algorithm:
       1. Ask the budgets registry try_generation for the step identity; a refused attempt is the incurable failure
-      2. Collect the request inputs: the page accessibility snapshot, `prepared` — the instruction with its INPUTS and RESULTS blocks — `step_type`, `previous_steps` (typed records rendering their instructions), the cheat-sheet from `cheat_sheet`; add the page screenshot when the project settings enable screenshots
-      3. Request step code from the provider port generate_step_code passing `system_prompt` as the system prompt, the cheat-sheet taken from `cheat_sheet`, the user instructions — the effective config generation_prompt — when non-empty, the rendered `attempt_history` and the guarded page URL read from `page`; a group step request carries the group framing per `group_framing`
-      4. Read the page URL, execute the candidate under the settle window: `settle` with run_step_code, the candidate code, `page` and `window`; read the page URL again — the pair brackets the whole attempt
-      5. On success: validate the returned result through `validate_step_result` from Imports — a violation appends the attempt record (outcome failed check, the deterministic violation text in the error field) and enters the failed-check paths of step 6 unchanged; a valid result waits for the gate. Gate the candidate through `check_step_compliance`. An empty findings list — publish the validated captures through `memory` publish, build `CachedStep` carrying the addressing_text of `prepared`, save it to the cache, return it. A high finding of either dimension — the attempt is failed: append the attempt record (outcome compliance blocked, the finding instruction and explanation in the error field); nothing publishes; the retry carries the grown history. Medium and low findings pass with a WARNING naming the instructions, then the captures publish, the step — built with the addressing_text of `prepared` — is stored and returned. The gate hard failures — provider unavailability and a malformed verdict — propagate immediately: nothing is cached, nothing publishes
+      2. Collect the request inputs: the page accessibility snapshot, `prepared` — the instruction with its INPUTS and RESULTS blocks — `step_type`, `previous_steps` (typed records rendering their instructions), the packaged Playwright skill through `load_skill` from Imports; add the page screenshot when the project settings enable screenshots
+      3. Request step code from the provider port generate_step_code passing `system_prompt` as the system prompt, the packaged Playwright skill, the user instructions — the effective config generation_prompt — when non-empty, the rendered `attempt_history` and the guarded page URL read from `page`; a group step request carries the group framing per `group_framing`
+      4. Gate the candidate through `check_step_code` — a violation appends the attempt record (outcome preflight blocked, the violation text in the error field, the URL pair equal on both sides — the candidate never executed) and repeats from step 1 while attempts remain. Read the page URL, execute the candidate under the settle window: `settle` with run_step_code, the candidate code, `page` and `window`; read the page URL again — the pair brackets the whole attempt
+      5. On success: validate the returned result through `validate_step_result` from Imports — a violation appends the attempt record (outcome failed check, the deterministic violation text in the error field) and enters the failed-check paths of step 6 unchanged; a valid result waits for the gate. Gate the candidate through `check_step_compliance`. An empty findings list — publish the validated captures through `memory` publish, build `CachedStep` carrying the addressing_text of `prepared`, save it to the cache, return it. A high finding of either dimension — the attempt is failed: append the attempt record (outcome compliance blocked, the finding instruction and explanation in the error field); nothing publishes; the retry carries the grown history. Medium and low findings pass with a WARNING naming the instructions, then the captures publish, the step — built with the addressing_text of `prepared` — is stored and returned. The gate's only hard failure is provider unavailability — it propagates immediately: nothing is cached, nothing publishes; a malformed verdict never propagates — the gate owns its one bounded re-ask and the degraded unchecked pass (see `check_step_compliance`)
       6. On a failed check — an AssertionError that survived the settle window or the violation of step 5: append the attempt record (outcome failed check, the full failure description); a group step (`group_prompt` non-empty) — no classification request and no healing-funded regeneration: raise `IncurableStepError` carrying the failed code in the code field and the full failure description in the error field; the calling executor routes it to the group recovery. Otherwise — as today: classify via `classify_step_failure` passing the prepared instruction; a product_defect verdict raises `ProductDefectError` carrying the verdict and the full failure description of the candidate in the error field; an incurable verdict raises `IncurableStepError` carrying them; a rot or fixable verdict grants exactly one regeneration: try_healing funds it — a refused funding leaves the failure terminal `IncurableStepError` carrying the verdict, the reason naming the exhausted healing pool; the request carries the classification recommendation and the grown history — a success stores and returns the healed step; a repeat failure gets one final classification deciding only the terminal kind — product_defect raises `ProductDefectError`, anything else raises `IncurableStepError` — no further regeneration; provider unavailability at these classifications is skipped quietly with a WARNING — the failure raises without a verdict as IncurableStepError, the conservative default uniform with the unrecognized-label fallback, the reason naming the failed candidate check
       7. On any other candidate failure: append the attempt record (outcome execution failed, the full failure description), repeat from step 1 with the fresh snapshot and the grown history, while attempts remain
       8. On budget exhaustion: the existing semantics preserved verbatim — a group step raises `IncurableStepError` carrying the failed code and the last candidate failure; otherwise the last candidate is classified (rot/fixable — one extra healing-funded regeneration carrying the recommendation; a repeat failure is terminal IncurableStepError without reclassification; product_defect → `ProductDefectError`; incurable → `IncurableStepError` naming the exhausted pool); budget exhaustion with a standing high finding raises `IncurableStepError` carrying the verdict built from the finding; provider unavailability at this classification is skipped quietly with a WARNING
       9. Report on_generation_started for every LLM attempt
 
       Requirements:
-      - Every generation request carries the cheat-sheet taken from `cheat_sheet` from Usages: the model always sees the standard-API reference — guidance, never an allowlist
+      - Every generation request carries the packaged Playwright skill read once per runtime through `load_skill` from Imports
       - `group_prompt` None — the behavior is byte-identical to the ordinary path: the same requests, the same classification points, the same bounded healing (C13)
       - Every generation request carries the prepared instruction, the step type and the rendered attempt history — the record list grows by one after every attempt that does not produce a cached step
       - Provider unavailability of a generation request surfaces as `LLMUnavailableError` after the bounded transport retries inside the logical LLM attempt; the engine itself adds no retries above them
@@ -258,7 +268,8 @@ Annotations: |
       - A verdict requested on this path fully reaches the raised error
       - Every verdict-preceded regeneration request carries the classification recommendation — regeneration starts from the diagnosis, not the raw error
       - The raised IncurableStepError carries the failed step code in the code field
-      - The retry request after a blocking finding carries the grown history — the violation text rides the record's error field, the model fixes the finding targeted
+      - The retry request after a blocking finding carries the grown history — the violation text rides the record's error field, the model fixes the finding targeted — and the standing high finding rides the next request's recommendation channel as an imperative prohibition
+      - A preflight violation consumes the attempt like any candidate failure — the budget accounting stays honest; the funded regeneration treats it as a candidate failure, never a check
       - Medium and low compliance findings pass with a visible WARNING through the library logger — structured, naming the step and the findings
       - The compliance gate itself consumes no attempt budget; only a blocking finding consumes the attempt it fails
       - The accepted execution's captures publish exactly once — after validation and the gate; retries, violations and gate-blocked candidates publish nothing
@@ -275,11 +286,11 @@ Annotations: |
       `memory`: the test memory — publication at the acceptance point, as in generate.
 
       Algorithm:
-      1. The same loop as the generate method with the same differences as today plus: every provider request carries `prepared` (instruction, inputs, declarations), `step_type` and the rendered `attempt_history`; attempts consume the healing budget via try_healing; candidate executions run under `settle` with `window`, the URL pair bracketing each attempt; a returned-result violation of `validate_step_result` — a failed attempt of any kind, appended and retried with the fresh failure description while attempts remain; every successfully executed and validated candidate is gated through `check_step_compliance` before storing — the same two-dimension semantics as generate; on gate pass the captures publish through `memory` before the store and return; every `CachedStep` built here carries the addressing_text of `prepared` — the verbatim addressing text of the render product
+      1. The same loop as the generate method with the same differences as today plus: every provider request carries `prepared` (instruction, inputs, declarations), `step_type` and the rendered `attempt_history`; attempts consume the healing budget via try_healing; every candidate passes `check_step_code` first — a violation appends the attempt record (outcome preflight blocked, the candidate never executed) and retries while attempts remain; candidate executions run under `settle` with `window`, the URL pair bracketing each attempt; a returned-result violation of `validate_step_result` — a failed attempt of any kind, appended and retried with the fresh failure description while attempts remain; every successfully executed and validated candidate is gated through `check_step_compliance` before storing — the same two-dimension semantics as generate; on gate pass the captures publish through `memory` before the store and return; every `CachedStep` built here carries the addressing_text of `prepared` — the verbatim addressing text of the render product
       2. A budget exhaustion raises `IncurableStepError` without an extra classification — the verdict of the entry classification is carried, the reason names the exhausted pool
 
       Requirements:
-      - The retry request after a blocking finding carries the grown history — the violation text rides the record's error field, the model fixes the finding targeted
+      - The retry request after a blocking finding carries the grown history — the violation text rides the record's error field, the model fixes the finding targeted — and the standing high finding rides the next request's recommendation channel as an imperative prohibition
       - Medium and low compliance findings pass with a visible WARNING through the library logger — structured, naming the step and the findings
       - The compliance gate itself consumes no attempt budget; only a blocking finding consumes the attempt it fails
       - The publication requirements of generate apply: exactly once, after validation and the gate; nothing publishes on a failed or gate-blocked attempt
@@ -297,20 +308,23 @@ Annotations: |
     - Any other failure carries its type name: the action failures of step code are timeouts and driver errors whose bare messages lose the kind of failure
     - A message-less error yields the bare type name, never a dangling separator
 
-"run_step_code(code: str, page: PageFacade) -> result: dict[str, str] | None":
+"run_step_code(code: str, page: PageFacade, action_timeout_ms: float | None = None, baseline_timeout_ms: float = 30000) -> result: dict[str, str] | None":
   location: execution.py
   annotations: |
     Execute step code of the fixed form: compile and resolve on the calling thread, run the whole step inside the driver worker thread against the genuine sync Page — and return the step function's result.
 
     `code`: the step code text.
     `page`: the page handle of the current test — the carrier of the worker boundary.
+    `action_timeout_ms`: keyword-only — the optional probe bound, the page default action timeout set on the genuine Page inside the worker right before the step call, so a wrong locator fails fast instead of burning the page default; None — the page default stays untouched. Carried by the generator loops from the probe_timeout setting (seconds converted to milliseconds); replayed cached code and steering never carry it.
+    `baseline_timeout_ms`: keyword-only — the restore target of the probe bound, in milliseconds: the finally of the probe head re-establishes this page default after the candidate, on every path — success and failure alike; the default — the Playwright library default (30 s) for direct callers; the generator loops always pass the configured browser timeout baseline.
     `result`: the step function's return as-is — the dictionary of declared names to observed strings for a step with declarations, None for a declaration-free step; plain data only.
 
     Algorithm:
     1. Compile and load `code` as a module in an isolated namespace — on the calling thread, Playwright untouched
     2. Resolve the step function of the fixed form — the single callable receiving the page
-    3. Execute the whole step-function call inside the driver worker thread as one unit through the run primitive of `page` — the step function receives the genuine sync Page and works through the standard Playwright sync API
-    4. An exception raised by the step code propagates to the caller as-is; a return value passes back as-is — plain data
+    3. A non-None action_timeout_ms wraps the step function with a probe head setting the page default timeout and restoring `baseline_timeout_ms` in its finally — one worker unit still, the probe bound never outlives its candidate
+    4. Execute the whole step-function call inside the driver worker thread as one unit through the run primitive of `page` — the step function receives the genuine sync Page and works through the standard Playwright sync API
+    5. An exception raised by the step code propagates to the caller as-is; a return value passes back as-is — plain data
 
     Requirements:
     - A failure inside the step code reaches the caller untouched: the engine classifies it, this routine never swallows, translates or retries
@@ -320,7 +334,35 @@ Annotations: |
     Constraints:
     - Execute only step code produced by generation or loaded from the cache — never arbitrary file content
 
-"classify_step_failure(config: Config, provider: LLMProvider, step_text: str, code: str, error: str, page: PageFacade) -> classification: FailureClassification":
+"check_step_code(code: str) -> violation: str | None":
+  location: preflight.py
+  annotations: |
+    The deterministic pre-flight gate of every generated candidate: syntax validity, the fixed step form, safety rules and name resolution — checked on the calling thread between the provider request and the settle window, before any browser execution.
+
+    `code`: the complete candidate code fresh from the provider.
+    `violation`: the deterministic violation text — the attempt record's error field; None — the candidate proceeds to the settle window.
+
+    Algorithm:
+    1. Parse the code — a SyntaxError yields the violation text carrying the message and the line
+    2. A module-level step function — its absence is a violation; the one-argument form resolves at execution, never here (see `run_step_code`)
+    3. A runtime __import__ call anywhere is a violation — imports are global only, at the top of the code block before def step
+    4. A page.route call with no matching page.unroute call in the same module is a violation — a cached step with a leaked route would poison every later step; the structural match checks the AST shape (an attribute of the plain name page), not a rendered string
+    5. An expect(...).<any matcher> call after a page.goto call in source order is a violation — the canonical self-confirmation: the navigation already proves the landing; the next step carries its own expectation. Collect navigation and expectation positions independently, then compare their source order by line and column: nesting and AST traversal order never change the decision, and trailing calls on the same line are included. An expectation before every navigation is not blocked. The structural match checks the AST shape (a method chained on a call to expect), covering every matcher — to_have_url, to_be_visible, to_contain_text, the negated forms and anything else chained on expect
+    6. An imported name the module never loads is a violation — dead weight the compliance gate would bill seconds for fails here in milliseconds
+    7. The flat union of the supported binding forms (store/delete targets, import aliases, def and class names, function and lambda parameters, except handler names, global and nonlocal declarations — all scopes) against every loaded name; a loaded name bound nowhere and neither a builtin nor a whitelisted dunder (__name__, __file__, __doc__, __builtins__ — names exempted by the analyzer, not a guarantee of runtime availability; the run primitive automatically supplies __builtins__, while __file__ is absent unless the candidate binds it) is a violation naming the name and its first load line
+    8. A star import suspends step 7 — the bound set is unknowable
+
+    Requirements:
+    - Name resolution supports only the binding forms listed in step 7: pattern-matching captures (MatchAs, MatchStar and MatchMapping.rest) are not collected, so valid match/case code can be rejected as undefined; no full-Python zero-false-positive guarantee
+    - Supported bindings count across all scopes; branch-sensitive and scope-sensitive binding errors stay runtime failures of the execution channel
+    - The gate fails open — an unexpected analysis error passes the candidate, the execution channel stays the fallback
+    - No execution, no page access, no imports beyond ast and builtins
+    - The safety rules (steps 3-5) match AST structure, not rendered strings: _is_page_method matches an attribute of the plain name page; _is_expectation matches a method chained on a call to expect — no string conventions to drift when the Playwright API grows
+
+    Constraints:
+    - Called only by the generator loops at every candidate-execution site, never on replayed cached code
+
+"classify_step_failure(config: PrettyConfig, provider: LLMProvider, step_text: str, code: str, error: str, page: PageFacade) -> classification: FailureClassification":
   location: classification.py
   annotations: |
     Classify a step failure: collect the page state and ask the provider — the single classification call for both engines.
@@ -334,14 +376,15 @@ Annotations: |
     `classification`: the `FailureClassification` verdict.
 
     Algorithm:
-    1. Collect the classification inputs: the step sentence, the failed code, the `error` text, the fresh page snapshot — plus the screenshot when enabled
-    2. Ask the provider port classify_step_failure passing `classification_prompt` as the system prompt and the user instructions — the effective config classification_prompt — when non-empty
-    3. Return the verdict
+    1. A deterministic code defect — the `error` text starting with a SyntaxError, NameError, ImportError or ModuleNotFoundError prefix — returns the synthesized fixable verdict naming the defect: no page read, no provider request; the failure is the step code's own, never the product's behavior
+    2. Collect the classification inputs: the step sentence, the failed code, the `error` text, the fresh page snapshot — plus the screenshot when enabled
+    3. Ask the provider port classify_step_failure passing `classification_prompt` as the system prompt and the user instructions — the effective config classification_prompt — when non-empty
+    4. Return the verdict
 
     Constraints:
     - Provider unavailability propagates to the caller: this routine never swallows it — the calling path decides whether it is a terminal infrastructure failure or a quiet verdict skip
 
-"check_step_compliance(config: Config, provider: LLMProvider, prepared: PreparedStep, step_type: str, code: str, attempt_history: list[StepAttempt]) -> findings: list[ComplianceFinding]":
+"check_step_compliance(config: PrettyConfig, provider: LLMProvider, prepared: PreparedStep, step_type: str, code: str, attempt_history: list[StepAttempt]) -> findings: list[ComplianceFinding]":
   location: compliance.py
   annotations: |
     Gate a successfully executed candidate on two dimensions — instruction compliance and step adequacy — the single gate of every caching path; the verdict request renders the prepared instruction with its INPUTS and RESULTS blocks so the reviewer judges the result-returning code against the declared contract.
@@ -357,17 +400,18 @@ Annotations: |
     Algorithm:
     1. The generation_approve setting is off or the generation_prompt setting is empty — return an empty list with zero provider calls: fully the old behavior
     2. Ask the provider port check_instruction_compliance passing `compliance_prompt` as the system prompt, the effective config generation_prompt as the user instructions, `prepared` (instruction, inputs, declarations), `step_type`, `code` and the rendered `attempt_history`
-    3. Return the findings
+    3. An unparsable verdict — a `ComplianceVerdictError` from Imports raised by the provider port — is re-asked exactly once; a fresh sample usually parses; a verdict that stays unparsable after the re-ask degrades: a WARNING lands in the library logger and the empty findings list returns — a green step never dies on verdict quality
+    4. Return the findings
 
     Requirements:
     - Never called for replayed cached code — the gate checks candidates before caching
     - A high finding of either dimension blocks: the calling loop turns it into the failed attempt — the finding text rides the attempt record's error field
-    - Provider unavailability and a malformed verdict propagate to the caller as the hard failures they are: this routine never swallows, the calling path never caches
+    - Provider unavailability propagates to the caller as the hard failure it is: this routine never swallows it, the calling path never caches; an unparsable verdict never propagates — the bounded re-ask and the degraded unchecked pass own it
 
     Constraints:
     - No attempt budget is consumed here — budgets belong to the calling loops
 
-"StepHealer(config: Config, provider: LLMProvider, generator: StepGenerator, cache: StepCache, budgets: RunBudgets, reporter: StepReporter)":
+"StepHealer(config: PrettyConfig, provider: LLMProvider, generator: StepGenerator, cache: StepCache, budgets: RunBudgets, reporter: StepReporter)":
   location: healer.py
   annotations: |
     The healing engine: classify a failed cached step, regenerate rot, never mask a defect.

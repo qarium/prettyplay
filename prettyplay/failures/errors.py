@@ -346,7 +346,10 @@ class LLMUnavailableError(PrettyplayError):
 
 
 class ComplianceVerdictError(PrettyplayError):
-    """The compliance gate verdict did not parse into findings — the executed candidate stays unchecked, never cached.
+    """The provider verdict did not parse into findings — the engine gate owns recovery.
+
+    The built-in gate re-asks once and permits an unchecked pass with a WARNING
+    if the second verdict is malformed; this error does not guarantee no caching.
 
     Args:
         message: the rendered actionable text — names the compliance gate, the

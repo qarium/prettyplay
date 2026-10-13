@@ -36,6 +36,11 @@ TRANSPORT_TIMEOUT = "timeout"
 TRANSPORT_RATE_LIMIT = "rate_limit"
 TRANSPORT_SERVER_ERROR = "server_error"
 
+#: The bounded number of re-sends after an empty completion. The backend returns empty
+#: 200 bodies stochastically — the very same request succeeds on a neighboring send —
+#: so one re-ask absorbs the storm; a second consecutive empty body is terminal.
+_EMPTY_COMPLETION_RESENDS = 1
+
 #: The transport failure labels of the permanent family.
 TRANSPORT_AUTHENTICATION = "authentication"
 TRANSPORT_PERMISSION_DENIED = "permission_denied"
@@ -43,7 +48,9 @@ TRANSPORT_INVALID_REQUEST = "invalid_request"
 TRANSPORT_NOT_FOUND = "not_found"
 TRANSPORT_QUOTA_EXHAUSTED = "quota_exhausted"
 
-#: The frozen set of the four retryable transport labels.
+#: The frozen set of the four retryable transport labels. An empty completion never
+#: enters this set: it surfaces as the send closure's own LLMUnavailableError and rides
+#: the dedicated bounded re-send channel of the retry loop instead.
 RETRYABLE_TRANSPORT_CATEGORIES = frozenset(
     {TRANSPORT_CONNECTION, TRANSPORT_TIMEOUT, TRANSPORT_RATE_LIMIT, TRANSPORT_SERVER_ERROR}
 )
@@ -117,12 +124,14 @@ class TransportFailureClassification(BaseModel):
 
     Attributes:
         category: the transport failure label — one of the closed nine-label
-            set; the retryable family: connection, timeout, rate_limit and
-            server_error; the permanent family: authentication,
-            permission_denied, invalid_request, not_found and
-            quota_exhausted; the classifiers are the only producers, so the
-            label is always one of the nine — an unrecognized failure
-            classifies permanent before reaching this type.
+            set; the retryable family: connection, timeout, rate_limit
+            and server_error; the permanent family:
+            authentication, permission_denied, invalid_request, not_found
+            and quota_exhausted; an unrecognized failure classifies
+            invalid_request — the permanent fallback. An empty completion
+            never reaches the classifiers: it surfaces as the send
+            closure's own LLMUnavailableError and rides the dedicated
+            bounded re-send channel of the retry loop.
         retry_after: the parsed Retry-After seconds of the failure response;
             None — the header is absent or malformed.
     """
@@ -349,6 +358,16 @@ def send_with_retries(
 ) -> T:
     """Send one LLM request through the bounded transport retry loop.
 
+    Two failure channels ride this loop. An SDK exception goes through the
+    transport ladder: permanent labels fail at once, retryable labels pause
+    and resend inside the ``attempts`` budget. An LLMUnavailableError raised
+    by the send closure itself is a response-validation failure — an empty
+    completion body today — and never meets the ladder: classifying it would
+    mislabel it invalid_request through the fallback. The backend returns
+    empty bodies stochastically, so one bounded re-send absorbs the storm;
+    a further empty body re-raises the closure's own error unchanged, with
+    its honest message.
+
     Args:
         provider: the provider label for logs and errors — openai or
             anthropic.
@@ -364,12 +383,25 @@ def send_with_retries(
 
     Raises:
         LLMUnavailableError: a permanent provider rejection, a
-            Retry-After above the ten second cap, or the exhaustion of
-            the send budget — always chained to the original SDK error.
+            Retry-After above the ten second cap, the exhaustion of
+            the send budget, or an empty completion that stayed empty
+            after its bounded re-send — the SDK-error paths chained to
+            the original error, the empty-completion path re-raised
+            as raised by the closure.
     """
+    resends_left = _EMPTY_COMPLETION_RESENDS
+    empty_failure: LLMUnavailableError | None = None
+
     for attempt in range(1, attempts + 1):
         try:
             return send()
+        except LLMUnavailableError as error:
+            empty_failure = error
+
+            if resends_left == 0 or attempt == attempts:
+                raise
+
+            resends_left -= 1
         except Exception as error:
             failure = classify(error)
 
@@ -389,20 +421,21 @@ def send_with_retries(
                     f"llm unavailable: {provider} request failed after {attempts} attempts"
                 ) from error
 
-            pause = compute_transport_pause(attempt, failure.retry_after)
+        pause = compute_transport_pause(attempt, None)
 
-            logger.warning(
-                "llm request retry",
-                extra={
-                    "provider": provider,
-                    "operation": operation,
-                    "attempt": attempt,
-                    "category": failure.category,
-                    "delay": pause,
-                },
-            )
+        logger.warning(
+            "llm request retry",
+            extra={
+                "provider": provider,
+                "operation": operation,
+                "attempt": attempt,
+                "category": "empty_completion" if empty_failure is not None else failure.category,
+                "delay": pause,
+            },
+        )
 
-            time.sleep(pause)
+        time.sleep(pause)
+        empty_failure = None
 
     raise AssertionError(f"the retry loop of {provider} {operation} always returns or raises")
 
@@ -465,7 +498,7 @@ def build_fields_text(  # noqa: PLR0913, PLR0917 — the parameters mirror the f
     declarations: list[str],
     snapshot: str,
     page_url: str | None,
-    cheat_sheet: str,
+    skill: str,
     attempt_history: list[str],
     recommendation: str | None,
     guidance: str | None,
@@ -476,7 +509,7 @@ def build_fields_text(  # noqa: PLR0913, PLR0917 — the parameters mirror the f
         user_instructions: the project's code style instructions from the
             generation_prompt setting; empty — the request carries no
             instructions block, non-empty — rendered verbatim as a separate
-            USER INSTRUCTIONS block after the CHEAT SHEET block.
+            USER INSTRUCTIONS block after the PLAYWRIGHT SKILL block.
         instruction: the prepared instruction of the step — the rendered
             plain-text sentence with actual values embedded; rendered as
             the STEP block; the raw template sentence never reaches the
@@ -507,8 +540,9 @@ def build_fields_text(  # noqa: PLR0913, PLR0917 — the parameters mirror the f
         page_url: the current URL of the page; non-empty — rendered as its
             own PAGE URL line immediately after the PAGE SNAPSHOT section;
             None or empty — no line.
-        cheat_sheet: the compact standard Playwright sync API reference
-            supplied by the calling engine — guidance, not an allowlist.
+        skill: the packaged Playwright skill — battle-tested idioms and
+            failure-avoidance patterns supplied by the calling engine —
+            guidance, not an allowlist.
         attempt_history: the rendered per-step attempt records — every
             record a complete multi-line verbatim record composed by the
             calling engine, the original cached code anchored as record 0
@@ -529,7 +563,7 @@ def build_fields_text(  # noqa: PLR0913, PLR0917 — the parameters mirror the f
         The request fields as one text with the STEP TYPE line, the STEP
         section, the optional INPUTS and RESULTS sections immediately after
         it, the optional GROUP PROMPT section, the PREVIOUS STEPS /
-        PAGE SNAPSHOT sections, the optional PAGE URL line, the CHEAT SHEET
+        PAGE SNAPSHOT sections, the optional PAGE URL line, the PLAYWRIGHT SKILL
         section and the optional USER INSTRUCTIONS / HISTORY /
         RECOMMENDATION / USER GUIDANCE sections — a non-empty input renders
         its named block.
@@ -544,7 +578,7 @@ def build_fields_text(  # noqa: PLR0913, PLR0917 — the parameters mirror the f
         previous if previous is not None else "PREVIOUS STEPS:\n(none)",
         f"PAGE SNAPSHOT:\n{snapshot}",
         *([f"PAGE URL: {page_url}"] if page_url else []),
-        f"CHEAT SHEET:\n{cheat_sheet}",
+        f"PLAYWRIGHT SKILL:\n{skill}",
     ]
 
     if user_instructions:

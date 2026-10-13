@@ -72,8 +72,8 @@ The contour:
   for dynamic content, plain Python asserts on immediate reads
   (`assert videos.count() > 1`)
 - Imports from `playwright.sync_api` only — a prompt rule, no hard gate;
-  every generation and regeneration request carries the compact cheat sheet
-  as guidance, never an allowlist
+  every generation and regeneration request carries the packaged Playwright skill
+  (prettyplay/skills/playwright/SKILL.md, read once per runtime) as guidance, never an allowlist
 - Safety core: no `time.sleep`, no fixed delays — waits live in locators
   and expectations; never `page.close()` or `context.close()` — the runtime
   owns the page lifecycle

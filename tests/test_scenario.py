@@ -15,13 +15,19 @@ import pytest
 from playwright.sync_api import Error
 from prettyplay import BrowserConfig, PrettyPlay
 from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step_text
-from prettyplay.config import Config, PrettyConfig
+from prettyplay.config import PrettyConfig
 from prettyplay.driver import PageFacade
 from prettyplay.driver.session import PlaywrightWorker
 from prettyplay.engine.groups import GroupRecovery
 from prettyplay.engine.steering import StepSteering
 from prettyplay.executor import StepExecutor
-from prettyplay.failures import ComplianceVerdictError, FailureVerdict, IncurableStepError, PrettyplayError
+from prettyplay.failures import (
+    ComplianceVerdictError,
+    FailureVerdict,
+    IncurableStepError,
+    LLMUnavailableError,
+    PrettyplayError,
+)
 from prettyplay.groups import StepGroup
 from prettyplay.llm import ComplianceFinding, FailureClassification, LLMProvider
 from prettyplay.reporting import StepHooks, StepReporter
@@ -109,7 +115,7 @@ class RecordingProvider(LLMProvider):
         snapshot: str,
         page_url: str | None,
         screenshot: bytes | None,
-        cheat_sheet: str,
+        skill: str,
         attempt_history: list[str],
         recommendation: str | None,
         guidance: str | None,
@@ -141,9 +147,10 @@ GATE_FAILURE_MESSAGE = (
 class GateHardFailingProvider(LLMProvider):
     """Fake provider: green generation answers; every compliance verdict request fails hard."""
 
-    def __init__(self) -> None:
+    def __init__(self, outage: Exception | None = None) -> None:
         self.generate_calls: list[dict[str, object]] = []
         self.compliance_calls: list[dict[str, object]] = []
+        self._outage = outage if outage is not None else ComplianceVerdictError(GATE_FAILURE_MESSAGE)
 
     def generate_step_code(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
@@ -158,7 +165,7 @@ class GateHardFailingProvider(LLMProvider):
         snapshot: str,
         page_url: str | None,
         screenshot: bytes | None,
-        cheat_sheet: str,
+        skill: str,
         attempt_history: list[str],
         recommendation: str | None,
         guidance: str | None,
@@ -175,7 +182,7 @@ class GateHardFailingProvider(LLMProvider):
                 "snapshot": snapshot,
                 "page_url": page_url,
                 "screenshot": screenshot,
-                "cheat_sheet": cheat_sheet,
+                "skill": skill,
                 "attempt_history": attempt_history,
                 "recommendation": recommendation,
                 "guidance": guidance,
@@ -218,7 +225,7 @@ class GateHardFailingProvider(LLMProvider):
                 "attempt_history": attempt_history,
             }
         )
-        raise ComplianceVerdictError(GATE_FAILURE_MESSAGE)
+        raise self._outage
 
 
 class RecorderHook(StepHooks):
@@ -285,7 +292,7 @@ class CycleRecorderHook(StepHooks):
 @contextlib.contextmanager
 def scenario_on_tmp_cache(tmp_path: Path) -> Iterator[None]:
     """Point the scenario layer at a tmp cache root, bypassing the real pyproject of the repo."""
-    with mock.patch("prettyplay.scenario.load_config", return_value=Config(cache_root=str(tmp_path))):
+    with mock.patch("prettyplay.scenario.load_config", return_value=PrettyConfig(cache_root=str(tmp_path))):
         yield
 
 
@@ -297,7 +304,7 @@ def seed_cache(
 ) -> None:
     """Pre-write a working cached step, so tests run the cache-hit path without the LLM."""
     identity = StepIdentity(cache_key=cache_key, step_type=step_type, normalized_text=normalize_step_text(step_text))
-    StepCache(Config(cache_root=str(tmp_path)), None, StepReporter(hooks=[])).save(
+    StepCache(PrettyConfig(cache_root=str(tmp_path)), None, StepReporter(hooks=[])).save(
         CachedStep(
             identity=identity, addressing_text=identity.normalized_text, code=CACHED_CODE, created_at="2026-09-08"
         )
@@ -312,7 +319,7 @@ def write_untouched_step(cache_root: Path, cache_key: str, sentence: str = "open
     deletes when the cleanup switch is on.
     """
     identity = StepIdentity(cache_key=cache_key, step_type="action", normalized_text=normalize_step_text(sentence))
-    StepCache(Config(cache_root=str(cache_root)), None, StepReporter(hooks=[])).save(
+    StepCache(PrettyConfig(cache_root=str(cache_root)), None, StepReporter(hooks=[])).save(
         CachedStep(
             identity=identity,
             addressing_text=identity.normalized_text,
@@ -337,7 +344,7 @@ def scenario_with_differing_instructions(
     factory and the page are patched on the runtime of this one test, per the
     established integration style of the suite.
     """
-    config = Config(cache_root=str(tmp_path), generation_prompt="new instructions")
+    config = PrettyConfig(cache_root=str(tmp_path), generation_prompt="new instructions")
     with (
         mock.patch("prettyplay.scenario.load_config", return_value=config),
         mock.patch("prettyplay.runtime.create_provider", return_value=provider),
@@ -522,7 +529,9 @@ class TestPrettyPlayLogic:
 
     def test_scenario_builds_own_runtime_per_test(self, tmp_path: Path) -> None:
         """ADR-1 core acceptance: two tests hold two runtimes with two registries, no singleton."""
-        with mock.patch("prettyplay.scenario.load_config", return_value=Config(model="gpt-5")) as load_config_mock:
+        with mock.patch(
+            "prettyplay.scenario.load_config", return_value=PrettyConfig(model="gpt-5")
+        ) as load_config_mock:
             t1 = PrettyPlay("k1")
             t2 = PrettyPlay("k2")
 
@@ -744,12 +753,12 @@ class TestPrettyPlayLogic:
         seed_cache(tmp_path)
         checkout_code = "def step(page) -> None:\n    page.goto('https://checkout.example.com')\n"
         identity = StepIdentity(cache_key=CACHE_KEY, step_type="action", normalized_text=normalize_step_text(STEP_TEXT))
-        StepCache(Config(cache_root=str(tmp_path)), "checkout", StepReporter(hooks=[])).save(
+        StepCache(PrettyConfig(cache_root=str(tmp_path)), "checkout", StepReporter(hooks=[])).save(
             CachedStep(
                 identity=identity, addressing_text=identity.normalized_text, code=checkout_code, created_at="2026-09-08"
             )
         )
-        shared = StepCache(Config(cache_root=str(tmp_path)), None, StepReporter(hooks=[]))
+        shared = StepCache(PrettyConfig(cache_root=str(tmp_path)), None, StepReporter(hooks=[]))
         page = FakePage()
 
         with scenario_on_tmp_cache(tmp_path):
@@ -1227,6 +1236,8 @@ class TestCacheLifecycleOnClose:
         warnings = [record for record in caplog.records if record.getMessage() == "cache sweep failed on close"]
         assert len(warnings) == 1
         assert warnings[0].exc_info is not None  # the traceback travels with the record
+        assert warnings[0].event == "cache_sweep_failed"
+        assert warnings[0].cleanup is True
 
 
 class TestInstructionsIndependentCacheAddress:
@@ -1293,11 +1304,15 @@ class TestComplianceGateLoudSurface:
     "failed", fold every engine frame out of the traceback, and cache nothing.
     """
 
-    def test_step_surfaces_compliance_verdict_error(self, tmp_path: Path) -> None:
+    def test_step_surfaces_gate_provider_outage(self, tmp_path: Path) -> None:
+        """A provider outage of the gate stays the hard failure it always was — loud, folded, nothing cached."""
+        outage_message = "llm unavailable: openai request failed after 3 attempts"
         page = FakePage()
         hook = CycleRecorderHook()
-        provider = GateHardFailingProvider()
-        config = Config(cache_root=str(tmp_path), generation_prompt="Prefer id attributes", generation_approve=True)
+        provider = GateHardFailingProvider(LLMUnavailableError(outage_message))
+        config = PrettyConfig(
+            cache_root=str(tmp_path), generation_prompt="Prefer id attributes", generation_approve=True
+        )
 
         with (
             mock.patch("prettyplay.scenario.load_config", return_value=config),
@@ -1307,14 +1322,14 @@ class TestComplianceGateLoudSurface:
 
             with (
                 mock.patch.object(test._runtime, "open_page", return_value=page),
-                pytest.raises(ComplianceVerdictError) as excinfo,
+                pytest.raises(LLMUnavailableError) as excinfo,
             ):
                 test.step("open example.com")
 
             test.close()
 
         assert isinstance(excinfo.value, PrettyplayError)  # a library failure — the boundary folds it
-        assert str(excinfo.value) == GATE_FAILURE_MESSAGE
+        assert str(excinfo.value) == outage_message
 
         # one generation request reached a green candidate; the gate fired on it exactly once
         assert len(provider.generate_calls) == 1
@@ -1325,7 +1340,7 @@ class TestComplianceGateLoudSurface:
 
         # the runner-visible events: failed with the verbatim render, never a verdict, finished failed
         assert hook.events == [
-            ("on_step_failed", {"step_text": "open example.com", "step_type": "action", "error": GATE_FAILURE_MESSAGE}),
+            ("on_step_failed", {"step_text": "open example.com", "step_type": "action", "error": outage_message}),
             ("on_step_finished", {"step_text": "open example.com", "step_type": "action", "outcome": "failed"}),
         ]
 
@@ -1339,6 +1354,51 @@ class TestComplianceGateLoudSurface:
             cache_key=CACHE_KEY, step_type="action", normalized_text=normalize_step_text("open example.com")
         )
         assert StepCache(config, None, StepReporter(hooks=[])).load(identity) is None
+
+    def test_step_degrades_an_unparsable_verdict_to_an_unchecked_pass(self, tmp_path: Path, caplog) -> None:
+        """A persistently unparsable verdict never kills the green step — it passes unchecked, loudly."""
+        page = FakePage()
+        hook = CycleRecorderHook()
+        provider = GateHardFailingProvider()  # every verdict request raises the unparsable error
+        config = PrettyConfig(
+            cache_root=str(tmp_path), generation_prompt="Prefer id attributes", generation_approve=True
+        )
+
+        with (
+            mock.patch("prettyplay.scenario.load_config", return_value=config),
+            mock.patch("prettyplay.runtime.create_provider", return_value=provider),
+        ):
+            test = PrettyPlay(CACHE_KEY, hooks=[hook])
+
+            with (
+                mock.patch.object(test._runtime, "open_page", return_value=page),
+                caplog.at_level(logging.WARNING, logger="prettyplay"),
+            ):
+                test.step("open example.com")
+
+            test.close()
+
+        assert len(provider.generate_calls) == 1
+        assert len(provider.compliance_calls) == 2  # the initial ask plus the one bounded re-ask
+        assert hook.events[-1] == (
+            "on_step_finished",
+            {"step_text": "open example.com", "step_type": "action", "outcome": "passed"},
+        )  # the green step passed — no terminal failure ever raised
+
+        degraded = [
+            record
+            for record in caplog.records
+            if record.getMessage()
+            == "compliance verdict unparsable after a retry — the green candidate passes unchecked"
+        ]
+        assert len(degraded) == 1  # the unchecked pass is loud
+        assert degraded[0].instruction == "open example.com"
+
+        identity = StepIdentity(
+            cache_key=CACHE_KEY, step_type="action", normalized_text=normalize_step_text("open example.com")
+        )
+        loaded = StepCache(config, None, StepReporter(hooks=[])).load(identity)
+        assert loaded is not None  # the green candidate is cached — unchecked, loudly
 
 
 class RecordingGroupExecutor:

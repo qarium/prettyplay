@@ -17,7 +17,7 @@ import pytest
 from playwright.sync_api import Locator
 from prettyplay import BrowserConfig, PrettyPlay
 from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step_text
-from prettyplay.config import Config, load_config
+from prettyplay.config import PrettyConfig, load_config
 from prettyplay.failures import IncurableStepError, ProductDefectError
 from prettyplay.llm import ComplianceFinding, FailureClassification, LLMProvider, ScenarioStep
 from prettyplay.llm._request import build_classification_fields, build_fields_text
@@ -136,7 +136,7 @@ class StubProvider(LLMProvider):
         snapshot: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
-        cheat_sheet: str = "",
+        skill: str = "",
         attempt_history: list[str] | None = None,
         recommendation: str | None = None,
         guidance: str | None = None,
@@ -153,7 +153,7 @@ class StubProvider(LLMProvider):
                 "snapshot": snapshot,
                 "page_url": page_url,
                 "screenshot": screenshot,
-                "cheat_sheet": cheat_sheet,
+                "skill": skill,
                 "attempt_history": list(attempt_history or []),  # copy: the history lives on
                 "recommendation": recommendation,
                 "guidance": guidance,
@@ -231,7 +231,7 @@ class ForbiddenProvider(LLMProvider):
         snapshot: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
-        cheat_sheet: str = "",
+        skill: str = "",
         attempt_history: list[str] | None = None,
         recommendation: str | None = None,
         guidance: str | None = None,
@@ -331,7 +331,7 @@ def clean_prettyplay_env(monkeypatch):
 
 def test_pretty_config_exported_and_get_runtime_removed() -> None:
     """The embedding contract: PrettyConfig, BrowserConfig and StepHooks re-exported, the singleton gone."""
-    assert prettyplay.PrettyConfig is Config
+    assert prettyplay.PrettyConfig is PrettyConfig
     assert prettyplay.BrowserConfig is BrowserConfig
     assert prettyplay.StepHooks is StepHooks
     assert prettyplay.__all__ == [
@@ -362,7 +362,7 @@ def installed_test(
     runtime instance.
     """
     with (
-        mock.patch("prettyplay.scenario.load_config", return_value=Config(cache_root=str(cache_root))),
+        mock.patch("prettyplay.scenario.load_config", return_value=PrettyConfig(cache_root=str(cache_root))),
         mock.patch("prettyplay.runtime.create_provider", return_value=provider),
     ):
         test = PrettyPlay(cache_key, cache_path=cache_path)
@@ -385,14 +385,14 @@ def seed_step(  # noqa: PLR0913 — the address fields mirror the identity tripl
         step_type=step_type,
         normalized_text=normalize_step_text(step_text),
     )
-    StepCache(Config(cache_root=str(cache_root)), cache_path, StepReporter(hooks=[])).save(
+    StepCache(PrettyConfig(cache_root=str(cache_root)), cache_path, StepReporter(hooks=[])).save(
         CachedStep(identity=identity, addressing_text=identity.normalized_text, code=code, created_at="2026-09-08")
     )
     return identity
 
 
 @contextlib.contextmanager
-def configured_test(config: Config, provider: LLMProvider, page: FakePage) -> Iterator[PrettyPlay]:
+def configured_test(config: PrettyConfig, provider: LLMProvider, page: FakePage) -> Iterator[PrettyPlay]:
     """Build one PrettyPlay through the real layered loader carrying the given config.
 
     Unlike :func:`installed_test` the settings resolve through the real
@@ -461,7 +461,7 @@ def test_per_test_generation_prompt_reaches_the_provider_request(tmp_path: Path,
         # real load_config: the programmatic layer goes through the real merge, not a stub
         test = PrettyPlay(
             "login-flow",
-            config=Config(cache_root=str(tmp_path), generation_prompt="prefer data-test-id"),
+            config=PrettyConfig(cache_root=str(tmp_path), generation_prompt="prefer data-test-id"),
         )
         with mock.patch.object(test._runtime, "open_page", return_value=page):
             test.step("open the app page")
@@ -486,7 +486,7 @@ def test_replayed_cached_step_never_runs_the_gate(tmp_path: Path) -> None:
     seed_step(tmp_path, "открыть страницу логина", OPEN_LOGIN_CODE, cache_key="login-flow")
 
     with configured_test(
-        Config(cache_root=str(tmp_path), generation_prompt="prefer data-test-id"), provider, page
+        PrettyConfig(cache_root=str(tmp_path), generation_prompt="prefer data-test-id"), provider, page
     ) as test:
         test.step("открыть страницу логина")
         test.close()
@@ -764,7 +764,7 @@ def test_strict_cache_miss_raises_incurable_without_generation(tmp_path: Path) -
     page = FakePage()
     hook = RecorderHook()
 
-    with configured_test(Config(strict=True, cache_root=str(tmp_path)), provider, page) as test:
+    with configured_test(PrettyConfig(strict=True, cache_root=str(tmp_path)), provider, page) as test:
         test.add_hooks(hook)
         with pytest.raises(IncurableStepError) as excinfo:
             test.step("Нажать «Войти»")
@@ -799,7 +799,7 @@ def test_strict_failed_cached_step_classifies_without_healing(tmp_path: Path, ca
     hook = RecorderHook()
     caplog.set_level(logging.INFO, logger="prettyplay")
 
-    with configured_test(Config(strict=True, cache_root=str(tmp_path)), provider, page) as test:
+    with configured_test(PrettyConfig(strict=True, cache_root=str(tmp_path)), provider, page) as test:
         test.add_hooks(hook)
         with pytest.raises(ProductDefectError) as excinfo:
             test.expect(step_text)
@@ -843,7 +843,7 @@ def test_nonstrict_unhealable_failure_carries_full_error_text(tmp_path: Path) ->
     page = FakePage()
     hook = RecorderHook()
 
-    with configured_test(Config(cache_root=str(tmp_path)), provider, page) as test:
+    with configured_test(PrettyConfig(cache_root=str(tmp_path)), provider, page) as test:
         test.add_hooks(hook)
         with pytest.raises(IncurableStepError) as excinfo:
             test.step("нажать Войти")
@@ -876,7 +876,7 @@ def test_interactive_steering_heals_a_stuck_step_end_to_end(tmp_path: Path, monk
     monkeypatch.setattr(builtins, "input", scripted_input)
     existing_pngs = set(Path(tempfile.gettempdir()).glob("prettyplay-steering-*.png"))
 
-    with configured_test(Config(cache_root=str(tmp_path), interactive=True), provider, page) as test:
+    with configured_test(PrettyConfig(cache_root=str(tmp_path), interactive=True), provider, page) as test:
         test.add_hooks(hook)
         test.step("нажать Войти")  # the incurable verdict opens the dialog instead of failing the step
         test.close()
@@ -932,7 +932,7 @@ def test_scenario_a_generation_retry_carries_grown_history_and_caches_only_the_g
         cache_key="login-flow", step_type="action", normalized_text=normalize_step_text("open the app page")
     )
 
-    with configured_test(Config(cache_root=str(tmp_path)), provider, page) as test:
+    with configured_test(PrettyConfig(cache_root=str(tmp_path)), provider, page) as test:
         test.step("open the app page")
         test.close()
 
@@ -1021,7 +1021,7 @@ def test_scenario_c_steering_write_back_threads_shared_history_and_passes_the_ga
     with (
         cleaned_dialog_screenshots(),
         configured_test(
-            Config(cache_root=str(tmp_path), interactive=True, generation_prompt="prefer data-test-id"),
+            PrettyConfig(cache_root=str(tmp_path), interactive=True, generation_prompt="prefer data-test-id"),
             provider,
             page,
         ) as test,
@@ -1078,7 +1078,7 @@ def test_scenario_c_declined_dialog_propagates_the_original_failure(tmp_path: Pa
 
     with (
         cleaned_dialog_screenshots(),
-        configured_test(Config(cache_root=str(tmp_path), interactive=True), provider, page) as test,
+        configured_test(PrettyConfig(cache_root=str(tmp_path), interactive=True), provider, page) as test,
     ):
         with pytest.raises(IncurableStepError) as excinfo:
             test.step(step_text)
@@ -1124,7 +1124,7 @@ def test_high_adequacy_finding_blocks_the_write_back_end_to_end(tmp_path: Path, 
     with (
         cleaned_dialog_screenshots(),
         configured_test(
-            Config(cache_root=str(tmp_path), interactive=True, generation_prompt="prefer data-test-id"),
+            PrettyConfig(cache_root=str(tmp_path), interactive=True, generation_prompt="prefer data-test-id"),
             provider,
             page,
         ) as test,
@@ -1164,7 +1164,7 @@ def test_classification_instructions_reach_only_classification_requests(tmp_path
 
     # non-strict pass: one generation request — the generation instructions ride along
     with configured_test(
-        Config(
+        PrettyConfig(
             cache_root=str(tmp_path / "generated"),
             generation_prompt="prefer data-test-id",
             classification_prompt="answer in Russian",
@@ -1178,7 +1178,7 @@ def test_classification_instructions_reach_only_classification_requests(tmp_path
     # strict pass: one classification request of a failed cached step — the classification instructions ride along
     seed_step(tmp_path / "classified", "нажать Войти", broken_code, cache_key="login-flow")
     with configured_test(
-        Config(
+        PrettyConfig(
             strict=True,
             cache_root=str(tmp_path / "classified"),
             generation_prompt="prefer data-test-id",
@@ -1242,7 +1242,7 @@ def test_strict_failure_never_writes_the_cache(tmp_path: Path) -> None:
     failed_root.mkdir()
 
     # cache miss: generation is forbidden — the empty cache stays empty
-    with configured_test(Config(strict=True, cache_root=str(miss_root)), ForbiddenProvider(), FakePage()) as test:
+    with configured_test(PrettyConfig(strict=True, cache_root=str(miss_root)), ForbiddenProvider(), FakePage()) as test:
         with pytest.raises(IncurableStepError):
             test.step("шаг, которого нет в кэше")
         test.close()
@@ -1258,7 +1258,7 @@ def test_strict_failure_never_writes_the_cache(tmp_path: Path) -> None:
     )
     page = FakePage(broken_lookups=frozenset({"get_by_role"}))
 
-    with configured_test(Config(strict=True, cache_root=str(failed_root)), provider, page) as test:
+    with configured_test(PrettyConfig(strict=True, cache_root=str(failed_root)), provider, page) as test:
         with pytest.raises(IncurableStepError):
             test.step(step_text)
         test.close()
@@ -1293,7 +1293,7 @@ def test_scenario_and_full_integration_green_path_with_window(tmp_path: Path, ca
     caplog.set_level(logging.INFO, logger="prettyplay")
 
     with configured_test(
-        Config(cache_root=str(tmp_path), polling_timeout=6.0, polling_delay=0.0), provider, page
+        PrettyConfig(cache_root=str(tmp_path), polling_timeout=6.0, polling_delay=0.0), provider, page
     ) as test:
         test.add_hooks(hook)
         test.step(action_text)
@@ -1352,7 +1352,7 @@ def test_incurable_failure_shape_end_to_end(tmp_path: Path) -> None:
     page = FakePage(broken_lookups=frozenset({"get_by_text"}))  # the check can never hold
     hook = RecorderHook()
 
-    with configured_test(Config(cache_root=str(tmp_path)), provider, page) as test:  # interactive off
+    with configured_test(PrettyConfig(cache_root=str(tmp_path)), provider, page) as test:  # interactive off
         test.add_hooks(hook)
         with pytest.raises(IncurableStepError) as excinfo:
             test.expect(step_text)
@@ -1463,7 +1463,7 @@ def test_count_forms_step_runs_green_through_the_full_cycle(tmp_path: Path) -> N
 
     The exact step that used to die on the facade as a non-pollable
     ``AttributeError`` (``count`` was no mirror member) passes the whole
-    cycle: cache miss → generation carrying the cheat sheet → settle →
+    cycle: cache miss → generation carrying the packaged skill → settle →
     ``run_step_code`` → the handle run unit against the raw page → cache
     write.
     """
@@ -1497,19 +1497,19 @@ def test_count_forms_step_runs_green_through_the_full_cycle(tmp_path: Path) -> N
     assert raw.calls == [("get_by_role", "listitem")]  # the standard-API role lookup ran on the raw page
     assert handle.run_units == 1  # one run unit: the green candidate executed exactly once
     assert handle.close_count == 1
-    assert provider.generation_requests[0]["cheat_sheet"]  # the request carried the cheat-sheet reference
+    assert provider.generation_requests[0]["skill"]  # the request carried the packaged skill
     identity = StepIdentity(cache_key="videos", step_type="assertion", normalized_text=normalize_step_text(step_text))
     cached = (tmp_path / identity.filename).read_text(encoding="utf-8")
     assert "expect(videos.first).to_be_visible()" in cached
     assert "videos.count() > 1" in cached
     # the write loads back verbatim — a replayed run receives the import line too,
     # not a code tail amputated at `def step(`
-    loaded = StepCache(Config(cache_root=str(tmp_path)), None, StepReporter(hooks=[])).load(identity)
+    loaded = StepCache(PrettyConfig(cache_root=str(tmp_path)), None, StepReporter(hooks=[])).load(identity)
     assert loaded is not None
     assert loaded.code.startswith("from playwright.sync_api import expect")
 
 
-def test_scenario_records_carry_both_texts_and_events_carry_raw_sentence(tmp_path: Path) -> None:
+def test_scenario_records_carry_both_texts_and_events_carry_the_ready_layer(tmp_path: Path) -> None:
     """The dual-text invariant end to end: records carry both texts, lifecycle events the raw sentence."""
     capture_sentence = "Read the item name into {% var name %}"
     read_sentence = "Open the item named {{ name }}"
@@ -1550,7 +1550,7 @@ def test_scenario_records_carry_both_texts_and_events_carry_raw_sentence(tmp_pat
         declarations=[],
         snapshot="- button 'Войти'",
         page_url="https://app.example.com",
-        cheat_sheet="cs",
+        skill="cs",
         attempt_history=[],
         recommendation=None,
         guidance=None,
@@ -1560,23 +1560,23 @@ def test_scenario_records_carry_both_texts_and_events_carry_raw_sentence(tmp_pat
     assert "{{" not in rendered  # no raw Jinja of either step reaches the request
     assert "{%" not in rendered
 
-    # the step lifecycle events carry the raw sentence (option A) — both steps, every event
+    # the step lifecycle events carry the ready layer — values embedded, capture tags kept
     assert [
         (event, payload["step_text"])
         for event, payload in hook.events
         if event in {"on_step_started", "on_step_passed", "on_step_finished"}
     ] == [
-        ("on_step_started", capture_sentence),
-        ("on_step_passed", capture_sentence),
-        ("on_step_finished", capture_sentence),
-        ("on_step_started", read_sentence),
-        ("on_step_passed", read_sentence),
-        ("on_step_finished", read_sentence),
+        ("on_step_started", "Read the item name into {% var name %}"),
+        ("on_step_passed", "Read the item name into {% var name %}"),
+        ("on_step_finished", "Read the item name into {% var name %}"),
+        ("on_step_started", "Open the item named Book"),
+        ("on_step_passed", "Open the item named Book"),
+        ("on_step_finished", "Open the item named Book"),
     ]
 
-    # the engine events carry the prepared instruction of their own step
+    # the engine events carry the ready layer of their own step — the capture tag kept inline
     assert [(event, payload["step_text"]) for event, payload in hook.events if event == "on_generation_started"] == [
-        ("on_generation_started", "Read the item name into "),
+        ("on_generation_started", "Read the item name into {% var name %}"),
         ("on_generation_started", "Open the item named Book"),
     ]
 
@@ -1641,7 +1641,7 @@ def test_strict_template_step_replay_validates_and_publishes_without_llm(tmp_pat
     page = FakePage()
     hook = RecorderHook()
 
-    with configured_test(Config(strict=True, cache_root=str(tmp_path)), provider, page) as test:
+    with configured_test(PrettyConfig(strict=True, cache_root=str(tmp_path)), provider, page) as test:
         test.add_hooks(hook)
         test.step(sentence, vars={"kind": "novel"})
         test.close()
@@ -1657,7 +1657,9 @@ def test_strict_template_step_replay_validates_and_publishes_without_llm(tmp_pat
         "on_step_passed",
         "on_step_finished",
     ]
-    assert hook.events[0][1]["step_text"] == sentence  # the lifecycle surface carries the raw template
+    assert (
+        hook.events[0][1]["step_text"] == "Read novel into {% var name %}"
+    )  # the ready layer — value embedded, tag kept
 
 
 def test_template_step_addresses_by_rendered_value_across_the_wired_cycle(tmp_path: Path) -> None:
@@ -1807,7 +1809,7 @@ def test_close_lifecycle_keeps_working_set_and_sweeps_untouched_entries(tmp_path
     # cleanup=False: the committed-cache persistence mode — every file of the scope survives the close
     kept_untouched = seed_step(kept_root, "нажать Войти", WORKING_CODE, cache_key="login-flow")
     with (
-        mock.patch("prettyplay.scenario.load_config", return_value=Config(cache_root=str(kept_root))),
+        mock.patch("prettyplay.scenario.load_config", return_value=PrettyConfig(cache_root=str(kept_root))),
         mock.patch("prettyplay.runtime.create_provider", return_value=provider),
     ):
         test = PrettyPlay("login-flow", cleanup=False)

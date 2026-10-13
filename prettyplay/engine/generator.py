@@ -1,18 +1,22 @@
 """Generation of working step code: LLM candidates executed against the live page under the settle window."""
 
 import logging
+import time
 from datetime import date
+from functools import partial
 
 from ..cache import CachedStep, RunBudgets, StepCache, StepIdentity
-from ..config import Config
+from ..config import PrettyConfig
 from ..driver import PageFacade
 from ..failures import FailureVerdict, IncurableStepError, LLMUnavailableError, ProductDefectError
 from ..llm import ComplianceFinding, FailureClassification, LLMProvider, ScenarioStep
 from ..reporting import StepReporter
+from ..skills import load_skill
 from .attempts import (
     OUTCOME_COMPLIANCE_BLOCKED,
     OUTCOME_EXECUTION_FAILED,
     OUTCOME_FAILED_CHECK,
+    OUTCOME_PREFLIGHT_BLOCKED,
     StepAttempt,
     _read_url,
 )
@@ -20,6 +24,7 @@ from .classification import classify_step_failure
 from .compliance import check_step_compliance
 from .execution import run_step_code
 from .polling import SettleWindow, settle
+from .preflight import check_step_code
 from .renderer import PreparedStep, StepMemory, validate_step_result
 from .text import format_step_error
 
@@ -39,7 +44,7 @@ Input you receive:
 - PAGE SNAPSHOT: the accessibility snapshot of the current page
 - PAGE URL: the current URL of the page, when present
 - SCREENSHOT: an image of the page, when attached
-- CHEAT SHEET: a compact reference of useful Playwright sync API idioms — guidance, not an allowlist; everything standard stays allowed
+- SKILL: the Playwright skill — battle-tested idioms and failure-avoidance patterns; guidance, not an allowlist; everything standard stays allowed
 - USER INSTRUCTIONS: the project's binding code style guidance, when configured
 - HISTORY: the verbatim record of every attempt of this step so far, when present — the original cached code first when it exists; each record carries the attempt outcome, the URL before -> after line, the complete candidate code and the complete error
 - RECOMMENDATION: the diagnosis of the classification that preceded this regeneration, when present
@@ -56,12 +61,12 @@ Rules:
 - Import from playwright.sync_api and the Python standard library only — no third-party
   libraries; imports are global only: at the top level of the code block, before `def
   step`, never inside the function body
-- Work through the standard Playwright sync API: locator factories, actions, waits, expect chains, plain asserts on immediate reads — everything standard is allowed; the CHEAT SHEET is guidance, never a boundary
+- Work through the standard Playwright sync API: locator factories, actions, waits, expect chains, plain asserts on immediate reads — everything standard is allowed; the SKILL is guidance, never a boundary
 - Assertions: for an assertion sentence end with a check — a waiting expect(...) chain for dynamic content, or an immediate read with a plain Python assert (assert locator.count() > 1)
 - When the request carries a RESULTS block: read every declared value from the current page — never fabricate, never reuse values from HISTORY; return all declared names in one dictionary; every value is a non-blank string; a missing observation fails the step rather than fabricating a value
 - No fixed delays, no sleeps, no wait_for_timeout — locators and expect chains auto-wait
 - The runtime owns the page lifecycle: never call page.close() or context.close()
-- No stateful actions that outlive the step on the page shared by the whole test: page.route, page.clock, add_init_script, tracing, HAR, CDP — excluded from generated code; a cached step would poison every later step far from the cause
+- No stateful actions that outlive the step on the page shared by the whole test: page.clock, add_init_script, tracing, HAR, CDP — excluded from generated code; a cached step would poison every later step far from the cause. The one bounded exception: page.route paired with page.unroute inside the same step — mock one request and remove the route before the step ends; a route without its unroute fails the pre-flight check
 - Dialogs: capture with the stock means — with page.expect_event("dialog") as info: — perform the triggering action inside the block, read info.value.type, info.value.message, info.value.default_value, then info.value.accept() or info.value.dismiss()
 - Popups and new tabs: capture with with page.expect_popup() as popup_info: — trigger the opening action inside the block, work through popup_info.value; page.bring_to_front() raises a page above the others
 - Content inside an iframe goes through page.frame_locator(selector) — locate elements within the returned scope; nested frames chain
@@ -75,100 +80,6 @@ Rules:
 - Prefer-type instructions are conditional by their own wording: follow them when the page offers the option — best-effort with a graceful fallback is compliance
 - The step must complete exactly what STEP says — nothing more, nothing less: every name the code binds, the code uses
 - Output only the code block, no explanations"""
-
-#: The compact standard Playwright sync API reference of every generation request;
-#: guidance, not an allowlist — everything standard stays allowed.
-#: Frozen mirror of ``.goga/usages/prompts/step_cheatsheet.md`` — the whole file, verbatim
-#: (the practice has no ``---`` separator, so the whole-file rule is the only mirror
-#: rule with no extraction logic to drift); the constant changes only together with the file.
-CHEAT_SHEET = """# Playwright cheat sheet
-
-The compact standard Playwright sync API reference carried by every step-code generation and regeneration request
-of prettyplay — referenced by the engine and steering cells as the `cheat_sheet` practice; rendered by the provider
-implementations as the leading CHEAT SHEET block of the user content. Guidance, not an allowlist: everything
-standard stays allowed — the error-driven regeneration loop is the second line of defense against hallucinated
-calls. Target audience: the generation model — a model that knows Playwright weakly writes a correct step from
-this reference alone.
-
-## Locator factories
-
-    page.get_by_role("button", name="Sign in")
-    page.get_by_label("Username")
-    page.get_by_text("Welcome back")
-    page.get_by_placeholder("Search")
-    page.get_by_alt_text("Logo")
-    page.get_by_title("Close")
-    page.get_by_test_id("submit")
-    page.locator("css selector | //xpath | [data-qa=row]")
-
-## Narrowing
-
-    locator.first / locator.last / locator.nth(2)
-    locator.filter(has_text="Product X")
-    locator.and_(other) / locator.or_(other)
-
-## Actions
-
-    .click() / .dblclick() / .click(button="right")
-    .fill("text") / .clear() / .press("Enter") / .press("Control+A")
-    .check() / .uncheck() / .hover() / .select_option("v")
-    .drag_to(target) / .set_input_files("path.png")
-
-## Navigation and waits
-
-    page.goto(url) / page.go_back() / page.go_forward() / page.reload()
-    page.wait_for_url("**/dashboard") / page.wait_for_load_state("networkidle")
-    page.url  # the current URL — an immediate read beside the waiting forms
-
-## Waiting assertions — expect chains
-
-    from playwright.sync_api import expect
-
-    expect(locator).to_be_visible() / to_be_hidden()
-    expect(locator).to_be_enabled() / to_be_checked()
-    expect(locator).to_have_text("...") / to_contain_text("...")
-    expect(locator).to_have_value("v") / to_have_attribute("href", "/docs")
-    expect(page).to_have_url("**/dashboard") / to_have_title("Dashboard")
-
-## Count forms — "the page shows a list of X"
-
-    items = page.get_by_role("listitem")
-    assert items.count() > 1
-
-An exact count: `expect(items).to_have_count(3)`. One check per meaning — a visibility expect
-plus a count assert on the same locator verifies one fact twice.
-
-## Immediate reads with plain asserts
-
-    assert locator.count() >= 1
-    assert "Dashboard" in page.title()
-    assert "/dashboard" in page.url
-
-## Dialogs
-
-    with page.expect_event("dialog") as info:
-        page.get_by_role("button", name="Delete").click()
-    dialog = info.value
-    dialog.type / dialog.message / dialog.default_value
-    dialog.accept() / dialog.dismiss() / dialog.accept("the answer")
-
-## Popups and new tabs
-
-    with page.expect_popup() as popup_info:
-        page.get_by_role("link", name="Open docs").click()
-    popup = popup_info.value
-    popup.bring_to_front()
-
-## Frames
-
-    frame = page.frame_locator("#checkout")
-    frame.get_by_role("button", name="Pay").click()
-
-## Scrolling
-
-    locator.scroll_into_view_if_needed()
-    page.mouse.wheel(0, 600)
-"""
 
 
 class StepGenerator:
@@ -184,7 +95,7 @@ class StepGenerator:
 
     def __init__(
         self,
-        config: Config,
+        config: PrettyConfig,
         provider: LLMProvider,
         cache: StepCache,
         budgets: RunBudgets,
@@ -204,6 +115,19 @@ class StepGenerator:
         self._cache = cache
         self._budgets = budgets
         self._reporter = reporter
+
+        # the candidate executor: the probe bound of the loops when configured — replayed
+        # cached code never runs through it, the executor's plain run primitive stays.
+        # Every probe restores the page default to the configured browser timeout baseline.
+        self._execute_candidate = (
+            run_step_code
+            if config.probe_timeout == 0
+            else partial(
+                run_step_code,
+                action_timeout_ms=config.probe_timeout * 1000,
+                baseline_timeout_ms=config.browser.timeout * 1000,
+            )
+        )
 
     def generate(  # noqa: PLR0913, PLR0917 — the signature is fixed by the engine contract
         self,
@@ -267,8 +191,6 @@ class StepGenerator:
                 decides.
             LLMUnavailableError: the provider service failed after the
                 bounded transport retries; no engine retry.
-            ComplianceVerdictError: the compliance verdict of a green
-                candidate did not parse; nothing is cached.
         """
         return self._generation_loop(
             identity, prepared, step_type, previous_steps, group_prompt, page, attempt_history, window, memory
@@ -327,8 +249,6 @@ class StepGenerator:
                 verdict — and the code field carries the last record's code.
             LLMUnavailableError: the provider service failed after the
                 bounded transport retries; no engine retry.
-            ComplianceVerdictError: the compliance verdict of a green
-                candidate did not parse; nothing is cached.
         """
         return self._healing_loop(
             identity,
@@ -343,7 +263,7 @@ class StepGenerator:
             memory,
         )
 
-    def _generation_loop(  # noqa: PLR0913, PLR0917 — the shared attempt loop with its fixed inputs
+    def _generation_loop(  # noqa: PLR0913, PLR0917, C901 — the shared attempt loop, its inputs and phases fixed by the engine contract
         self,
         identity: StepIdentity,
         prepared: PreparedStep,
@@ -386,8 +306,6 @@ class StepGenerator:
                 or a failure classified incurable.
             LLMUnavailableError: the provider service failed after the
                 bounded transport retries; no engine retry.
-            ComplianceVerdictError: the compliance verdict of a green
-                candidate did not parse; nothing is cached.
         """
         attempt = 0  # every LLM request of this pool run — loop attempts and funded regenerations
         standing: ComplianceFinding | None = None  # the high finding the retries still carry
@@ -409,13 +327,28 @@ class StepGenerator:
                 )
 
             attempt += 1
-            self._emit_generation_started(prepared.instruction, attempt)
+            self._emit_generation_started(prepared.addressing_text, attempt)
 
-            code = self._request(prepared, step_type, previous_steps, group_prompt, page, history, recommendation=None)
+            code = self._request(
+                prepared,
+                step_type,
+                previous_steps,
+                group_prompt,
+                page,
+                history,
+                recommendation=_standing_prohibition(standing),
+            )
+
+            violation = check_step_code(code)
+            if violation is not None:  # never executed — the URL pair is equal on both sides
+                url = _read_url(page)
+                history.append(_record(code, violation, OUTCOME_PREFLIGHT_BLOCKED, url, url))
+                standing = None  # a fresh candidate failure replaces the standing violation
+                continue
 
             url_before = _read_url(page)
             try:
-                result = settle(run_step_code, code, page, window)
+                result = self._timed_settle(code, page, window, prepared, attempt)
             except AssertionError as check_failure:
                 # failed check survived the window — the decision table, never blind retries
                 url_after = _read_url(page)
@@ -477,6 +410,16 @@ class StepGenerator:
                     _medium_warning(prepared.instruction, findings)
 
                 memory.publish(captures)  # publication exactly once — after validation and the gate
+                if captures:
+                    logger.info(
+                        "captured: %s",
+                        ", ".join(f"{name} = {value!r}" for name, value in captures.items()),
+                        extra={
+                            "event": "step_captured",
+                            "step_text": prepared.addressing_text,
+                            "captures": dict(captures),
+                        },
+                    )
                 return self._store(identity, prepared.addressing_text, code)
 
     def _healing_loop(  # noqa: PLR0913, PLR0917 — the shared attempt loop with its fixed inputs
@@ -523,10 +466,9 @@ class StepGenerator:
                 the verdict it already holds.
             LLMUnavailableError: the provider service failed after the
                 bounded transport retries; no engine retry.
-            ComplianceVerdictError: the compliance verdict of a green
-                candidate did not parse; nothing is cached.
         """
         attempt = 0
+        standing: ComplianceFinding | None = None  # the high finding the healing retries still carry
 
         while True:
             if not self._budgets.try_healing(identity):
@@ -535,24 +477,41 @@ class StepGenerator:
                 raise IncurableStepError(prepared.instruction, "healing attempt budget exhausted", error, code=code)
 
             attempt += 1
-            self._emit_generation_started(prepared.instruction, attempt)
+            self._emit_generation_started(prepared.addressing_text, attempt)
 
-            code = self._request(prepared, step_type, previous_steps, group_prompt, page, history, recommendation)
+            code = self._request(
+                prepared,
+                step_type,
+                previous_steps,
+                group_prompt,
+                page,
+                history,
+                recommendation=_composed_recommendation(recommendation, standing),
+            )
+
+            violation = check_step_code(code)
+            if violation is not None:  # never executed — the URL pair is equal on both sides
+                url = _read_url(page)
+                history.append(_record(code, violation, OUTCOME_PREFLIGHT_BLOCKED, url, url))
+                standing = None  # a fresh candidate failure replaces the standing violation
+                continue
 
             url_before = _read_url(page)
             try:
-                result = settle(run_step_code, code, page, window)
+                result = self._timed_settle(code, page, window, prepared, attempt)
             except AssertionError as check_failure:  # failed checks included — the entry classification guards
                 url_after = _read_url(page)
                 history.append(
                     _record(code, format_step_error(check_failure), OUTCOME_FAILED_CHECK, url_before, url_after)
                 )
+                standing = None
                 continue
             except Exception as candidate_error:
                 url_after = _read_url(page)
                 history.append(
                     _record(code, format_step_error(candidate_error), OUTCOME_EXECUTION_FAILED, url_before, url_after)
                 )
+                standing = None
                 continue
             url_after = _read_url(page)
 
@@ -560,6 +519,7 @@ class StepGenerator:
 
             if violation is not None:  # a result-contract violation is a failed attempt like any other
                 history.append(_record(code, violation, OUTCOME_FAILED_CHECK, url_before, url_after))
+                standing = None
                 continue
 
             # the gate sits outside every exception-swallowing try: its hard failures propagate
@@ -567,11 +527,22 @@ class StepGenerator:
             high = _high_finding(findings)
             if high is not None:  # the attempt failed on the violation — retry targeted at it
                 history.append(_record(code, _violation_text(high), OUTCOME_COMPLIANCE_BLOCKED, url_before, url_after))
+                standing = high
                 continue
             if findings:
                 _medium_warning(prepared.instruction, findings)
 
             memory.publish(captures)  # publication exactly once — after validation and the gate
+            if captures:
+                logger.info(
+                    "captured: %s",
+                    ", ".join(f"{name} = {value!r}" for name, value in captures.items()),
+                    extra={
+                        "event": "step_captured",
+                        "step_text": prepared.addressing_text,
+                        "captures": dict(captures),
+                    },
+                )
             return self._store(identity, prepared.addressing_text, code)
 
     def _failed_check_outcome(  # noqa: PLR0913, PLR0917 — the decision table of one failed candidate check
@@ -832,17 +803,22 @@ class StepGenerator:
             LLMUnavailableError: the provider request failed after the
                 bounded transport retries; no engine retry, no final
                 classification.
-            ComplianceVerdictError: the compliance verdict of a green funded
-                candidate did not parse; nothing is cached.
         """
         attempt += 1
-        self._emit_generation_started(prepared.instruction, attempt)
+        self._emit_generation_started(prepared.addressing_text, attempt)
 
         # the funded path only runs for an ordinary step — the group branches raise before it
         code = self._request(prepared, step_type, previous_steps, None, page, history, recommendation)
+
+        violation = check_step_code(code)
+        if violation is not None:  # a candidate failure, never a check — mirrors the compliance block
+            url = _read_url(page)
+            history.append(_record(code, violation, OUTCOME_PREFLIGHT_BLOCKED, url, url))
+            return None, code, violation, False
+
         url_before = _read_url(page)
         try:
-            result = settle(run_step_code, code, page, window)
+            result = self._timed_settle(code, page, window, prepared, attempt)
         except AssertionError as check_failure:
             url_after = _read_url(page)
             history.append(_record(code, format_step_error(check_failure), OUTCOME_FAILED_CHECK, url_before, url_after))
@@ -869,6 +845,16 @@ class StepGenerator:
             _medium_warning(prepared.instruction, findings)
 
         memory.publish(captures)  # publication exactly once — after validation and the gate
+        if captures:
+            logger.info(
+                "captured: %s",
+                ", ".join(f"{name} = {value!r}" for name, value in captures.items()),
+                extra={
+                    "event": "step_captured",
+                    "step_text": prepared.addressing_text,
+                    "captures": dict(captures),
+                },
+            )
         return self._store(identity, prepared.addressing_text, code), code, "", False
 
     def _request(  # noqa: PLR0913, PLR0917 — the fixed request inputs of the port signature
@@ -906,7 +892,8 @@ class StepGenerator:
         snapshot = page.aria_snapshot()
         screenshot = page.screenshot() if self._config.send_screenshots else None
 
-        return self._provider.generate_step_code(
+        started = time.monotonic()
+        code = self._provider.generate_step_code(
             prompt=SYSTEM_PROMPT,
             user_instructions=self._config.generation_prompt,
             instruction=prepared.instruction,
@@ -918,17 +905,84 @@ class StepGenerator:
             snapshot=snapshot,
             page_url=_read_url(page),  # the guarded read — an empty string renders no PAGE URL line
             screenshot=screenshot,
-            cheat_sheet=CHEAT_SHEET,
+            skill=load_skill("playwright"),
             attempt_history=[record.render() for record in history],
             recommendation=recommendation,
             guidance=None,  # steering-only input — the engine never carries guidance
         )
+        self._reporter.log_event(
+            "generation_request",
+            {"step_text": prepared.addressing_text, "request_ms": round((time.monotonic() - started) * 1000)},
+        )
+
+        return code
+
+    def _timed_settle(
+        self, code: str, page: PageFacade, window: SettleWindow, prepared: PreparedStep, attempt: int
+    ) -> dict[str, str] | None:
+        """Run the settle window under execution timing — the record brackets the whole window.
+
+        Args:
+            code: the candidate code to execute.
+            page: the live page facade the candidate runs against.
+            window: the settle window of the current step execution.
+            prepared: the render product — instruction, declarations, inputs.
+            attempt: the 1-based ordinal of the LLM request whose candidate executes.
+
+        Returns:
+            The step function's result, as the settle window returns it.
+        """
+        if prepared.declarations:
+            logger.info(
+                "saves into: %s",
+                ", ".join(prepared.declarations),
+                extra={
+                    "event": "step_results_declared",
+                    "step_text": prepared.addressing_text,
+                    "declarations": tuple(prepared.declarations),
+                },
+            )
+        if prepared.inputs:
+            logger.info(
+                "inputs: %s",
+                ", ".join(f"{name} = {value!r}" for name, value in prepared.inputs.items()),
+                extra={
+                    "event": "step_inputs",
+                    "step_text": prepared.addressing_text,
+                    "inputs": dict(prepared.inputs),
+                },
+            )
+        logger.info(
+            "candidate code (attempt %d):\n%s",
+            attempt,
+            code,
+            extra={
+                "event": "step_candidate_code",
+                "step_text": prepared.addressing_text,
+                "attempt": attempt,
+                "code": code,
+            },
+        )
+
+        started = time.monotonic()
+        try:
+            return settle(self._execute_candidate, code, page, window)
+        finally:
+            self._reporter.log_event(
+                "step_execution",
+                {
+                    "step_text": prepared.addressing_text,
+                    "attempt": attempt,
+                    "execution_ms": round((time.monotonic() - started) * 1000),
+                },
+            )
 
     def _emit_generation_started(self, step_text: str, attempt: int) -> None:
         """Report the start of one LLM attempt — once per provider request, never per settle re-execution.
 
         Args:
-            step_text: the sentence of the step.
+            step_text: the ready layer of the step — the addressing text, values
+                embedded and capture tags kept.
             attempt: the 1-based ordinal of the LLM request in the pool run.
         """
         self._reporter.emit("on_generation_started", {"step_text": step_text, "attempt": attempt})
@@ -973,7 +1027,14 @@ class StepGenerator:
         try:
             classification = classify_step_failure(self._config, self._provider, step_text, code, error, page)
         except LLMUnavailableError:
-            logger.warning("verdict skipped: llm unavailable")
+            logger.warning(
+                "verdict skipped: llm unavailable",
+                extra={
+                    "event": "verdict_skipped",
+                    "instruction": step_text,
+                    "reason": "llm_unavailable",
+                },
+            )
             return None
 
         return _verdict(classification)
@@ -1030,6 +1091,37 @@ def _violation_text(finding: ComplianceFinding) -> str:
         explanation in the fixed violation wording.
     """
     return f"{finding.dimension} violation: {finding.instruction} — {finding.explanation}"
+
+
+def _standing_prohibition(finding: ComplianceFinding | None) -> str | None:
+    """Render the standing gate violation as the imperative guidance of the next request.
+
+    Args:
+        finding: the high finding that blocked the previous attempt; ``None`` —
+            the first attempt or a superseded finding.
+
+    Returns:
+        The prohibition text; ``None`` — nothing stands, no RECOMMENDATION
+        block renders, the first attempt stays byte-identical.
+    """
+    if finding is None:
+        return None
+    return f"Do not repeat the violation that blocked the previous attempt — {_violation_text(finding)}"
+
+
+def _composed_recommendation(recommendation: str, standing: ComplianceFinding | None) -> str:
+    """Compose the entry diagnosis with the standing prohibition — never replace the diagnosis.
+
+    Args:
+        recommendation: the diagnosis of the classification that launched the healing.
+        standing: the high finding that blocked the previous attempt; ``None`` —
+            the diagnosis alone renders.
+
+    Returns:
+        The composed recommendation text.
+    """
+    prohibition = _standing_prohibition(standing)
+    return recommendation if prohibition is None else f"{recommendation}\n{prohibition}"
 
 
 def _medium_warning(step_text: str, findings: list[ComplianceFinding]) -> None:

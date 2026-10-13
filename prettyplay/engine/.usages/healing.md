@@ -42,13 +42,18 @@ The classification verdict decides the path — the uniform decision table:
 - A healed candidate passes the two-dimension compliance gate before the write-back: a high
   finding of either dimension fails the healing attempt — the record lands in the history
   with the violation text in its error field; medium and low findings pass with a WARNING;
-  a malformed verdict or provider unavailability is a hard failure — nothing is cached
-  unchecked
+  an unparsable verdict is re-asked once and then degrades to a loud unchecked pass —
+  provider unavailability stays the hard failure: nothing is cached on an outage
+- Regeneration candidates run under the probe bound too when probe_timeout is set — the same
+  short action timeouts as generation candidates, restoring the baseline after every candidate;
+  the replayed cached code of later runs keeps the baseline
 - Anti-masking: healing never turns a product defect into a green test
 - The healed code replaces the cached code only after a successful execution
 - The accepted regeneration publishes its validated captures after the gate — nothing publishes on a failed or gate-blocked attempt
 - Generation and healing attempts live in one per-test registry — owned by the runtime of the test — with separate per-step limits (default 3 and 2)
 - Inside the regeneration loop no per-attempt classification happens (rejected: LLM cost): a failed attempt of any kind — a failed check included — appends its record and retries with the fresh error, the fresh snapshot and the grown history while budget remains; the entry classification guards the anti-masking
+- Every regeneration candidate passes the deterministic pre-flight gate (`check_step_code`) before execution: a violation — the code does not compile, no step function, an undefined name — appends its record (never executed, the URL pair equal) and retries while budget remains
+- A gate-blocked regeneration retries with the standing high finding riding the RECOMMENDATION block as an imperative prohibition, composed with the entry classification diagnosis — never replacing it; a fresh candidate failure supersedes the finding
 - A regeneration budget exhaustion raises IncurableStepError carrying the verdict of the original classification — no extra LLM request
 - The scenario context is typed (the raw sentence + the prepared instruction + permanent group membership; requests render the instruction); group steps never reach the healer — their failures route to the group recovery
 - Provider unavailability during the classification raises LLMUnavailableError after the provider's bounded transport policy terminates. Transport sends consume no healing budget; the healer adds no retry on this infrastructure failure.

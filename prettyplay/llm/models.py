@@ -157,8 +157,9 @@ def parse_compliance_verdict(verdict_text: str) -> list[ComplianceFinding]:
 
     Raises:
         ComplianceVerdictError: the answer resolves to neither the required
-            shape nor a repairable equivalent — raised loudly, never waved
-            through; the candidate stays unchecked and is never cached.
+            shape nor a repairable equivalent. This parser never accepts a
+            malformed verdict; the calling engine owns its bounded re-ask
+            and unchecked-pass policy, not this routine.
     """
     text = verdict_text.strip()
     try:

@@ -4,7 +4,7 @@ import os
 
 from anthropic import Anthropic
 
-from ..config import Config
+from ..config import PrettyConfig
 from ..failures import LLMUnavailableError
 from ._request import (
     build_classification_fields,
@@ -56,7 +56,7 @@ def _first_text_block(response: object) -> str | None:
 class AnthropicProvider(LLMProvider):
     """The LLMProvider implementation served by the anthropic SDK — full parity with :class:`OpenAIProvider`."""
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: PrettyConfig) -> None:
         """Keep the config; the SDK client stays unconstructed until the first request.
 
         Args:
@@ -126,7 +126,7 @@ class AnthropicProvider(LLMProvider):
         snapshot: str,
         page_url: str | None,
         screenshot: bytes | None,
-        cheat_sheet: str,
+        skill: str,
         attempt_history: list[str],
         recommendation: str | None,
         guidance: str | None,
@@ -178,8 +178,9 @@ class AnthropicProvider(LLMProvider):
                 steering generation paths.
             screenshot: an optional PNG image of the page; passed only when
                 the project enables screenshots.
-            cheat_sheet: the compact standard Playwright sync API reference
-                supplied by the calling engine — rendered as the CHEAT SHEET
+            skill: the packaged Playwright skill — battle-tested idioms and
+                failure-avoidance patterns
+                supplied by the calling engine — rendered as the PLAYWRIGHT SKILL
                 block after the scenario inputs of the user content,
                 identically to the openai implementation; guidance, not an
                 allowlist — everything standard stays allowed.
@@ -221,7 +222,7 @@ class AnthropicProvider(LLMProvider):
             declarations=declarations,
             snapshot=snapshot,
             page_url=page_url,
-            cheat_sheet=cheat_sheet,
+            skill=skill,
             attempt_history=attempt_history,
             recommendation=recommendation,
             guidance=guidance,
@@ -235,15 +236,15 @@ class AnthropicProvider(LLMProvider):
             "messages": [{"role": "user", "content": self._user_content(text, screenshot)}],
         }
 
-        response = send_with_retries(
+        answer = send_with_retries(
             "anthropic",
             "generation",
             self._config.llm_request_attempts,
             classify_anthropic_failure,
-            lambda: client.messages.create(**request),
+            lambda: require_completion_text(_first_text_block(client.messages.create(**request)), "anthropic"),
         )
 
-        return extract_code_block(require_completion_text(_first_text_block(response), "anthropic"))
+        return extract_code_block(answer)
 
     def classify_step_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
@@ -292,15 +293,14 @@ class AnthropicProvider(LLMProvider):
             "messages": [{"role": "user", "content": self._user_content(text, screenshot)}],
         }
 
-        response = send_with_retries(
+        answer = send_with_retries(
             "anthropic",
             "classification",
             self._config.llm_request_attempts,
             classify_anthropic_failure,
-            lambda: client.messages.create(**request),
+            lambda: require_completion_text(_first_text_block(client.messages.create(**request)), "anthropic"),
         )
 
-        answer = require_completion_text(_first_text_block(response), "anthropic")
         parsed = parse_classification_line(answer)
 
         if parsed is None:
@@ -383,15 +383,15 @@ class AnthropicProvider(LLMProvider):
             "messages": [{"role": "user", "content": self._user_content(text, screenshot)}],
         }
 
-        response = send_with_retries(
+        answer = send_with_retries(
             "anthropic",
             "group diagnosis",
             self._config.llm_request_attempts,
             classify_anthropic_failure,
-            lambda: client.messages.create(**request),
+            lambda: require_completion_text(_first_text_block(client.messages.create(**request)), "anthropic"),
         )
 
-        return parse_group_failure_classification(require_completion_text(_first_text_block(response), "anthropic"))
+        return parse_group_failure_classification(answer)
 
     def check_instruction_compliance(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
@@ -457,12 +457,12 @@ class AnthropicProvider(LLMProvider):
             "messages": [{"role": "user", "content": text}],
         }
 
-        response = send_with_retries(
+        answer = send_with_retries(
             "anthropic",
             "compliance verdict",
             self._config.llm_request_attempts,
             classify_anthropic_failure,
-            lambda: client.messages.create(**request),
+            lambda: require_completion_text(_first_text_block(client.messages.create(**request)), "anthropic"),
         )
 
-        return parse_compliance_verdict(require_completion_text(_first_text_block(response), "anthropic"))
+        return parse_compliance_verdict(answer)

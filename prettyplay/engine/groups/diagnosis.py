@@ -2,7 +2,7 @@
 
 import logging
 
-from ...config import Config
+from ...config import PrettyConfig
 from ...driver import PageFacade
 from ...llm import GroupFailureClassification, LLMProvider, ScenarioStep
 from ..attempts import StepAttempt
@@ -53,7 +53,7 @@ Rules:
 
 
 def classify_group_failure(  # noqa: PLR0913, PLR0917 — the parameter list is fixed by the recovery contract
-    config: Config,
+    config: PrettyConfig,
     provider: LLMProvider,
     group_prompt: str,
     traces: list[GroupStepOutcome],

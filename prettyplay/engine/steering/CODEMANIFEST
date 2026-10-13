@@ -3,7 +3,7 @@ Imports:
       - IncurableStepError
     From: prettyplay/failures
   - Types:
-      - Config
+      - PrettyConfig
     From: prettyplay/config
   - Types:
       - LLMProvider
@@ -33,19 +33,22 @@ Imports:
       - memory
       - validation
     From: prettyplay/engine/renderer
+  - Types:
+      - load_skill
+    Usages:
+      - playwright
+    From: prettyplay/skills
 
 Usages:
   conventions: .goga/usages/conventions.md
   system_prompt: .goga/usages/prompts/step_generation.md
-  cheat_sheet: .goga/usages/prompts/step_cheatsheet.md
   group_framing: .goga/usages/prompts/group_framing.md
 
 Annotations: |
   Use `conventions` for code writing rules and testing.
   Use `system_prompt` as the system prompt of every guided regeneration request.
-  Use `cheat_sheet` from Usages as the single source of the standard Playwright API reference for regeneration requests — the listing and the practice change together; guidance, never an allowlist.
+  Use `load_skill` with `playwright` from Imports — the skills cell facade and its connection practice — as the single source of the regeneration skill: the packaged Playwright skill read once per runtime; guidance, never an allowlist.
   The system prompt sent to the provider is the frozen local mirror of `system_prompt` — the mirror and the practice change together.
-  The cheat-sheet sent to the provider mirrors `cheat_sheet` from Usages exactly — the listing and the practice change together.
 
   The opt-in human-in-the-loop escape hatch of a terminally stuck step: opened by the step executor exactly at the moment an IncurableStepError would propagate — never on product_defect, never in replay-strict, never when the LLM is unavailable.
   The dialog joins the one shared per-step attempt history passed by the executor — the same record list the engine loops grew; the history no longer dies with the dialog. Every completed turn lands as a full record: the outcome label, the URL before -> after pair of the turn (identical on both sides when the engineer rejected the candidate without execution), the complete generated code, the complete outcome text — the full error or the compliance-violation text; no line-collapsing, no size limits, no truncation.
@@ -62,7 +65,7 @@ Annotations: |
 
 ---
 
-"StepSteering(config: Config, provider: LLMProvider, cache: StepCache, reporter: StepReporter | None)":
+"StepSteering(config: PrettyConfig, provider: LLMProvider, cache: StepCache, reporter: StepReporter | None)":
   location: steering.py
   annotations: |
     The interactive steering dialog of a terminally stuck step: show the full failure context, take engineer guidance, regenerate with it, execute against the live page, heal or decline.
@@ -70,7 +73,7 @@ Annotations: |
     `config`: the effective settings of the test — the generation instructions of the config join every request.
     `provider`: the LLM port for guided regeneration requests.
     `cache`: the step cache for the healed write-back.
-    `reporter`: the visibility point — the healed step is reported loudly; omitted — the hook-less default reporter.
+    `reporter`: the required visibility argument — the healed step is reported loudly; explicitly passing None selects the hook-less default reporter; omitting the argument is invalid.
   methods:
     "steer(failure: IncurableStepError, identity: StepIdentity, prepared: PreparedStep, step_type: str, previous_steps: list[ScenarioStep], group_prompt: str | None, page: PageFacade, attempt_history: list[StepAttempt], memory: StepMemory) -> healed: CachedStep | None": |
       Run the steering dialog over a terminal failure.
@@ -90,10 +93,10 @@ Annotations: |
       1. Render the context banner once: the prepared instruction, the failed code, the terminal error render of `failure`, the current URL read from `page`, a screenshot path, the commands — no snapshot fragment
       2. Read the guidance line; quit, EOF, SIGINT or an unreadable stdin — return None
       3. A local command runs without the LLM: snapshot — the full accessibility snapshot; screenshot — a full PNG written to a temporary file with the path printed; error and code — the stored texts; back to step 2
-      4. A guidance message builds one regeneration request via the provider: `system_prompt` as the system prompt, the cheat-sheet from `cheat_sheet`, `prepared` (instruction, inputs, declarations) with `step_type` and `previous_steps` as the scenario context — the request carries the group framing per `group_framing` when the step belongs to a group — the fresh accessibility snapshot plus the screenshot when the project settings enable screenshots, the current URL read from `page` as the page URL input, the user instructions — the effective config generation_prompt — when non-empty, the message as the guidance and the rendered `attempt_history` as the HISTORY block — every record verbatim, the anchored original first
+      4. A guidance message builds one regeneration request via the provider: `system_prompt` as the system prompt, the packaged Playwright skill, `prepared` (instruction, inputs, declarations) with `step_type` and `previous_steps` as the scenario context — the request carries the group framing per `group_framing` when the step belongs to a group — the fresh accessibility snapshot plus the screenshot when the project settings enable screenshots, the current URL read from `page` as the page URL input, the user instructions — the effective config generation_prompt — when non-empty, the message as the guidance and the rendered `attempt_history` as the HISTORY block — every record verbatim, the anchored original first
       5. Show the complete generated code to the engineer, then the confirmation prompt run? [y/N]: y — proceed to step 6; n, Enter or quit — the turn is aborted without execution, the rejected candidate enters `attempt_history` as a completed record with the outcome rejected by the engineer, not executed, and the same URL on both sides, back to step 2
       6. Read the page URL, execute the candidate via `run_step_code` against `page` — the whole step runs inside the driver worker thread and returns its result; the settle window never re-arms inside the dialog; read the page URL again — the pair brackets the turn
-      7. Success: validate the returned result through `validate_step_result` from Imports — a violation shows in the dialog, appends the completed record (outcome failed check, complete code, the violation text), returns to step 2. A valid result: gate the executed candidate through `check_step_compliance` with `prepared`, `step_type` and `attempt_history` — the gate switch off or empty generation instructions yield an empty findings list with zero provider calls. An empty findings list: publish the captures through `memory`, build `CachedStep` with `identity` and the addressing_text of `prepared` — the stuck step's render product, so the STEP_TEXT metadata preserves that text verbatim — save it to the cache (a successful save joins the test's touched set), report on_healed with an explanation naming the interactive healing, return the healed step. A high finding of either dimension: no write-back — show the violation in the dialog (the finding instruction and explanation), append the completed record — outcome compliance blocked, complete code, complete violation text — to `attempt_history`, return to step 2. Medium and low findings pass with a WARNING naming the instructions, then the publication and write-back. The gate hard failures — provider unavailability and a malformed verdict — end the dialog after showing the gate failure line in the dialog and logging a WARNING through the library logger naming the step and the gate failure: return None, the original terminal failure propagates; nothing is cached, nothing publishes
+      7. Success: validate the returned result through `validate_step_result` from Imports — a violation shows in the dialog, appends the completed record (outcome failed check, complete code, the violation text), returns to step 2. A valid result: gate the executed candidate through `check_step_compliance` with `prepared`, `step_type` and `attempt_history` — the gate switch off or empty generation instructions yield an empty findings list with zero provider calls. An empty findings list: publish the captures through `memory`, build `CachedStep` with `identity` and the addressing_text of `prepared` — the stuck step's render product, so the STEP_TEXT metadata preserves that text verbatim — save it to the cache (a successful save joins the test's touched set), report on_healed with an explanation naming the interactive healing, return the healed step. A high finding of either dimension: no write-back — show the violation in the dialog (the finding instruction and explanation), append the completed record — outcome compliance blocked, complete code, complete violation text — to `attempt_history`, return to step 2. Medium and low findings pass with a WARNING naming the instructions, then the publication and write-back. An unparsable verdict never ends the dialog — the gate owns its bounded re-ask and the degraded unchecked pass (see `check_step_compliance`); the gate provider outage ends the dialog after showing the gate failure line in the dialog and logging a WARNING through the library logger naming the step and the gate failure: return None, the original terminal failure propagates; nothing is cached, nothing publishes
       8. A failed execution: show the complete error, append the completed record to `attempt_history` — outcome failed check for an AssertionError, execution failed otherwise, complete code, complete outcome — return to step 2 — no re-execution of the same code, the settle window never re-arms
       9. Provider unavailability of the request: the dialog ends, return None
 

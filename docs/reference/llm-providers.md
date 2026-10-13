@@ -6,10 +6,10 @@ setting models.
 ## Select a provider
 
 ```python
-from prettyplay.config import Config
+from prettyplay.config import PrettyConfig
 from prettyplay.llm import create_provider
 
-config = Config(provider="anthropic", model="claude-sonnet-4-5")
+config = PrettyConfig(provider="anthropic", model="claude-sonnet-4-5")
 provider = create_provider(config)
 ```
 
@@ -47,11 +47,15 @@ healing attempts.
 send. Connection failures, timeouts, HTTP 408/429 and 5xx responses are
 retried. Authentication, authorization, invalid requests and explicitly
 exhausted quota fail immediately. Pauses use a fixed 1, 2, 4, 8, 10… second
-base plus up to 25% jitter, capped at 10 seconds. A valid `Retry-After` up to
-10 seconds can lengthen the pause; a longer value ends the request with an
+base plus up to 25% jitter, capped at 10 seconds. `Retry-After` up to
+10 seconds never lengthens the loop pause; a longer value ends the request with an
 actionable `LLMUnavailableError`. Exhaustion also raises that error with the
 original SDK failure chained. Set the attempt count to `1` to disable
 transport retries. This policy applies to custom `base_url` endpoints too.
+An empty completion body has its own bounded channel: at most one re-send
+within the same total budget; another empty body re-raises the closure's
+`LLMUnavailableError` unchanged. Other malformed answer content is parsed
+after the send, outside transport retries.
 
 User instructions parity: each operation carries its own instructions —
 generation requests render the `generation_prompt` setting, classification
@@ -63,13 +67,15 @@ carry the classification instructions.
 
 Regeneration block parity: every generation request renders a `STEP TYPE`
 line (action or assertion) immediately before the `STEP` line and may carry
-three extra blocks after the `CHEAT SHEET` and the optional `USER
+three extra blocks after the `PLAYWRIGHT SKILL` and the optional `USER
 INSTRUCTIONS` blocks — `HISTORY` (the verbatim per-step attempt records,
 when present: each record carries the attempt outcome, the URL before ->
 after line, the complete candidate code and the complete error, with the
 original cached code anchored as record 0 on a healing path),`
 RECOMMENDATION` (the diagnosis of the classification that preceded the
-regeneration, when present) and `USER GUIDANCE` (the engineer guidance
+regeneration, when present — on a retry after a gate block it also carries
+the standing high finding as an imperative prohibition, composed with the
+entry diagnosis on a healing path) and `USER GUIDANCE` (the engineer guidance
 message of the interactive steering, when present) — rendered in this fixed
 order, identically in both providers. An unset input renders no block.
 Unrecognized classification labels fall back to `incurable` in both
@@ -90,12 +96,12 @@ line. Supplied by every engine generation and healing request and by the
 guided requests of the interactive steering. A parity requirement, not a
 capability difference.
 
-Cheat-sheet parity: every generation request renders the `CHEAT SHEET` block
+Skill parity: every generation request renders the `PLAYWRIGHT SKILL` block
 after the scenario inputs and immediately before the `USER INSTRUCTIONS`
-block — the compact standard Playwright sync API reference supplied by the
-calling engine; guidance, not an allowlist. Both providers render it
-identically at the same position. A parity requirement, not a capability
-difference.
+block — the packaged Playwright skill (`prettyplay/skills/playwright/SKILL.md`,
+read once per runtime) supplied by the calling engine; guidance, not an
+allowlist. Both providers render it identically at the same position. A
+parity requirement, not a capability difference.
 
 The one transport-level asymmetry: the anthropic Messages API requires
 `max_tokens`, so anthropic requests carry a fixed completion cap (4096
@@ -150,7 +156,8 @@ regeneration.
 
 `check_instruction_compliance` is the verdict request of the compliance gate
 (see [Configuration](../configuration.md#the-compliance-gate)): the engine
-calls it once per successfully executed candidate before caching — judging
+calls it before caching a successfully executed candidate, with one bounded
+re-ask after a malformed verdict — judging
 both the instruction compliance and the step adequacy in one request —
 never for replayed cached code, never when `generation_approve` is off or
 `generation_prompt` is empty (zero calls).

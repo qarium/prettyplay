@@ -1,7 +1,7 @@
 """Healing of failed cached steps: classification verdict decides the branch."""
 
 from ..cache import CachedStep, RunBudgets, StepCache
-from ..config import Config
+from ..config import PrettyConfig
 from ..driver import PageFacade
 from ..failures import FailureVerdict, IncurableStepError, ProductDefectError
 from ..llm import LLMProvider, ScenarioStep
@@ -25,7 +25,7 @@ class StepHealer:
 
     def __init__(  # noqa: PLR0913, PLR0917 — the signature is fixed by the engine contract
         self,
-        config: Config,
+        config: PrettyConfig,
         provider: LLMProvider,
         generator: StepGenerator,
         cache: StepCache,  # noqa: ARG002 — written by the generator only; kept for contract symmetry
@@ -115,7 +115,8 @@ class StepHealer:
         )
 
         self._reporter.emit(
-            "on_healing_started", {"step_text": prepared.instruction, "category": classification.category}
+            "on_healing_started",
+            {"step_text": prepared.addressing_text, "category": classification.category},
         )
 
         if classification.category == "product_defect":
@@ -145,5 +146,7 @@ class StepHealer:
                 prepared.instruction, inner.reason, inner.error, code=step.code, verdict=verdict
             ) from inner
 
-        self._reporter.emit("on_healed", {"step_text": prepared.instruction, "explanation": classification.explanation})
+        self._reporter.emit(
+            "on_healed", {"step_text": prepared.addressing_text, "explanation": classification.explanation}
+        )
         return healed

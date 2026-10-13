@@ -8,7 +8,7 @@ from unittest import mock
 
 import pytest
 from anthropic import AnthropicError, APIConnectionError, AuthenticationError
-from prettyplay.config import Config
+from prettyplay.config import PrettyConfig
 from prettyplay.failures import ComplianceVerdictError, LLMUnavailableError, PrettyplayError
 from prettyplay.llm import (
     AnthropicProvider,
@@ -32,7 +32,7 @@ GENERATE_STEP_CODE_PARAMS = [
     "snapshot",
     "page_url",
     "screenshot",
-    "cheat_sheet",
+    "skill",
     "attempt_history",
     "recommendation",
     "guidance",
@@ -146,7 +146,7 @@ class TestAnthropicProviderContract:
     def test_constructor_reads_no_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
 
-        AnthropicProvider(Config())  # constructs without exceptions — the client is lazy
+        AnthropicProvider(PrettyConfig())  # constructs without exceptions — the client is lazy
 
 
 class TestAnthropicProviderLogic:
@@ -155,7 +155,7 @@ class TestAnthropicProviderLogic:
     def test_anthropic_provider_error_maps_to_llm_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
         client = SimpleNamespace(messages=SimpleNamespace(create=mock.MagicMock(side_effect=AnthropicError("timeout"))))
-        provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+        provider = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5"))
 
         with (
             mock.patch.object(provider, "_get_client", return_value=client),
@@ -173,7 +173,7 @@ class TestAnthropicProviderLogic:
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
-                cheat_sheet="expect(locator).to_be_visible()",
+                skill="expect(locator).to_be_visible()",
                 attempt_history=[],
                 recommendation=None,
                 guidance=None,
@@ -185,7 +185,7 @@ class TestAnthropicProviderLogic:
     def test_empty_content_maps_to_llm_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
         client = make_client_returning(SimpleNamespace(content=[]))  # empty service response
-        provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+        provider = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5", llm_request_attempts=2))
 
         with (
             mock.patch.object(provider, "_get_client", return_value=client),
@@ -203,20 +203,27 @@ class TestAnthropicProviderLogic:
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
-                cheat_sheet="expect(locator).to_be_visible()",
+                skill="expect(locator).to_be_visible()",
                 attempt_history=[],
                 recommendation=None,
                 guidance=None,
             )
 
-        assert "empty completion" in str(excinfo.value)
+        assert "empty completion" in str(excinfo.value)  # the closure's own honest label, re-raised
+        assert client.messages.create.call_count == 2  # one bounded re-send, the second empty is terminal
         assert isinstance(excinfo.value, PrettyplayError)
 
-    def test_non_text_blocks_are_skipped_until_the_text_block(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_a_transient_empty_completion_is_rescued_by_the_bounded_resend(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The backend returns empty 200 bodies stochastically — the very request succeeds
+        on a neighboring send; one bounded re-send absorbs the storm."""
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
-        tool_block = SimpleNamespace(type="tool_use", id="t", name="n", input={})
-        client = make_client_returning(SimpleNamespace(content=[tool_block, text_block(WORKING_CODE)]))
-        provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+        empty = SimpleNamespace(content=[])
+        good = SimpleNamespace(content=[text_block(WORKING_CODE)])
+        create = mock.MagicMock(side_effect=[empty, good])
+        client = SimpleNamespace(messages=SimpleNamespace(create=create))
+        provider = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5", llm_request_attempts=2))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             code = provider.generate_step_code(
@@ -231,7 +238,35 @@ class TestAnthropicProviderLogic:
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
-                cheat_sheet="expect(locator).to_be_visible()",
+                skill="expect(locator).to_be_visible()",
+                attempt_history=[],
+                recommendation=None,
+                guidance=None,
+            )
+
+        assert "def step" in code
+        assert create.call_count == 2  # the initial send plus the single rescue re-send
+
+    def test_non_text_blocks_are_skipped_until_the_text_block(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+        tool_block = SimpleNamespace(type="tool_use", id="t", name="n", input={})
+        client = make_client_returning(SimpleNamespace(content=[tool_block, text_block(WORKING_CODE)]))
+        provider = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5"))
+
+        with mock.patch.object(provider, "_get_client", return_value=client):
+            code = provider.generate_step_code(
+                prompt="p",
+                user_instructions="",
+                instruction="s",
+                step_type="action",
+                previous_steps=[],
+                group_prompt=None,
+                inputs={},
+                declarations=[],
+                snapshot="- snap",
+                page_url=None,
+                screenshot=None,
+                skill="expect(locator).to_be_visible()",
                 attempt_history=[],
                 recommendation=None,
                 guidance=None,
@@ -243,7 +278,7 @@ class TestAnthropicProviderLogic:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
         tool_block = SimpleNamespace(type="tool_use", id="t", name="n", input={})
         client = make_client_returning(SimpleNamespace(content=[tool_block]))
-        provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+        provider = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5", llm_request_attempts=2))
 
         with (
             mock.patch.object(provider, "_get_client", return_value=client),
@@ -259,12 +294,12 @@ class TestAnthropicProviderLogic:
                 screenshot=None,
             )
 
-        assert "empty completion" in str(excinfo.value)
+        assert "empty completion" in str(excinfo.value)  # the closure's own honest label, re-raised
 
     def test_anthropic_missing_api_key_surfaces_on_first_request(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
 
-        provider = AnthropicProvider(Config())  # does not fail — the constructor reads no env
+        provider = AnthropicProvider(PrettyConfig())  # does not fail — the constructor reads no env
 
         with pytest.raises(LLMUnavailableError) as excinfo:
             provider.classify_step_failure(
@@ -282,7 +317,7 @@ class TestAnthropicProviderLogic:
     def test_classification_unparsable_defaults_to_incurable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
         client, requests = make_client_create(answer="sorry cannot answer")
-        provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+        provider = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             classification = provider.classify_step_failure(
@@ -303,7 +338,7 @@ class TestAnthropicProviderLogic:
     ) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
         client, requests = make_client_create(answer=WORKING_CODE)
-        provider = AnthropicProvider(Config(model="claude-sonnet-4-5", generation_model="claude-haiku-4-5"))
+        provider = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5", generation_model="claude-haiku-4-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             code = provider.generate_step_code(
@@ -318,7 +353,7 @@ class TestAnthropicProviderLogic:
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
-                cheat_sheet="expect(locator).to_be_visible()",
+                skill="expect(locator).to_be_visible()",
                 attempt_history=[],
                 recommendation=None,
                 guidance=None,
@@ -343,7 +378,7 @@ class TestAnthropicProviderLogic:
     ) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
         client, requests = make_client_create(answer=WORKING_CODE)
-        provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+        provider = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             provider.generate_step_code(
@@ -358,7 +393,7 @@ class TestAnthropicProviderLogic:
                 snapshot="- snap",
                 page_url="https://shop.example.com/cart",
                 screenshot=None,
-                cheat_sheet="expect(locator).to_be_visible()",
+                skill="expect(locator).to_be_visible()",
                 attempt_history=[],
                 recommendation=None,
                 guidance=None,
@@ -367,13 +402,13 @@ class TestAnthropicProviderLogic:
         user = requests[0]["messages"][0]["content"]
         assert "PAGE URL: https://shop.example.com/cart" in user
         assert user.index("PAGE SNAPSHOT:\n- snap") < user.index("PAGE URL: https://shop.example.com/cart")
-        assert user.index("PAGE URL: https://shop.example.com/cart") < user.index("CHEAT SHEET:")
+        assert user.index("PAGE URL: https://shop.example.com/cart") < user.index("PLAYWRIGHT SKILL:")
 
     def test_generate_returns_code_extracted_from_markdown_fence(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
         fenced = f"```python\n{WORKING_CODE}```"
         client = make_client_create(answer=fenced)[0]
-        provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+        provider = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             code = provider.generate_step_code(
@@ -388,7 +423,7 @@ class TestAnthropicProviderLogic:
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
-                cheat_sheet="expect(locator).to_be_visible()",
+                skill="expect(locator).to_be_visible()",
                 attempt_history=[],
                 recommendation=None,
                 guidance=None,
@@ -401,7 +436,7 @@ class TestAnthropicProviderLogic:
     ) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
         client, requests = make_client_create(answer=WORKING_CODE)
-        provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+        provider = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5"))
         records = [
             "original cached code\nurl: https://a.example -> https://a.example\n"
             "code:\ndef step(page) -> None:\n    pass\nerror:\nAssertionError: boom",
@@ -422,7 +457,7 @@ class TestAnthropicProviderLogic:
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
-                cheat_sheet="expect(locator).to_be_visible()",
+                skill="expect(locator).to_be_visible()",
                 attempt_history=records,
                 recommendation="use role locators",
                 guidance=None,
@@ -437,7 +472,7 @@ class TestAnthropicProviderLogic:
     def test_classification_unknown_category_defaults_to_incurable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
         client, _requests = make_client_create(answer="mystery | why | do something")
-        provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+        provider = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             classification = provider.classify_step_failure(
@@ -455,7 +490,7 @@ class TestAnthropicProviderLogic:
     def test_classification_empty_answer_defaults_to_incurable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
         client, _requests = make_client_create(answer="   ")
-        provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+        provider = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             classification = provider.classify_step_failure(
@@ -473,7 +508,7 @@ class TestAnthropicProviderLogic:
     def test_generate_with_screenshot_attaches_image_block(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
         client, requests = make_client_create(answer=WORKING_CODE)
-        provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+        provider = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             provider.generate_step_code(
@@ -488,7 +523,7 @@ class TestAnthropicProviderLogic:
                 snapshot="- snap",
                 page_url=None,
                 screenshot=b"png-bytes",
-                cheat_sheet="expect(locator).to_be_visible()",
+                skill="expect(locator).to_be_visible()",
                 attempt_history=[],
                 recommendation=None,
                 guidance=None,
@@ -505,7 +540,7 @@ class TestAnthropicProviderLogic:
 
     def test_client_constructed_with_base_url_when_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
-        provider = AnthropicProvider(Config(model="claude-sonnet-4-5", base_url="https://proxy.internal/v1"))
+        provider = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5", base_url="https://proxy.internal/v1"))
         client, _requests = make_client_create()
 
         with mock.patch("prettyplay.llm.anthropic_provider.Anthropic", return_value=client) as sdk:
@@ -521,7 +556,7 @@ class TestAnthropicProviderLogic:
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
-                cheat_sheet="expect(locator).to_be_visible()",
+                skill="expect(locator).to_be_visible()",
                 attempt_history=[],
                 recommendation=None,
                 guidance=None,
@@ -533,7 +568,7 @@ class TestAnthropicProviderLogic:
 
     def test_client_not_constructed_without_base_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
-        provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+        provider = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5"))
         client, _requests = make_client_create()
 
         with mock.patch("prettyplay.llm.anthropic_provider.Anthropic", return_value=client) as sdk:
@@ -549,7 +584,7 @@ class TestAnthropicProviderLogic:
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
-                cheat_sheet="expect(locator).to_be_visible()",
+                skill="expect(locator).to_be_visible()",
                 attempt_history=[],
                 recommendation=None,
                 guidance=None,
@@ -561,7 +596,7 @@ class TestAnthropicProviderLogic:
     def test_classification_parses_verdict_line(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
         client, requests = make_client_create(answer="rot | кнопка переименована | проверить шаг")
-        provider = AnthropicProvider(Config(model="claude-sonnet-4-5", classification_model="claude-haiku-4-5"))
+        provider = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5", classification_model="claude-haiku-4-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             classification = provider.classify_step_failure(
@@ -582,7 +617,7 @@ class TestAnthropicProviderLogic:
     def test_classification_with_screenshot_uses_anthropic_image_block(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
         client, requests = make_client_create(answer="rot | e | r")
-        provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+        provider = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             provider.classify_step_failure(
@@ -602,7 +637,7 @@ class TestAnthropicProviderLogic:
     def test_sdk_error_in_classify_maps_to_llm_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
         client = SimpleNamespace(messages=SimpleNamespace(create=mock.MagicMock(side_effect=AnthropicError("boom"))))
-        provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+        provider = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5"))
 
         with (
             mock.patch.object(provider, "_get_client", return_value=client),
@@ -624,7 +659,7 @@ class TestAnthropicProviderLogic:
     def test_anthropic_user_instructions_parity(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
         client, requests = make_client_create(answer=WORKING_CODE)
-        provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+        provider = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             provider.generate_step_code(
@@ -639,7 +674,7 @@ class TestAnthropicProviderLogic:
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
-                cheat_sheet="expect(locator).to_be_visible()",
+                skill="expect(locator).to_be_visible()",
                 attempt_history=[],
                 recommendation=None,
                 guidance=None,
@@ -648,12 +683,12 @@ class TestAnthropicProviderLogic:
         user = requests[0]["messages"][0]["content"]
         # parity: the same block at the same relative position as the openai implementation
         assert f"USER INSTRUCTIONS:\n{USER_INSTRUCTIONS}" in user
-        assert user.index("CHEAT SHEET:") < user.index("USER INSTRUCTIONS:")
+        assert user.index("PLAYWRIGHT SKILL:") < user.index("USER INSTRUCTIONS:")
 
     def test_classification_carries_the_instructions_block_last(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
         client, requests = make_client_create(answer="rot | e | r")
-        provider = AnthropicProvider(Config(model="claude-sonnet-4-5", classification_prompt=USER_INSTRUCTIONS))
+        provider = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5", classification_prompt=USER_INSTRUCTIONS))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             provider.classify_step_failure(
@@ -674,7 +709,7 @@ class TestAnthropicProviderLogic:
     def test_classification_without_instructions_matches_the_old_form(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
         client, requests = make_client_create(answer="rot | e | r")
-        provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+        provider = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             provider.classify_step_failure(
@@ -697,7 +732,9 @@ class TestAnthropicProviderLogic:
         )
         client, requests = make_client_create(answer=verdict)
         provider = AnthropicProvider(
-            Config(model="claude-sonnet-4-5", generation_model="claude-haiku-4-5", classification_model="claude-x")
+            PrettyConfig(
+                model="claude-sonnet-4-5", generation_model="claude-haiku-4-5", classification_model="claude-x"
+            )
         )
         record = (
             "original cached code\nurl: https://a.example -> https://a.example\n"
@@ -737,7 +774,7 @@ class TestAnthropicProviderLogic:
     def test_anthropic_compliance_sdk_error_maps_to_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
         client = SimpleNamespace(messages=SimpleNamespace(create=mock.MagicMock(side_effect=AnthropicError("boom"))))
-        provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+        provider = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5"))
 
         with (
             mock.patch.object(provider, "_get_client", return_value=client),
@@ -776,7 +813,9 @@ class TestAnthropicGroupDiagnosis:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
         client, requests = make_client_create(answer=DIAGNOSIS_ANSWER)
         provider = AnthropicProvider(
-            Config(model="claude-sonnet-4-5", generation_model="claude-haiku-4-5", classification_model="claude-x")
+            PrettyConfig(
+                model="claude-sonnet-4-5", generation_model="claude-haiku-4-5", classification_model="claude-x"
+            )
         )
         record = (
             "original cached code\nurl: https://a.example -> https://a.example\n"
@@ -829,7 +868,7 @@ class TestAnthropicGroupDiagnosis:
     ) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
         client, requests = make_client_create(answer="the app is broken")
-        provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+        provider = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             verdict = provider.classify_group_failure(  # never raises across the port
@@ -852,7 +891,7 @@ class TestAnthropicGroupDiagnosis:
     def test_anthropic_diagnosis_sdk_error_maps_to_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
         client = SimpleNamespace(messages=SimpleNamespace(create=mock.MagicMock(side_effect=AnthropicError("boom"))))
-        provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+        provider = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5"))
 
         with (
             mock.patch.object(provider, "_get_client", return_value=client),
@@ -878,7 +917,7 @@ class TestAnthropicGroupDiagnosis:
     ) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
         client, requests = make_client_create(answer=DIAGNOSIS_ANSWER)
-        provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+        provider = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5"))
 
         with mock.patch.object(provider, "_get_client", return_value=client):
             provider.classify_group_failure(
@@ -912,7 +951,7 @@ class TestAnthropicProviderTransportWiring:
         cell: dict[str, str] = {"answer": WORKING_CODE}
         create = mock.MagicMock(side_effect=lambda **_kwargs: SimpleNamespace(content=[text_block(cell["answer"])]))
         client = SimpleNamespace(messages=SimpleNamespace(create=create))
-        provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+        provider = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5"))
 
         calls: list[tuple[str, str, int, object]] = []
 
@@ -937,7 +976,7 @@ class TestAnthropicProviderTransportWiring:
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
-                cheat_sheet="expect(locator).to_be_visible()",
+                skill="expect(locator).to_be_visible()",
                 attempt_history=[],
                 recommendation=None,
                 guidance=None,
@@ -1002,7 +1041,7 @@ class TestAnthropicProviderTransportWiring:
             return SimpleNamespace(content=[text_block(outcome)])
 
         client = SimpleNamespace(messages=SimpleNamespace(create=mock.MagicMock(side_effect=create)))
-        provider = AnthropicProvider(Config(model="claude-sonnet-4-5", llm_request_attempts=2))
+        provider = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5", llm_request_attempts=2))
         sleeps: list[float] = []
 
         monkeypatch.setattr("time.sleep", sleeps.append)
@@ -1022,7 +1061,7 @@ class TestAnthropicProviderTransportWiring:
                 snapshot="- snap",
                 page_url=None,
                 screenshot=None,
-                cheat_sheet="expect(locator).to_be_visible()",
+                skill="expect(locator).to_be_visible()",
                 attempt_history=[],
                 recommendation=None,
                 guidance=None,
@@ -1042,7 +1081,7 @@ class TestAnthropicProviderTransportWiring:
         error = make_status_error(AuthenticationError, 401)
         create = mock.MagicMock(side_effect=error)
         client = SimpleNamespace(messages=SimpleNamespace(create=create))
-        provider = AnthropicProvider(Config(model="claude-sonnet-4-5"))
+        provider = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5"))
         sleeps: list[float] = []
 
         monkeypatch.setattr("time.sleep", sleeps.append)
@@ -1073,7 +1112,7 @@ class TestAnthropicProviderTransportWiring:
     ) -> None:
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
 
-        provider = AnthropicProvider(Config())
+        provider = AnthropicProvider(PrettyConfig())
         sleeps: list[float] = []
 
         monkeypatch.setattr("time.sleep", sleeps.append)

@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 from prettyplay.cache import CachedStep, RunBudgets, StepCache, StepIdentity
-from prettyplay.config import Config
+from prettyplay.config import PrettyConfig
 from prettyplay.engine import StepAttempt, StepGenerator
 from prettyplay.engine.attempts import OUTCOME_ORIGINAL
 from prettyplay.engine.groups import GroupRecovery, GroupStepOutcome
@@ -150,7 +150,7 @@ class RecoveryFixture:
     ) -> None:
         self.recorder = RecorderHook()
         self.reporter = StepReporter(hooks=[self.recorder])
-        self.config = Config(cache_root=str(tmp_path), polling_delay=0)
+        self.config = PrettyConfig(cache_root=str(tmp_path), polling_delay=0)
         self.cache = StepCache(self.config, None, self.reporter)
         self.budgets = RecordingBudgets(*limits)
         self.generator = (
@@ -586,6 +586,73 @@ class TestGroupRecoveryRowReRender:
         # the healed step stores under the failed step's fresh identity — its own re-render
         # read the recaptured Tale, never the recorded Dune or the raw sentence
         assert healed.identity == _identity("Check the item named Tale", "assertion")
+
+    def test_recovery_row_events_carry_the_ready_layer_of_a_template_step(self, tmp_path: Path) -> None:
+        """The row events name the re-rendered addressing text — the capture tag kept.
+
+        The capture step's instruction strips its ``{% var name %}`` tag while its
+        addressing text keeps it: the recovery events address the ready layer,
+        never the instruction and never the raw template.
+        """
+        capture_sentence = "Read {{ kind }} into {% var name %}"
+        status_sentence = "Check the item named {{ name }}"
+        traces = [
+            GroupStepOutcome(
+                sentence=capture_sentence,
+                instruction="Read novel into ",  # recorded at the original execution
+                step_type="action",
+                outcome="passed",
+                url_before="https://example.com/cart",
+                url_after="https://example.com/checkout",
+                identity=_identity(capture_sentence),
+            ),
+            GroupStepOutcome(
+                sentence=status_sentence,
+                instruction="Check the item named Dune",
+                step_type="assertion",
+                outcome="failed",
+                url_before="https://example.com/checkout",
+                url_after="https://example.com/checkout",
+                identity=_identity(status_sentence, "assertion"),
+            ),
+        ]
+        scenario = [
+            ScenarioStep(sentence=capture_sentence, instruction="Read novel into ", group_prompt=GROUP_PROMPT),
+        ]
+        memory = StepMemory()
+        memory.publish({"kind": "novel", "name": "Dune"})
+
+        provider = RecoveryProvider(
+            verdicts=[_verdict(earliest_step="Read novel into ")],  # matches the recorded instruction
+            answers=['def step(page):\n    return {"name": "Tale"}\n', WORKING_CODE],
+        )
+        fixture = RecoveryFixture(tmp_path, provider)
+
+        fixture.recovery.recover(
+            GROUP_PROMPT,
+            traces,
+            PreparedStep(instruction="Check the item named Dune"),
+            "assertion",
+            scenario,
+            _identity(status_sentence, "assertion"),
+            [_attempt()],
+            FakePage(),
+            SettleWindow(None, 0),
+            memory,
+        )
+
+        # the capture row: the ready layer — the value embedded, the capture tag kept
+        # (the failed step re-rendered after the recapture: name == Tale)
+        starts = [payload for event, payload in fixture.recorder.events if event == "on_healing_started"]
+        assert starts == [
+            {"step_text": "Read novel into {% var name %}", "category": "recoverable"},
+            {"step_text": "Check the item named Tale", "category": "recoverable"},
+        ]
+        healed_events = [payload for event, payload in fixture.recorder.events if event == "on_healed"]
+        assert healed_events == [
+            {"step_text": "Read novel into {% var name %}", "explanation": _verdict().root_cause},
+            {"step_text": "Check the item named Tale", "explanation": _verdict().root_cause},
+        ]
 
     def test_row_identity_comes_from_fresh_render_addressing(self, tmp_path: Path) -> None:
         """The row regenerates under the fresh re-rendered identity — never the stale trace one.

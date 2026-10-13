@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from prettyplay.cache import StepIdentity
-from prettyplay.config import Config
+from prettyplay.config import PrettyConfig
 from prettyplay.engine import StepAttempt
 from prettyplay.engine.groups import GroupStepOutcome, classify_group_failure
 from prettyplay.engine.groups.diagnosis import GROUP_DIAGNOSIS_PROMPT
@@ -138,7 +138,7 @@ class TestClassifyGroupFailureContract:
         verdict = _verdict()
 
         result = classify_group_failure(
-            Config(cache_root=str(tmp_path)),
+            PrettyConfig(cache_root=str(tmp_path)),
             DiagnosisProvider(verdict),
             "accept cookies and submit the order",
             [_trace("accept the cookie banner"), _trace("submit the form")],
@@ -162,7 +162,7 @@ class TestClassifyGroupFailureContract:
         ]
 
         classify_group_failure(
-            Config(cache_root=str(tmp_path)),
+            PrettyConfig(cache_root=str(tmp_path)),
             provider,
             "accept cookies and submit the order",
             traces,
@@ -218,7 +218,7 @@ class TestClassifyGroupFailureLogic:
         history = [_attempt(), _attempt(code="def step(page) -> None:\n    raise AssertionError\n")]
 
         verdict = classify_group_failure(
-            Config(cache_root=str(tmp_path), send_screenshots=True),
+            PrettyConfig(cache_root=str(tmp_path), send_screenshots=True),
             provider,
             "accept cookies and submit the order",
             traces,
@@ -258,7 +258,7 @@ class TestClassifyGroupFailureLogic:
         page = FakePage()
 
         classify_group_failure(
-            Config(cache_root=str(tmp_path), send_screenshots=False),
+            PrettyConfig(cache_root=str(tmp_path), send_screenshots=False),
             provider,
             "g",
             [_trace("s")],
@@ -277,7 +277,7 @@ class TestClassifyGroupFailureLogic:
         provider = DiagnosisProvider(_verdict())
 
         classify_group_failure(
-            Config(cache_root=str(tmp_path), classification_prompt="answer in Russian"),
+            PrettyConfig(cache_root=str(tmp_path), classification_prompt="answer in Russian"),
             provider,
             "g",
             [_trace("s")],
@@ -295,7 +295,7 @@ class TestClassifyGroupFailureLogic:
         provider = DiagnosisProvider(_verdict())
 
         classify_group_failure(
-            Config(cache_root=str(tmp_path)),
+            PrettyConfig(cache_root=str(tmp_path)),
             provider,
             "g",
             [_trace("s")],
@@ -319,7 +319,7 @@ class TestClassifyGroupFailureLogic:
         scenario = _scenario()
 
         classify_group_failure(
-            Config(cache_root=str(tmp_path)),
+            PrettyConfig(cache_root=str(tmp_path)),
             provider,
             "accept cookies and submit the order",
             [_trace("fill the email field")],
@@ -343,7 +343,7 @@ class TestClassifyGroupFailureLogic:
         provider = DiagnosisProvider(_verdict())
 
         classify_group_failure(
-            Config(cache_root=str(tmp_path)),
+            PrettyConfig(cache_root=str(tmp_path)),
             provider,
             "g",
             [_trace("s")],
@@ -359,7 +359,7 @@ class TestClassifyGroupFailureLogic:
     def test_landed_diagnosis_logs_the_info_record(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         with caplog.at_level(logging.INFO, logger="prettyplay"):
             classify_group_failure(
-                Config(cache_root=str(tmp_path)),
+                PrettyConfig(cache_root=str(tmp_path)),
                 DiagnosisProvider(_verdict()),
                 "accept cookies and submit the order",
                 [_trace("fill the email field")],
@@ -386,7 +386,7 @@ class TestClassifyGroupFailureLogic:
 
         with caplog.at_level(logging.INFO, logger="prettyplay"):
             verdict = classify_group_failure(
-                Config(cache_root=str(tmp_path)),
+                PrettyConfig(cache_root=str(tmp_path)),
                 provider,
                 "accept cookies and submit the order",
                 [_trace("fill the email field")],
@@ -415,7 +415,7 @@ class TestClassifyGroupFailureLogic:
 
         with pytest.raises(LLMUnavailableError) as excinfo:
             classify_group_failure(
-                Config(cache_root=str(tmp_path)),
+                PrettyConfig(cache_root=str(tmp_path)),
                 provider,
                 "g",
                 [_trace("s")],
@@ -433,7 +433,7 @@ class TestClassifyGroupFailureLogic:
         provider = DiagnosisProvider(_verdict())
 
         classify_group_failure(
-            Config(cache_root=str(tmp_path)),
+            PrettyConfig(cache_root=str(tmp_path)),
             provider,
             "g",
             [],

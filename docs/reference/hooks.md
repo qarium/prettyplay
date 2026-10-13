@@ -40,11 +40,18 @@ root, so `from prettyplay import StepHooks` works too.
 
 ## Events
 
-For a template step, lifecycle events (`on_step_started`, `on_step_passed`,
-`on_step_failed`, `on_step_verdict`, `on_step_finished`) carry the authored
-template in `step_text`. Generation and healing events carry the rendered
-instruction with current values. The `on_step_failed` error can also contain
-the rendered instruction.
+Every lifecycle, generation and healing event (`on_step_started`,
+`on_step_passed`, `on_step_failed`, `on_step_verdict`, `on_step_finished`,
+`on_generation_started`, `on_healing_started`, `on_healed`) carries the
+ready layer in `step_text` — the rendered sentence with current values
+embedded and the capture tags kept verbatim
+(`Save the title into {% var title %}`): the same text the cache identity
+addresses by, destination markers included. The LLM request STEP block
+alone carries the instruction with the capture tags stripped — its RESULTS
+block declares the destinations. A step whose template never rendered (an
+authoring error) carries the authored template — the only layer that
+exists. The `on_step_failed` error can also contain the rendered
+instruction.
 
 | Method | When | Payload |
 |---|---|---|
@@ -100,7 +107,32 @@ a skipped cache write, a
 failed hook call and the non-blocking compliance outcomes — WARNING. The
 steering dialog logs its openings, guidance lines and declines at INFO as
 `steering_opened`, `steering_guidance` and `steering_declined`; settle
-re-executions log at INFO as `settle_retry`. A group block frames itself
+re-executions log at INFO as `settle_retry`. Candidate executions log
+their context at INFO — the `saves into:`, `inputs:` and candidate-code
+lines (the replay counterpart: `saves into:` and `cached code (replay):`),
+and a capturing step's acceptance logs `captured:` with every published
+name = value pair. These messages are unchanged; the records additionally
+carry stable `event` identifiers and structured context for filtering:
+`step_results_declared` (`step_text`, `declarations`), `step_inputs`
+(`step_text`, `inputs`), `step_candidate_code` (`step_text`, `attempt`,
+`code`), `step_cached_code` (`step_text`, `code`), and `step_captured`
+(`step_text`, `captures`). The step text is the addressing text; declarations
+are a tuple of names and dictionaries are copied snapshots. The quiet
+`verdict_skipped` WARNING carries `instruction` and `reason=llm_unavailable`;
+`cache_sweep_failed` carries `cleanup` and keeps its original traceback.
+The example's console formatter displays the existing message alone for the
+five execution-context events above: code, inputs, declarations and captures
+are not repeated in an escaped `| key=value` suffix. Structured fields remain
+on the `LogRecord` for other handlers. Lifecycle events, timings and warnings
+keep their contextual suffix; custom formatters control their own display.
+These records remain log-only. The engine writes log-only
+timing records at INFO: `generation_request` (step_text, request_ms — the
+provider call alone) and `step_execution` (step_text, attempt,
+execution_ms — the whole settle window) on every request and every settle
+window; their `step_text` is the ready layer — the capture tag names the
+destination inline; they never dispatch to hooks, and the two do not sum
+to wall time.
+A group block frames itself
 with the lifecycle events `on_group_started`/`on_group_passed`/`on_group_failed`/`on_group_finished`
 at INFO (the group prompt verbatim; the outcome events are mutually exclusive,
 `on_group_finished` always closes),

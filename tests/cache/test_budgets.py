@@ -3,7 +3,7 @@
 import inspect
 
 from prettyplay.cache import RunBudgets, StepIdentity
-from prettyplay.config import Config
+from prettyplay.config import PrettyConfig
 
 IDENTITY = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="нажать войти")
 IDENTITY2 = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="нажать выйти")
@@ -70,7 +70,7 @@ class TestRunBudgetsLogic:
         assert results == [True, False, True, True]
 
     def test_budgets_default_limits_from_config(self) -> None:
-        config = Config()
+        config = PrettyConfig()
         budgets = RunBudgets(config.generation_attempts, config.healing_attempts)
 
         generations = [budgets.try_generation(IDENTITY) for _ in range(4)]

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from prettyplay.cache import CachedStep, RunBudgets, StepCache, StepIdentity
-from prettyplay.config import Config
+from prettyplay.config import PrettyConfig
 from prettyplay.engine import StepAttempt, StepGenerator, StepHealer
 from prettyplay.engine.attempts import OUTCOME_ORIGINAL
 from prettyplay.engine.classification import CLASSIFICATION_PROMPT
@@ -195,7 +195,7 @@ class FakeProvider:
         snapshot: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
-        cheat_sheet: str = "",
+        skill: str = "",
         attempt_history: list[str] | None = None,
         recommendation: str | None = None,
         guidance: str | None = None,
@@ -213,7 +213,7 @@ class FakeProvider:
                 "snapshot": snapshot,
                 "page_url": page_url,
                 "screenshot": screenshot,
-                "cheat_sheet": cheat_sheet,
+                "skill": skill,
                 "attempt_history": attempt_history,
                 "recommendation": recommendation,
                 "guidance": guidance,
@@ -398,11 +398,11 @@ class HealerFixture:
         tmp_path: Path,
         real_generator: bool = False,
         limits: tuple[int, int] = (3, 2),
-        config: Config | None = None,
+        config: PrettyConfig | None = None,
     ) -> None:
         self.recorder = RecorderHook()
         self.reporter = StepReporter(hooks=[self.recorder])
-        self.config = config if config is not None else Config(cache_root=str(tmp_path))
+        self.config = config if config is not None else PrettyConfig(cache_root=str(tmp_path))
         self.memory = StepMemory()
         self.window = SettleWindow(None, 0.5)  # disabled window — one execution per candidate
         self.cache = SpyCache()
@@ -472,6 +472,42 @@ class TestStepHealerLogic:
             ("on_healed", {"step_text": STEP_SENTENCE, "explanation": "the button was renamed"}),
         ]
         assert fixture.cache.save_calls == []  # the cache is written by generator after successful execution
+
+    def test_heal_events_carry_the_ready_layer_not_the_instruction(self, tmp_path: Path) -> None:
+        """The healing events address the ready layer — the addressing text with the capture tag kept."""
+        provider = FakeProvider(
+            [
+                FailureClassification(
+                    category="rot",
+                    explanation="the button was renamed",
+                    recommendation="refresh the cache",
+                )
+            ]
+        )
+        fixture = HealerFixture(provider, tmp_path)
+
+        fixture.healer.heal(
+            step=fixture.failed_step,
+            error="element not found",
+            prepared=PreparedStep(
+                instruction="read the title",  # the clean sentence the requests carry
+                addressing_text="read the title into {% var title %}",  # the ready layer — the tag kept
+            ),
+            step_type="action",
+            previous_steps=SCENARIO_RECORDS,
+            page=FakePage(),
+            attempt_history=anchored_history(),
+            window=fixture.window,
+            memory=fixture.memory,
+        )
+
+        assert fixture.recorder.events == [
+            ("on_healing_started", {"step_text": "read the title into {% var title %}", "category": "rot"}),
+            (
+                "on_healed",
+                {"step_text": "read the title into {% var title %}", "explanation": "the button was renamed"},
+            ),
+        ]  # never the instruction, never the raw template — the ready layer alone
 
     def test_heal_passes_prepared_instruction_and_anchored_history_into_regenerate(self, tmp_path: Path) -> None:
         """The prepared instruction reaches classification and regeneration — the render product threads verbatim."""
@@ -566,7 +602,7 @@ class TestStepHealerLogic:
             tmp_path,
             real_generator=True,
             limits=(3, 1),
-            config=Config(cache_root=str(tmp_path), generation_prompt="prefer role locators"),
+            config=PrettyConfig(cache_root=str(tmp_path), generation_prompt="prefer role locators"),
         )
         fixture.memory.publish({"kind": "novel"})
 
@@ -636,7 +672,7 @@ class TestStepHealerLogic:
         )
         recorder = RecorderHook()
         reporter = StepReporter(hooks=[recorder])
-        config = Config(cache_root=str(tmp_path))
+        config = PrettyConfig(cache_root=str(tmp_path))
         cache = StepCache(config, None, reporter)
         memory = StepMemory()
         generator = StepGenerator(config, provider, cache, RunBudgets(3, 2), reporter)
@@ -750,7 +786,7 @@ class TestStepHealerLogic:
         provider = FakeProvider([FailureClassification(category="rot", explanation="e", recommendation="r")])
         recorder = RecorderHook()
         reporter = StepReporter(hooks=[recorder])
-        config = Config(cache_root=str(tmp_path), send_screenshots=True)
+        config = PrettyConfig(cache_root=str(tmp_path), send_screenshots=True)
         failed_step = CachedStep(
             identity=StepIdentity(cache_key="k", step_type="action", normalized_text="click submit"),
             addressing_text="click submit",
@@ -907,7 +943,7 @@ class TestStepHealerLogic:
         recorder = RecorderHook()
         reporter = StepReporter(hooks=[recorder])
         healer = StepHealer(
-            Config(cache_root=str(tmp_path)), provider, generator, SpyCache(), RunBudgets(3, 2), reporter
+            PrettyConfig(cache_root=str(tmp_path)), provider, generator, SpyCache(), RunBudgets(3, 2), reporter
         )
         rotted_step = CachedStep(
             identity=identity, addressing_text=identity.normalized_text, code="old", created_at="2026-09-07"
@@ -1138,6 +1174,7 @@ class TestEngineCellFacade:
             "StepAttempt",
             "StepGenerator",
             "StepHealer",
+            "check_step_code",
             "check_step_compliance",
             "classify_step_failure",
             "format_step_error",
@@ -1149,7 +1186,7 @@ def test_real_cache_spy_not_needed_for_healer(tmp_path: Path) -> None:
     """The healer composes over the real cache cell unchanged: a smoke wiring check."""
     recorder = RecorderHook()
     reporter = StepReporter(hooks=[recorder])
-    config = Config(cache_root=str(tmp_path))
+    config = PrettyConfig(cache_root=str(tmp_path))
     cache = StepCache(config, None, reporter)
     failed_step = CachedStep(
         identity=StepIdentity(cache_key="k", step_type="action", normalized_text="click submit"),

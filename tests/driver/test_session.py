@@ -7,7 +7,7 @@ from unittest import mock
 
 import pytest
 from playwright.sync_api import Error
-from prettyplay.config import BrowserConfig, Config
+from prettyplay.config import BrowserConfig, PrettyConfig
 from prettyplay.driver import DriverSession, PageFacade
 
 IPHONE_13_DESCRIPTOR: dict[str, object] = {
@@ -183,12 +183,17 @@ class FakePage:
         self.goto_error: Exception | None = None
         self.events: list[tuple[str, object]] = []  # every on(event, handler) registration
         self.dialog_handlers: list[object] = []  # the handlers registered on("dialog", …)
+        self.timeout_calls: list[float] = []  # every set_default_timeout call, ms
 
     def on(self, event: str, handler: object) -> None:
         self.context.browser._factory.threads.append(threading.get_ident())
         self.events.append((event, handler))
         if event == "dialog":
             self.dialog_handlers.append(handler)
+
+    def set_default_timeout(self, timeout: float) -> None:
+        self.context.browser._factory.threads.append(threading.get_ident())
+        self.timeout_calls.append(timeout)
 
     @property
     def url(self) -> str:
@@ -275,7 +280,7 @@ class TestDriverSessionContract:
         factory = FakePlaywrightFactory()
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            DriverSession(Config(browser=BrowserConfig(name="chromium")))
+            DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium")))
 
         assert factory.start_calls == 0
         assert factory.launches == []
@@ -284,7 +289,7 @@ class TestDriverSessionContract:
         factory = FakePlaywrightFactory()
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="chromium")))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium")))
             page = session.open_context()
             session.close()
 
@@ -294,7 +299,7 @@ class TestDriverSessionContract:
         factory = FakePlaywrightFactory()
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="chromium")))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium")))
             page = session.open_context()
             router = page._router
             worker = page._worker
@@ -305,18 +310,51 @@ class TestDriverSessionContract:
         assert router.accept_dialogs is False  # the browser-group setting read once
         assert worker is not None  # the driver-thread attachment still holds
 
+    def test_open_context_sets_the_page_default_timeout_from_the_browser_group(self) -> None:
+        factory = FakePlaywrightFactory()
+
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium", timeout=2.5)))
+            page = session.open_context()
+            raw_timeouts = page._page.timeout_calls  # type: ignore[attr-defined]
+            session.close()
+
+        assert raw_timeouts == [2500.0]  # seconds -> milliseconds, once at page creation
+
+    def test_open_context_applies_the_explicit_default_timeout(self) -> None:
+        factory = FakePlaywrightFactory()
+
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium")))
+            page = session.open_context()
+            raw_timeouts = page._page.timeout_calls  # type: ignore[attr-defined]
+            session.close()
+
+        assert raw_timeouts == [30_000.0]  # the explicit 30 default — set on every page, no sentinel
+
+    def test_open_context_applies_the_real_zero_timeout(self) -> None:
+        factory = FakePlaywrightFactory()
+
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium", timeout=0)))
+            page = session.open_context()
+            raw_timeouts = page._page.timeout_calls  # type: ignore[attr-defined]
+            session.close()
+
+        assert raw_timeouts == [0.0]  # the legal real zero — auto-wait off, applied explicitly
+
     def test_close_without_launch_is_noop(self) -> None:
         factory = FakePlaywrightFactory()
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="chromium")))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium")))
             session.close()
 
         assert factory.start_calls == 0
         assert factory.stop_calls == 0
 
     def test_public_surface_matches_contract(self) -> None:
-        session = DriverSession(Config())
+        session = DriverSession(PrettyConfig())
 
         assert hasattr(session, "open_context")
         assert hasattr(session, "close")
@@ -325,7 +363,7 @@ class TestDriverSessionContract:
         factory = FakePlaywrightFactory()
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="msedge", headless=False)))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="msedge", headless=False)))
             session.open_context()
             session.close()
 
@@ -336,7 +374,7 @@ class TestDriverSessionContract:
         factory = FakePlaywrightFactory()
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config())
+            session = DriverSession(PrettyConfig())
             session.open_context()
             session.close()
 
@@ -347,7 +385,7 @@ class TestDriverSessionContract:
         factory = FakePlaywrightFactory()
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="chromium", speed=40)))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium", speed=40)))
             session.open_context()
             session.close()
 
@@ -357,7 +395,9 @@ class TestDriverSessionContract:
         factory = FakePlaywrightFactory()
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="chromium", endpoint="ws://grid:3000", speed=40)))
+            session = DriverSession(
+                PrettyConfig(browser=BrowserConfig(name="chromium", endpoint="ws://grid:3000", speed=40))
+            )
             session.open_context()
             session.close()
 
@@ -371,7 +411,7 @@ class TestDriverSessionLogic:
         factory = FakePlaywrightFactory()
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="chromium")))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium")))
 
             assert factory.start_calls == 0  # after the constructor: pw.start not called
 
@@ -388,7 +428,7 @@ class TestDriverSessionLogic:
         factory = FakePlaywrightFactory()
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="firefox")))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="firefox")))
             session.open_context()
             session.close()
 
@@ -398,7 +438,7 @@ class TestDriverSessionLogic:
         factory = FakePlaywrightFactory()
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="msedge", headless=False)))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="msedge", headless=False)))
             session.open_context()
             session.close()
 
@@ -407,7 +447,7 @@ class TestDriverSessionLogic:
 
         factory = FakePlaywrightFactory()
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config())
+            session = DriverSession(PrettyConfig())
             session.open_context()
             session.close()
 
@@ -419,7 +459,7 @@ class TestDriverSessionLogic:
         factory.chromium = FailingEngine("chromium", factory, Error("Chromium distribution 'chrome' is not found"))
 
         def open_context() -> None:
-            session = DriverSession(Config(browser=BrowserConfig(name="chrome")))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chrome")))
             session.open_context()
 
         with (
@@ -432,7 +472,7 @@ class TestDriverSessionLogic:
         factory = FakePlaywrightFactory()
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="webkit")))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="webkit")))
             session.open_context()
             session.close()
 
@@ -444,7 +484,7 @@ class TestDriverSessionLogic:
         factory = FakePlaywrightFactory()
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="chromium")))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium")))
             session.open_context()
             session.close()
             session.close()  # a repeated close — no-op
@@ -458,7 +498,7 @@ class TestDriverSessionLogic:
         factory.chromium._browser = CrashingBrowser(factory)  # a crashed browser process
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="chromium")))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium")))
             session.open_context()
 
             with pytest.raises(Error, match="has been closed"):
@@ -472,7 +512,7 @@ class TestDriverSessionLogic:
         factory = FakePlaywrightFactory()
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="chromium")))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium")))
             session.close()  # close() before launch — no-op
 
         assert factory.start_calls == 0
@@ -482,7 +522,7 @@ class TestDriverSessionLogic:
         factory = FakePlaywrightFactory()
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="chromium")))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium")))
             session.open_context()
             session.close()
             page = session.open_context()  # a fresh start after close
@@ -495,7 +535,7 @@ class TestDriverSessionLogic:
     def test_failed_launch_stops_driver_and_retries_cleanly(self) -> None:
         factory = FakePlaywrightFactory()
         factory.chromium = FailingEngine("chromium", factory, RuntimeError("browser binary missing"))
-        session = DriverSession(Config(browser=BrowserConfig(name="chromium")))
+        session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium")))
 
         with (
             mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory),
@@ -542,7 +582,7 @@ class TestDriverSessionConnect:
         endpoint = "ws://ci-grid:3000/playwright/firefox"
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="firefox", endpoint=endpoint)))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="firefox", endpoint=endpoint)))
             page = session.open_context()
             session.close()
 
@@ -556,7 +596,7 @@ class TestDriverSessionConnect:
         endpoint = "ws://ci-grid:3000/playwright/chromium"
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="chrome", endpoint=endpoint)))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chrome", endpoint=endpoint)))
             session.open_context()
             session.close()
 
@@ -569,7 +609,7 @@ class TestDriverSessionConnect:
         factory = FakePlaywrightFactory()
         # the raw Playwright error carries only the OS cause — no URL, like the real driver
         factory.firefox = FailingEngine("firefox", factory, Error("websocket connect timeout"))
-        session = DriverSession(Config(browser=BrowserConfig(name="firefox", endpoint="ws://dead:1")))
+        session = DriverSession(PrettyConfig(browser=BrowserConfig(name="firefox", endpoint="ws://dead:1")))
 
         with (
             mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory),
@@ -605,7 +645,7 @@ class TestDriverSessionPace:
         # the local launch case: speed=40 -> int((100 - 40) * 30) = 1800
         factory = FakePlaywrightFactory()
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="chromium", speed=40)))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium", speed=40)))
             session.open_context()
             session.close()
 
@@ -614,7 +654,7 @@ class TestDriverSessionPace:
         # the remote connect case: the same mapping rides the ws connect
         factory = FakePlaywrightFactory()
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="chromium", endpoint=endpoint, speed=40)))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium", endpoint=endpoint, speed=40)))
             session.open_context()
             session.close()
 
@@ -624,7 +664,7 @@ class TestDriverSessionPace:
         # the default speed=100 -> slow_mo == 0, passed identically — behaviorally today's start
         factory = FakePlaywrightFactory()
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="chromium", speed=100)))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium", speed=100)))
             session.open_context()
             session.close()
 
@@ -632,7 +672,7 @@ class TestDriverSessionPace:
 
         factory = FakePlaywrightFactory()
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="chromium", endpoint=endpoint, speed=100)))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium", endpoint=endpoint, speed=100)))
             session.open_context()
             session.close()
 
@@ -641,7 +681,7 @@ class TestDriverSessionPace:
         # the slowest bound of the linear formula: speed=0 -> 3000 ms
         factory = FakePlaywrightFactory()
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="chromium", speed=0)))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium", speed=0)))
             session.open_context()
             session.close()
 
@@ -753,7 +793,7 @@ class TestDriverSessionScreenModesContract:
         factory.devices = {"iPhone 13": IPHONE_13_DESCRIPTOR, "Pixel 7": PIXEL_7_DESCRIPTOR}
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(screen=screen, headless=False)))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(screen=screen, headless=False)))
             page = session.open_context()
             session.close()
 
@@ -777,7 +817,7 @@ class TestDriverSessionScreenModes:
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
             session = DriverSession(
-                Config(browser=BrowserConfig(name=name, screen=screen, headless=headless, endpoint=endpoint))
+                PrettyConfig(browser=BrowserConfig(name=name, screen=screen, headless=headless, endpoint=endpoint))
             )
             page = session.open_context()
             session.close()
@@ -797,7 +837,7 @@ class TestDriverSessionScreenModes:
         factory.devices = {"iPhone 13": IPHONE_13_DESCRIPTOR, "Pixel 7": PIXEL_7_DESCRIPTOR}
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(screen="iPhon 13")))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(screen="iPhon 13")))
             with pytest.raises(Error) as excinfo:
                 session.open_context()
             session.close()
@@ -819,7 +859,7 @@ class TestDriverSessionWorkerThread:
         factory = FakePlaywrightFactory()
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="chromium")))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium")))
             page = session.open_context()
             page.run(lambda raw: raw.goto("https://example.com"))
             session.close()
@@ -833,7 +873,7 @@ class TestDriverSessionWorkerThread:
         factory = FakePlaywrightFactory()
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="chromium")))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium")))
             page = session.open_context()
 
             assert page.run(lambda raw: raw.url) == "about:blank"
@@ -853,7 +893,7 @@ class TestDriverSessionWorkerThread:
         factory = FakePlaywrightFactory()
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="chromium")))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium")))
             session.open_context()
             try:
                 # regression guard for the IPython bug, asserted while the session is live:
@@ -868,7 +908,7 @@ class TestDriverSessionWorkerThread:
         factory = FakePlaywrightFactory()
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="chromium")))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium")))
             page = session.open_context()
 
             page._page.goto_error = AssertionError("элемент не стабилен")  # type: ignore[attr-defined]
@@ -882,7 +922,7 @@ class TestDriverSessionWorkerThread:
         factory = FakePlaywrightFactory()
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="chromium")))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium")))
             session.open_context()
             worker = session._worker._thread  # check this session's thread
 
@@ -896,7 +936,7 @@ class TestDriverSessionWorkerThread:
         factory = FakePlaywrightFactory()
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="chromium")))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium")))
             before = threading.active_count()
             session.close()
 
@@ -906,7 +946,7 @@ class TestDriverSessionWorkerThread:
         factory = FakePlaywrightFactory()
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="chromium")))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium")))
             page = session.open_context()
             session.close()
 
@@ -918,7 +958,7 @@ class TestDriverSessionWorkerThread:
         factory = FakePlaywrightFactory()
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="chromium")))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium")))
             page = session.open_context()
 
             def call_back_inside_the_unit(raw: object) -> str:
@@ -936,7 +976,7 @@ class TestDriverSessionWorkerThread:
         factory = FakePlaywrightFactory()
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="chromium")))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium")))
             session.open_context()
             first = session._worker._thread  # this session's thread
             session.close()
@@ -959,7 +999,7 @@ class TestDriverSessionWorkerThread:
             raise RuntimeError("driver start failed")
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="chromium")))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium")))
             before = threading.active_count()
 
             factory.start = failing_start  # type: ignore[method-assign]
@@ -990,7 +1030,7 @@ class TestDriverSessionDialogWiring:
         factory = FakePlaywrightFactory()
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="chromium", accept_dialogs=False)))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium", accept_dialogs=False)))
             facade = session.open_context()
             session.close()
 
@@ -1016,7 +1056,7 @@ class TestDriverSessionDialogWiring:
         factory = FakePlaywrightFactory()
 
         with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(Config(browser=BrowserConfig(name="chromium", accept_dialogs=True)))
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium", accept_dialogs=True)))
             facade = session.open_context()
             session.close()
 

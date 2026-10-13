@@ -1,6 +1,6 @@
 Imports:
   - Types:
-      - Config
+      - PrettyConfig
     From: prettyplay/config
   - Types:
       - StepReporter
@@ -127,7 +127,7 @@ Annotations: |
       Requirements:
       - No collapsing, no size limits, no truncation of any field
 
-"classify_group_failure(config: Config, provider: LLMProvider, group_prompt: str, traces: list[GroupStepOutcome], previous_steps: list[ScenarioStep], step_text: str, step_type: str, attempt_history: list[StepAttempt], page: PageFacade) -> diagnosis: GroupFailureClassification":
+"classify_group_failure(config: PrettyConfig, provider: LLMProvider, group_prompt: str, traces: list[GroupStepOutcome], previous_steps: list[ScenarioStep], step_text: str, step_type: str, attempt_history: list[StepAttempt], page: PageFacade) -> diagnosis: GroupFailureClassification":
   location: diagnosis.py
   annotations: |
     Compose one group diagnosis request from the prior scenario and the group traces.
@@ -146,7 +146,7 @@ Annotations: |
     Requirements:
     - The returned earliest_step is matched verbatim against trace and previous-scenario instruction fields; raw sentences remain only for row re-rendering and addressing.
 
-"GroupRecovery(config: Config, provider: LLMProvider, generator: StepGenerator, cache: StepCache, budgets: RunBudgets, reporter: StepReporter)":
+"GroupRecovery(config: PrettyConfig, provider: LLMProvider, generator: StepGenerator, cache: StepCache, budgets: RunBudgets, reporter: StepReporter)":
   location: recovery.py
   annotations: |
     The group recovery engine: one diagnosis over the whole interaction, a group-scoped affected row, bounded cycles.

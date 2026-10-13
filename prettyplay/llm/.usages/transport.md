@@ -2,7 +2,7 @@
 
 Domain: using the LLM cell's transport facade. Audience: provider adapter authors and
 engineers diagnosing SDK failures. Built-in providers already apply this policy; configure
-them with `Config(llm_request_attempts=3)` rather than wrapping a provider operation again.
+them with `PrettyConfig(llm_request_attempts=3)` rather than wrapping a provider operation again.
 
 ## Inspect a failure without sending a request
 
@@ -32,6 +32,9 @@ object; older SDKs need not provide parsed attributes. Unknown failures are perm
 `compute_transport_pause` draws random jitter but does not sleep. Pass a positive, one-based
 failed attempt number. A Retry-After above 10 seconds is a terminal condition for the retry
 loop; do not call the pause helper to turn that value into a shorter wait.
+The helper and the retry loop deliberately differ: the helper can honor an in-cap
+Retry-After supplied by a direct caller, while `send_with_retries` passes None to it
+and uses only the fixed delay sequence. An in-cap wait hint never extends the loop pause.
 
 ## Wrap one SDK send
 
@@ -40,11 +43,11 @@ import os
 
 from openai import OpenAI
 
-from prettyplay.config import Config
+from prettyplay.config import PrettyConfig
 from prettyplay.failures import LLMUnavailableError
 from prettyplay.llm import classify_openai_failure, send_with_retries
 
-config = Config(model="gpt-5", llm_request_attempts=3)
+config = PrettyConfig(model="gpt-5", llm_request_attempts=3)
 client = OpenAI(api_key=os.environ["OPENAI_API_KEY"], max_retries=0)
 request = {
     "model": config.effective_generation_model,
@@ -63,7 +66,7 @@ except LLMUnavailableError as error:
     # The original SDK failure is available through error.__cause__.
     raise
 else:
-    # Validate successful response content after the transport loop.
+    # Read the successful response content — the SDK object passes back as-is.
     text = response.choices[0].message.content
 finally:
     client.close()
@@ -76,6 +79,11 @@ The adapter supplies the provider's usual request parameters, including Anthropi
 required `max_tokens`.
 
 The helper sleeps synchronously between transient failures and logs one WARNING per retry.
-Permanent rejection, excessive Retry-After and exhaustion raise `LLMUnavailableError` with
-the original cause. `KeyboardInterrupt` propagates. Keep engine budget accounting and
-successful-response validation outside the closure.
+An `LLMUnavailableError` raised inside the send closure — the response validation rejecting an
+empty completion body — never meets the transport ladder: classifying it would mislabel it
+invalid_request through the fallback. It rides a dedicated channel instead: one bounded re-send
+against the stochastic empty-body storm, and a further empty body re-raises the closure's own
+error unchanged, with its honest message. Permanent rejection, excessive Retry-After and
+exhaustion raise `LLMUnavailableError` with the original cause. `KeyboardInterrupt` propagates.
+Keep engine budget accounting outside the closure; a response validation that rejects empty completion
+bodies belongs inside the closure — its `LLMUnavailableError` rides the dedicated re-send channel.

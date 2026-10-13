@@ -9,12 +9,11 @@ from unittest import mock
 import pytest
 from prettyplay import PrettyPlay, StepGroup
 from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step_text
-from prettyplay.config import Config
-from prettyplay.engine.generator import CHEAT_SHEET as ENGINE_CHEAT_SHEET
+from prettyplay.config import PrettyConfig
 from prettyplay.engine.generator import SYSTEM_PROMPT as ENGINE_SYSTEM_PROMPT
 from prettyplay.engine.groups import GroupStepOutcome
 from prettyplay.engine.groups.diagnosis import GROUP_DIAGNOSIS_PROMPT
-from prettyplay.engine.steering.steering import CHEAT_SHEET, SYSTEM_PROMPT
+from prettyplay.engine.steering.steering import SYSTEM_PROMPT
 from prettyplay.failures import ProductDefectError
 from prettyplay.llm import (
     ComplianceFinding,
@@ -25,11 +24,11 @@ from prettyplay.llm import (
 )
 from prettyplay.llm._request import build_fields_text, build_group_diagnosis_fields
 from prettyplay.reporting import StepHooks, StepReporter
+from prettyplay.skills import load_skill
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PROMPTS_ROOT = REPO_ROOT / ".goga" / "usages" / "prompts"
 GENERATION_PRACTICE = PROMPTS_ROOT / "step_generation.md"
-CHEAT_SHEET_PRACTICE = PROMPTS_ROOT / "step_cheatsheet.md"
 GROUP_DIAGNOSIS_PRACTICE = PROMPTS_ROOT / "group_diagnosis.md"
 
 GROUP_PROMPT = "the checkout flow"
@@ -127,7 +126,7 @@ class ForbiddenProvider(LLMProvider):
         snapshot: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
-        cheat_sheet: str = "",
+        skill: str = "",
         attempt_history: list[str] | None = None,
         recommendation: str | None = None,
         guidance: str | None = None,
@@ -200,7 +199,7 @@ class RecordingProvider(LLMProvider):
         snapshot: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
-        cheat_sheet: str = "",
+        skill: str = "",
         attempt_history: list[str] | None = None,
         recommendation: str | None = None,
         guidance: str | None = None,
@@ -285,7 +284,7 @@ class TemplateGroupProvider(LLMProvider):
         snapshot: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
-        cheat_sheet: str = "",
+        skill: str = "",
         attempt_history: list[str] | None = None,
         recommendation: str | None = None,
         guidance: str | None = None,
@@ -407,14 +406,14 @@ def installed_test(
     provider: LLMProvider,
     page: FakePage,
     cache_key: str,
-    config: Config | None = None,
+    config: PrettyConfig | None = None,
 ) -> Iterator[PrettyPlay]:
     """Build one PrettyPlay on a tmp cache with stubbed provider and page boundaries.
 
     The optional ``config`` replaces the default cache-only configuration —
     the strict isolation case builds a strict test through the same wiring.
     """
-    effective = config if config is not None else Config(cache_root=str(cache_root))
+    effective = config if config is not None else PrettyConfig(cache_root=str(cache_root))
     with (
         mock.patch("prettyplay.scenario.load_config", return_value=effective),
         mock.patch("prettyplay.runtime.create_provider", return_value=provider),
@@ -438,7 +437,7 @@ def seed_step(
         step_type=step_type,
         normalized_text=normalize_step_text(step_text),
     )
-    StepCache(Config(cache_root=str(cache_root)), None, StepReporter(hooks=[])).save(
+    StepCache(PrettyConfig(cache_root=str(cache_root)), None, StepReporter(hooks=[])).save(
         CachedStep(identity=identity, addressing_text=identity.normalized_text, code=code, created_at="2026-09-08")
     )
     return identity
@@ -493,7 +492,7 @@ def test_group_replay_is_llm_free_and_strict_never_recovers(tmp_path: Path) -> N
         strict_provider,
         strict_page,
         "checkout-flow",
-        config=Config(strict=True, cache_root=str(strict_root)),
+        config=PrettyConfig(strict=True, cache_root=str(strict_root)),
     ) as test:
         entered_group: list[StepGroup] = []
 
@@ -557,22 +556,19 @@ def _rename_record(practice: Path) -> tuple[str, str, str]:
 def test_prompt_mirrors_after_rename() -> None:
     """C13: the frozen mirrors never drift from the practice files; the rename changed no byte."""
     generation_practice = GENERATION_PRACTICE.read_text(encoding="utf-8")
-    cheat_sheet_practice = CHEAT_SHEET_PRACTICE.read_text(encoding="utf-8")
     diagnosis_practice = GROUP_DIAGNOSIS_PRACTICE.read_text(encoding="utf-8")
 
-    # the mirrors of the three cells — the section after --- for the prompts, the whole file for the sheet
+    # the mirrors of the two prompt practices — the section after --- is the prompt itself
     assert generation_practice.split("---", 1)[1].strip() == ENGINE_SYSTEM_PROMPT  # generator
     assert diagnosis_practice.split("---", 1)[1].strip() == GROUP_DIAGNOSIS_PROMPT  # groups diagnosis
-    assert cheat_sheet_practice == ENGINE_CHEAT_SHEET  # the whole cheat sheet, verbatim
     assert SYSTEM_PROMPT == ENGINE_SYSTEM_PROMPT  # steering mirrors the identical constants
-    assert CHEAT_SHEET == ENGINE_CHEAT_SHEET
 
     # the git record: both renames were detected at 100% similarity — no byte changed with
     # the name. The pre-rename blob equals the rename commit's own blob (the rename was pure,
     # independently of git's similarity detection); the practices drifted after the rename only
     # through authored updates — the step-memory contract added the INPUTS/RESULTS lines to the
     # generation practice — and the mirror legs above pin the current bytes to the constants.
-    for practice in (GENERATION_PRACTICE, CHEAT_SHEET_PRACTICE):
+    for practice in (GENERATION_PRACTICE,):
         status, old_path, commit = _rename_record(practice)
         assert status == "R100"  # rename detection saw identical content at the rename commit
         pre_rename = _git("show", f"{commit}~1:{old_path}")
@@ -615,7 +611,7 @@ def test_typed_scenario_context_flows_end_to_end(
         declarations=[],
         snapshot="body: main",
         page_url="https://shop.example.com/checkout",
-        cheat_sheet=CHEAT_SHEET,
+        skill=load_skill("playwright"),
         attempt_history=[],
         recommendation=None,
         guidance=None,
@@ -691,7 +687,7 @@ def test_group_template_flow_traces_instruction_and_vars_and_requests_carry_inst
         declarations=[],
         snapshot="body: main",
         page_url="https://shop.example.com/checkout",
-        cheat_sheet=CHEAT_SHEET,
+        skill=load_skill("playwright"),
         attempt_history=[],
         recommendation=None,
         guidance=None,

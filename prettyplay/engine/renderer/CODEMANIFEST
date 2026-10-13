@@ -18,7 +18,7 @@ Annotations: |
   Rendering is pure preparation — no browser, no LLM, no page access: everything happens before execution; authoring errors surface here, before any code runs.
   The memory belongs to one test execution: it survives navigation, never crosses tests, and publishes only validated captures after full acceptance.
   Substituted values are data, never templates: a captured string containing `{{ x }}` stays literal; automatic HTML escaping is off; both texts are plain text.
-  The prepared instruction is the single text every LLM request and every raised failure carries for a step; the addressing text — the second text of the same render — is the addressing artifact the caller builds the cache identity from.
+  The prepared instruction is the single text every LLM request and every raised failure carries for a step; the addressing text — the second text of the same render — is the addressing artifact the caller builds the cache identity from and the ready layer every event and log record names the step by: values embedded, capture tags kept.
 
 ---
 
@@ -68,7 +68,7 @@ Annotations: |
     6. Build and return `PreparedStep` — instruction (the tag-stripped rendered text), addressing_text (the rendered sentence keeping the reached capture tags verbatim), inputs (`vars`), declarations — one render produces both texts per the addressing render of `jinja`
 
     Requirements:
-    - All authoring errors raise the loud actionable `PrettyplayError` naming the problem and the offending name — before any browser execution
+    - All authoring errors raise the loud actionable `PrettyplayError` naming the problem and the offending name — before any step-code execution; this renderer never opens or touches the page
     - Substituted data is never rendered again; the instruction is plain text
     - A same-step read observes the previous value or fails — new captures publish only after acceptance
     - The instruction and the addressing text come from one render: the same values, the same branch decisions — an inactive branch contributes neither declarations nor addressing-text tags

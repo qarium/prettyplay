@@ -32,6 +32,11 @@ class TestStepReporterContract:
 
         assert [parameter.name for parameter in parameters] == ["event", "payload"]
 
+    def test_log_event_signature_is_event_and_payload(self) -> None:
+        parameters = list(inspect.signature(StepReporter.log_event).parameters.values())[1:]  # drop self
+
+        assert [parameter.name for parameter in parameters] == ["event", "payload"]
+
 
 class RecordingHook(StepHooks):
     """Hook recording every received event into a shared ``calls`` list tagged with a name."""
@@ -169,3 +174,30 @@ class TestStepReporterLogic:
 
         assert calls == [("h1", "on_generation_started", ("s", 2))]
         assert caplog.records[-1].attempt == 2
+
+    def test_log_event_writes_the_record_without_hook_dispatch(self, caplog) -> None:
+        calls: list[tuple[str, str, tuple[object, ...]]] = []
+        hook = RecordingHook("h1", calls)
+        reporter = StepReporter(hooks=[hook])
+
+        with caplog.at_level(logging.INFO, logger="prettyplay"):
+            reporter.log_event("generation_request", {"step_text": "s", "request_ms": 1250})
+
+        assert calls == []  # log-only — the hook contract stays untouched
+        record = caplog.records[-1]
+        assert record.name == "prettyplay"
+        assert record.message == "generation_request"
+        assert record.levelno == logging.INFO
+        assert record.step_text == "s"
+        assert record.request_ms == 1250
+
+    def test_log_event_sanitizes_reserved_log_keys(self, caplog) -> None:
+        reporter = StepReporter(hooks=[])
+
+        with caplog.at_level(logging.INFO, logger="prettyplay"):
+            # filename is reserved by LogRecord — without the ctx_ prefix it would be a KeyError
+            reporter.log_event("step_execution", {"step_text": "s", "filename": "abc.py", "execution_ms": 40})
+
+        record = caplog.records[-1]
+        assert record.ctx_filename == "abc.py"
+        assert record.execution_ms == 40

@@ -5,10 +5,10 @@ Domain: LLM provider selection and parity. Audience: integrators choosing a prov
 ## Select a provider
 
 ```python
-from prettyplay.config import Config
+from prettyplay.config import PrettyConfig
 from prettyplay.llm import create_provider
 
-config = Config(provider="anthropic", model="claude-sonnet-4-5")
+config = PrettyConfig(provider="anthropic", model="claude-sonnet-4-5")
 provider = create_provider(config)
 ```
 
@@ -44,8 +44,8 @@ Attempt-history parity: a generation request may carry the attempt history of th
 
 Page-URL parity: a generation request with a non-empty page URL renders it as its own PAGE URL line immediately after the PAGE SNAPSHOT block — identically in both providers. The URL reaches every generation and regeneration request of the engine and the guided requests of the steering. A parity requirement, not a capability difference.
 
-Cheat-sheet parity: every generation request renders the CHEAT SHEET block after the scenario inputs and
-immediately before the USER INSTRUCTIONS block — the compact standard Playwright sync API reference supplied by the
+Skill parity: every generation request renders the PLAYWRIGHT SKILL block after the scenario inputs and
+immediately before the USER INSTRUCTIONS block — the packaged Playwright skill supplied by the
 calling engine; guidance, not an allowlist. Both providers render it identically at the same position.
 
 Prepared-instruction parity: every generation request renders the prepared instruction — the plain-text sentence with actual values produced by rendering — as the STEP block; the raw template sentence never appears. Scenario records render their instruction field; the model never sees raw Jinja. A parity requirement, not a capability difference.
@@ -62,8 +62,8 @@ Transient provider outages no longer kill a logical attempt: every SDK call of a
 operations passes through the shared bounded retry mechanism inside the port.
 
 - Retryable: connection failures, timeouts, HTTP 408/429 and any 5xx — the identical request is
-  resent after a computed pause (base 1, 2, 4, 8, 10, 10… s + 0–25% jitter, cap 10 s; a valid
-  Retry-After ≤ 10 s lifts the pause to the asked wait)
+  resent after a computed pause (base 1, 2, 4, 8, 10, 10… s + 0–25% jitter, cap 10 s — the fixed
+  sequence alone sizes the pause, a wait hint never extends it)
 - Permanent — authentication, authorization, invalid request, an explicitly exhausted quota —
   fails immediately; an explicit permanent cause wins over a retryable status
 - Retry-After above 10 s terminates with an actionable LLMUnavailableError — never an early
@@ -99,8 +99,10 @@ optional INPUTS and RESULTS, ATTEMPT HISTORY and CODE blocks; the answer is a JS
   strict validation — a model dropping a quote, a comma or a bracket does not fail the run; an
   answer that still is not the required shape — including an old-shaped finding without a
   dimension, or an emptiness reached only through the salvage — raises
-  ComplianceVerdictError and a provider failure raises LLMUnavailableError — both hard: the
-  candidate is not cached unchecked
+  ComplianceVerdictError; a provider failure raises LLMUnavailableError. The port never
+  accepts a malformed verdict. The built-in engine catches ComplianceVerdictError, re-asks
+  once and permits an unchecked pass with a WARNING after a second malformed answer;
+  LLMUnavailableError remains a hard failure with no candidate acceptance
 
 ## The group diagnosis operation
 

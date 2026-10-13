@@ -5,7 +5,7 @@ from __future__ import annotations
 import atexit
 
 from .cache import RunBudgets
-from .config import Config
+from .config import PrettyConfig
 from .driver import DriverSession, PageFacade
 from .llm import LLMProvider, create_provider
 
@@ -20,7 +20,7 @@ class PrettyplayRuntime:
         _provider: the LLM provider of the test; ``None`` until first access.
     """
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: PrettyConfig) -> None:
         """Compose the eager per-test objects from the config.
 
         Args:
@@ -33,7 +33,7 @@ class PrettyplayRuntime:
         atexit.register(self.close)
 
     @property
-    def config(self) -> Config:
+    def config(self) -> PrettyConfig:
         """The validated settings of the test."""
         return self._config
 

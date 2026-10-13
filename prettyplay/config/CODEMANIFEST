@@ -18,8 +18,8 @@ Annotations: |
   Naming: PascalCase for classes; snake_case for functions, methods, properties.
   Type hints mandatory; no *args/**kwargs; generics parameterized.
   A validation failure never surfaces as a raw pydantic error: the loader wraps it into the loud actionable `ConfigurationError`.
-  Layered resolution: a value passed programmatically wins over the pyproject+env layer only when explicitly set; empty string means unset for string fields. One model — one place of validation — file and programmatic values validate identically. `Config` is publicly known as PrettyConfig.
-  The browser settings form the nested browser group of `BrowserConfig` inside `Config` (see `pydantic`): fields inside the group carry no browser_ prefix — the group name scopes them. Env overrides stay flat: PRETTYPLAY_BROWSER_NAME, PRETTYPLAY_BROWSER_SCREEN, PRETTYPLAY_BROWSER_HEADLESS, PRETTYPLAY_BROWSER_ENDPOINT, PRETTYPLAY_BROWSER_ACCEPT_DIALOGS, PRETTYPLAY_BROWSER_SPEED.
+  Layered resolution: a value passed programmatically wins over the pyproject+env layer only when explicitly set; empty string means unset for string fields. One model — one place of validation — file and programmatic values validate identically. The canonical settings model is `PrettyConfig`, exported under that name by this cell and the library facade; no settings alias.
+  The browser settings form the nested browser group of `BrowserConfig` inside `PrettyConfig` (see `pydantic`): fields inside the group carry no browser_ prefix — the group name scopes them. Env overrides stay flat: PRETTYPLAY_BROWSER_NAME, PRETTYPLAY_BROWSER_SCREEN, PRETTYPLAY_BROWSER_HEADLESS, PRETTYPLAY_BROWSER_ENDPOINT, PRETTYPLAY_BROWSER_ACCEPT_DIALOGS, PRETTYPLAY_BROWSER_SPEED, PRETTYPLAY_BROWSER_TIMEOUT.
   The pace setting is an ordinary browser-group value: the group stores the percentage only — the percent→slow_mo mapping belongs to the driver cell.
   The old flat keys browser, headless and browser_endpoint at the [tool.prettyplay] level are a hard pre-1.0 break: the loader rejects them with a loud actionable `ConfigurationError` naming the new location.
   The screen setting is validated at format level only (see `pydantic`): a WxH-shaped string must carry positive width and height; every other value — including fullscreen and Playwright device names — passes through unresolved, because the device registry belongs to the running Playwright, never to the config.
@@ -42,10 +42,10 @@ Annotations: |
     "message -> str": |
       The rendered actionable validation text.
 
-"BrowserConfig(name: str, screen: str, headless: bool, endpoint: str, accept_dialogs: bool, speed: int)":
+"BrowserConfig(name: str, screen: str, headless: bool, endpoint: str, accept_dialogs: bool, speed: int, timeout: float)":
   location: models.py
   annotations: |
-    The nested browser group of the project settings: engine, screen mode, window visibility, the remote endpoint and the dialog auto-accept switch of the browser.
+    The nested browser group of the project settings: engine, screen mode, window visibility, the remote endpoint, the dialog auto-accept switch and the page action timeout baseline of the browser.
 
     `name`: browser of the {chromium, firefox, webkit, chrome, msedge} set; chrome and msedge launch the locally installed browser through the driver channel mechanism; default chromium.
     `screen`: the single size setting; empty — Playwright default; WxH — fixed viewport; fullscreen — maximized window on a local headed launch, fixed 1920x1080 under headless and remote connects; any other value — a Playwright device name applied as the full descriptor (see `pydantic`).
@@ -53,12 +53,14 @@ Annotations: |
     `endpoint`: ws endpoint of a remote browser; empty — local launch; default empty.
     `accept_dialogs`: how the resolver of last resort settles a dialog no in-step stock dialog capture claims — True accepts it, False dismisses it (the Playwright default outcome); default False; the resolution runs at the tail of the driver-thread unit, not at the moment the dialog fires — a dialog unclaimed by the step blocks the page until the unit ends.
     `speed`: the pace of the run as a percentage; 100 — full speed, the behavior identical to today (default); lower values slow the run linearly; 0 — the slowest supported pace; valid 0–100 inclusive.
+    `timeout`: the default action timeout of the page in seconds — int or float, default 30 (the Playwright library default applied explicitly); the page of every test starts with this default action timeout — the baseline the probe bound of the engine loops restores to; 0 disables the page default timeout: auto-wait remains active and an unready action can wait indefinitely; navigations keep their own default timeout.
 
     Requirements:
     - kw_only construction; every field has an empty or neutral default
     - `name` validated against the five-value set; invalid value — loud actionable error
     - a non-empty `endpoint` is a valid ws/wss URL — otherwise a loud actionable error
     - `speed` is an integer 0–100 inclusive; an out-of-range or non-integer value fails loudly with the received value named — never a silent ignore
+    - `timeout` is a finite non-negative number of seconds — 0 is the legal real zero, never a sentinel; a negative or non-finite value fails loudly with the received value named
     - `screen` is validated at format level only: a WxH-shaped value must carry positive integers; values not shaped like WxH — including fullscreen and device names — pass through unresolved
 
     Constraints:
@@ -76,14 +78,16 @@ Annotations: |
       Whether dialogs outside in-step stock captures are accepted automatically; False keeps the dismiss default.
     "speed -> int": |
       The pace setting of the run: a percentage 0–100; 100 — full speed, 0 — the slowest supported pace.
+    "timeout -> float": |
+      The default action timeout of the page in seconds, explicitly applied at page creation; default 30 — the Playwright library default made explicit; 0 disables the timeout without disabling auto-wait; the baseline every probe restores to.
 
-"Config(provider: str, browser: BrowserConfig, model: str, generation_model: str, classification_model: str, base_url: str, cache_root: str, generation_prompt: str, classification_prompt: str, strict: bool, polling_timeout: float | None, polling_delay: float, interactive: bool, generation_attempts: int, healing_attempts: int, llm_request_attempts: int, send_screenshots: bool, generation_approve: bool)":
+"PrettyConfig(provider: str, browser: BrowserConfig, model: str, generation_model: str, classification_model: str, base_url: str, cache_root: str, generation_prompt: str, classification_prompt: str, strict: bool, polling_timeout: float | None, polling_delay: float, interactive: bool, generation_attempts: int, healing_attempts: int, llm_request_attempts: int, send_screenshots: bool, generation_approve: bool, probe_timeout: float)":
   location: models.py
   annotations: |
     Validated project settings — the single source of the immutable configuration part.
 
     `provider`: the LLM provider of the {openai, anthropic} set; default openai.
-    `browser`: the nested browser group — a `BrowserConfig` with the engine, the screen mode, the window visibility, the remote endpoint and the dialog auto-accept switch.
+    `browser`: the nested browser group — a `BrowserConfig` with the engine, the screen mode, the window visibility, the remote endpoint, the dialog auto-accept switch and the page action timeout baseline.
     `model`: main LLM model name.
     `generation_model`: optional generation override; empty — fallback to `model`.
     `classification_model`: optional classification override; empty — fallback to `model`.
@@ -99,6 +103,13 @@ Annotations: |
     `healing_attempts`: healing attempt budget per step per test; default 2.
     `llm_request_attempts`: the total attempt budget of one LLM request — the maximum number of physical request sends of one logical LLM attempt of the port (generation, failure classification, group diagnosis, compliance verdict alike), the initial request included; default 3; 1 — request retries disabled, fully the single-send behavior; the retry delays themselves are fixed policy, never configurable; participates in the layered merge like every other scalar setting.
     `send_screenshots`: optional screenshot input to the LLM; default False.
+    `probe_timeout`: the probe bound of candidate executions inside the generation and healing
+        loops, in seconds — int or float; 0 — off (the default): every execution runs with the
+        page default action timeout; a positive value — every candidate of the loops runs with
+        this short action timeout so a wrong locator fails fast; after every candidate the page
+        default restores to the baseline — the browser timeout setting (default 30 s); replayed
+        cached code and steering always run under the baseline; navigations keep their own
+        default timeout.
     `generation_approve`: the instruction compliance gate switch; True — every successfully
     executed generation and regeneration candidate is verified against the user
     instructions (the non-empty generation_prompt) before it is cached — one extra LLM
@@ -109,6 +120,7 @@ Annotations: |
     - kw_only construction; every field has an empty default
     - provider validated against {openai, anthropic}; the name inside `browser` against the five-value set; invalid values — loud actionable error
     - attempts are positive integers
+    - probe_timeout is a finite non-negative number of seconds — a negative or non-finite value fails loudly with the received value named
     - llm_request_attempts is a positive integer — a value below 1 fails loudly with the received value named
     - a non-empty endpoint inside `browser` is a valid ws/wss URL — otherwise a loud actionable error
     - `strict`, `classification_prompt` and the `browser` group participate in the layered merge of `load_config` like every other setting
@@ -158,19 +170,22 @@ Annotations: |
       Whether screenshots are attached to LLM requests.
     "generation_approve -> bool": |
       Whether the instruction compliance gate runs before caching a generated step.
+    "probe_timeout -> float": |
+      The probe bound of candidate executions in the generation and healing loops, seconds;
+      0 — off, the page default applies; every candidate restores the configured baseline.
     "effective_generation_model -> str": |
       generation_model when non-empty, otherwise model.
     "effective_classification_model -> str": |
       classification_model when non-empty, otherwise model.
 
-"load_config(pyproject_path: str | None, overrides: Config | None) -> config: Config":
+"load_config(pyproject_path: str | None, overrides: PrettyConfig | None) -> config: PrettyConfig":
   location: loader.py
   annotations: |
     Load project configuration from pyproject.toml with environment overrides and explicit per-test values.
 
     `pyproject_path`: optional explicit path to pyproject.toml; empty — the first pyproject.toml found upwards from the current directory.
     `overrides`: the programmatically passed values — the same full model; None — no programmatic layer, the file layer resolves everything.
-    `config`: fully resolved and validated `Config`.
+    `config`: fully resolved and validated `PrettyConfig`.
 
     Algorithm:
     1. Resolve the pyproject.toml path: given `pyproject_path` or the first match found upwards from the current directory
@@ -178,15 +193,15 @@ Annotations: |
     3. Extract the tool.prettyplay section; a missing section is an empty section
     4. Reject the removed legacy env name: PRETTYPLAY_BROWSER set in the environment raises `ConfigurationError` before merging — the message names PRETTYPLAY_BROWSER_NAME as the replacement
     5. Reject the removed old flat keys: browser, headless or browser_endpoint present at the [tool.prettyplay] level raise `ConfigurationError` immediately — one line per key naming its new home inside [tool.prettyplay.browser] (browser → name, headless → headless, browser_endpoint → endpoint)
-    6. Apply environment overrides: each setting is overridden by PRETTYPLAY_<SETTING_UPPERCASE> when the variable is set; the browser group reads PRETTYPLAY_BROWSER_NAME, PRETTYPLAY_BROWSER_SCREEN, PRETTYPLAY_BROWSER_HEADLESS, PRETTYPLAY_BROWSER_ENDPOINT, PRETTYPLAY_BROWSER_ACCEPT_DIALOGS, PRETTYPLAY_BROWSER_SPEED; strict reads PRETTYPLAY_STRICT; classification_prompt reads PRETTYPLAY_CLASSIFICATION_PROMPT; polling_timeout reads PRETTYPLAY_POLLING_TIMEOUT (a decimal float; 0 — an explicit disable), polling_delay reads PRETTYPLAY_POLLING_DELAY, interactive reads PRETTYPLAY_INTERACTIVE; llm_request_attempts reads PRETTYPLAY_LLM_REQUEST_ATTEMPTS (a decimal integer; an unparseable value raises the loud actionable `ConfigurationError` naming the setting, the received value and the accepted form); generation_approve reads PRETTYPLAY_GENERATION_APPROVE — booleans parse true/false/1/0 case-insensitively; an unparseable value raises the loud actionable `ConfigurationError` naming the setting, the received value and the accepted form
+    6. Apply environment overrides: each setting is overridden by PRETTYPLAY_<SETTING_UPPERCASE> when the variable is set; the browser group reads PRETTYPLAY_BROWSER_NAME, PRETTYPLAY_BROWSER_SCREEN, PRETTYPLAY_BROWSER_HEADLESS, PRETTYPLAY_BROWSER_ENDPOINT, PRETTYPLAY_BROWSER_ACCEPT_DIALOGS, PRETTYPLAY_BROWSER_SPEED, PRETTYPLAY_BROWSER_TIMEOUT; strict reads PRETTYPLAY_STRICT; classification_prompt reads PRETTYPLAY_CLASSIFICATION_PROMPT; polling_timeout reads PRETTYPLAY_POLLING_TIMEOUT (a decimal float; 0 — an explicit disable), polling_delay reads PRETTYPLAY_POLLING_DELAY, interactive reads PRETTYPLAY_INTERACTIVE; llm_request_attempts reads PRETTYPLAY_LLM_REQUEST_ATTEMPTS (a decimal integer; an unparseable value raises the loud actionable `ConfigurationError` naming the setting, the received value and the accepted form); probe_timeout reads PRETTYPLAY_PROBE_TIMEOUT (a non-negative decimal number of seconds; an unparseable, negative or non-finite value raises the same loud error); browser.timeout reads PRETTYPLAY_BROWSER_TIMEOUT under the same rule; generation_approve reads PRETTYPLAY_GENERATION_APPROVE — booleans parse true/false/1/0 case-insensitively; an unparseable value raises the loud actionable `ConfigurationError` naming the setting, the received value and the accepted form
     7. Resolve the empty cache_root: empty after the file+env merge — set to the absolute default <cwd>/.prettyplay/cache/ — the working directory of the run, wherever the pyproject.toml was found; a value set by the file or env layer stays verbatim
-    8. Construct `Config`; on a validation failure render the actionable text — one line per invalid setting: the setting name, the received value, the allowed values — and raise `ConfigurationError` with the original ValidationError chained
+    8. Construct `PrettyConfig`; on a validation failure render the actionable text — one line per invalid setting: the setting name, the received value, the allowed values — and raise `ConfigurationError` with the original ValidationError chained
     9. `overrides` is None — return the file layer as is
     10. Overlay the explicitly set fields of `overrides` onto the file layer (the model with empty defaults, model_copy — see `pydantic`): a field participates when it was passed at construction and is non-empty for strings; the merge reaches inside the browser group — explicitly set fields of a passed `BrowserConfig` win over the file layer, untouched group defaults never overwrite file values; strict participates when passed explicitly — an explicit False overrides too
-    11. Return the effective `Config`
+    11. Return the effective `PrettyConfig`
 
     Requirements:
-    - An env override exists for every setting of `Config` (including PRETTYPLAY_STRICT, PRETTYPLAY_CLASSIFICATION_PROMPT and the six PRETTYPLAY_BROWSER_* variables)
+    - An env override exists for every setting of `PrettyConfig` (including PRETTYPLAY_STRICT, PRETTYPLAY_CLASSIFICATION_PROMPT, PRETTYPLAY_PROBE_TIMEOUT and the seven PRETTYPLAY_BROWSER_* variables)
     - The removed legacy env name PRETTYPLAY_BROWSER fails loudly before merging: it belongs to the same pre-1.0 hard break as the old flat keys
     - PRETTYPLAY_BROWSER_SPEED parses as a decimal integer; an unparseable value or a value outside 0–100 raises the loud actionable `ConfigurationError` naming the setting, the received value and the accepted form — never a silent ignore
     - Scalar env overrides parse by the field type: booleans accept true/false/1/0 case-insensitively, integers parse as decimal integers; an unparseable value raises the loud actionable `ConfigurationError` naming the setting, the received value and the accepted form — never a silent ignore
@@ -204,4 +219,4 @@ Annotations: |
 Author: Goga
 CreatedAt: 10/09/26
 Description: |
-  Project settings of prettyplay: the validated [tool.prettyplay] schema with the nested browser group (engine, screen mode, headless, endpoint, dialog auto-accept), the strict replay-only switch, the generation and classification instructions, the generation compliance switch, and the loader with flat env overrides for the group, the removed-flat-key rejection, explicit per-test merging that reaches inside the group and the actionable configuration error, the browser pace setting (speed).
+  Project settings of prettyplay: the validated [tool.prettyplay] schema with the nested browser group (engine, screen mode, headless, endpoint, dialog auto-accept, pace, page action timeout), the strict replay-only switch, the generation and classification instructions, the generation compliance switch, the candidate probe bound, and the loader with flat env overrides for the group, the removed-flat-key rejection, explicit per-test merging that reaches inside the group and the actionable configuration error.

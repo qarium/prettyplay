@@ -23,6 +23,10 @@ StepHooks is a thin callback contract. The library calls the matching method syn
 | on_cache_saved | step code written to the cache | step_text, filename |
 | on_cache_skipped | cache write skipped | step_text, reason (e.g. read-only cache) |
 
+## The step_text of every event
+
+Every `step_text` payload field carries the ready layer of the step — the addressing text of the render: actual values embedded, capture tags kept. Hooks never see the authored template sentence unless the render itself failed — a render-failed step reports the authored template, the only layer that exists. The log-only records below name the step by the same ready layer.
+
 ## The error payload of on_step_failed
 
 `error` carries the full structured render of the terminal failure — the same multi-line text the raised exception carries and the log record writes: the first line with the class name of the terminal failure and the authored reason, the `---` separated step/error section, the conditional received/cause/Call log details section and the unpadded verdict block. Display it verbatim in reports; do not parse it — structured data arrives through on_step_verdict fields. In strict mode on_generation_started and on_healing_started never fire: classification is the only LLM call.
@@ -30,6 +34,45 @@ StepHooks is a thin callback contract. The library calls the matching method syn
 ## Attempt semantics
 
 Hook events fire per step or per LLM attempt — never per execution retry. Settle re-executions of the same step code (transient failure absorption) emit no hook events: they are visible only as settle_retry log records. on_step_finished closes every step exactly once, passed or failed; on_group_finished closes every entered group exactly once the same way — the group verdict is the block outcome, never the traces: a step healed by the group recovery leaves its verbatim failed trace record behind while the group reports passed.
+
+## Log-only records
+
+Observability data that never belongs to the callback contract goes to the `prettyplay` logger without hook fan-out:
+
+| Record | When | Fields |
+|---|---|---|
+| generation_request | every step-code provider request completed | step_text, request_ms — the provider call alone, snapshot collection excluded |
+| step_execution | every settle window closed, success and failure alike | step_text, attempt (1-based, the LLM request whose candidate executed), execution_ms — the whole settle window, internal re-executions included |
+
+The two records do not sum to wall time: snapshot collection sits between them. Integrators needing them programmatically should watch the logger, not the hooks.
+
+
+## Structured execution-context logs
+
+Execution-context records keep their existing human-readable messages; programmatic consumers read
+`LogRecord.event` and its contextual fields instead of parsing those messages. They never dispatch to hooks.
+
+| event | Context |
+|---|---|
+| step_results_declared | step_text, declarations — tuple of declared capture names |
+| step_inputs | step_text, inputs — copied binding dictionary |
+| step_candidate_code | step_text, attempt, code — complete candidate code |
+| step_cached_code | step_text, code — complete code restored from the cache |
+| step_captured | step_text, captures — copied dictionary of accepted observations |
+| verdict_skipped | instruction — the prepared instruction; reason = llm_unavailable |
+| cache_sweep_failed | cleanup — the close-time switch; the original traceback stays in exc_info |
+
+The step_text fields carry the addressing text with values embedded and active capture tags kept.
+Declaration/input records occur only when those bindings exist; capture records occur only after
+acceptance. The candidate/replay messages, their order and levels are unchanged. No new page reads,
+provider calls or budget draws happen for logging. Never put secrets into step text or inputs.
+
+For a readable console handler, do not append all contextual fields to messages that already
+render their payload. The `EventFormatter` in `example/conftest.py` prints only the existing
+message for `step_results_declared`, `step_inputs`, `step_candidate_code`, `step_cached_code`
+and `step_captured`. Other records retain their contextual suffix, including lifecycle events,
+timings and warnings. Formatting never removes the structured fields from the `LogRecord`;
+other handlers can still use the event identifier and complete context.
 
 ## Example
 

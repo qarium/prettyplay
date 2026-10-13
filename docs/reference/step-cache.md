@@ -72,10 +72,10 @@ file per step.
 
 ```python
 from prettyplay.cache import CachedStep, StepCache
-from prettyplay.config import Config
+from prettyplay.config import PrettyConfig
 from prettyplay.reporting import StepReporter
 
-cache = StepCache(config=Config(), path="checkout", reporter=StepReporter(hooks=[]))
+cache = StepCache(config=PrettyConfig(), path="checkout", reporter=StepReporter(hooks=[]))
 
 step = cache.load(identity)  # None on a cache miss
 if step is None:
@@ -159,11 +159,13 @@ regeneration and the steering write-back alike — passes the two-dimension
 compliance check (`check_step_compliance`) before the cache save: the code
 against the project's user instructions and against the step sentence
 itself (step adequacy, judged from the step type and the verbatim per-step
-attempt history) — an unchecked candidate is never stored. A
+attempt history). A
 `high` finding in either dimension fails the attempt and the retry carries
 the violation text with the grown history; a
-malformed verdict or a provider failure is a loud hard failure — the gate
-never degrades into a silent pass.
+malformed verdict is re-asked once. If the second verdict is malformed, the
+gate logs a WARNING and permits the successfully executed candidate to pass
+unchecked and be stored. A provider failure remains a hard failure: nothing
+is published or cached on that path.
 
 Replayed cached code is never re-gated: the step address takes no part of the
 instructions, so changing `generation_prompt` does not invalidate cached

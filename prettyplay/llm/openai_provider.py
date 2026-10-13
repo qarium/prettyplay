@@ -4,7 +4,7 @@ import os
 
 from openai import OpenAI
 
-from ..config import Config
+from ..config import PrettyConfig
 from ..failures import LLMUnavailableError
 from ._request import (
     build_classification_fields,
@@ -49,7 +49,7 @@ def _first_choice_text(response: object) -> str | None:
 class OpenAIProvider(LLMProvider):
     """The LLMProvider implementation served by the openai SDK — full parity with :class:`AnthropicProvider`."""
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: PrettyConfig) -> None:
         """Keep the config; the SDK client stays unconstructed until the first request.
 
         Args:
@@ -92,7 +92,7 @@ class OpenAIProvider(LLMProvider):
         snapshot: str,
         page_url: str | None,
         screenshot: bytes | None,
-        cheat_sheet: str,
+        skill: str,
         attempt_history: list[str],
         recommendation: str | None,
         guidance: str | None,
@@ -145,8 +145,9 @@ class OpenAIProvider(LLMProvider):
                 steering generation paths.
             screenshot: an optional PNG image of the page; passed only when
                 the project enables screenshots.
-            cheat_sheet: the compact standard Playwright sync API reference
-                supplied by the calling engine — rendered as the CHEAT SHEET
+            skill: the packaged Playwright skill — battle-tested idioms and
+                failure-avoidance patterns
+                supplied by the calling engine — rendered as the PLAYWRIGHT SKILL
                 block after the scenario inputs of the user content,
                 identically to the anthropic implementation; guidance, not
                 an allowlist — everything standard stays allowed.
@@ -188,7 +189,7 @@ class OpenAIProvider(LLMProvider):
             declarations=declarations,
             snapshot=snapshot,
             page_url=page_url,
-            cheat_sheet=cheat_sheet,
+            skill=skill,
             attempt_history=attempt_history,
             recommendation=recommendation,
             guidance=guidance,
@@ -204,15 +205,15 @@ class OpenAIProvider(LLMProvider):
             "messages": messages,
         }
 
-        response = send_with_retries(
+        answer = send_with_retries(
             "openai",
             "generation",
             self._config.llm_request_attempts,
             classify_openai_failure,
-            lambda: client.chat.completions.create(**request),
+            lambda: require_completion_text(_first_choice_text(client.chat.completions.create(**request)), "openai"),
         )
 
-        return extract_code_block(require_completion_text(_first_choice_text(response), "openai"))
+        return extract_code_block(answer)
 
     def classify_step_failure(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
@@ -263,15 +264,14 @@ class OpenAIProvider(LLMProvider):
             "messages": messages,
         }
 
-        response = send_with_retries(
+        answer = send_with_retries(
             "openai",
             "classification",
             self._config.llm_request_attempts,
             classify_openai_failure,
-            lambda: client.chat.completions.create(**request),
+            lambda: require_completion_text(_first_choice_text(client.chat.completions.create(**request)), "openai"),
         )
 
-        answer = require_completion_text(_first_choice_text(response), "openai")
         parsed = parse_classification_line(answer)
 
         if parsed is None:
@@ -356,15 +356,15 @@ class OpenAIProvider(LLMProvider):
             "messages": messages,
         }
 
-        response = send_with_retries(
+        answer = send_with_retries(
             "openai",
             "group diagnosis",
             self._config.llm_request_attempts,
             classify_openai_failure,
-            lambda: client.chat.completions.create(**request),
+            lambda: require_completion_text(_first_choice_text(client.chat.completions.create(**request)), "openai"),
         )
 
-        return parse_group_failure_classification(require_completion_text(_first_choice_text(response), "openai"))
+        return parse_group_failure_classification(answer)
 
     def check_instruction_compliance(  # noqa: PLR0913, PLR0917 — the signature is fixed by the port contract
         self,
@@ -433,12 +433,12 @@ class OpenAIProvider(LLMProvider):
             "messages": messages,
         }
 
-        response = send_with_retries(
+        answer = send_with_retries(
             "openai",
             "compliance verdict",
             self._config.llm_request_attempts,
             classify_openai_failure,
-            lambda: client.chat.completions.create(**request),
+            lambda: require_completion_text(_first_choice_text(client.chat.completions.create(**request)), "openai"),
         )
 
-        return parse_compliance_verdict(require_completion_text(_first_choice_text(response), "openai"))
+        return parse_compliance_verdict(answer)

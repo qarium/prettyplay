@@ -10,7 +10,7 @@ from unittest import mock
 
 import pytest
 from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step_text
-from prettyplay.config import Config
+from prettyplay.config import PrettyConfig
 from prettyplay.reporting import StepHooks, StepReporter
 
 
@@ -27,12 +27,12 @@ class TestStepCacheContract:
         assert parameters[1].default is None  # path is optional
 
     def test_constructs_with_config_path_and_reporter(self) -> None:
-        cache = StepCache(Config(cache_root="/tmp/pp-store-contract"), "checkout", StepReporter(hooks=[]))
+        cache = StepCache(PrettyConfig(cache_root="/tmp/pp-store-contract"), "checkout", StepReporter(hooks=[]))
 
         assert isinstance(cache, StepCache)
 
     def test_root_is_str_and_writable_is_bool(self) -> None:
-        cache = StepCache(Config(cache_root="/tmp/pp-store-contract"), None, StepReporter(hooks=[]))
+        cache = StepCache(PrettyConfig(cache_root="/tmp/pp-store-contract"), None, StepReporter(hooks=[]))
 
         assert isinstance(cache.root, str)
         assert isinstance(cache.writable, bool)
@@ -70,7 +70,7 @@ def make_cache(tmp_path: Path, path: str | None = "checkout") -> tuple[StepCache
     """Build a cache on tmp_path with a recording reporter."""
     recorder = EventRecorder()
     reporter = StepReporter(hooks=[recorder])
-    config = Config(cache_root=str(tmp_path))
+    config = PrettyConfig(cache_root=str(tmp_path))
     return StepCache(config, path, reporter), recorder
 
 
@@ -194,7 +194,7 @@ class TestStepCacheLogic:
         try:
             recorder = EventRecorder()
             reporter = StepReporter(hooks=[recorder])
-            cache = StepCache(Config(cache_root=str(root)), "checkout", reporter)
+            cache = StepCache(PrettyConfig(cache_root=str(root)), "checkout", reporter)
             identity = StepIdentity(cache_key="k", step_type="action", normalized_text="шаг")
 
             stored = cache.save(
@@ -431,7 +431,7 @@ class TestStepCacheLogic:
 
     def test_default_reporter_construction_saves_and_skips_loudly(self, tmp_path: Path) -> None:
         """Additional edge: no reporter passed — construction and save still work (no crash)."""
-        cache = StepCache(Config(cache_root=str(tmp_path)), "checkout")
+        cache = StepCache(PrettyConfig(cache_root=str(tmp_path)), "checkout")
         identity = StepIdentity(cache_key="k", step_type="action", normalized_text="шаг без репортёра")
 
         cache.save(
@@ -447,12 +447,12 @@ class TestStepCacheLogic:
     def test_path_outside_cache_root_fails_loudly(self, tmp_path: Path, bad_path: str) -> None:
         """Additional edge: absolute or escaping cache paths are rejected at construction."""
         with pytest.raises(ValueError, match="cache path"):
-            StepCache(Config(cache_root=str(tmp_path)), bad_path)
+            StepCache(PrettyConfig(cache_root=str(tmp_path)), bad_path)
 
     @pytest.mark.parametrize("good_path", ["bin", "lib", "nested/dir", "./relative"])
     def test_relative_paths_are_host_independent(self, tmp_path: Path, good_path: str) -> None:
         """Regression: a relative subdir is accepted regardless of host symlinks (merged-/usr)."""
-        cache = StepCache(Config(cache_root=str(tmp_path)), good_path)
+        cache = StepCache(PrettyConfig(cache_root=str(tmp_path)), good_path)
 
         assert cache.root == str(tmp_path)
 
@@ -634,7 +634,7 @@ class TestStepCacheWorkingSet:
 
     def test_sweep_of_missing_scope_returns_empty(self, tmp_path: Path) -> None:
         """A fresh test that never wrote has no scope directory — the sweep is a no-op."""
-        cache = StepCache(Config(cache_root=str(tmp_path / "never-created")), None, StepReporter(hooks=[]))
+        cache = StepCache(PrettyConfig(cache_root=str(tmp_path / "never-created")), None, StepReporter(hooks=[]))
 
         assert cache.sweep_untouched("k") == []
 

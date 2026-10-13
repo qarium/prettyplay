@@ -5,29 +5,29 @@ import inspect
 import prettyplay.config
 import pydantic
 import pytest
-from prettyplay.config import BrowserConfig, Config
+from prettyplay.config import BrowserConfig, PrettyConfig, models
 
 
 class TestConfigContract:
     """Contract tests: facade, base class, construction shape, property surface."""
 
     def test_facade_exports_models_loader_and_error(self) -> None:
-        for name in ("BrowserConfig", "PrettyConfig", "Config", "ConfigurationError", "load_config"):
+        for name in ("BrowserConfig", "PrettyConfig", "ConfigurationError", "load_config"):
             assert hasattr(prettyplay.config, name), f"missing facade export: {name}"
             assert name in prettyplay.config.__all__
 
     def test_config_is_pydantic_base_model(self) -> None:
-        assert issubclass(Config, pydantic.BaseModel)
+        assert issubclass(PrettyConfig, pydantic.BaseModel)
 
     def test_config_is_kw_only(self) -> None:
-        assert Config.model_config.get("kw_only") is True
+        assert PrettyConfig.model_config.get("kw_only") is True
 
     def test_positional_construction_is_rejected(self) -> None:
         with pytest.raises(TypeError):
-            Config("openai")  # type: ignore[misc]
+            PrettyConfig("openai")  # type: ignore[misc]
 
     def test_all_twenty_properties_accessible(self) -> None:
-        config = Config()
+        config = PrettyConfig()
         expected = [
             "provider",
             "browser",
@@ -55,12 +55,16 @@ class TestConfigContract:
 
     def test_config_llm_request_attempts_field_defaults_and_order(self) -> None:
         """Contract: the transport retry budget defaults to 3 and slots after healing_attempts."""
-        assert Config().llm_request_attempts == 3
+        assert PrettyConfig().llm_request_attempts == 3
 
-        assert list(Config.model_fields)[13:16] == ["generation_attempts", "healing_attempts", "llm_request_attempts"]
+        assert list(PrettyConfig.model_fields)[13:16] == [
+            "generation_attempts",
+            "healing_attempts",
+            "llm_request_attempts",
+        ]
 
-    def test_signature_declares_eighteen_fields_in_contract_order(self) -> None:
-        fields = Config.model_fields
+    def test_signature_declares_nineteen_fields_in_contract_order(self) -> None:
+        fields = PrettyConfig.model_fields
         assert list(fields.keys()) == [
             "provider",
             "browser",
@@ -80,25 +84,47 @@ class TestConfigContract:
             "llm_request_attempts",
             "send_screenshots",
             "generation_approve",
+            "probe_timeout",
         ]
 
     def test_generation_approve_is_a_declared_field(self) -> None:
-        """Contract: the compliance gate switch is a model field in the last position."""
-        assert "generation_approve" in Config.model_fields
-        assert list(Config.model_fields)[-1] == "generation_approve"
+        """Contract: the compliance gate switch is a model field; the probe bound closes the set."""
+        assert "generation_approve" in PrettyConfig.model_fields
+        assert list(PrettyConfig.model_fields)[-1] == "probe_timeout"
+
+    def test_probe_timeout_field_type_and_off_default(self) -> None:
+        """Contract: the probe bound is a float field of seconds defaulting to off."""
+        probe = PrettyConfig.model_fields["probe_timeout"]
+
+        assert probe.annotation is float
+        assert probe.default == 0
+        assert PrettyConfig().probe_timeout == 0
+
+    def test_probe_timeout_accepts_int_and_float_seconds(self) -> None:
+        """Contract: the probe bound accepts int and float seconds alike."""
+        assert PrettyConfig(probe_timeout=8).probe_timeout == 8.0
+        assert PrettyConfig(probe_timeout=1.5).probe_timeout == 1.5
+
+    @pytest.mark.parametrize("value", [-1, -0.5, float("inf"), float("nan")])
+    def test_probe_timeout_rejected_forms_raise_naming_the_value(self, value: object) -> None:
+        """Contract: negative and non-finite probe bounds fail loudly, value named."""
+        with pytest.raises(pydantic.ValidationError) as excinfo:
+            PrettyConfig(probe_timeout=value)
+
+        assert repr(value) in str(excinfo.value)
 
     def test_config_defaults_polling_and_interactive_settings(self) -> None:
         """The three new settings: polling off, half-second pause, steering off."""
-        config = Config()
+        config = PrettyConfig()
 
         assert config.polling_timeout is None
         assert config.polling_delay == 0.5
         assert config.interactive is False
 
     def test_polling_and_interactive_field_types_match_contract(self) -> None:
-        polling_timeout = Config.model_fields["polling_timeout"]
-        polling_delay = Config.model_fields["polling_delay"]
-        interactive = Config.model_fields["interactive"]
+        polling_timeout = PrettyConfig.model_fields["polling_timeout"]
+        polling_delay = PrettyConfig.model_fields["polling_delay"]
+        interactive = PrettyConfig.model_fields["interactive"]
 
         assert polling_timeout.annotation == float | None
         assert polling_timeout.default is None
@@ -109,26 +135,35 @@ class TestConfigContract:
 
     def test_config_carries_nested_group_and_new_switches(self) -> None:
         """The browser group is a BrowserConfig; strict/classification_prompt are new scalar fields."""
-        browser = Config.model_fields["browser"]
-        strict = Config.model_fields["strict"]
-        classification_prompt = Config.model_fields["classification_prompt"]
+        browser = PrettyConfig.model_fields["browser"]
+        strict = PrettyConfig.model_fields["strict"]
+        classification_prompt = PrettyConfig.model_fields["classification_prompt"]
 
         assert browser.annotation is BrowserConfig or browser.annotation == BrowserConfig
-        assert isinstance(Config().browser, BrowserConfig)
+        assert isinstance(PrettyConfig().browser, BrowserConfig)
         assert strict.annotation is bool
         assert strict.default is False
         assert classification_prompt.annotation is str
         assert classification_prompt.default == ""
         for removed in ("headless", "browser_endpoint"):
-            assert removed not in Config.model_fields, f"flat field survived: {removed}"
+            assert removed not in PrettyConfig.model_fields, f"flat field survived: {removed}"
 
-    def test_pretty_config_is_config_alias_on_facade(self) -> None:
-        assert prettyplay.config.PrettyConfig is Config
+    def test_pretty_config_is_the_same_model_on_facade(self) -> None:
+        assert prettyplay.config.PrettyConfig is PrettyConfig
         assert "PrettyConfig" in prettyplay.config.__all__
 
+    def test_pretty_config_is_the_canonical_model_without_a_legacy_alias(self) -> None:
+        """Verify the canonical settings class and the removal of the legacy alias."""
+        assert prettyplay.PrettyConfig is prettyplay.config.PrettyConfig
+        assert prettyplay.config.PrettyConfig.__name__ == "PrettyConfig"
+        assert models.PrettyConfig is prettyplay.config.PrettyConfig
+        assert not hasattr(models, "Config")
+        assert not hasattr(prettyplay.config, "Config")
+        assert len(prettyplay.config.__all__) == len(set(prettyplay.config.__all__))
+
     def test_effective_models_are_properties_not_fields(self) -> None:
-        assert isinstance(inspect.getattr_static(Config, "effective_generation_model"), property)
-        assert isinstance(inspect.getattr_static(Config, "effective_classification_model"), property)
+        assert isinstance(inspect.getattr_static(PrettyConfig, "effective_generation_model"), property)
+        assert isinstance(inspect.getattr_static(PrettyConfig, "effective_classification_model"), property)
 
 
 class TestBrowserConfigContract:
@@ -140,8 +175,39 @@ class TestBrowserConfigContract:
     def test_browser_config_is_kw_only(self) -> None:
         assert BrowserConfig.model_config.get("kw_only") is True
 
-    def test_browser_config_declares_six_fields_in_contract_order(self) -> None:
-        assert list(BrowserConfig.model_fields) == ["name", "screen", "headless", "endpoint", "accept_dialogs", "speed"]
+    def test_browser_config_declares_seven_fields_in_contract_order(self) -> None:
+        assert list(BrowserConfig.model_fields) == [
+            "name",
+            "screen",
+            "headless",
+            "endpoint",
+            "accept_dialogs",
+            "speed",
+            "timeout",
+        ]
+
+    def test_browser_config_timeout_field_type_and_explicit_default(self) -> None:
+        """Contract: the page action timeout is a float field of seconds defaulting to 30."""
+        timeout = BrowserConfig.model_fields["timeout"]
+
+        assert timeout.annotation is float
+        assert timeout.default == 30
+        assert BrowserConfig().timeout == 30
+        assert PrettyConfig().browser.timeout == 30
+
+    def test_browser_config_timeout_accepts_int_float_and_the_real_zero(self) -> None:
+        """Contract: the baseline accepts int and float seconds; 0 is the legal real zero."""
+        assert BrowserConfig(timeout=60).timeout == 60.0
+        assert BrowserConfig(timeout=2.5).timeout == 2.5
+        assert BrowserConfig(timeout=0).timeout == 0.0
+
+    @pytest.mark.parametrize("value", [-1, -0.5, float("inf"), float("nan")])
+    def test_browser_config_timeout_rejected_forms_raise_naming_the_value(self, value: object) -> None:
+        """Contract: negative and non-finite baselines fail loudly, value named."""
+        with pytest.raises(pydantic.ValidationError) as excinfo:
+            BrowserConfig(timeout=value)
+
+        assert repr(value) in str(excinfo.value)
 
     def test_browser_config_speed_field_type_and_full_speed_default(self) -> None:
         """Contract: the pace setting is an int field defaulting to full speed."""
@@ -150,7 +216,7 @@ class TestBrowserConfigContract:
         assert speed.annotation is int
         assert speed.default == 100
         assert BrowserConfig().speed == 100
-        assert Config().browser.speed == 100
+        assert PrettyConfig().browser.speed == 100
 
     def test_browser_config_speed_bounds_zero_and_hundred_pass(self) -> None:
         """Contract: both ends of the 0-100 range are legal paces."""
@@ -169,11 +235,11 @@ class TestBrowserConfigContract:
         """The dialog auto-accept switch: neutral default False, explicit True."""
         assert BrowserConfig().accept_dialogs is False
         assert BrowserConfig(accept_dialogs=True).accept_dialogs is True
-        assert Config().browser.accept_dialogs is False
+        assert PrettyConfig().browser.accept_dialogs is False
 
     def test_browser_config_default_is_deep_copied_per_instance(self) -> None:
-        first = Config()
-        second = Config()
+        first = PrettyConfig()
+        second = PrettyConfig()
 
         assert first.browser is not second.browser  # pydantic deep-copies model defaults
 
@@ -182,7 +248,7 @@ class TestConfigLogic:
     """Logic tests: defaults, effective fallbacks, loud validation."""
 
     def test_config_defaults_valid(self) -> None:
-        config = Config()
+        config = PrettyConfig()
 
         assert config.provider == "openai"
         assert config.browser.name == "chromium"
@@ -194,12 +260,12 @@ class TestConfigLogic:
 
     def test_generation_approve_defaults_true(self) -> None:
         """The gate switch carries the opt-out default — loud errors unless disabled."""
-        assert Config().generation_approve is True
-        assert Config(generation_approve=False).generation_approve is False
+        assert PrettyConfig().generation_approve is True
+        assert PrettyConfig(generation_approve=False).generation_approve is False
 
     def test_config_invalid_provider_fails_loudly(self) -> None:
         with pytest.raises(pydantic.ValidationError) as excinfo:
-            Config(provider="yandex")
+            PrettyConfig(provider="yandex")
 
         message = str(excinfo.value)
         assert "provider" in message
@@ -207,14 +273,14 @@ class TestConfigLogic:
         assert "anthropic" in message
 
     def test_effective_models_fall_back_to_main_model(self) -> None:
-        config = Config(model="gpt-5", generation_model="gpt-5-mini", classification_model="")
+        config = PrettyConfig(model="gpt-5", generation_model="gpt-5-mini", classification_model="")
 
         assert config.effective_generation_model == "gpt-5-mini"
         assert config.effective_classification_model == "gpt-5"
 
     def test_zero_generation_attempts_fails_with_field_name(self) -> None:
         with pytest.raises(pydantic.ValidationError) as excinfo:
-            Config(generation_attempts=0)
+            PrettyConfig(generation_attempts=0)
 
         assert "generation_attempts" in str(excinfo.value)
 
@@ -228,7 +294,7 @@ class TestConfigLogic:
     def test_config_rejects_llm_request_attempts_below_one(self, value: int) -> None:
         """Negative: a sub-one budget fails loudly naming the field and the received value."""
         with pytest.raises(pydantic.ValidationError) as excinfo:
-            Config(llm_request_attempts=value)
+            PrettyConfig(llm_request_attempts=value)
 
         message = str(excinfo.value)
         assert "llm_request_attempts" in message
@@ -248,20 +314,20 @@ class TestConfigLogic:
     def test_config_rejects_negative_polling_values(self, field: str, value: float) -> None:
         """Negative and non-finite polling values fail loudly naming the field."""
         with pytest.raises(pydantic.ValidationError) as excinfo:
-            Config(**{field: value})
+            PrettyConfig(**{field: value})
 
         assert field in str(excinfo.value)
 
     def test_config_zero_polling_values_are_valid(self) -> None:
         """Boundary: an explicit disable (timeout 0) and a zero pause stay legal."""
-        config = Config(polling_timeout=0.0, polling_delay=0)
+        config = PrettyConfig(polling_timeout=0.0, polling_delay=0)
 
         assert config.polling_timeout == 0.0
         assert config.polling_delay == 0.0
 
     def test_unknown_browser_fails_loudly(self) -> None:
         with pytest.raises(pydantic.ValidationError) as excinfo:
-            Config(browser={"name": "ie"})
+            PrettyConfig(browser={"name": "ie"})
 
         message = str(excinfo.value)
         assert "browser" in message
@@ -281,7 +347,7 @@ class TestConfigLogic:
 
     def test_config_uses_nested_browser_group_and_new_switches(self) -> None:
         """Positive: the dict validates into the group; the new switches ride along."""
-        config = Config(
+        config = PrettyConfig(
             browser={"name": "firefox", "screen": "1280x720"},
             strict=True,
             classification_prompt="answer in Russian",
@@ -294,8 +360,8 @@ class TestConfigLogic:
         assert config.strict is True
         assert config.classification_prompt == "answer in Russian"
 
-        assert Config().strict is False
-        assert Config().classification_prompt == ""
+        assert PrettyConfig().strict is False
+        assert PrettyConfig().classification_prompt == ""
 
     def test_browser_channel_values_type_check(self) -> None:
         for name in ("chromium", "firefox", "webkit", "chrome", "msedge"):
@@ -353,15 +419,15 @@ class TestConfigLogic:
         """Positive: a mid-range pace validates and reads through the nested group."""
         assert BrowserConfig(speed=40).speed == 40
 
-        config = Config(browser=BrowserConfig(speed=40))
+        config = PrettyConfig(browser=BrowserConfig(speed=40))
 
         assert config.browser.speed == 40
-        assert Config(browser={"speed": 40}).browser.speed == 40
+        assert PrettyConfig(browser={"speed": 40}).browser.speed == 40
 
     def test_browser_speed_bounds_stay_legal_through_the_group(self) -> None:
         """Edge: 0 — the slowest supported pace, 100 — full speed; both construct."""
-        assert Config(browser={"speed": 0}).browser.speed == 0
-        assert Config(browser={"speed": 100}).browser.speed == 100
+        assert PrettyConfig(browser={"speed": 0}).browser.speed == 0
+        assert PrettyConfig(browser={"speed": 100}).browser.speed == 100
 
     @pytest.mark.parametrize("value", [-1, 101, True, False, "fast", "40", 1.5, None])
     def test_browser_speed_loud_message_names_every_rejected_form(self, value: object) -> None:

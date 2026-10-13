@@ -21,6 +21,7 @@ strict = false                   # true -> replay-only mode (no generation, no h
 interactive = false              # true -> the steering dialog on a terminally stuck step (local sessions)
 generation_attempts = 3
 healing_attempts = 2
+probe_timeout = 0                # candidate probe bound, seconds; 0 -> off (the page default applies)
 llm_request_attempts = 3       # total sends per LLM request; 1 disables request retries
 polling_timeout = 6.0            # settle window seconds; omit -> off, 0.0 -> explicit disable
 polling_delay = 0.5              # pause between settle re-executions
@@ -33,6 +34,7 @@ headless = true                  # false -> run with a visible browser window
 endpoint = ""                    # ws:// endpoint of a remote browser; empty -> local launch
 accept_dialogs = false           # true -> accept (else dismiss) dialogs no in-step capture claims
 speed = 100                      # pace of the run: 0-100 %, 100 — full speed (default)
+timeout = 30                     # page default action timeout, seconds; explicitly applied; 0 disables the timeout, not auto-wait
 ```
 
 The browser group settings — engines, screen modes, remote endpoints — are
@@ -52,6 +54,7 @@ upper case; the browser group keeps flat env names:
 | browser.endpoint | `PRETTYPLAY_BROWSER_ENDPOINT` |
 | browser.accept_dialogs | `PRETTYPLAY_BROWSER_ACCEPT_DIALOGS` |
 | browser.speed | `PRETTYPLAY_BROWSER_SPEED` |
+| browser.timeout | `PRETTYPLAY_BROWSER_TIMEOUT` |
 | model | `PRETTYPLAY_MODEL` |
 | generation_model | `PRETTYPLAY_GENERATION_MODEL` |
 | classification_model | `PRETTYPLAY_CLASSIFICATION_MODEL` |
@@ -59,6 +62,7 @@ upper case; the browser group keeps flat env names:
 | cache_root | `PRETTYPLAY_CACHE_ROOT` |
 | generation_attempts | `PRETTYPLAY_GENERATION_ATTEMPTS` |
 | healing_attempts | `PRETTYPLAY_HEALING_ATTEMPTS` |
+| probe_timeout | `PRETTYPLAY_PROBE_TIMEOUT` |
 | llm_request_attempts | `PRETTYPLAY_LLM_REQUEST_ATTEMPTS` |
 | polling_timeout | `PRETTYPLAY_POLLING_TIMEOUT` |
 | polling_delay | `PRETTYPLAY_POLLING_DELAY` |
@@ -122,8 +126,8 @@ test = PrettyPlay(
 
 ## The PrettyConfig API
 
-`PrettyConfig` is the public name of the validated settings model (`Config`
-internally, `prettyplay.config.Config`); re-exported from the package root
+`PrettyConfig` is the canonical validated settings model, exported from
+`prettyplay.config` and re-exported from the package root without an alias,
 together with the nested browser group:
 
 ```python
@@ -152,6 +156,7 @@ fields, which is what makes the layered merge above possible.
 | `interactive` | bool | `False` | arm the steering dialog for terminally stuck steps (local sessions) |
 | `generation_attempts` | int | `3` | generation attempt budget per step per test |
 | `healing_attempts` | int | `2` | healing attempt budget per step per test |
+| `probe_timeout` | float | `0` | the probe bound of candidate executions inside the generation and healing loops, in seconds (int or float); `0` — off (the page default applies); a positive value makes a wrong locator fail fast during generation — after every candidate the page default restores to the baseline (the browser `timeout` setting, default 30 s); replayed cached code and steering always run under the baseline |
 | `llm_request_attempts` | int | `3` | total sends per LLM request, including the first; `1` disables retries; must be positive |
 | `polling_timeout` | float \| None | `None` | settle window seconds per step execution; `None`/`0` — polling off |
 | `polling_delay` | float | `0.5` | pause between settle re-executions |
@@ -174,6 +179,7 @@ config.effective_classification_model  # classification_model when non-empty, ot
 | `endpoint` | str | `""` | ws endpoint of a remote browser; empty — local launch |
 | `accept_dialogs` | bool | `False` | accept (else dismiss) dialogs no in-step stock dialog capture claims, at the run-unit tail |
 | `speed` | int | `100` | pace of the run, 0–100 inclusive; 100 — full speed (the default behavior), lower values slow the run linearly, 0 — the slowest supported pace |
+| `timeout` | float | `30` | page default action timeout in seconds (int or float), explicitly applied at the creation of every page; `30` — the Playwright library default made visible; `0` disables the timeout without disabling auto-wait; an unready action can wait indefinitely; the baseline the probe bound restores to |
 
 Fields inside the group carry no `browser_` prefix — the group name scopes
 them; env overrides stay flat (`PRETTYPLAY_BROWSER_NAME`, ...). Validation:
@@ -195,7 +201,7 @@ config = load_config(pyproject_path=None, overrides=None)
   first pyproject.toml found upwards from the current directory
 - `overrides` — programmatically passed values, the same full model; `None` —
   no programmatic layer, the file layer resolves everything
-- returns the fully resolved and validated `Config`
+- returns the fully resolved and validated `PrettyConfig`
 
 Resolution order: TOML file → environment overrides (`PRETTYPLAY_*`) →
 explicitly set fields of `overrides` (the merge reaches inside the browser
@@ -312,9 +318,10 @@ While the gate is on:
 - `medium` and `low` findings pass with a `WARNING` naming the instructions
 - a JSON syntax glitch of the verdict answer is salvaged once before the
   validation — a model dropping a quote, a comma or a bracket does not fail
-  the run; a malformed verdict — what the salvage cannot shape into the
-  required findings — is a loud hard failure (`ComplianceVerdictError`) — a
-  candidate is never cached unchecked
+  the run; a verdict that stays unparsable after the salvage and one bounded
+  re-ask degrades to a loud unchecked pass (`WARNING` in the log) — a green
+  step never dies on verdict quality; provider unavailability stays the hard
+  failure it always was — nothing is cached on an outage
 - the gate never runs on replayed cached code: the instructions take no part
   in the step address, so changing them requires a manual cache purge
 - the gate never runs when `generation_prompt` is empty, regardless of the

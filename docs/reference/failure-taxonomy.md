@@ -12,7 +12,7 @@ fifth kind — the configuration error — joins the base from the config cell.
 | `ProductDefectError` | real product regression | an assertion expectation legitimately failed | treat as a bug: file it, fix the product — this failure is the value of the suite |
 | `IncurableStepError` | the step cannot be (re)generated | attempt budget exhausted, step text no longer matches reality, ambiguity, strict mode forbids generation | follow the verdict `recommendation`: reword the step or refresh the cache |
 | `LLMUnavailableError` | LLM infrastructure down | generation, failure classification, group diagnosis or compliance met a permanent rejection or exhausted its transport retries | restore provider access or keys; cached steps are unaffected |
-| `ComplianceVerdictError` | the compliance gate could not obtain a usable verdict | a successfully executed candidate was checked, but the verdict model answer did not parse | rerun the step to retry generation; a repeatedly malformed verdict points at the verdict model — the candidate was never cached |
+| ComplianceVerdictError | a provider compliance answer did not parse | raised by the parser/provider, caught by the built-in engine gate | inspect the WARNING: one re-ask is followed by an unchecked pass if still malformed; direct parser/provider callers handle the error |
 | `ConfigurationError` | settings are invalid | the first library use loaded an invalid `[tool.prettyplay]` section | fix the named setting — the message lists the allowed values |
 
 ## The structured failure message
@@ -97,39 +97,31 @@ def test_reports_only_library_failures():
     # info.value.code carries the failed step code ("" when no candidate existed)
 ```
 
-## Compliance verdict failure
+## Compliance verdict failure — ComplianceVerdictError
 
-`ComplianceVerdictError` is raised when the compliance gate cannot
-parse the verdict model's answer into findings: the JSON shape is invalid, a
-priority label is outside `high|medium|low`, a `dimension` is missing or
-outside `instruction|adequacy` (an answer of the old shape included), or a
-finding misses its fields.
-The gate is strict by design — a flaky verdict model surfaces loudly instead
-of waving candidates through.
+The compliance parser/provider raises `ComplianceVerdictError` when the answer cannot
+be parsed into valid findings, including after syntax salvage. The parser remains strict:
+invalid shapes, missing fields and unknown priority/dimension labels are never findings.
 
-Catch it together with every other library failure:
+The built-in engine gate catches this error, re-asks exactly once and, if that verdict is
+also malformed, logs a WARNING and permits the successfully executed candidate to pass
+unchecked and be cached. `PrettyPlay.step` and `expect` do not propagate this parse error.
+A provider outage remains a hard `LLMUnavailableError` with no acceptance or cache write.
+
+Direct parser/provider consumers can catch the error:
 
 ```python
-from prettyplay.failures import ComplianceVerdictError, PrettyplayError
+from prettyplay.failures import ComplianceVerdictError
+from prettyplay.llm import parse_compliance_verdict
 
 try:
-    scenario.step("open the dashboard")
+    parse_compliance_verdict("not json")
 except ComplianceVerdictError:
-    ...  # the candidate was NOT cached; rerun the step to retry generation
-except PrettyplayError:
-    ...
+    ...  # this parser accepted no findings; the caller chooses recovery
 ```
 
-What it means for the engineer:
-
-- the step candidate executed successfully but was never verified against the
-project instructions, so it was not cached
-- remediation is on the verdict side, not the page: rerun the test, check the
-provider state and the model behind the effective classification model; a
-repeatedly malformed verdict points at a model unable to follow the verdict
-format
-- switching `generation_approve` off removes the gate entirely (the old
-behavior) — see [Configuration](../configuration.md#the-compliance-gate)
+A repeated malformed verdict points at the verdict model; inspect the WARNING before
+trusting the unchecked candidate. Disabling `generation_approve` removes the gate entirely.
 
 ## Assertion semantics
 

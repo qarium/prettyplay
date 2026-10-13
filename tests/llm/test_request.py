@@ -31,7 +31,7 @@ from prettyplay.llm._request import (
 
 FENCED_CODE = "def step(page) -> None:\n    page.goto('https://example.com')\n"
 USER_INSTRUCTIONS = "prefer data-test-id"
-CHEAT_SHEET = "expect(locator).to_be_visible()"
+SKILL = "expect(locator).to_be_visible()"
 STEP_CODE = "def step(page) -> None:\n    pass\n"
 ATTEMPT_RECORD = "execution failed\nurl: https://a.example -> https://b.example\ncode:\n...\nerror:\nboom"
 
@@ -86,7 +86,7 @@ class TestBuildFieldsTextContract:
             "declarations",
             "snapshot",
             "page_url",
-            "cheat_sheet",
+            "skill",
             "attempt_history",
             "recommendation",
             "guidance",
@@ -121,7 +121,7 @@ class TestBuildFieldsTextStepTypeLine:
             declarations=[],
             snapshot="- snap",
             page_url=None,
-            cheat_sheet="# sheet",
+            skill="# sheet",
             attempt_history=[],
             recommendation=None,
             guidance=None,
@@ -137,7 +137,7 @@ class TestBuildFieldsTextStepTypeLine:
 class TestBuildFieldsTextUserInstructions:
     """Logic tests: the USER INSTRUCTIONS block placement and omission."""
 
-    def test_build_fields_text_places_user_instructions_after_cheat_sheet(self) -> None:
+    def test_build_fields_text_places_user_instructions_after_the_skill(self) -> None:
         text = build_fields_text(
             USER_INSTRUCTIONS,
             "нажать Войти",
@@ -148,13 +148,13 @@ class TestBuildFieldsTextUserInstructions:
             declarations=[],
             snapshot="- button 'Войти'",
             page_url=None,
-            cheat_sheet=CHEAT_SHEET,
+            skill=SKILL,
             attempt_history=[],
             recommendation=None,
             guidance=None,
         )
 
-        assert text.index("CHEAT SHEET:") < text.index("USER INSTRUCTIONS:")
+        assert text.index("PLAYWRIGHT SKILL:") < text.index("USER INSTRUCTIONS:")
         assert f"USER INSTRUCTIONS:\n{USER_INSTRUCTIONS}" in text
 
     def test_build_fields_text_omits_block_when_instructions_empty(self) -> None:
@@ -168,16 +168,16 @@ class TestBuildFieldsTextUserInstructions:
             declarations=[],
             snapshot="- button 'Войти'",
             page_url=None,
-            cheat_sheet=CHEAT_SHEET,
+            skill=SKILL,
             attempt_history=[],
             recommendation=None,
             guidance=None,
         )
 
         assert "USER INSTRUCTIONS" not in text
-        assert text.endswith(CHEAT_SHEET)  # the cheat sheet stays the closing block
+        assert text.endswith(SKILL)  # the skill stays the closing block
 
-    def test_build_fields_places_cheat_sheet_after_scenario_inputs_before_instructions(self) -> None:
+    def test_build_fields_places_the_skill_after_scenario_inputs_before_instructions(self) -> None:
         text = build_fields_text(
             "prefer role locators",
             "open the videos page",
@@ -188,7 +188,7 @@ class TestBuildFieldsTextUserInstructions:
             declarations=[],
             snapshot="- tree",
             page_url=None,
-            cheat_sheet="…reference…",
+            skill="…reference…",
             attempt_history=[],
             recommendation=None,
             guidance=None,
@@ -198,7 +198,7 @@ class TestBuildFieldsTextUserInstructions:
             text.index("STEP TYPE: action\nSTEP:\n")
             < text.index("PREVIOUS STEPS:\n")
             < text.index("PAGE SNAPSHOT:\n")
-            < text.index("CHEAT SHEET:\n…reference…")
+            < text.index("PLAYWRIGHT SKILL:\n…reference…")
             < text.index("USER INSTRUCTIONS:\nprefer role locators")
         )
         assert text.startswith("STEP TYPE: action\nSTEP:")
@@ -348,14 +348,14 @@ class TestBuildFieldsTextRegenerationInputs:
             declarations=[],
             snapshot="- button 'Войти'",
             page_url=None,
-            cheat_sheet=CHEAT_SHEET,
+            skill=SKILL,
             attempt_history=["h1", "h2"],
             recommendation="rec",
             guidance="do this",
         )
 
         assert (
-            text.index("CHEAT SHEET:")
+            text.index("PLAYWRIGHT SKILL:")
             < text.index("USER INSTRUCTIONS:")
             < text.index("HISTORY:")
             < text.index("RECOMMENDATION:")
@@ -374,7 +374,7 @@ class TestBuildFieldsTextRegenerationInputs:
             declarations=[],
             snapshot="- button 'Войти'",
             page_url=None,
-            cheat_sheet=CHEAT_SHEET,
+            skill=SKILL,
             attempt_history=[],
             recommendation=None,
             guidance=None,
@@ -383,7 +383,7 @@ class TestBuildFieldsTextRegenerationInputs:
         assert "HISTORY" not in text
         assert "RECOMMENDATION" not in text
         assert "USER GUIDANCE" not in text
-        assert text.endswith(CHEAT_SHEET)  # the cheat sheet stays the closing block
+        assert text.endswith(SKILL)  # the skill stays the closing block
 
 
 class TestBuildFieldsTextPageUrl:
@@ -400,7 +400,7 @@ class TestBuildFieldsTextPageUrl:
             declarations=[],
             snapshot="- body",
             page_url="https://x.test/a",
-            cheat_sheet="CS",
+            skill="CS",
             attempt_history=[],
             recommendation=None,
             guidance=None,
@@ -411,8 +411,8 @@ class TestBuildFieldsTextPageUrl:
             < text.index("PREVIOUS STEPS:\n")
             < text.index("PAGE SNAPSHOT:\n- body")
             < text.index("PAGE URL: https://x.test/a")
-            < text.index("CHEAT SHEET:\nCS")
-        )  # the URL is its own paragraph between the snapshot and the cheat sheet
+            < text.index("PLAYWRIGHT SKILL:\nCS")
+        )  # the URL is its own paragraph between the snapshot and the skill
 
     @pytest.mark.parametrize("page_url", [None, ""])
     def test_build_fields_omits_the_page_url_line_without_a_url(self, page_url: str | None) -> None:
@@ -426,7 +426,7 @@ class TestBuildFieldsTextPageUrl:
             declarations=[],
             snapshot="- body",
             page_url=page_url,
-            cheat_sheet="CS",
+            skill="CS",
             attempt_history=[],
             recommendation=None,
             guidance=None,
@@ -449,7 +449,7 @@ class TestBuildFieldsTextHistoryRecords:
             declarations=[],
             snapshot="- snap",
             page_url=None,
-            cheat_sheet=CHEAT_SHEET,
+            skill=SKILL,
             attempt_history=[ATTEMPT_RECORD],
             recommendation="use role locators",
             guidance="focus on the button",
@@ -486,7 +486,7 @@ class TestBuildFieldsTextHistoryRecords:
             declarations=[],
             snapshot="- body",
             page_url=None,
-            cheat_sheet=CHEAT_SHEET,
+            skill=SKILL,
             attempt_history=[record1, record2],
             recommendation=None,
             guidance=None,
@@ -515,7 +515,7 @@ class TestBuildFieldsTextPreparedInputs:
             declarations=["name"],
             snapshot="snap",
             page_url="https://x",
-            cheat_sheet="cs",
+            skill="cs",
             attempt_history=[],
             recommendation=None,
             guidance=None,
@@ -530,7 +530,7 @@ class TestBuildFieldsTextPreparedInputs:
             < text.index("RESULTS:")
             < text.index("PAGE SNAPSHOT:\nsnap")
             < text.index("PAGE URL: https://x")
-            < text.index("CHEAT SHEET:\ncs")
+            < text.index("PLAYWRIGHT SKILL:\ncs")
         )  # the fixed scenario-part order — the defect D1 lock
 
     def test_build_fields_renders_every_binding_line_and_declared_name(self) -> None:
@@ -544,7 +544,7 @@ class TestBuildFieldsTextPreparedInputs:
             declarations=["x", "y"],
             snapshot="snap",
             page_url=None,
-            cheat_sheet="cs",
+            skill="cs",
             attempt_history=[],
             recommendation=None,
             guidance=None,
@@ -564,7 +564,7 @@ class TestBuildFieldsTextPreparedInputs:
             declarations=[],
             snapshot="snap",
             page_url=None,
-            cheat_sheet="cs",
+            skill="cs",
             attempt_history=[],
             recommendation=None,
             guidance=None,
@@ -596,7 +596,7 @@ class TestTypedScenarioRecords:
             declarations=[],
             snapshot="- snap",
             page_url=None,
-            cheat_sheet=CHEAT_SHEET,
+            skill=SKILL,
             attempt_history=[],
             recommendation=None,
             guidance=None,
@@ -616,7 +616,7 @@ class TestTypedScenarioRecords:
             declarations=[],
             snapshot="- snap",
             page_url=None,
-            cheat_sheet=CHEAT_SHEET,
+            skill=SKILL,
             attempt_history=[],
             recommendation=None,
             guidance=None,
@@ -636,7 +636,7 @@ class TestTypedScenarioRecords:
         legacy = (
             "STEP TYPE: action\nSTEP:\nsubmit the form\n\n"
             "PREVIOUS STEPS:\n- open the login page\n- fill the email field\n\n"
-            f"PAGE SNAPSHOT:\n- snap\n\nCHEAT SHEET:\n{CHEAT_SHEET}"
+            f"PAGE SNAPSHOT:\n- snap\n\nPLAYWRIGHT SKILL:\n{SKILL}"
         )  # the pinned pre-change render of ordinary records — the C13 regression pin
 
         text = build_fields_text(
@@ -652,7 +652,7 @@ class TestTypedScenarioRecords:
             declarations=[],
             snapshot="- snap",
             page_url=None,
-            cheat_sheet=CHEAT_SHEET,
+            skill=SKILL,
             attempt_history=[],
             recommendation=None,
             guidance=None,
@@ -671,7 +671,7 @@ class TestTypedScenarioRecords:
             declarations=[],
             snapshot="- snap",
             page_url=None,
-            cheat_sheet=CHEAT_SHEET,
+            skill=SKILL,
             attempt_history=[],
             recommendation=None,
             guidance=None,
@@ -1249,6 +1249,78 @@ class TestSendWithRetries:
         assert second.attempt == 2
         assert second.delay == 2.0
 
+    def test_a_transient_empty_completion_is_rescued_by_the_bounded_resend(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        response = object()
+        outcomes: list[object] = [LLMUnavailableError("llm unavailable: openai returned empty completion"), response]
+        calls: list[int] = []
+        sleeps: list[float] = []
+
+        def send() -> object:
+            calls.append(1)
+            outcome = outcomes.pop(0)
+
+            if isinstance(outcome, Exception):
+                raise outcome
+
+            return outcome
+
+        def never_classify(error: Exception) -> TransportFailureClassification:
+            pytest.fail(f"must not classify the closure's own error: {error!r}")
+
+        monkeypatch.setattr("time.sleep", sleeps.append)
+        monkeypatch.setattr("random.uniform", lambda _a, _b: 0.0)
+        caplog.set_level(logging.WARNING, logger="prettyplay")
+
+        result = send_with_retries("openai", "generation", 3, never_classify, send)
+
+        assert result is response
+        assert len(calls) == 2  # the initial send plus the single rescue re-send
+        assert sleeps == [1.0]
+        assert len(caplog.records) == 1
+        assert caplog.records[0].category == "empty_completion"  # honest label in the retry record
+
+    def test_an_empty_completion_staying_empty_reraises_the_closure_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        closure_error = LLMUnavailableError("llm unavailable: anthropic returned empty completion")
+        calls: list[int] = []
+
+        def send() -> str:
+            calls.append(1)
+            raise closure_error
+
+        def never_classify(error: Exception) -> TransportFailureClassification:
+            pytest.fail(f"must not classify the closure's own error: {error!r}")
+
+        monkeypatch.setattr("time.sleep", lambda _pause: None)
+
+        with pytest.raises(LLMUnavailableError) as excinfo:
+            send_with_retries("anthropic", "generation", 5, never_classify, send)
+
+        assert excinfo.value is closure_error  # the very error object, message intact — never relabeled
+        assert len(calls) == 2  # one bounded re-send, the second empty is terminal
+
+    def test_an_empty_completion_respects_the_send_budget(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        closure_error = LLMUnavailableError("llm unavailable: openai returned empty completion")
+        calls: list[int] = []
+
+        def send() -> str:
+            calls.append(1)
+            raise closure_error
+
+        def never_classify(error: Exception) -> TransportFailureClassification:
+            pytest.fail(f"must not classify the closure's own error: {error!r}")
+
+        monkeypatch.setattr("time.sleep", lambda _pause: None)
+
+        with pytest.raises(LLMUnavailableError) as excinfo:
+            send_with_retries("openai", "generation", 1, never_classify, send)  # 1 disables retries
+
+        assert excinfo.value is closure_error
+        assert len(calls) == 1  # the budget closes before the re-send allowance
+
 
 class TestSendWithRetriesTerminal:
     """Logic tests (negative): the three terminal branches and the wait interrupt."""
@@ -1421,6 +1493,27 @@ class TestSendWithRetriesEdges:
 
         assert result is response
         assert sleeps == [1.0]
+
+    def test_send_with_retries_in_cap_retry_after_never_lifts_the_pause(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        response = object()
+        outcomes: list[object] = [make_status_error(anthropic.RateLimitError, 429, {"retry-after": "5"}), response]
+        sleeps: list[float] = []
+
+        def send() -> object:
+            outcome = outcomes.pop(0)
+
+            if isinstance(outcome, Exception):
+                raise outcome
+
+            return outcome
+
+        monkeypatch.setattr("time.sleep", sleeps.append)
+        monkeypatch.setattr("random.uniform", lambda _a, _b: 0.0)
+
+        result = send_with_retries("anthropic", "generation", 2, classify_anthropic_failure, send)
+
+        assert result is response
+        assert sleeps == [1.0]  # the fixed base sequence alone — the in-cap wait hint never extends it
 
     def test_logging_carries_no_request_payloads(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture

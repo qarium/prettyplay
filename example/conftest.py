@@ -1,3 +1,5 @@
+import logging
+import sys
 from contextlib import ExitStack
 from pathlib import Path
 
@@ -12,11 +14,68 @@ GENERATION_INSTRUCTIONS = """
 Requirements:
 - Prefer to use `id` or `class` attributes in HTML document to find elements.
 - Make text matching checks case-insensitive.
+- Submit search forms by pressing Enter inside the input field, not by clicking a submit button.
 
 Constraints:
 - Don't do confirmation checks of the action's completion.
 - Don't use `if` statement in step code.
 """
+
+_RESERVED_RECORD_FIELDS = set(logging.LogRecord("n", 0, "p", 0, "m", (), None).__dict__) | {"message", "asctime"}
+_HUMAN_READABLE_EVENTS = frozenset(
+    {
+        "step_results_declared",
+        "step_inputs",
+        "step_candidate_code",
+        "step_cached_code",
+        "step_captured",
+    }
+)
+
+
+class EventFormatter(logging.Formatter):
+    """Append event payloads unless the message already renders the execution context."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        """Render console text without duplicating human-readable execution context.
+
+        Args:
+            record: The log record, including its structured context.
+
+        Returns:
+            The formatted message, with payload fields for other event types.
+        """
+        message = super().format(record)
+        event = getattr(record, "event", None)
+
+        if isinstance(event, str) and event in _HUMAN_READABLE_EVENTS:
+            return message
+
+        extras = {
+            key: value
+            for key, value in record.__dict__.items()
+            if key not in _RESERVED_RECORD_FIELDS and not key.startswith("_")
+        }
+
+        if not extras:
+            return message
+
+        payload = " ".join(f"{key}={value!r}" for key, value in sorted(extras.items()))
+
+        return f"{message} | {payload}"
+
+
+def _configure_prettyplay_logging() -> None:
+    logger = logging.getLogger("prettyplay")
+    logger.setLevel(logging.INFO)
+
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(EventFormatter("%(asctime)s %(levelname)-7s %(message)s", "%H:%M:%S"))
+
+    logger.addHandler(handler)
+
+
+_configure_prettyplay_logging()
 
 
 class AllureStepWrapper:
@@ -109,12 +168,19 @@ def play(request):
         ),
         strict=strict,
         interactive=interactive,
-        # send_screenshots=True,
+        send_screenshots=True,
         provider="anthropic",
         base_url="https://api.z.ai/api/anthropic",
-        generation_model="glm-5.1",
+        generation_model="glm-5.3",
+        # the diagnosis kicks in after 2 blind attempts instead of the library default 3 — the
+        # diagnosed regeneration passes first try far more often than a third blind retry
+        generation_attempts=2,
+        # a wrong locator fails a candidate in 3s instead of the page default 30s —
+        # every candidate restores the baseline after itself, replay keeps the page default
+        probe_timeout=3,
+        # the endpoint occasionally storms empty completions — two extra sends absorb it
+        llm_request_attempts=10,
         # healing_attempts=3,
-        # generation_attempts=5,
         classification_model="glm-5.3",
         classification_prompt=CLASSIFICATION_INSTRUCTIONS,
         generation_prompt=GENERATION_INSTRUCTIONS,

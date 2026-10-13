@@ -55,7 +55,7 @@ verdict_text = message.content[0].text
 Rules:
 - SDK errors map to `LLMUnavailableError` identically — a gate failure is hard, unchecked code is never cached
 - The gate is called only when its toggle is on and the instructions are non-empty — zero calls otherwise
-- One verdict request per candidate — attempt budgets stay with the calling engine
+- One logical verdict request per provider operation call — the engine gate may re-ask once after a malformed verdict; attempt budgets stay with the calling engine
 
 ## Error handling — infrastructure failure
 
@@ -78,9 +78,11 @@ Policy — fixed by the transport backoff decision (2026-10-07):
 
 - Default **3 total attempts** including the initial request; only the attempt count is configurable (`llm_request_attempts`: explicit test parameters > env `PRETTYPLAY_LLM_REQUEST_ATTEMPTS` > pyproject); a value below 1 is a configuration error
 - Delays: base grows 1, 2, 4, 8, 10, 10… seconds, jitter adds 0–25% of the base, the final pause never exceeds 10 seconds
-- A valid `Retry-After` of at most 10 seconds takes the greater of the indicated wait and the computed delay; above 10 seconds the request terminates with an actionable error instead of retrying; a malformed value is ignored
+- The retry loop uses only the fixed delay sequence: `Retry-After` at most 10 seconds never lengthens its pause; above 10 seconds the request terminates with an actionable error instead of retrying; malformed values are ignored. Direct callers of `compute_transport_pause` can supply an in-cap hint to raise their pause — the loop itself passes None
 - Cancellation (`KeyboardInterrupt`) interrupts the backoff wait and prevents another retry; SDK request timeouts stay unchanged
-- After exhaustion the operation raises `LLMUnavailableError` with the original cause chained
+- Empty completion bodies use a separate response-validation channel: one bounded re-send within the same total send budget, then the closure's own `LLMUnavailableError` is re-raised unchanged if still empty; SDK classification is not used on this channel
+- Other malformed answer content is parsed after a successful send, outside transport retries
+- After exhaustion an SDK failure raises `LLMUnavailableError` with the original cause chained
 - Every retry logs one WARNING to the `prettyplay` logger: provider, operation, attempt number, error category, delay — never secrets or request/response contents
 
 ## Rules
