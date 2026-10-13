@@ -23,4 +23,5 @@ def load_skill(name: str) -> str:
     """
     if name not in _cache:
         _cache[name] = (files(__package__) / name / "SKILL.md").read_text(encoding="utf-8")
+
     return _cache[name]

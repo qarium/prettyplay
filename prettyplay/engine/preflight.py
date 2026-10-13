@@ -71,6 +71,7 @@ def _confirms_its_own_navigation(tree: ast.Module) -> bool:
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
+
         if _is_page_method(node, "goto"):
             goto_positions.append((node.lineno, node.col_offset))
         elif _is_expectation(node):
@@ -136,6 +137,7 @@ def _leaks_a_route(tree: ast.Module) -> bool:
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
+
         if _is_page_method(node, "route"):
             routes += 1
         elif _is_page_method(node, "unroute"):
@@ -169,6 +171,7 @@ def _unused_imports(tree: ast.Module) -> str | None:
                     imported[alias.asname or alias.name] = node.lineno
 
     unused = sorted((line, name) for name, line in imported.items() if name not in loaded)
+
     if not unused:
         return None
 
@@ -244,6 +247,7 @@ def _undefined_names(tree: ast.Module) -> str | None:  # noqa: C901, PLR0912 —
         for name, line in loaded.items()
         if name not in bound and name not in _BUILTINS and name not in _NAMESPACE_DUNDERS
     )
+
     if not missing:
         return None
 
@@ -267,6 +271,7 @@ def _argument_names(args: ast.arguments) -> set[str]:
 
     if args.vararg is not None:
         names.add(args.vararg.arg)
+
     if args.kwarg is not None:
         names.add(args.kwarg.arg)
 

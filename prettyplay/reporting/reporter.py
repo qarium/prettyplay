@@ -79,4 +79,5 @@ class StepReporter:
                 ints (timings).
         """
         extra = {f"ctx_{key}" if key in _LOG_RECORD_RESERVED else key: value for key, value in payload.items()}
+
         self._logger.log(logging.INFO, event, extra=extra)

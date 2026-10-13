@@ -214,6 +214,7 @@ class StepCache:
         removed: list[str] = []
 
         scope = self._target_dir()
+
         try:
             if not scope.is_dir():
                 return removed
@@ -221,6 +222,7 @@ class StepCache:
             candidates = sorted(entry for entry in scope.iterdir() if _STEP_FILE_NAME.fullmatch(entry.name))
         except OSError:
             logger.warning("cache sweep failed to list the scope", extra={"cache_key": cache_key})
+
             return removed
 
         # ``filename`` is a reserved LogRecord attribute — the direct records below use the
@@ -236,6 +238,7 @@ class StepCache:
 
             if fields["CACHE_KEY"] != cache_key:
                 continue
+
             if candidate.name in self._touched:
                 continue
 

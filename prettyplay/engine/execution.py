@@ -58,12 +58,14 @@ def run_step_code(
             swallowed, translated or retried here; the engine classifies it.
     """
     namespace: dict[str, object] = {}  # self-contained code: the page argument and the allowed imports only
+
     # the engine contract: compile and resolve on the calling thread, Playwright untouched
     exec(compile(code, "<prettyplay-step>", "exec"), namespace)
 
     step_fn = namespace["step"]
 
     target = step_fn
+
     if action_timeout_ms is not None:
 
         def probe(page: object) -> object:

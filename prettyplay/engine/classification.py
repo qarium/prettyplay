@@ -49,6 +49,7 @@ def _code_defect_classification(error: str) -> FailureClassification | None:
                 explanation=f"the step code has a deterministic defect — {error.splitlines()[0]}",
                 recommendation="regenerate the step code removing the named defect",
             )
+
     return None
 
 
@@ -81,6 +82,7 @@ def classify_step_failure(  # noqa: PLR0913, PLR0917 — the parameter list is f
             untouched, the calling path decides the handling.
     """
     code_defect = _code_defect_classification(error)
+
     if code_defect is not None:  # a deterministic code defect — no page read, no provider request
         return code_defect
 

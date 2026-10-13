@@ -340,6 +340,7 @@ class StepGenerator:
             )
 
             violation = check_step_code(code)
+
             if violation is not None:  # never executed — the URL pair is equal on both sides
                 url = _read_url(page)
                 history.append(_record(code, violation, OUTCOME_PREFLIGHT_BLOCKED, url, url))
@@ -410,6 +411,7 @@ class StepGenerator:
                     _medium_warning(prepared.instruction, findings)
 
                 memory.publish(captures)  # publication exactly once — after validation and the gate
+
                 if captures:
                     logger.info(
                         "captured: %s",
@@ -420,6 +422,7 @@ class StepGenerator:
                             "captures": dict(captures),
                         },
                     )
+
                 return self._store(identity, prepared.addressing_text, code)
 
     def _healing_loop(  # noqa: PLR0913, PLR0917 — the shared attempt loop with its fixed inputs
@@ -490,6 +493,7 @@ class StepGenerator:
             )
 
             violation = check_step_code(code)
+
             if violation is not None:  # never executed — the URL pair is equal on both sides
                 url = _read_url(page)
                 history.append(_record(code, violation, OUTCOME_PREFLIGHT_BLOCKED, url, url))
@@ -533,6 +537,7 @@ class StepGenerator:
                 _medium_warning(prepared.instruction, findings)
 
             memory.publish(captures)  # publication exactly once — after validation and the gate
+
             if captures:
                 logger.info(
                     "captured: %s",
@@ -543,6 +548,7 @@ class StepGenerator:
                         "captures": dict(captures),
                     },
                 )
+
             return self._store(identity, prepared.addressing_text, code)
 
     def _failed_check_outcome(  # noqa: PLR0913, PLR0917 — the decision table of one failed candidate check
@@ -811,6 +817,7 @@ class StepGenerator:
         code = self._request(prepared, step_type, previous_steps, None, page, history, recommendation)
 
         violation = check_step_code(code)
+
         if violation is not None:  # a candidate failure, never a check — mirrors the compliance block
             url = _read_url(page)
             history.append(_record(code, violation, OUTCOME_PREFLIGHT_BLOCKED, url, url))
@@ -845,6 +852,7 @@ class StepGenerator:
             _medium_warning(prepared.instruction, findings)
 
         memory.publish(captures)  # publication exactly once — after validation and the gate
+
         if captures:
             logger.info(
                 "captured: %s",
@@ -855,6 +863,7 @@ class StepGenerator:
                     "captures": dict(captures),
                 },
             )
+
         return self._store(identity, prepared.addressing_text, code), code, "", False
 
     def _request(  # noqa: PLR0913, PLR0917 — the fixed request inputs of the port signature
@@ -965,6 +974,7 @@ class StepGenerator:
         )
 
         started = time.monotonic()
+
         try:
             return settle(self._execute_candidate, code, page, window)
         finally:
@@ -1106,6 +1116,7 @@ def _standing_prohibition(finding: ComplianceFinding | None) -> str | None:
     """
     if finding is None:
         return None
+
     return f"Do not repeat the violation that blocked the previous attempt — {_violation_text(finding)}"
 
 

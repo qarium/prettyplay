@@ -186,6 +186,7 @@ class DriverSession:
             # the configured baseline of the page default action timeout — explicit on
             # every page; the probe bound of the engine loops restores to it
             page.set_default_timeout(self._config.browser.timeout * 1000)
+
             return page, context, router
 
         page, context, router = worker.run(open_isolated)
