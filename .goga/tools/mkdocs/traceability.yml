@@ -8,6 +8,7 @@ docs/getting-started.md:
 docs/guides/writing-steps.md:
   - prettyplay
   - prettyplay/engine
+  - prettyplay/engine/renderer
 docs/configuration.md:
   - prettyplay/config
   - prettyplay/engine/polling
@@ -21,10 +22,13 @@ docs/reference/hooks.md:
   - prettyplay/reporting
   - prettyplay/engine/polling
   - prettyplay/engine/steering
+  - prettyplay/engine/renderer
 docs/reference/step-cache.md:
   - prettyplay/cache
+  - prettyplay/engine/renderer
 docs/reference/llm-providers.md:
   - prettyplay/llm
+  - prettyplay/skills
 docs/reference/settle-polling.md:
   - prettyplay/engine/polling
 docs/reference/self-healing.md:
@@ -33,5 +37,10 @@ docs/reference/self-healing.md:
   - prettyplay/engine/polling
 docs/reference/interactive-steering.md:
   - prettyplay/engine/steering
+  - prettyplay/engine/renderer
+  - prettyplay/skills
 docs/reference/driver-facade.md:
   - prettyplay/driver
+  - prettyplay/skills
+docs/reference/groups.md:
+  - prettyplay/engine/groups

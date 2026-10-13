@@ -200,7 +200,11 @@ honest request inputs take no part in the address either. See
 On a cache miss the generation engine produces a candidate and executes it
 against the live page:
 
-- The loop: request code → execute against the live page → on failure
+- The loop: request code (every request carries the packaged Playwright
+  skill as guidance) → the deterministic pre-flight check — syntax, the
+  fixed step form, name resolution; a violation consumes the attempt with
+  the outcome `preflight blocked` and the code never reaches the browser →
+  execute against the live page → on failure
   re-request with the grown attempt history and the fresh snapshot
 - Attempts are budgeted per step per test (default 3); exhaustion raises
   `IncurableStepError` carrying the classification verdict of the last
@@ -221,8 +225,9 @@ against the live page:
   what the step sentence says for its step type: a `high` finding in either
   dimension fails the attempt and the retry carries the
   violation with the grown history, `medium` and `low` findings pass with a
-  `WARNING`, a malformed
-  verdict is a loud `ComplianceVerdictError`. See
+  `WARNING`, and a malformed verdict is re-asked once, then passes unchecked
+  with a `WARNING` — the built-in engine gate owns it, and it never propagates
+  from `step`/`expect`. See
   [Configuration](../configuration.md#the-compliance-gate)
 - Transient provider unavailability of a generation request is retried within
   that request, up to `llm_request_attempts` total sends. A permanent rejection

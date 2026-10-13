@@ -26,12 +26,13 @@ and no page snapshot. The failure is provably the step code's own, never the pro
 healed = healer.heal(
     step=failed_step,
     error="element not found: button «Sign in»",
-    step_text="click the «Sign in» button",  # the raw sentence as written by the engineer
+    prepared=prepared_step,  # the render product — the prepared instruction with its input bindings and result declarations
     step_type="action",  # action | assertion
     previous_steps=scenario_records,  # the typed scenario records of the test, execution order
     page=page,
     attempt_history=history,  # the per-step attempt records — record 0 anchors the failed cached code
     window=window,  # the settle window of the current step execution
+    memory=memory,  # the test memory — the validated captures publish at acceptance
 )
 ```
 

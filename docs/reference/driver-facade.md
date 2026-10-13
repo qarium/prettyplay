@@ -77,9 +77,11 @@ The contour:
 - Safety core: no `time.sleep`, no fixed delays — waits live in locators
   and expectations; never `page.close()` or `context.close()` — the runtime
   owns the page lifecycle
-- Stateful actions stay out of generated code: `page.route`, `page.clock`,
-  `add_init_script`, tracing, HAR, CDP are the author's explicit tools (see
-  the escape hatch below)
+- Stateful actions stay out of generated code: `page.clock`, `add_init_script`,
+  tracing, HAR, CDP are the author's explicit tools (see the escape hatch
+  below); one bounded exception — generated code may pair `page.route` with
+  `page.unroute` inside the same step, gated deterministically by the engine's
+  pre-flight check
 - No provider constructs, no direct driver imports
 
 ## Dialogs
@@ -152,9 +154,10 @@ title = t.run_on_page(lambda page: page.title())
 `t.run_on_page(action)` executes the author action wholly inside the driver
 worker thread against the genuine page — the same primitive step code
 crosses through, sequential with every step. The stateful actions excluded
-from generated code (`page.route`, `page.clock`, `add_init_script`,
-tracing, HAR, CDP) are the author's explicit tools here; the prompt rules
-of generated code do not bind the author.
+from generated code (`page.clock`, `add_init_script`, tracing, HAR, CDP;
+generated code allows the one bounded exception — `page.route` paired with
+`page.unroute` inside the same step) are the author's explicit tools here;
+the prompt rules of generated code do not bind the author.
 
 - Requires an opened page — run a step first: the page opens lazily on the
   first step, and a missing page raises a loud actionable `PrettyplayError`
@@ -200,7 +203,8 @@ never reads settings and never asks an LLM. See
   is identical in every mode
 - Dialogs: an in-step stock capture claims its dialog; dialogs outside a
   capture follow the `accept_dialogs` browser setting
-- No `page.route`, no `page.clock`, no `add_init_script`, no CDP, no HAR,
+- No `page.route` outside the bounded route+unroute pair of one step, no
+  `page.clock`, no `add_init_script`, no CDP, no HAR,
   no tracing in generated code — the author performs them explicitly
   through `run_on_page`
 - Never put secrets into step actions — step texts and code land in the

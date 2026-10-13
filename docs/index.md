@@ -37,7 +37,9 @@ with PrettyPlay("login-flow") as t:
 
 Each `PrettyPlay` is fully self-contained: it owns its settings, its attempt
 budgets and its own browser session. `close()` (or leaving the `with` block)
-closes the page and stops the whole browser of that test.
+closes the page, stops the whole browser of that test and — by default —
+sweeps the untouched cache entries of the test's key; pass `cleanup=False`
+to keep every file (see [Step cache](reference/step-cache.md#the-per-test-working-set)).
 
 ## What happens on a step
 

@@ -280,7 +280,10 @@ request — instruction compliance (the code against the `generation_prompt`
 instructions) and step adequacy (the code must accomplish what the step
 sentence says for its step type — an action step whose code only checks an
 already-achieved state fails it, judged from the step type and the verbatim
-per-step attempt history of what was already tried). The gate is the
+per-step attempt history of what was already tried; adequacy also fails
+dead weight — a binding the code assigns but never reads — and actions on
+elements the sentence never names, while the sentence's values embedded in
+the code as literals are correct, never a finding). The gate is the
 default — the deliberate opt-out default keeps loud errors instead of
 silent ignoring; switch it off consciously when the extra LLM call per
 successful generation matters more than the enforcement.

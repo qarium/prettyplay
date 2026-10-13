@@ -105,8 +105,8 @@ caches written against the retired page facade call methods that no longer
 exist (an `AttributeError` at replay, a hard failure in strict mode), so
 purge the cache directory once when upgrading across that change.
 
-The addressing change is a break of the same kind: some existing addresses
-change, because steps address by their rendered sentence now. Purge the
+The addressing change is a break of the same kind: steps address by their
+rendered sentence, so some existing addresses change. Purge the
 cache directory once after upgrading across it — or let the first default
 close sweep the untouched legacy files of each test's key out of its scope.
 

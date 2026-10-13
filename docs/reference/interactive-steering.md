@@ -41,7 +41,8 @@ run? [y/N] y
 ✓ step green — healed step written to the cache
 ```
 
-The banner shows the step, the failed code, the full terminal error render
+The banner shows the prepared instruction — the rendered sentence — the failed
+code, the full terminal error render
 (see [Failure taxonomy](failure-taxonomy.md)), the current page URL, the
 screenshot path and the commands — no snapshot fragment: the full snapshot
 stays behind the `snapshot` command and rides every request.
@@ -57,9 +58,12 @@ Local commands answer without the LLM:
 | `quit` | end the dialog — the original terminal failure propagates |
 
 Every other line is guidance: one regeneration request carrying the step
-type, the raw step sentence, a `USER GUIDANCE` block, the fresh page URL
+type, the prepared instruction — the render product with the current values
+and the capture declarations (`INPUTS`/`RESULTS` blocks) — the packaged
+Playwright skill, a `USER GUIDANCE` block, the fresh page URL
 and the grown shared attempt history (see
-[LLM providers](llm-providers.md#parity)) — the original failure stays
+[LLM providers](llm-providers.md#parity)) — the raw template sentence never
+reaches a request; the original failure stays
 anchored as record 0 of the history. A group step's dialog carries the group
 prompt as its framing — every guided request renders the `GROUP PROMPT`
 block and the marked scenario entries exactly like the engine's own requests
@@ -92,12 +96,16 @@ nothing executes unseen:
   instructions and the step adequacy from the shared attempt history):
   `medium` and `low` findings pass with a `WARNING`, a `high` finding in
   either dimension never reaches the cache
-  (the violation joins the history and the prompt reopens), and a gate hard
-  failure — the provider unavailable or a malformed verdict — ends the dialog
-  declined, the original terminal failure propagating. A passed turn reports
+  (the violation joins the history and the prompt reopens), and a gate
+  provider outage ends the dialog
+  declined, the original terminal failure propagating — a malformed verdict
+  never ends the dialog: the gate re-asks once, then permits an unchecked
+  pass with a `WARNING`. A passed turn reports
   `on_healed` with an explanation naming
   the interactive healing (see [Hooks and logging](hooks.md)); the test
-  continues
+  continues — the successful write joins the test's touched set, so the
+  healed step survives the default close sweep
+  (see [Step cache](step-cache.md#the-per-test-working-set))
 - Guidance is one-shot: it lands in the log, never in the cache file
 - Interactive attempts consume no generation or healing budgets — the human
   in the loop is the bound
