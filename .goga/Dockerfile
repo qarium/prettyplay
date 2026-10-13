@@ -9,6 +9,8 @@ COPY agents/product.sh /home/goga/bin/product-as-claude.sh
 COPY agents/manager.sh /home/goga/bin/manager-as-claude.sh
 COPY agents/analyst.sh /home/goga/bin/analyst-as-claude.sh
 COPY agents/tester.sh /home/goga/bin/tester-as-claude.sh
+COPY agents/tech-writer.sh /home/goga/bin/tech-writer-as-claude.sh
+COPY agents/planner.sh /home/goga/bin/planner-as-claude.sh
 
 RUN chmod +x /home/goga/bin/*.sh
 

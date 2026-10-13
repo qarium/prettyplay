@@ -17,6 +17,10 @@ prompt: |
   Answer (feedbacks, proposes, questions:`*.question.json`, AFM plans) in Russian language.
   Any content written to the project files is in English.
 
+  **DEVELOPMENT**
+
+  - For development use venv outside the project, in /opt/project
+
 stages:
   define:
     skip: true

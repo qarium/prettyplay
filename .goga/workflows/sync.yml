@@ -1,3 +1,6 @@
 prompt: |
   Answer (feedbacks, proposes, questions:`*.question.json` and etc) in Russian language.
   Any content written to the files is in English.
+
+  Requirements:
+  - For development use venv outside the project, in /opt/project
