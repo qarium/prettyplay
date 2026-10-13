@@ -100,10 +100,10 @@ class TestConfigContract:
         assert probe.default == 0
         assert PrettyConfig().probe_timeout == 0
 
-    def test_probe_timeout_accepts_int_and_float_seconds(self) -> None:
-        """Contract: the probe bound accepts int and float seconds alike."""
-        assert PrettyConfig(probe_timeout=8).probe_timeout == 8.0
-        assert PrettyConfig(probe_timeout=1.5).probe_timeout == 1.5
+    @pytest.mark.parametrize(("value", "expected"), [(0, 0.0), (1.5, 1.5), (8, 8.0)])
+    def test_probe_timeout_accepts_int_and_float_seconds(self, value: int | float, expected: float) -> None:
+        """Accept the disabled boundary and positive probe timeouts."""
+        assert PrettyConfig(probe_timeout=value).probe_timeout == expected
 
     @pytest.mark.parametrize("value", [-1, -0.5, float("inf"), float("nan")])
     def test_probe_timeout_rejected_forms_raise_naming_the_value(self, value: object) -> None:
@@ -195,11 +195,12 @@ class TestBrowserConfigContract:
         assert BrowserConfig().timeout == 30
         assert PrettyConfig().browser.timeout == 30
 
-    def test_browser_config_timeout_accepts_int_float_and_the_real_zero(self) -> None:
-        """Contract: the baseline accepts int and float seconds; 0 is the legal real zero."""
-        assert BrowserConfig(timeout=60).timeout == 60.0
-        assert BrowserConfig(timeout=2.5).timeout == 2.5
-        assert BrowserConfig(timeout=0).timeout == 0.0
+    @pytest.mark.parametrize(("value", "expected"), [(0, 0.0), (2.5, 2.5), (60, 60.0)])
+    def test_browser_config_timeout_accepts_int_float_and_the_real_zero(
+        self, value: int | float, expected: float
+    ) -> None:
+        """Accept zero and positive explicitly configured browser timeouts."""
+        assert BrowserConfig(timeout=value).timeout == expected
 
     @pytest.mark.parametrize("value", [-1, -0.5, float("inf"), float("nan")])
     def test_browser_config_timeout_rejected_forms_raise_naming_the_value(self, value: object) -> None:

@@ -225,7 +225,7 @@ class TestAnthropicProviderLogic:
         client = SimpleNamespace(messages=SimpleNamespace(create=create))
         provider = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5", llm_request_attempts=2))
 
-        with mock.patch.object(provider, "_get_client", return_value=client):
+        with mock.patch("prettyplay.llm.anthropic_provider.Anthropic", return_value=client):
             code = provider.generate_step_code(
                 prompt="p",
                 user_instructions="",

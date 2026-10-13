@@ -4,13 +4,13 @@ import http.server
 import json
 import re
 import threading
+from functools import lru_cache
 from pathlib import Path
 from urllib.parse import unquote
 
 import pytest
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import expect, sync_playwright
-from prettyplay.skills import load_skill
 
 SKILL_FILE = Path(__file__).resolve().parents[1] / "prettyplay" / "skills" / "playwright" / "SKILL.md"
 ENGINE_CODEMANIFEST = Path(__file__).resolve().parents[1] / "prettyplay" / "engine" / "CODEMANIFEST"
@@ -250,15 +250,7 @@ def _skill_blocks() -> list[str]:
 
 
 class TestPlaywrightSkillContract:
-    """Contract tests: the packaged file, the loader and the manifest connection agree."""
-
-    def test_the_loader_reads_the_packaged_file(self) -> None:
-        assert load_skill("playwright") == SKILL_FILE.read_text(encoding="utf-8")
-        assert "strict mode" in load_skill("playwright")  # non-empty readable content
-
-    def test_a_missing_skill_name_raises_file_not_found(self) -> None:
-        with pytest.raises(FileNotFoundError):
-            load_skill("no-such-skill")
+    """Contract tests for packaged skill data and the engine manifest."""
 
     def test_the_manifest_usage_documents_the_connection(self) -> None:
         """The imported usage explains how to connect the skill — it never restates the content."""
@@ -279,9 +271,34 @@ class TestPlaywrightSkillContract:
         assert len(blocks) >= 40  # every section ships runnable patterns, not a token sheet
 
 
+@lru_cache(maxsize=1)
+def _browser_is_available() -> bool:
+    """Check driver and browser availability before integration-test setup.
+
+    Returns:
+        True when Chromium or the Chrome channel can start successfully.
+    """
+    try:
+        with sync_playwright() as playwright:
+            for options in ({}, {"channel": "chrome"}):
+                try:
+                    browser = playwright.chromium.launch(headless=True, **options)
+                except PlaywrightError:
+                    continue
+
+                browser.close()
+
+                return True
+    except PlaywrightError:
+        return False
+
+    return False
+
+
 class TestPlaywrightSkillExamples:
     """Empirical tests: every fenced example executes green against the local fixture page."""
 
+    @pytest.mark.skipif(not _browser_is_available(), reason="no Playwright driver or supported browser is available")
     def test_every_example_runs_green_on_the_fixture_page(self, tmp_path: Path) -> None:  # noqa: C901 — one section per skill block, the walk mirrors the skill's own structure
         (tmp_path / "index.html").write_text(INDEX_HTML, encoding="utf-8")
         (tmp_path / "account.html").write_text(ACCOUNT_HTML, encoding="utf-8")
@@ -300,7 +317,9 @@ class TestPlaywrightSkillExamples:
                     self.send_header("Content-Length", str(len(body)))
                     self.end_headers()
                     self.wfile.write(body)
+
                     return
+
                 if self.path == "/api/quote":
                     body = json.dumps({"price": 42}).encode()
                     self.send_response(200)
@@ -308,7 +327,9 @@ class TestPlaywrightSkillExamples:
                     self.send_header("Content-Length", str(len(body)))
                     self.end_headers()
                     self.wfile.write(body)
+
                     return
+
                 super().do_GET()
 
             def do_POST(self) -> None:
@@ -321,7 +342,9 @@ class TestPlaywrightSkillExamples:
                     self.send_header("Content-Length", str(len(body)))
                     self.end_headers()
                     self.wfile.write(body)
+
                     return
+
                 if self.path == "/api/orders":
                     length = int(self.headers.get("Content-Length", 0))
                     self.rfile.read(length)
@@ -331,7 +354,9 @@ class TestPlaywrightSkillExamples:
                     self.send_header("Content-Length", str(len(body)))
                     self.end_headers()
                     self.wfile.write(body)
+
                     return
+
                 self.send_response(404)
                 self.end_headers()
 

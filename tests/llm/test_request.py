@@ -5,6 +5,7 @@ import logging
 from collections.abc import Callable
 from types import ModuleType, SimpleNamespace
 from typing import ClassVar, TypeVar
+from unittest import mock
 
 import anthropic
 import openai
@@ -1250,7 +1251,7 @@ class TestSendWithRetries:
         assert second.delay == 2.0
 
     def test_a_transient_empty_completion_is_rescued_by_the_bounded_resend(
-        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+        self, caplog: pytest.LogCaptureFixture
     ) -> None:
         response = object()
         outcomes: list[object] = [LLMUnavailableError("llm unavailable: openai returned empty completion"), response]
@@ -1269,11 +1270,13 @@ class TestSendWithRetries:
         def never_classify(error: Exception) -> TransportFailureClassification:
             pytest.fail(f"must not classify the closure's own error: {error!r}")
 
-        monkeypatch.setattr("time.sleep", sleeps.append)
-        monkeypatch.setattr("random.uniform", lambda _a, _b: 0.0)
         caplog.set_level(logging.WARNING, logger="prettyplay")
 
-        result = send_with_retries("openai", "generation", 3, never_classify, send)
+        with (
+            mock.patch("prettyplay.llm._request.time.sleep", side_effect=sleeps.append),
+            mock.patch("prettyplay.llm._request.random.uniform", return_value=0.0),
+        ):
+            result = send_with_retries("openai", "generation", 3, never_classify, send)
 
         assert result is response
         assert len(calls) == 2  # the initial send plus the single rescue re-send
@@ -1281,9 +1284,7 @@ class TestSendWithRetries:
         assert len(caplog.records) == 1
         assert caplog.records[0].category == "empty_completion"  # honest label in the retry record
 
-    def test_an_empty_completion_staying_empty_reraises_the_closure_error(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_an_empty_completion_staying_empty_reraises_the_closure_error(self) -> None:
         closure_error = LLMUnavailableError("llm unavailable: anthropic returned empty completion")
         calls: list[int] = []
 
@@ -1294,15 +1295,16 @@ class TestSendWithRetries:
         def never_classify(error: Exception) -> TransportFailureClassification:
             pytest.fail(f"must not classify the closure's own error: {error!r}")
 
-        monkeypatch.setattr("time.sleep", lambda _pause: None)
-
-        with pytest.raises(LLMUnavailableError) as excinfo:
+        with (
+            mock.patch("prettyplay.llm._request.time.sleep", side_effect=lambda _pause: None),
+            pytest.raises(LLMUnavailableError) as excinfo,
+        ):
             send_with_retries("anthropic", "generation", 5, never_classify, send)
 
         assert excinfo.value is closure_error  # the very error object, message intact — never relabeled
         assert len(calls) == 2  # one bounded re-send, the second empty is terminal
 
-    def test_an_empty_completion_respects_the_send_budget(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_an_empty_completion_respects_the_send_budget(self) -> None:
         closure_error = LLMUnavailableError("llm unavailable: openai returned empty completion")
         calls: list[int] = []
 
@@ -1313,9 +1315,10 @@ class TestSendWithRetries:
         def never_classify(error: Exception) -> TransportFailureClassification:
             pytest.fail(f"must not classify the closure's own error: {error!r}")
 
-        monkeypatch.setattr("time.sleep", lambda _pause: None)
-
-        with pytest.raises(LLMUnavailableError) as excinfo:
+        with (
+            mock.patch("prettyplay.llm._request.time.sleep", side_effect=lambda _pause: None),
+            pytest.raises(LLMUnavailableError) as excinfo,
+        ):
             send_with_retries("openai", "generation", 1, never_classify, send)  # 1 disables retries
 
         assert excinfo.value is closure_error
@@ -1494,7 +1497,7 @@ class TestSendWithRetriesEdges:
         assert result is response
         assert sleeps == [1.0]
 
-    def test_send_with_retries_in_cap_retry_after_never_lifts_the_pause(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_send_with_retries_in_cap_retry_after_never_lifts_the_pause(self) -> None:
         response = object()
         outcomes: list[object] = [make_status_error(anthropic.RateLimitError, 429, {"retry-after": "5"}), response]
         sleeps: list[float] = []
@@ -1507,10 +1510,11 @@ class TestSendWithRetriesEdges:
 
             return outcome
 
-        monkeypatch.setattr("time.sleep", sleeps.append)
-        monkeypatch.setattr("random.uniform", lambda _a, _b: 0.0)
-
-        result = send_with_retries("anthropic", "generation", 2, classify_anthropic_failure, send)
+        with (
+            mock.patch("prettyplay.llm._request.time.sleep", side_effect=sleeps.append),
+            mock.patch("prettyplay.llm._request.random.uniform", return_value=0.0),
+        ):
+            result = send_with_retries("anthropic", "generation", 2, classify_anthropic_failure, send)
 
         assert result is response
         assert sleeps == [1.0]  # the fixed base sequence alone — the in-cap wait hint never extends it

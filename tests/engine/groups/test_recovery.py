@@ -187,6 +187,7 @@ def _trace(
 
 def _cached(sentence: str, step_type: str = "action") -> CachedStep:
     identity = _identity(sentence, step_type)
+
     return CachedStep(
         identity=identity, addressing_text=identity.normalized_text, code=WORKING_CODE, created_at="2026-09-16"
     )

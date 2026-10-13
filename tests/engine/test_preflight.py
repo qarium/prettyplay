@@ -1,6 +1,7 @@
 """Tests for the deterministic pre-flight gate of the prettyplay.engine cell."""
 
 import inspect
+from unittest import mock
 
 import pytest
 from prettyplay.engine import preflight as preflight_module
@@ -32,6 +33,24 @@ VALID_CODE = (
 )
 
 STAR_IMPORT_CODE = "from x import *\n\n\ndef step(page) -> None:\n    mystery()\n"
+
+
+class TestPreflightEmptyInputs:
+    """Empty and invalid inputs exercise missing-step and fail-open behavior."""
+
+    @pytest.mark.parametrize(
+        ("code", "expected"),
+        [
+            ("", "preflight violation: no module-level step function of the fixed form — def step(page)"),
+            (None, None),
+            ([], None),
+            ({}, None),
+            (42, None),
+        ],
+    )
+    def test_check_step_code_with_empty_or_invalid_input(self, code: object, expected: str | None) -> None:
+        """Check empty source and invalid-input fail-open behavior."""
+        assert check_step_code(code) == expected
 
 
 class TestPreflightContract:
@@ -266,10 +285,18 @@ class TestPreflightBlocks:
 
         assert check_step_code(code) is None
 
-    def test_an_unexpected_analysis_error_fails_open(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        def explode(tree: object) -> str:
-            raise RuntimeError("the analyzer broke")
+    def test_an_unexpected_analysis_error_fails_open(self) -> None:
+        original_walk = preflight_module.ast.walk
+        calls = 0
 
-        monkeypatch.setattr(preflight_module, "_undefined_names", explode)
+        def walk(tree: object):
+            nonlocal calls
+            calls += 1
 
-        assert check_step_code(VALID_CODE) is None  # the execution channel stays the fallback
+            if calls == 4:
+                raise RuntimeError("the AST traversal failed")
+
+            return original_walk(tree)
+
+        with mock.patch.object(preflight_module.ast, "walk", side_effect=walk):
+            assert check_step_code(VALID_CODE) is None

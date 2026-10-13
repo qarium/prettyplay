@@ -564,9 +564,11 @@ class TestStepSteeringLogic:
         )
         identity = _identity_of(prepared)  # the executor-built address of the render's addressing text
         _script_input(monkeypatch, ["the button moved into the modal", "y"])
-        monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
 
-        healed = steering.steer(_failure(), identity, prepared, "action", [], None, FakePage(), [], StepMemory())
+        page = FakePage()
+
+        with mock.patch.object(page, "run", return_value=None):
+            healed = steering.steer(_failure(), identity, prepared, "action", [], None, page, [], StepMemory())
 
         assert healed is not None
         assert healed.addressing_text == "Open the {% var portal %} sign-in page"  # verbatim, the capture tag kept
@@ -1694,12 +1696,16 @@ class TestStepSteeringLogic:
         cache = StepCache(fixture.config)
         steering = StepSteering(fixture.config, fixture.provider, cache, fixture.reporter)
         _script_input(monkeypatch, ["dismiss the modal first", "y"])
-        monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
         history = _anchored_history()
 
-        with caplog.at_level(logging.WARNING, logger="prettyplay"):
+        page = FakePage()
+
+        with (
+            mock.patch.object(page, "run", return_value=None),
+            caplog.at_level(logging.WARNING, logger="prettyplay"),
+        ):
             healed = steering.steer(
-                _failure(), _identity(), _prepared(), "action", [], None, FakePage(), history, StepMemory()
+                _failure(), _identity(), _prepared(), "action", [], None, page, history, StepMemory()
             )
 
         assert healed is not None  # the dialog healed — the write-back happened, unchecked

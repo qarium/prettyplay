@@ -1,6 +1,7 @@
 """Tests for the PreparedStep model and render_step function of the prettyplay.engine.renderer cell."""
 
 import inspect
+from unittest import mock
 
 import jinja2.filters
 import prettyplay.engine.renderer.render as render_module
@@ -369,14 +370,12 @@ class TestAddressingRender:
 
         assert first.filename == second.filename
 
-    def test_render_marker_collision_with_data_fails_loudly(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        def forced_marker(occurrence: int) -> str:
-            return "Boom" if occurrence == 0 else f"tag{occurrence}"
-
-        monkeypatch.setattr(render_module, "_new_marker", forced_marker)
-
+    def test_render_marker_collision_with_data_fails_loudly(self) -> None:
         memory = StepMemory()
-        memory.publish({"name": "Boom"})
+        memory.publish({"name": "\ue000capture 0 0000000000000000\ue001"})
 
-        with pytest.raises(PrettyplayError, match="marker"):
+        with (
+            mock.patch.object(render_module.secrets, "token_hex", return_value="0000000000000000"),
+            pytest.raises(PrettyplayError, match="marker"),
+        ):
             render_step("Say {{ name }} and {% var x %}", "action", memory, None)

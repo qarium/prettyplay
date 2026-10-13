@@ -26,13 +26,13 @@ class TestStepCacheContract:
         assert [parameter.name for parameter in parameters] == ["config", "path", "reporter"]
         assert parameters[1].default is None  # path is optional
 
-    def test_constructs_with_config_path_and_reporter(self) -> None:
-        cache = StepCache(PrettyConfig(cache_root="/tmp/pp-store-contract"), "checkout", StepReporter(hooks=[]))
+    def test_constructs_with_config_path_and_reporter(self, tmp_path: Path) -> None:
+        cache = StepCache(PrettyConfig(cache_root=str(tmp_path)), "checkout", StepReporter(hooks=[]))
 
         assert isinstance(cache, StepCache)
 
-    def test_root_is_str_and_writable_is_bool(self) -> None:
-        cache = StepCache(PrettyConfig(cache_root="/tmp/pp-store-contract"), None, StepReporter(hooks=[]))
+    def test_root_is_str_and_writable_is_bool(self, tmp_path: Path) -> None:
+        cache = StepCache(PrettyConfig(cache_root=str(tmp_path)), None, StepReporter(hooks=[]))
 
         assert isinstance(cache.root, str)
         assert isinstance(cache.writable, bool)
