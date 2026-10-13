@@ -151,6 +151,10 @@ Inside function and method bodies, logical blocks are separated by **one blank l
 
 ## Docstrings
 
+The requirements in this section apply to public production APIs. Test-only code follows
+the test-specific rules in **Testing / Docstrings** below; production docstring requirements
+MUST NOT be applied to test functions, fixtures, helpers, or test doubles.
+
 All public functions, methods, and classes **MUST** have docstrings. Format — **Google style**:
 
 ```python
@@ -216,6 +220,21 @@ RULES:
 - Files: `test_<module>.py`
 - Functions: `test_<what>_<scenario>` (e.g., `test_complexity_with_empty_input`)
 - Grouping: `class Test<Component>:`
+
+## Docstrings
+
+These rules override the production docstring rules for `tests/**`, `example/tests/**`,
+and fixture/support code used exclusively by those tests.
+
+- Test intent MUST be clear from a self-documenting name or a brief scenario description.
+- A single-line docstring describing the scenario is sufficient for test functions,
+  methods, classes, fixtures, helpers, and test doubles.
+- Self-documenting test functions and methods MAY omit docstrings. Missing docstrings
+  alone MUST NOT be reported as convention violations when the name explains the scenario.
+- `Args`, `Returns`, and `Raises` sections are optional in test code. Do not require them
+  for pytest fixtures, fixture parameters, or parametrized test inputs.
+- Do not restate test implementation details in docstrings; explain intent when the name
+  alone is insufficient.
 
 ## Test Types
 
