@@ -283,7 +283,8 @@ A programmatically assembled config adopts verbatim — the file layer never loa
 from prettyplay.config import PrettyConfig, adopt_config
 
 adopted = adopt_config(PrettyConfig(model="gpt-5"))
-print(adopted.browser.name, adopted.cache_root)  # the passed values; the empty cache_root resolved to <cwd>/.prettyplay/cache
+# the passed values; the empty cache_root resolved to <cwd>/.prettyplay/cache
+print(adopted.browser.name, adopted.cache_root)
 ```
 
 - `adopt_config` never reads pyproject.toml and never reads PRETTYPLAY_* — it works with no pyproject anywhere
