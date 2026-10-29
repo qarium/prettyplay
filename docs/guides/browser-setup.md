@@ -86,11 +86,11 @@ launches and remote connects alike — mapped to Playwright's native
 the pace is fixed at browser start. See
 [Configuration → Pace](../configuration.md#pace).
 
-## Per-test overrides
+## Browser settings of a passed config
 
-Browser settings can be overridden per test through the nested `BrowserConfig`
-group — explicitly set fields win, untouched group defaults never overwrite
-the file values:
+Browser settings of a programmatically assembled config live in the nested
+`BrowserConfig` group — every field of the passed group is the effective
+value; the file layer never loads for a passed config:
 
 ```python
 from prettyplay import BrowserConfig, PrettyConfig, PrettyPlay
@@ -101,4 +101,4 @@ test = PrettyPlay(
 )
 ```
 
-See [Configuration](../configuration.md#per-test-overrides-layered-merge).
+See [Configuration](../configuration.md#the-programmatic-configuration).

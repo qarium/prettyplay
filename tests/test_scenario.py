@@ -537,12 +537,12 @@ class TestPrettyPlayLogic:
 
             assert t1._runtime is not t2._runtime
             assert t1._runtime.budgets is not t2._runtime.budgets
-            assert load_config_mock.call_args_list == [mock.call(None, None), mock.call(None, None)]
+            assert load_config_mock.call_args_list == [mock.call(), mock.call()]
 
-    def test_scenario_forwards_config_overrides_through_real_loader(
+    def test_scenario_takes_passed_config_verbatim(
         self, tmp_path: Path, write_pyproject, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The ``config`` parameter reaches the real ``load_config``: explicit values win, the file layer survives."""
+        """The ``config`` parameter is the complete effective config: the pyproject layer never back-fills it."""
         for name in (
             "PRETTYPLAY_MODEL",
             "PRETTYPLAY_BROWSER_NAME",
@@ -562,15 +562,38 @@ class TestPrettyPlayLogic:
             '\n[tool.prettyplay.browser]\nname = "firefox"\n',
             encoding="utf-8",
         )
-        monkeypatch.chdir(tmp_path)  # load_config(None) walks up from cwd for pyproject.toml
+        monkeypatch.chdir(tmp_path)  # a pyproject with a [tool.prettyplay] section sits right here
 
         test = PrettyPlay(CACHE_KEY, config=PrettyConfig(generation_prompt="per-test instructions"))
 
         effective = test._runtime.config
-        assert effective.generation_prompt == "per-test instructions"  # the programmatic layer wins
-        assert effective.model == "gpt-4o"  # untouched fields come from the file
-        assert effective.browser.name == "firefox"
-        assert effective.cache_root == str(tmp_path / ".prettyplay" / "cache")
+        assert effective.generation_prompt == "per-test instructions"  # the passed value survives verbatim
+        assert effective.model == ""  # unset fields stay at model defaults — the file never back-fills
+        assert effective.browser.name == "chromium"
+        assert effective.cache_root == str(tmp_path / ".prettyplay" / "cache")  # the empty default resolves
+
+    def test_scenario_constructs_with_config_without_any_pyproject(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Regression: a passed config needs no pyproject.toml upward — no FileNotFoundError."""
+        monkeypatch.chdir(tmp_path)  # tmp_path: no pyproject.toml here or upward
+
+        test = PrettyPlay(CACHE_KEY, config=PrettyConfig(cache_root=str(tmp_path)))
+
+        assert test._runtime.config.cache_root == str(tmp_path)
+
+    def test_scenario_ignores_env_overrides_for_passed_config(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The PRETTYPLAY_* environment never mutates a config passed programmatically."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("PRETTYPLAY_MODEL", "env-model")
+        monkeypatch.setenv("PRETTYPLAY_STRICT", "true")
+
+        test = PrettyPlay(CACHE_KEY, config=PrettyConfig(model="claude-sonnet-4-5", cache_root=str(tmp_path)))
+
+        assert test._runtime.config.model == "claude-sonnet-4-5"
+        assert test._runtime.config.strict is False
 
     def test_default_cache_root_anchors_at_run_cwd_below_pyproject(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

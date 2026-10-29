@@ -4,7 +4,7 @@ Domain: how a run is composed — runtimes, contexts, hooks, failures, strict mo
 
 ## Composition
 
-One runtime per test: each PrettyPlay builds its own runtime — its own configuration, browser process, LLM provider and attempt budgets. Tests never share browser state or budgets through the library; outcomes do not depend on the execution order. Constructing a test is cheap and requires no LLM credentials: the browser starts lazily on the first step. A config passed to the test overrides only the explicitly set values — everything else resolves from pyproject+env; the override reaches inside the nested browser group. When the process exits, every runtime stops its browser and driver synchronously before returning control to the terminal — scripts never leave browser processes behind.
+One runtime per test: each PrettyPlay builds its own runtime — its own configuration, browser process, LLM provider and attempt budgets. Tests never share browser state or budgets through the library; outcomes do not depend on the execution order. Constructing a test is cheap and requires no LLM credentials: the browser starts lazily on the first step. A config passed to the test is the complete effective configuration — taken verbatim, pyproject+env never load for it; `config=None` resolves everything from pyproject+env. When the process exits, every runtime stops its browser and driver synchronously before returning control to the terminal — scripts never leave browser processes behind.
 
 ```python
 from prettyplay import BrowserConfig, PrettyConfig, PrettyPlay
@@ -50,7 +50,7 @@ The library is framework-agnostic: no plugins, no base classes. Construct the ob
 
 ## Strict mode — replay-only CI runs
 
-`strict = true` (env PRETTYPLAY_STRICT, per-test override) turns the run into an honest replay: cached code executes exactly as stored and nothing is ever (re)generated. Settle polling still applies to cached code — re-executing it is execution, not generation.
+`strict = true` (env PRETTYPLAY_STRICT, programmatically assembled config) turns the run into an honest replay: cached code executes exactly as stored and nothing is ever (re)generated. Settle polling still applies to cached code — re-executing it is execution, not generation.
 
 - A cache miss fails the step as IncurableStepError stating that strict mode forbids generation — an expected CI signal: generating a step is a deliberate non-strict act
 - A failed cached step is classified when LLM access is configured: product_defect raises ProductDefectError, rot/fixable/incurable raises IncurableStepError — never regenerated
@@ -71,7 +71,7 @@ budget is consumed. Locator ambiguity and Python-level errors of the step code n
 
 ## Interactive steering
 
-`interactive = true` (env PRETTYPLAY_INTERACTIVE, per-test override) arms the steering REPL for local generation
+`interactive = true` (env PRETTYPLAY_INTERACTIVE, programmatically assembled config) arms the steering REPL for local generation
 sessions: when a step terminally fails with IncurableStepError, a terminal dialog opens — step, failed code, the
 terminal error render, the current page URL, a screenshot path, the commands — and every engineer message drives one
 regeneration whose complete code is shown for approval with run? [y/N] before it executes against the live page. A

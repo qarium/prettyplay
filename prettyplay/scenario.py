@@ -13,7 +13,7 @@ from typing import TypeVar
 from playwright.sync_api import Page
 
 from .cache import StepCache
-from .config import PrettyConfig, load_config
+from .config import PrettyConfig, adopt_config, load_config
 from .driver import PageFacade
 from .engine import StepGenerator, StepHealer
 from .engine.groups import GroupRecovery
@@ -173,12 +173,15 @@ class PrettyPlay:
                 construction, so every event of every step reaches them.
                 ``None`` — an empty hooks list; :meth:`add_hooks` appends
                 later.
-            config: the programmatic settings layer; explicitly set values
-                win over the pyproject+env file layer, unset and empty
-                fields resolve from it. ``None`` resolves everything from
-                the file layer, as before.
+            config: the pre-assembled configuration, keyword-only — taken
+                verbatim as the effective settings; pyproject.toml and the
+                ``PRETTYPLAY_*`` environment never load for it, and an empty
+                ``cache_root`` resolves to the ``<cwd>/.prettyplay/cache``
+                default. ``None`` resolves everything from the pyproject+env
+                file layer, as before.
         """
-        effective = load_config(None, config)
+        effective = load_config() if config is None else adopt_config(config)
+
         self._runtime = PrettyplayRuntime(effective)
         self._reporter = StepReporter(hooks=hooks or [])
         self._cache = StepCache(self._runtime.config, cache_path, self._reporter)

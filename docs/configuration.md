@@ -89,11 +89,12 @@ headless`, `browser_endpoint` → `[tool.prettyplay.browser] endpoint`. The
 removed legacy env name `PRETTYPLAY_BROWSER` fails the same way with a hint to
 use `PRETTYPLAY_BROWSER_NAME`. Migrate before upgrading.
 
-## Per-test overrides — layered merge
+## The programmatic configuration
 
 `PrettyConfig` is the public name of the full settings model. A config passed
-to the test object carries only the explicitly set values; everything else
-resolves from pyproject+env:
+to the test object is the complete effective configuration — taken verbatim;
+pyproject.toml and the `PRETTYPLAY_*` environment never load for it, and
+fields left at their defaults keep the model defaults:
 
 ```python
 from prettyplay import BrowserConfig, PrettyConfig, PrettyPlay
@@ -101,28 +102,29 @@ from prettyplay import BrowserConfig, PrettyConfig, PrettyPlay
 test = PrettyPlay(
     cache_key="login-flow",
     config=PrettyConfig(
+        model="gpt-5",
         strict=True,
         browser=BrowserConfig(screen="fullscreen", headless=False),
     ),
 )
 ```
 
-- An explicitly set field wins over pyproject+env; a field left at its default
-  falls back to the file layer
-- The merge reaches inside the nested group: explicitly set fields of a passed
-  `BrowserConfig` win over the file layer; untouched group defaults never
-  overwrite file values — set only `screen` and the file's `name`,
-  `headless`, `endpoint`, `accept_dialogs`, `speed` keep working
-- `strict`, `interactive` and `generation_approve` participate when passed
-  explicitly — an explicit `False` overrides the file value too
-- `polling_timeout` merges by skip-when-`None`: a `PrettyConfig` that leaves
-  it `None` (the default) resolves from the file layer, while an explicit
-  `0.0` participates in the merge as an explicit disable — indistinguishable
-  from unset only at the `None` default, never at the value
-- File values you did not touch survive: `base_url` and `model` set only in
-  pyproject.toml keep working when a config is passed
-- One model — one place of validation: file and programmatic values validate
-  identically
+- A passed config needs no pyproject.toml anywhere — construction never
+  searches the filesystem and never fails with `FileNotFoundError`
+- Every field of the passed model is the effective value; unset fields keep
+  the model defaults (empty strings, `0`, `False`, `None`) — nothing
+  back-fills from pyproject or env
+- The file layer is the `config=None` path: everything resolves from
+  pyproject+env, as before
+- `polling_timeout=None` means polling off; disable it explicitly per test
+  with `0.0` — the same values as in the file layer
+- One model — one place of validation: the constructor validates the
+  assembled model exactly like the loaded one; an invalid value fails loudly
+  at construction
+
+Migration from the removed overlay semantics: a partial `PrettyConfig` that
+relied on pyproject/env back-fill must either fill the missing fields itself
+or keep `config=None` and use the file layer.
 
 ## The PrettyConfig API
 
@@ -136,7 +138,7 @@ from prettyplay import BrowserConfig, PrettyConfig
 
 Both models are pydantic v2 with keyword-only construction; every field
 carries an empty or neutral default — an empty string means unset for string
-fields, which is what makes the layered merge above possible.
+fields, the convention behind the loader's layered resolution.
 
 ### PrettyConfig
 
@@ -206,7 +208,7 @@ config = load_config(pyproject_path=None, overrides=None)
 Resolution order: TOML file → environment overrides (`PRETTYPLAY_*`) →
 explicitly set fields of `overrides` (the merge reaches inside the browser
 group — see
-[Per-test overrides](#per-test-overrides-layered-merge)).
+[The programmatic configuration](#the-programmatic-configuration)). `load_config` keeps the layered merge for file-based resolution; a config passed to the test object itself adopts verbatim.
 
 ### Examples
 
@@ -381,7 +383,7 @@ test = PrettyPlay(
 
 ## Strict mode
 
-`strict = true` (env `PRETTYPLAY_STRICT`, per-test override) switches the run
+`strict = true` (env `PRETTYPLAY_STRICT`, programmatically assembled config) switches the run
 to replay-only: cached code executes honestly and nothing is ever
 (re)generated. A cache miss fails as an incurable step; a failed cached step
 is at most classified — never regenerated. Classification is the only LLM call
