@@ -9,7 +9,8 @@ The step executor opens the dialog at the exact moment an
 `IncurableStepError` would propagate — budget exhausted, incurable verdict,
 failed-check final classification, or a still-terminal group recovery (see
 [Groups](groups.md)) — when `interactive` is on (default
-`false`; env `PRETTYPLAY_INTERACTIVE`, per-test override) and the run is not
+`false`; env `PRETTYPLAY_INTERACTIVE`, programmatically assembled
+config) and the run is not
 strict. It never opens on `product_defect` (a dialog must never repaint a red
 test green), never in replay-strict, and never when the LLM is unavailable.
 

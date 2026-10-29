@@ -19,6 +19,7 @@ Annotations: |
   Type hints mandatory; no *args/**kwargs; generics parameterized.
   A validation failure never surfaces as a raw pydantic error: the loader wraps it into the loud actionable `ConfigurationError`.
   Layered resolution: a value passed programmatically wins over the pyproject+env layer only when explicitly set; empty string means unset for string fields. One model — one place of validation — file and programmatic values validate identically. The canonical settings model is `PrettyConfig`, exported under that name by this cell and the library facade; no settings alias.
+  A programmatically assembled `PrettyConfig` adopts verbatim: `adopt_config` takes it as the single settings layer — no pyproject or env reads, an empty cache_root resolves to the run-cwd default; the layered merge stays the contract of `load_config` for file-based resolution.
   The browser settings form the nested browser group of `BrowserConfig` inside `PrettyConfig` (see `pydantic`): fields inside the group carry no browser_ prefix — the group name scopes them. Env overrides stay flat: PRETTYPLAY_BROWSER_NAME, PRETTYPLAY_BROWSER_SCREEN, PRETTYPLAY_BROWSER_HEADLESS, PRETTYPLAY_BROWSER_ENDPOINT, PRETTYPLAY_BROWSER_ACCEPT_DIALOGS, PRETTYPLAY_BROWSER_SPEED, PRETTYPLAY_BROWSER_TIMEOUT.
   The pace setting is an ordinary browser-group value: the group stores the percentage only — the percent→slow_mo mapping belongs to the driver cell.
   The old flat keys browser, headless and browser_endpoint at the [tool.prettyplay] level are a hard pre-1.0 break: the loader rejects them with a loud actionable `ConfigurationError` naming the new location.
@@ -214,9 +215,29 @@ Annotations: |
     - Never read or store LLM API keys from any file; keys come only from environment variables
     - Python 3.10 compatibility via the tomli fallback (see `pydantic`)
 
+"adopt_config(config: PrettyConfig) -> config: PrettyConfig":
+  location: loader.py
+  annotations: |
+    Adopt a pre-assembled configuration as the single settings layer — the programmatic counterpart of `load_config` for integrators that never read the file layer.
+
+    `config`: the programmatically assembled settings — the complete effective configuration; the pyproject+env layer never loads and never back-fills anything.
+
+    `config`: the effective configuration — the passed model verbatim.
+
+    Algorithm:
+    1. Resolve an empty cache_root to the absolute default <cwd>/.prettyplay/cache — the working directory of the run
+    2. Return the model: every set field keeps its passed value, unset fields keep model defaults
+
+    Requirements:
+    - Never read pyproject.toml and never read PRETTYPLAY_* environment — adoption works with no pyproject anywhere and no environment value can mutate the adopted config
+    - Never raise the configuration error: the model is already validated at construction
+
+    Constraints:
+    - No layered merge: nothing resolves from the file or env layer
+
 ---
 
 Author: Goga
 CreatedAt: 10/09/26
 Description: |
-  Project settings of prettyplay: the validated [tool.prettyplay] schema with the nested browser group (engine, screen mode, headless, endpoint, dialog auto-accept, pace, page action timeout), the strict replay-only switch, the generation and classification instructions, the generation compliance switch, the candidate probe bound, and the loader with flat env overrides for the group, the removed-flat-key rejection, explicit per-test merging that reaches inside the group and the actionable configuration error.
+  Project settings of prettyplay: the validated [tool.prettyplay] schema with the nested browser group (engine, screen mode, headless, endpoint, dialog auto-accept, pace, page action timeout), the strict replay-only switch, the generation and classification instructions, the generation compliance switch, the candidate probe bound, and the loader with flat env overrides for the group, the removed-flat-key rejection, explicit per-test merging that reaches inside the group, the verbatim adoption of a pre-assembled config and the actionable configuration error.

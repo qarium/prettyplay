@@ -1219,7 +1219,7 @@ def test_pyproject_settings_reach_the_executor_config(tmp_path: Path) -> None:
     with (
         mock.patch(
             "prettyplay.scenario.load_config",
-            side_effect=lambda _path, overrides: load_config(str(pyproject), overrides),
+            side_effect=lambda: load_config(str(pyproject)),
         ),
         mock.patch("prettyplay.runtime.create_provider", return_value=ForbiddenProvider()),
     ):

@@ -62,11 +62,11 @@ By default, `close()` removes cache files for this key that this test did not
 load or save. Pass `cleanup=False` to keep unused entries, including a
 committed cache intended for later runs.
 
-The `config` argument overrides settings per test — only the fields you pass
-count: explicitly set values win over pyproject.toml and the environment,
-everything else resolves from the file layer as before. Browser settings form
-the nested `BrowserConfig` group; an empty string inside the group means unset,
-untouched group defaults never overwrite the file values:
+The `config` argument is the pre-assembled configuration — taken verbatim:
+pyproject.toml and the environment never load for it, fields left at their
+defaults keep the model defaults. Passing `config=None` (the default) resolves
+everything from the file layer as before. Browser settings form the nested
+`BrowserConfig` group:
 
 ```python
 from prettyplay import BrowserConfig, PrettyConfig

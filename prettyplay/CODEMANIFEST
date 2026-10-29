@@ -3,6 +3,7 @@ Imports:
       - PrettyConfig
       - BrowserConfig
       - load_config
+      - adopt_config
     From: prettyplay/config
   - Types:
       - StepHooks
@@ -116,12 +117,12 @@ Annotations: |
     `cache_path`: the optional cache subdirectory — part of the address; steps never leak across subdirectories.
     `cleanup`: keyword-only — the cache lifecycle switch, default True: close() deletes the untouched step files of this test's cache key in its cache scope (the per-test working set); False keeps every file — the persistence mode of the committed-cache workflow.
     `hooks`: the optional integrator callbacks of this test, keyword-only together with `config` — the reporter is seeded with them at construction, so every event of every step reaches them; None — an empty hooks list, add_hooks appends later.
-    `config`: per-test overrides, keyword-only — the same full model, the nested `BrowserConfig` group and the strict switch included; explicitly set values win, unset/empty fields resolve from pyproject+env; None — everything resolves from pyproject+env, as before.
+    `config`: the pre-assembled configuration, keyword-only — taken verbatim as the effective settings (see `adopt_config` from Imports): pyproject.toml and the PRETTYPLAY_* environment never load for it, unset fields keep model defaults, an empty cache_root resolves to the <cwd>/.prettyplay/cache default. None — everything resolves from the pyproject+env file layer, as before.
 
     Supports the context manager protocol: exit closes the test.
 
     Algorithm:
-    1. Resolve the effective config: `load_config` with overrides = config
+    1. Resolve the effective config: None — `load_config` loads the pyproject+env layer; a passed config — `adopt_config` adopts it verbatim
     2. Build the own `PrettyplayRuntime` with the effective config — no process-wide singleton exists
     3. Construct the per-test reporter: `StepReporter` seeded with hooks — the given list or an empty one; add_hooks appends to it
     4. Construct the per-test `StepCache` from the runtime config, `cache_path` and the reporter

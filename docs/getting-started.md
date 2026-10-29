@@ -78,8 +78,9 @@ configuration, browser process, LLM provider and attempt budgets. Tests never
 share browser state or budgets through the library; outcomes do not depend on
 the execution order. Constructing a test is cheap and requires no LLM
 credentials: the browser starts lazily on the first step. A config passed to
-the test overrides only the explicitly set values — everything else resolves
-from pyproject+env; the override reaches inside the nested browser group:
+the test is the complete effective configuration — taken verbatim, pyproject
+and env never load for it; `config=None` resolves everything from
+pyproject+env:
 
 ```python
 from prettyplay import BrowserConfig, PrettyConfig, PrettyPlay
@@ -100,7 +101,7 @@ browser processes behind.
 
 ## Strict mode — replay-only CI runs
 
-`strict = true` (env `PRETTYPLAY_STRICT`, per-test override) turns the run
+`strict = true` (env `PRETTYPLAY_STRICT`, programmatically assembled config) turns the run
 into an honest replay: cached code executes exactly as stored and nothing is
 ever (re)generated.
 
@@ -128,7 +129,7 @@ entries of the test's key (see [Step cache](reference/step-cache.md)).
 ## Settle polling
 
 `polling_timeout` (default `None` — off; env `PRETTYPLAY_POLLING_TIMEOUT`,
-per-test override) opens one settle window per step execution, measured from
+programmatically assembled config) opens one settle window per step execution, measured from
 the first execution of the step's code: a transient failure of a pollable
 kind re-executes the same code after `polling_delay` (default 0.5 s) until
 success or window end. Attempts appear as `settle_retry` log records; no LLM
@@ -149,8 +150,8 @@ parameter — `test.step("open the cart", tries=3)` — see
 
 ## Interactive steering
 
-`interactive = true` (default `false`; env `PRETTYPLAY_INTERACTIVE`, per-test
-override) arms the steering REPL for local generation sessions: when a step
+`interactive = true` (default `false`; env `PRETTYPLAY_INTERACTIVE`,
+programmatically assembled config) arms the steering REPL for local generation sessions: when a step
 terminally fails with `IncurableStepError` on a non-strict run, a terminal
 dialog opens and every engineer message drives one regeneration executed
 against the live page. A green turn passes the compliance gate

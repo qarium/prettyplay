@@ -4,7 +4,7 @@ import inspect
 from pathlib import Path
 
 import pytest
-from prettyplay.config import BrowserConfig, ConfigurationError, PrettyConfig, load_config
+from prettyplay.config import BrowserConfig, ConfigurationError, PrettyConfig, adopt_config, load_config
 from prettyplay.config import loader as _loader
 from prettyplay.failures import PrettyplayError
 from pydantic import ValidationError
@@ -954,3 +954,62 @@ class TestBrowserTimeoutEnv:
         ]
         assert isinstance(excinfo.value, PrettyplayError)
         assert isinstance(excinfo.value.__cause__, ValidationError)
+
+
+class TestAdoptConfig:
+    """Logic tests: the pre-assembled config as the single settings layer."""
+
+    def test_adopt_config_takes_passed_values_verbatim(self, tmp_path, monkeypatch) -> None:
+        """Contract: a pyproject section in the run directory never reaches an adopted config."""
+        write_section(
+            tmp_path,
+            '[tool.prettyplay]\nprovider = "anthropic"\nmodel = "file-model"\n'
+            '\n[tool.prettyplay.browser]\nname = "firefox"\n',
+        )
+        monkeypatch.chdir(tmp_path)
+
+        adopted = adopt_config(PrettyConfig(model="claude-sonnet-4-5"))
+
+        assert adopted.model == "claude-sonnet-4-5"
+        assert adopted.provider == "openai"  # unset fields keep model defaults — the file never back-fills
+        assert adopted.browser.name == "chromium"
+
+    def test_adopt_config_ignores_env_overrides(self, tmp_path, monkeypatch) -> None:
+        """Contract: PRETTYPLAY_* variables never touch an adopted config."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("PRETTYPLAY_MODEL", "env-model")
+        monkeypatch.setenv("PRETTYPLAY_STRICT", "true")
+
+        adopted = adopt_config(PrettyConfig(model="claude-sonnet-4-5"))
+
+        assert adopted.model == "claude-sonnet-4-5"
+        assert adopted.strict is False
+
+    def test_adopt_config_resolves_empty_cache_root_to_run_cwd_default(self, tmp_path, monkeypatch) -> None:
+        """Contract: an empty cache_root resolves to the absolute <cwd>/.prettyplay/cache default."""
+        monkeypatch.chdir(tmp_path)
+
+        adopted = adopt_config(PrettyConfig(model="claude-sonnet-4-5"))
+
+        assert adopted.cache_root == str(tmp_path / ".prettyplay" / "cache")
+
+    def test_adopt_config_keeps_non_empty_cache_root(self, tmp_path, monkeypatch) -> None:
+        """Contract: a set cache_root stays verbatim — no default ever overwrites it."""
+        monkeypatch.chdir(tmp_path)
+
+        adopted = adopt_config(PrettyConfig(model="claude-sonnet-4-5", cache_root="/cache/run"))
+
+        assert adopted.cache_root == "/cache/run"
+
+    def test_adopt_config_never_touches_the_filesystem_search(self, tmp_path, monkeypatch) -> None:
+        """Regression: adoption never searches for pyproject.toml — no FileNotFoundError without one."""
+        monkeypatch.chdir(tmp_path)
+
+        def no_search(*args: object, **kwargs: object) -> Path:
+            raise AssertionError("adopt_config must not search for pyproject.toml")
+
+        monkeypatch.setattr(_loader, "_find_pyproject", no_search)
+
+        adopted = adopt_config(PrettyConfig(model="claude-sonnet-4-5"))
+
+        assert adopted.model == "claude-sonnet-4-5"

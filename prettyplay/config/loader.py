@@ -338,3 +338,22 @@ def load_config(pyproject_path: str | None = None, overrides: PrettyConfig | Non
         return file_config
 
     return _apply_overrides(file_config, overrides)
+
+
+def adopt_config(config: PrettyConfig) -> PrettyConfig:
+    """Adopt a pre-assembled configuration as the single settings layer.
+
+    Args:
+        config: the programmatically assembled settings — the complete
+            effective configuration; the pyproject+env layer never loads
+            and never back-fills anything.
+
+    Returns:
+        The effective configuration: ``config`` as is, with an empty
+        ``cache_root`` resolved to the absolute default
+        ``<cwd>/.prettyplay/cache`` — the working directory of the run.
+    """
+    if not config.cache_root:
+        return config.model_copy(update={"cache_root": str(Path.cwd() / ".prettyplay" / "cache")})
+
+    return config
