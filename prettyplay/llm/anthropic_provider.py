@@ -29,12 +29,6 @@ from .models import (
 )
 from .provider import LLMProvider
 
-#: The anthropic Messages API requires ``max_tokens`` on every request — the
-#: SDK-forced completion cap the openai side has no analogue of. Sized so a
-#: full multi-step step-code response never truncates (the openai
-#: implementation sends no cap and defaults to the model maximum).
-REQUEST_MAX_TOKENS = 4096
-
 
 def _first_text_block(response: object) -> str | None:
     """Extract the text of the first text block of an anthropic response.
@@ -232,7 +226,7 @@ class AnthropicProvider(LLMProvider):
         request = {
             "model": self._config.effective_generation_model,
             "system": prompt,
-            "max_tokens": REQUEST_MAX_TOKENS,
+            "max_tokens": self._config.request_max_tokens,
             "messages": [{"role": "user", "content": self._user_content(text, screenshot)}],
         }
 
@@ -289,7 +283,7 @@ class AnthropicProvider(LLMProvider):
         request = {
             "model": self._config.effective_classification_model,
             "system": prompt,
-            "max_tokens": REQUEST_MAX_TOKENS,
+            "max_tokens": self._config.request_max_tokens,
             "messages": [{"role": "user", "content": self._user_content(text, screenshot)}],
         }
 
@@ -379,7 +373,7 @@ class AnthropicProvider(LLMProvider):
         request = {
             "model": self._config.effective_classification_model,
             "system": prompt,
-            "max_tokens": REQUEST_MAX_TOKENS,
+            "max_tokens": self._config.request_max_tokens,
             "messages": [{"role": "user", "content": self._user_content(text, screenshot)}],
         }
 
@@ -453,7 +447,7 @@ class AnthropicProvider(LLMProvider):
         request = {
             "model": self._config.effective_classification_model,
             "system": prompt,
-            "max_tokens": REQUEST_MAX_TOKENS,
+            "max_tokens": self._config.request_max_tokens,
             "messages": [{"role": "user", "content": text}],
         }
 

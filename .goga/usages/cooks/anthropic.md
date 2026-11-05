@@ -25,7 +25,7 @@ Send the system prompt and the step request (a11y snapshot, step text, previous 
 ```python
 message = client.messages.create(
     model=config.model,
-    max_tokens=4096,
+    max_tokens=config.request_max_tokens,  # the completion cap setting; default 16384
     system=GENERATION_SYSTEM_PROMPT,
     messages=[
         {"role": "user", "content": build_step_request(snapshot, step_text, previous_steps)},
@@ -43,7 +43,7 @@ The compliance gate sends the same verdict request through the Messages API — 
 ```python
 message = client.messages.create(
     model=config.model,  # the effective gate model of the settings
-    max_tokens=4096,
+    max_tokens=config.request_max_tokens,  # the completion cap setting rides every request
     system=COMPLIANCE_SYSTEM_PROMPT,
     messages=[
         {"role": "user", "content": build_compliance_request(instructions, step_text, code)},
@@ -51,6 +51,8 @@ message = client.messages.create(
 )
 verdict_text = message.content[0].text
 ```
+
+The Messages API rejects a send without `max_tokens`: every request of every operation carries the completion cap of the `request_max_tokens` setting (default 16384 — a reasoning model spends the budget on thinking blocks before the text block, and a cap-truncated response carries no text block at all). The openai side has no analogue — no cap, the model maximum applies.
 
 Rules:
 - SDK errors map to `LLMUnavailableError` identically — a gate failure is hard, unchecked code is never cached

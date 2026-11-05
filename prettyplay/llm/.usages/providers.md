@@ -56,6 +56,8 @@ Compliance parity: the gate request uses the same prepared instruction, INPUTS a
 
 Classification parity: ordinary classification renders its `step_text` input as the prepared instruction in the STEP block, identically in both providers. Group diagnosis renders prior scenario and group trace instruction fields, plus the prepared failed STEP. Raw template sentences stay local to cache addressing and re-rendering.
 
+The one transport-level asymmetry: the anthropic Messages API requires `max_tokens` on every request, so every anthropic request carries a completion cap — the `request_max_tokens` setting (default 16384, sized so a reasoning model never truncates: thinking blocks spend the same budget before the text block, and a cap-truncated response carries no text block at all — an empty completion); the openai side sends no cap and the model maximum applies. A transport requirement of the SDK, not a capability difference of the port.
+
 ## Transport retries
 
 Transient provider outages no longer kill a logical attempt: every SDK call of all four

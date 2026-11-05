@@ -8,6 +8,7 @@ import re
 import threading
 from collections.abc import Callable
 from typing import TypeVar, cast
+from urllib.parse import urlparse
 
 from playwright.sync_api import Browser, BrowserContext, Error, Page, Playwright, sync_playwright
 
@@ -293,8 +294,10 @@ class DriverSession:
             The connected or launched browser process — the group ``speed``
             maps to the native ``slow_mo``, fixed at process start and never
             a code wait; a set ``endpoint`` connects instead of launching,
-            with ``headless`` ignored; ``chrome``/``msedge`` launch through
-            the chromium engine with the matching channel.
+            with ``headless`` ignored — ws/wss over the Playwright protocol,
+            http/https over CDP (the chromium family only);
+            ``chrome``/``msedge`` launch through the chromium engine with
+            the matching channel.
 
         Raises:
             Error: a connect failure — re-raised wrapped with the endpoint,
@@ -314,8 +317,19 @@ class DriverSession:
         if group.endpoint:
             endpoint = group.endpoint
             engine = playwright.chromium if name in ("chrome", "msedge") else engines[name]
+
+            # an http(s) endpoint is CDP — connect_over_cdp, the chromium family only;
+            # a ws/wss endpoint is a Playwright server — engine.connect
+            if urlparse(endpoint).scheme in {"http", "https"}:
+                if engine is not playwright.chromium:
+                    raise Error(f"a CDP endpoint supports the chromium family only, not {name}: {endpoint}")
+
+                connect = engine.connect_over_cdp
+            else:
+                connect = engine.connect
+
             try:
-                return cast(Browser, engine.connect(endpoint, slow_mo=slow_mo))
+                return cast(Browser, connect(endpoint, slow_mo=slow_mo))
             except Error as failure:
                 raise Error(f"cannot connect to the browser endpoint {endpoint}: {failure}") from failure
 

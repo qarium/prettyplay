@@ -37,6 +37,7 @@ _ENV_NAMES: dict[str, str] = {
         "generation_attempts",
         "healing_attempts",
         "llm_request_attempts",
+        "request_max_tokens",
         "send_screenshots",
         "generation_approve",
         "probe_timeout",
@@ -63,7 +64,9 @@ _BOOL_ENV_SETTINGS = frozenset(
 )
 
 #: The settings whose env values parse as decimal integers.
-_INT_ENV_SETTINGS = frozenset({"generation_attempts", "healing_attempts", "llm_request_attempts", "browser.speed"})
+_INT_ENV_SETTINGS = frozenset(
+    {"generation_attempts", "healing_attempts", "llm_request_attempts", "request_max_tokens", "browser.speed"}
+)
 
 #: The settings whose env values parse as decimal floats.
 _FLOAT_ENV_SETTINGS = frozenset({"polling_timeout", "polling_delay", "probe_timeout", "browser.timeout"})
@@ -82,6 +85,7 @@ _ALLOWED_TEXT: dict[str, str] = {
     "generation_attempts": "a positive integer",
     "healing_attempts": "a positive integer",
     "llm_request_attempts": "a positive integer",
+    "request_max_tokens": "a positive integer",
     "browser.headless": "a boolean",
     "browser.accept_dialogs": "a boolean",
     "strict": "a boolean",
@@ -98,7 +102,7 @@ _ALLOWED_TEXT: dict[str, str] = {
     "cache_root": "a non-empty string",
     "generation_prompt": "a non-empty string",
     "classification_prompt": "a non-empty string",
-    "browser.endpoint": "a valid ws/wss URL",
+    "browser.endpoint": "a valid ws/wss or http/https URL",
     "browser.screen": "an empty value, WxH (must be positive integers), fullscreen or a Playwright device name",
     "browser.speed": "an integer 0-100 inclusive",
     "browser.timeout": "a non-negative number of seconds (finite)",

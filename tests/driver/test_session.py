@@ -83,6 +83,8 @@ class FakeEngine:
         self.launch_calls: list[mock.Mock] = []
         self.connect_calls: list[str] = []
         self.connect_kwargs: list[dict] = []
+        self.cdp_calls: list[str] = []
+        self.cdp_kwargs: list[dict] = []
         self._browser: FakeBrowser | None = None
 
     def launch(self, **kwargs: object) -> "FakeBrowser":
@@ -101,6 +103,17 @@ class FakeEngine:
         self._factory.threads.append(threading.get_ident())
         self.connect_calls.append(endpoint)
         self.connect_kwargs.append(kwargs)
+        self._factory.engine_starts.append(self.name)
+
+        if self._browser is None:
+            self._browser = FakeBrowser(self._factory)
+
+        return self._browser
+
+    def connect_over_cdp(self, endpoint: str, **kwargs: object) -> "FakeBrowser":
+        self._factory.threads.append(threading.get_ident())
+        self.cdp_calls.append(endpoint)
+        self.cdp_kwargs.append(kwargs)
         self._factory.engine_starts.append(self.name)
 
         if self._browser is None:
@@ -573,9 +586,14 @@ class FailingEngine:
         self._factory.engine_starts.append(self.name)
         raise self._error
 
+    def connect_over_cdp(self, endpoint: str, **kwargs: object) -> "FakeBrowser":
+        self._factory.threads.append(threading.get_ident())
+        self._factory.engine_starts.append(self.name)
+        raise self._error
+
 
 class TestDriverSessionConnect:
-    """Logic tests: the remote ws endpoint branch of the engine start."""
+    """Logic tests: the remote endpoint branch of the engine start — ws/wss and CDP."""
 
     def test_session_connects_over_ws_endpoint_when_set(self) -> None:
         factory = FakePlaywrightFactory()
@@ -589,6 +607,81 @@ class TestDriverSessionConnect:
         assert factory.firefox.connect_calls == [endpoint]
         assert factory.launches == []  # no local launch happened
         assert factory.firefox.connect_kwargs == [{"slow_mo": 0}]  # headless is not passed
+        assert isinstance(page, PageFacade)
+
+    @pytest.mark.parametrize("endpoint", ["http://ci-grid:3000", "https://ci-grid:3000"])
+    def test_session_connects_over_cdp_for_http_endpoint(self, endpoint: str) -> None:
+        factory = FakePlaywrightFactory()
+
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium", endpoint=endpoint, speed=40)))
+            page = session.open_context()
+            session.close()
+
+        assert factory.chromium.cdp_calls == [endpoint]
+        assert factory.chromium.connect_calls == []  # the Playwright protocol connect never ran
+        assert factory.launches == []
+        assert factory.chromium.cdp_kwargs == [{"slow_mo": 1800}]  # the pace rides the CDP connect
+        assert isinstance(page, PageFacade)
+
+    def test_session_cdp_maps_channels_to_chromium(self) -> None:
+        factory = FakePlaywrightFactory()
+        endpoint = "http://ci-grid:3000"
+
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chrome", endpoint=endpoint)))
+            session.open_context()
+            session.close()
+
+        assert factory.chromium.cdp_calls == [endpoint]
+        assert factory.launches == []
+        assert factory.launch_kwargs == []  # channel= never appeared
+        assert factory.firefox.cdp_calls == []  # chromium is what got connected
+
+    @pytest.mark.parametrize("name", ["firefox", "webkit"])
+    def test_session_cdp_endpoint_rejects_non_chromium_engines(self, name: str) -> None:
+        factory = FakePlaywrightFactory()
+        endpoint = "http://ci-grid:3000"
+        session = DriverSession(PrettyConfig(browser=BrowserConfig(name=name, endpoint=endpoint)))
+
+        with (
+            mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory),
+            pytest.raises(Error, match="a CDP endpoint supports the chromium family only") as excinfo,
+        ):
+            session.open_context()
+
+        assert name in str(excinfo.value)  # the message names the rejected engine
+        assert endpoint in str(excinfo.value)  # and the endpoint
+        assert factory.chromium.cdp_calls == []  # rejected before any connect attempt
+        assert factory.launches == []
+
+        worker = session._worker
+        assert worker is None or worker._thread is None  # the worker thread is joined
+
+        assert factory.stop_calls == 1  # driver stopped — no process leak
+
+    def test_session_failed_cdp_connect_cleans_up_for_retry(self) -> None:
+        factory = FakePlaywrightFactory()
+        factory.chromium = FailingEngine("chromium", factory, Error("browser went away"))
+        session = DriverSession(PrettyConfig(browser=BrowserConfig(name="chromium", endpoint="http://dead:3000")))
+
+        with (
+            mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory),
+            pytest.raises(Error, match="http://dead:3000") as excinfo,
+        ):
+            session.open_context()
+
+        assert "browser went away" in str(excinfo.value)  # the cause is visible in the message
+        assert isinstance(excinfo.value.__cause__, Error)  # the original error is chained
+        assert excinfo.value.__cause__.args[0] == "browser went away"
+        assert factory.stop_calls == 1  # driver stopped — no process leak
+
+        factory.chromium = FakeEngine("chromium", factory)  # the retry starts cleanly
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            page = session.open_context()
+            session.close()
+
+        assert factory.start_calls == 2
         assert isinstance(page, PageFacade)
 
     def test_session_connect_maps_channels_to_chromium(self) -> None:

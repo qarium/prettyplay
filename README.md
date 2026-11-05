@@ -264,6 +264,7 @@ interactive = false              # true -> the steering dialog on a terminally s
 generation_attempts = 3
 healing_attempts = 2
 llm_request_attempts = 3       # total sends per LLM request; 1 disables transport retries
+request_max_tokens = 16384     # anthropic completion cap (max_tokens); sized so a reasoning model never truncates
 polling_timeout = 6.0            # settle window seconds; omit -> off, 0.0 -> explicit disable
 polling_delay = 0.5              # pause between settle re-executions
 send_screenshots = false
@@ -272,7 +273,7 @@ send_screenshots = false
 name = "chromium"                # chromium | firefox | webkit | chrome | msedge
 screen = ""                      # "" | WxH | fullscreen | Playwright device name
 headless = true                  # false -> run with a visible browser window
-endpoint = ""                    # ws:// endpoint of a remote browser; empty -> local launch
+endpoint = ""                    # remote browser endpoint; ws/wss -> Playwright server, http/https -> CDP (chromium family); empty -> local launch
 accept_dialogs = false           # true -> accept (else dismiss) dialogs no in-step capture claims
 speed = 100                      # pace of the run, 0-100 %; 100 -> full speed (default)
 ```
@@ -283,6 +284,13 @@ and compliance requests. Its default is 3 total sends, including the first;
 or pass `PrettyConfig(llm_request_attempts=...)` for one test. Explicit test
 values override the environment, which overrides pyproject.toml. Values must
 be positive integers.
+
+`request_max_tokens` (default 16384, env `PRETTYPLAY_REQUEST_MAX_TOKENS`) is
+the anthropic completion cap — the `max_tokens` every Messages API request
+requires. The default is sized so a reasoning model never truncates: thinking
+blocks spend the same budget before the text block, and a cap-truncated
+response carries no text block at all (an empty completion). The openai side
+sends no cap — the setting never touches it.
 
 The old flat keys `browser`, `headless` and `browser_endpoint` at the
 `[tool.prettyplay]` level are gone — a pre-1.0 hard break: the loader rejects
@@ -339,11 +347,15 @@ never generation, and never invalidates cached steps either.
 ### Remote browsers
 
 A non-empty `endpoint` (e.g. `ws://ci-grid:3000/playwright/chromium`) connects
-to a remote Playwright Server or browser grid instead of launching locally:
-`headless` does not apply to a connect (window visibility belongs to the
-endpoint server) and `chrome`/`msedge` map to the chromium engine — channels
-are a local-launch concept. A non-empty endpoint must be a valid ws/wss URL
-(otherwise `ConfigurationError` names the setting), and a failed connect fails
+to a remote browser instead of launching locally: ws/wss connects over the
+Playwright protocol — a Playwright Server or a hosted browser grid, any
+engine; http/https connects over CDP — a chromium-family endpoint (chromium,
+chrome, msedge). `headless` does not apply to a connect (window visibility
+belongs to the endpoint server) and `chrome`/`msedge` map to the chromium
+engine — channels are a local-launch concept. A non-empty endpoint must be a
+valid ws/wss or http/https URL (otherwise `ConfigurationError` names the
+setting); an http/https endpoint with a non-chromium engine fails loudly at
+start, and a failed connect fails
 loudly with the endpoint in the message.
 
 ### Environment overrides

@@ -33,8 +33,9 @@ class BrowserConfig(BaseModel):
             belongs to the running Playwright, never to the config.
         headless: run the browser without a visible window of a local launch;
             default True; ignored on a remote connect.
-        endpoint: ws endpoint of a remote browser; empty means the local
-            launch.
+        endpoint: remote browser endpoint; empty means the local launch;
+            ws/wss — a Playwright server endpoint, http/https — a CDP
+            endpoint of the chromium family.
         accept_dialogs: how the resolver of last resort settles a dialog
             no in-step stock dialog capture claims — True accepts it,
             False dismisses it (the Playwright default outcome); default
@@ -88,24 +89,26 @@ class BrowserConfig(BaseModel):
     @field_validator("endpoint")
     @classmethod
     def _validate_endpoint(cls, value: str) -> str:
-        """Check that a non-empty endpoint is a ws/wss URL.
+        """Check that a non-empty endpoint is a ws/wss or http/https URL.
 
         Args:
             value: the raw endpoint setting; empty means the local launch.
 
         Returns:
-            The unchanged endpoint when empty or a valid ws/wss URL.
+            The unchanged endpoint when empty or a valid ws/wss or
+            http/https URL.
 
         Raises:
-            ValueError: when a non-empty endpoint is not a ws/wss URL.
+            ValueError: when a non-empty endpoint is neither a ws/wss nor
+                an http/https URL.
         """
         if not value:
             return value
 
         parsed = urlparse(value)
 
-        if parsed.scheme not in {"ws", "wss"} or not parsed.netloc:
-            raise ValueError("must be a valid ws/wss URL")
+        if parsed.scheme not in {"ws", "wss", "http", "https"} or not parsed.netloc:
+            raise ValueError("must be a valid ws/wss or http/https URL")
 
         return value
 
@@ -228,6 +231,15 @@ class PrettyConfig(BaseModel):
             single-send behavior; the retry delays themselves are fixed
             policy, never configurable; participates in the layered merge
             like every other scalar setting.
+        request_max_tokens: the completion cap of one anthropic request —
+            the ``max_tokens`` the Messages API requires on every send;
+            default 16384. A reasoning model spends the same budget on its
+            thinking blocks before the text block, and a cap-truncated
+            response carries no text block at all — an empty completion —
+            so the default is sized for a reasoning model never truncating;
+            raising it fits models that think longer, a value above the
+            model's maximum output the endpoint rejects; the openai side
+            sends no cap and the model maximum applies; must be positive.
         send_screenshots: whether screenshots are attached to LLM requests.
         generation_approve: whether the instruction compliance gate runs before
             caching a generated step; True — every successfully executed
@@ -265,6 +277,7 @@ class PrettyConfig(BaseModel):
     generation_attempts: PositiveInt = 3
     healing_attempts: PositiveInt = 2
     llm_request_attempts: PositiveInt = 3
+    request_max_tokens: PositiveInt = 16384
     send_screenshots: bool = False
     generation_approve: bool = True
     probe_timeout: float = 0

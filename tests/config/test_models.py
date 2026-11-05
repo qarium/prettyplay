@@ -26,7 +26,7 @@ class TestConfigContract:
         with pytest.raises(TypeError):
             PrettyConfig("openai")  # type: ignore[misc]
 
-    def test_all_twenty_properties_accessible(self) -> None:
+    def test_all_twenty_one_properties_accessible(self) -> None:
         config = PrettyConfig()
         expected = [
             "provider",
@@ -45,6 +45,7 @@ class TestConfigContract:
             "generation_attempts",
             "healing_attempts",
             "llm_request_attempts",
+            "request_max_tokens",
             "send_screenshots",
             "generation_approve",
             "effective_generation_model",
@@ -63,7 +64,24 @@ class TestConfigContract:
             "llm_request_attempts",
         ]
 
-    def test_signature_declares_nineteen_fields_in_contract_order(self) -> None:
+    def test_config_request_max_tokens_field_default_and_order(self) -> None:
+        """Contract: the completion cap defaults to 16384 and slots after llm_request_attempts."""
+        assert PrettyConfig().request_max_tokens == 16384
+
+        assert list(PrettyConfig.model_fields)[13:17] == [
+            "generation_attempts",
+            "healing_attempts",
+            "llm_request_attempts",
+            "request_max_tokens",
+        ]
+
+        with pytest.raises(pydantic.ValidationError):
+            PrettyConfig(request_max_tokens=0)
+
+        with pytest.raises(pydantic.ValidationError):
+            PrettyConfig(request_max_tokens=-1)
+
+    def test_signature_declares_twenty_fields_in_contract_order(self) -> None:
         fields = PrettyConfig.model_fields
         assert list(fields.keys()) == [
             "provider",
@@ -82,6 +100,7 @@ class TestConfigContract:
             "generation_attempts",
             "healing_attempts",
             "llm_request_attempts",
+            "request_max_tokens",
             "send_screenshots",
             "generation_approve",
             "probe_timeout",
@@ -377,21 +396,22 @@ class TestConfigLogic:
             "wss://grid.example/playwright/chromium",
             "ws://127.0.0.1:9000",
             "WS://host:3000",
+            "http://ci-grid:3000",
+            "https://ci-grid:3000",
         ],
     )
-    def test_models_browser_endpoint_accepts_ws_and_wss(self, endpoint: str) -> None:
+    def test_models_browser_endpoint_accepts_ws_wss_http_https(self, endpoint: str) -> None:
         assert BrowserConfig(endpoint=endpoint).endpoint == endpoint
 
     @pytest.mark.parametrize(
         "endpoint",
         [
-            "http://ci-grid:3000",
             "ftp://x",
             "ci-grid:3000",
             "wss://",
         ],
     )
-    def test_models_rejects_non_ws_browser_endpoint(self, endpoint: str) -> None:
+    def test_models_rejects_malformed_browser_endpoint(self, endpoint: str) -> None:
         with pytest.raises(pydantic.ValidationError) as excinfo:
             BrowserConfig(endpoint=endpoint)
 

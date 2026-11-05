@@ -23,6 +23,7 @@ generation_attempts = 3
 healing_attempts = 2
 probe_timeout = 0                # candidate probe bound, seconds; 0 -> off (the page default applies)
 llm_request_attempts = 3       # total sends per LLM request; 1 disables request retries
+request_max_tokens = 16384     # anthropic completion cap (max_tokens); sized so a reasoning model never truncates
 polling_timeout = 6.0            # settle window seconds; omit -> off, 0.0 -> explicit disable
 polling_delay = 0.5              # pause between settle re-executions
 send_screenshots = false
@@ -31,7 +32,7 @@ send_screenshots = false
 name = "chromium"                # chromium | firefox | webkit | chrome | msedge
 screen = ""                      # "" | WxH | fullscreen | Playwright device name
 headless = true                  # false -> run with a visible browser window
-endpoint = ""                    # ws:// endpoint of a remote browser; empty -> local launch
+endpoint = ""                    # remote browser endpoint; ws/wss -> Playwright server, http/https -> CDP (chromium family); empty -> local launch
 accept_dialogs = false           # true -> accept (else dismiss) dialogs no in-step capture claims
 speed = 100                      # pace of the run: 0-100 %, 100 — full speed (default)
 timeout = 30                     # page default action timeout, seconds; explicitly applied; 0 disables the timeout, not auto-wait
@@ -64,6 +65,7 @@ upper case; the browser group keeps flat env names:
 | healing_attempts | `PRETTYPLAY_HEALING_ATTEMPTS` |
 | probe_timeout | `PRETTYPLAY_PROBE_TIMEOUT` |
 | llm_request_attempts | `PRETTYPLAY_LLM_REQUEST_ATTEMPTS` |
+| request_max_tokens | `PRETTYPLAY_REQUEST_MAX_TOKENS` |
 | polling_timeout | `PRETTYPLAY_POLLING_TIMEOUT` |
 | polling_delay | `PRETTYPLAY_POLLING_DELAY` |
 | interactive | `PRETTYPLAY_INTERACTIVE` |
@@ -160,6 +162,7 @@ fields, the convention behind the loader's layered resolution.
 | `healing_attempts` | int | `2` | healing attempt budget per step per test |
 | `probe_timeout` | float | `0` | the probe bound of candidate executions inside the generation and healing loops, in seconds (int or float); `0` — off (the page default applies); a positive value makes a wrong locator fail fast during generation — after every candidate the page default restores to the baseline (the browser `timeout` setting, default 30 s); replayed cached code and steering always run under the baseline |
 | `llm_request_attempts` | int | `3` | total sends per LLM request, including the first; `1` disables retries; must be positive |
+| `request_max_tokens` | int | `16384` | the completion cap of one anthropic request (`max_tokens`); a reasoning model spends the budget on thinking blocks before the text block — a cap-truncated response has no text block at all (an empty completion), so the default is sized for a reasoning model; raise it for models that think longer; the openai side sends no cap; must be positive |
 | `polling_timeout` | float \| None | `None` | settle window seconds per step execution; `None`/`0` — polling off |
 | `polling_delay` | float | `0.5` | pause between settle re-executions |
 | `send_screenshots` | bool | `False` | attach screenshots to LLM requests |
@@ -178,14 +181,15 @@ config.effective_classification_model  # classification_model when non-empty, ot
 | `name` | str | `"chromium"` | `chromium`, `firefox`, `webkit`, `chrome`, `msedge` |
 | `screen` | str | `""` | `""` — Playwright default; WxH — fixed viewport; `fullscreen`; Playwright device name |
 | `headless` | bool | `True` | windowless local launch; ignored on a remote connect |
-| `endpoint` | str | `""` | ws endpoint of a remote browser; empty — local launch |
+| `endpoint` | str | `""` | remote browser endpoint; ws/wss — a Playwright server endpoint, http/https — a CDP endpoint of the chromium family; empty — local launch |
 | `accept_dialogs` | bool | `False` | accept (else dismiss) dialogs no in-step stock dialog capture claims, at the run-unit tail |
 | `speed` | int | `100` | pace of the run, 0–100 inclusive; 100 — full speed (the default behavior), lower values slow the run linearly, 0 — the slowest supported pace |
 | `timeout` | float | `30` | page default action timeout in seconds (int or float), explicitly applied at the creation of every page; `30` — the Playwright library default made visible; `0` disables the timeout without disabling auto-wait; an unready action can wait indefinitely; the baseline the probe bound restores to |
 
 Fields inside the group carry no `browser_` prefix — the group name scopes
 them; env overrides stay flat (`PRETTYPLAY_BROWSER_NAME`, ...). Validation:
-`name` against the five-value set, a non-empty `endpoint` as a ws/wss URL,
+`name` against the five-value set, a non-empty `endpoint` as a ws/wss or
+http/https URL,
 positive integers for the attempts, `screen` at format level only (a WxH-shaped
 value must carry positive integers; everything else — including `fullscreen`
 and device names — passes through unresolved, because the device registry
@@ -401,6 +405,7 @@ type — see [Failure taxonomy](reference/failure-taxonomy.md) and
   chained for debugging
 - The provider set: `openai`, `anthropic`; the browser name set: `chromium`,
   `firefox`, `webkit`, `chrome`, `msedge`
-- A non-empty `browser.endpoint` must be a valid ws/wss URL
+- A non-empty `browser.endpoint` must be a valid ws/wss or http/https URL —
+  http/https is a CDP endpoint of the chromium family only
 - The cache root default: `<cwd>/.prettyplay/cache/` — anchored at the working
   directory of the run, wherever the pyproject.toml was found

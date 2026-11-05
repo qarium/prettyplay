@@ -64,15 +64,20 @@ chromium family then launches maximized).
 endpoint = "ws://ci-grid:3000/playwright/chromium"
 ```
 
-A non-empty `endpoint` connects to a remote Playwright Server or browser grid
-instead of launching locally:
+A non-empty `endpoint` connects to a remote browser instead of launching
+locally. The scheme picks the protocol: ws/wss connects over the Playwright
+protocol — a Playwright Server or a hosted browser grid, any engine;
+http/https connects over CDP — a chromium-family endpoint (chromium, chrome,
+msedge) such as a CI grid exposing a DevTools endpoint:
 
 - `headless` does not apply to a connect — window visibility belongs to the
   endpoint server
 - `chrome`/`msedge` map to the chromium engine — channels are a local-launch
   concept
-- A non-empty endpoint must be a valid ws/wss URL (otherwise
-  `ConfigurationError` names the setting); a failed connect fails loudly with
+- A non-empty endpoint must be a valid ws/wss or http/https URL (otherwise
+  `ConfigurationError` names the setting); an http/https endpoint with a
+  non-chromium engine fails loudly at start — CDP supports the chromium
+  family only; a failed connect fails loudly with
   the endpoint in the message
 - The endpoint is an address, not a secret: it is valid in the config file;
   CI rotation goes through the `PRETTYPLAY_BROWSER_ENDPOINT` env override

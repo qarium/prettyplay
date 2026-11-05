@@ -104,9 +104,11 @@ allowlist. Both providers render it identically at the same position. A
 parity requirement, not a capability difference.
 
 The one transport-level asymmetry: the anthropic Messages API requires
-`max_tokens`, so anthropic requests carry a fixed completion cap (4096
-tokens, sized so a full step-code response never truncates); the openai side
-sends no cap and the model maximum applies.
+`max_tokens`, so anthropic requests carry a completion cap — the
+`request_max_tokens` setting (default 16384, sized so a reasoning model
+never truncates: thinking blocks spend the same budget before the text
+block, and a cap-truncated response carries no text block at all, an empty
+completion); the openai side sends no cap and the model maximum applies.
 
 ## Answer shape
 

@@ -26,6 +26,7 @@ _ALL_ENV_FIELDS = (
     "GENERATION_ATTEMPTS",
     "HEALING_ATTEMPTS",
     "LLM_REQUEST_ATTEMPTS",
+    "REQUEST_MAX_TOKENS",
     "SEND_SCREENSHOTS",
     "GENERATION_APPROVE",
     "GENERATION_PROMPT",
@@ -125,6 +126,8 @@ class TestLoadConfigContract:
             "PRETTYPLAY_INTERACTIVE",
             "PRETTYPLAY_GENERATION_ATTEMPTS",
             "PRETTYPLAY_HEALING_ATTEMPTS",
+            "PRETTYPLAY_LLM_REQUEST_ATTEMPTS",
+            "PRETTYPLAY_REQUEST_MAX_TOKENS",
             "PRETTYPLAY_SEND_SCREENSHOTS",
             "PRETTYPLAY_GENERATION_APPROVE",
             "PRETTYPLAY_PROBE_TIMEOUT",
@@ -431,7 +434,7 @@ class TestLoadConfigLogic:
         assert ("name",) in [entry["loc"] for entry in excinfo.value.errors()]
 
         with pytest.raises(ValidationError) as excinfo:
-            BrowserConfig(endpoint="http://x")
+            BrowserConfig(endpoint="ftp://x")
         assert ("endpoint",) in [entry["loc"] for entry in excinfo.value.errors()]
 
         with pytest.raises(ValidationError) as excinfo:
@@ -554,7 +557,7 @@ class TestLoadConfigOverlay:
         assert empty.browser.endpoint == ""
 
     def test_load_config_renders_actionable_line_for_endpoint(self, tmp_path) -> None:
-        path = write_section(tmp_path, '[tool.prettyplay.browser]\nendpoint = "http://bad"\n')
+        path = write_section(tmp_path, '[tool.prettyplay.browser]\nendpoint = "ftp://bad"\n')
 
         with pytest.raises(ConfigurationError) as excinfo:
             load_config(path)
@@ -689,13 +692,13 @@ class TestLoadConfigNewEnvNames:
             assert config.browser.endpoint == env_value
 
     def test_invalid_endpoint_env_renders_allowed_values(self, tmp_path, monkeypatch) -> None:
-        monkeypatch.setenv("PRETTYPLAY_BROWSER_ENDPOINT", "http://ci-grid:3000")
+        monkeypatch.setenv("PRETTYPLAY_BROWSER_ENDPOINT", "ftp://ci-grid:3000")
 
         with pytest.raises(ConfigurationError) as excinfo:
             load_config(pyproject_path=write_section(tmp_path, '[tool.prettyplay]\nmodel = "gpt-5"\n'))
 
         line = next(line for line in str(excinfo.value).splitlines() if line.startswith("browser.endpoint:"))
-        assert line.endswith("allowed: a valid ws/wss URL")
+        assert line.endswith("allowed: a valid ws/wss or http/https URL")
 
     @pytest.mark.parametrize(
         ("env_value", "expected"),
@@ -860,6 +863,40 @@ class TestLlmRequestAttemptsEnv:
         assert str(excinfo.value).splitlines() == [
             "llm_request_attempts: received 'three' — allowed: a decimal integer"
         ]
+        assert isinstance(excinfo.value, PrettyplayError)
+
+
+class TestRequestMaxTokensEnv:
+    """The anthropic completion cap loads from every layer and fails loudly on bad values."""
+
+    def test_loader_env_override_parses_decimal_integer(self, tmp_path, monkeypatch) -> None:
+        """Contract: PRETTYPLAY_REQUEST_MAX_TOKENS parses as a decimal integer and wins over the file."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('[tool.prettyplay]\nmodel = "m"\nrequest_max_tokens = 8192\n', encoding="utf-8")
+        monkeypatch.setenv("PRETTYPLAY_REQUEST_MAX_TOKENS", "32768")
+
+        config = load_config(str(tmp_path / "pyproject.toml"))
+
+        assert config.request_max_tokens == 32768
+
+    def test_loader_unparseable_env_request_max_tokens_fails_loudly(self, write_pyproject, monkeypatch) -> None:
+        """Negative: a non-decimal value fails loudly naming the setting, the value and the form."""
+        monkeypatch.setenv("PRETTYPLAY_REQUEST_MAX_TOKENS", "many")
+
+        with pytest.raises(ConfigurationError) as excinfo:
+            load_config(pyproject_path=write_pyproject())
+
+        assert str(excinfo.value).splitlines() == ["request_max_tokens: received 'many' — allowed: a decimal integer"]
+        assert isinstance(excinfo.value, PrettyplayError)
+
+    def test_loader_env_request_max_tokens_below_one_fails_loudly(self, write_pyproject, monkeypatch) -> None:
+        """Negative: a decimal value below 1 parses at the env layer and fails the field validation."""
+        monkeypatch.setenv("PRETTYPLAY_REQUEST_MAX_TOKENS", "0")
+
+        with pytest.raises(ConfigurationError) as excinfo:
+            load_config(pyproject_path=write_pyproject())
+
+        assert str(excinfo.value).splitlines() == ["request_max_tokens: received 0 — allowed: a positive integer"]
         assert isinstance(excinfo.value, PrettyplayError)
 
 
