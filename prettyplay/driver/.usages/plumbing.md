@@ -28,6 +28,7 @@ run primitive, plain string back; the calling thread never adopts the Playwright
 | page.run(action) | execute the callable inside the worker thread with the genuine sync Page |
 | page.url | the current page URL — an immediate read through the worker-thread run primitive |
 | page.aria_snapshot() | the accessibility-tree page state — the primary LLM input |
+| page.structure_registry() | the structural element registry — interactive elements with runtime-verified unique selectors, one in-page evaluate pass; plain records |
 | page.screenshot() | full-page PNG bytes |
 | page.close() | close this page's isolated context |
 

@@ -37,6 +37,7 @@ step = generator.generate(
 - The loop: request code → check the candidate deterministically (pre-flight) → execute against the live page → validate the returned result → on failure append the full attempt record and re-request with the fresh snapshot and the grown history
 - The attempt history is one continuous verbatim list: every record carries the outcome, the `URL before -> after` line, the complete candidate code and the complete error; no collapsing, no size limits — the attempt budgets are the only bound. The error text follows the engine error-text policy: the bulky aria-snapshot section Playwright appends to a failed check message is excluded — the fresh page state reaches the loop through the separately captured snapshot
 - Every request carries the honest inputs: the step type (action or assertion) and the prepared instruction of the step (with its INPUTS/RESULTS blocks when present) — the raw template sentence never reaches a request; NFC + trim normalization is an addressing key only
+- A request carries the structural element registry when `send_structure` is on (the default): every interactive element with its runtime-verified unique selector renders as the PAGE STRUCTURE block after the PAGE SNAPSHOT — the model anchors on it (structural locator first, text or role+name only as the chained `.or_()` fallback). A failed registry read degrades to the empty registry — the request then carries no block, fully the snapshot-only behavior; switch the capture off with `send_structure = false`
 - The page may carry side effects of failed candidates and manual intervention — the replayability requirement of the system prompt tells the model a regeneration never rides that leftover state: an action step repeats its action; a first attempt works on the page the previous steps produced. The structural separation rides the same prompt: an action step ends at its action, an assertion step observes without changing the page
 - Every candidate execution runs under the settle window: transient failures re-execute the same code inside the window (settle_retry log records), no LLM budget consumed; deterministic failures go to the next request or classification; the URL pair brackets the whole attempt, settle re-executions included
 - A positive probe_timeout setting (seconds) shortens the default action timeout of every candidate execution (generation, healing and funded regeneration alike): a wrong locator fails in the probe bound instead of the page default; after every candidate the page default restores to the baseline — the browser timeout setting, explicitly applied at page creation (default 30 s); replayed cached code and steering keep the baseline; probe 0 — off (the default)
@@ -127,9 +128,11 @@ instruction compliance and step adequacy — the default behavior; switch it off
 generation_approve = false:
 
 - one verdict request per candidate through the provider (the effective classification
-  model); zero requests when the switch is off or the instructions are empty
-- the request carries INSTRUCTIONS, STEP with its STEP TYPE line, optional INPUTS and RESULTS,
-  the ATTEMPT HISTORY records and the CODE block; the reviewer is instructed to use the attempt history as
+  model); zero requests when the switch is off, or when both the instructions and the
+  captured structural registry are empty — a captured registry alone keeps the gate on
+- the request carries INSTRUCTIONS (when configured), STEP with its STEP TYPE line, optional INPUTS and RESULTS,
+  the ATTEMPT HISTORY records, the optional PAGE STRUCTURE block of the registry the generation request carried
+  and the CODE block; the reviewer is instructed to use the attempt history as
   the ground truth of what already happened on the page
 - a high finding of either dimension fails the attempt: the record lands in the history
   with the violation text in its error field, the retry carries the grown history — the

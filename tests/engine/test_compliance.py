@@ -193,7 +193,22 @@ class TestCheckStepComplianceLogic:
         findings = check_step_compliance(config, provider, prepared_step(), "action", STEP_CODE, [])
 
         assert findings == []
-        assert provider.compliance_calls == []  # empty instructions — the gate never runs
+        assert provider.compliance_calls == []  # empty instructions and no registry — nothing to check against
+
+    def test_check_step_compliance_runs_on_the_registry_alone(self) -> None:
+        provider = ComplianceStubProvider()
+        config = PrettyConfig(generation_approve=True, generation_prompt="")
+        registry = '- button "Sign in" -> #login-submit (testid)'
+
+        findings = check_step_compliance(
+            config, provider, prepared_step(), "action", STEP_CODE, [], registry
+        )
+
+        assert findings == []
+        assert len(provider.compliance_calls) == 1  # the captured registry alone keeps the gate on
+        call = provider.compliance_calls[0]
+        assert call["user_instructions"] == ""  # no INSTRUCTIONS block — the structural priority judges alone
+        assert call["structure"] == registry  # the gate judges against the very registry the request carried
 
     def test_check_step_compliance_passes_practice_prompt_and_instructions(self) -> None:
         provider = ComplianceStubProvider()

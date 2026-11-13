@@ -471,6 +471,31 @@ class TestStepSteeringContract:
         assert call["code"] == GENERATED_CODE
         assert len(fixture.cache.save_calls) == 1  # the compliant candidate reached the cache
 
+    def test_the_guided_request_and_gate_carry_the_structure_registry(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The guided request renders the captured registry, and the gate judges the very same bytes.
+
+        The default fixture carries an empty generation_prompt — the registry alone keeps the gate on.
+        """
+        from prettyplay.engine.steering import StepSteering  # noqa: PLC0415 — cell facade check
+
+        provider = FakeProvider(answers=[GENERATED_CODE])  # the default compliance verdict is [] — compliant
+        fixture = SteeringFixture(provider, tmp_path)
+        steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
+        _script_input(monkeypatch, ["click the Pay now button", "y"])
+        monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
+
+        healed = steering.steer(_failure(), _identity(), _prepared(), "action", [], None, FakePage(), [], StepMemory())
+
+        assert healed is not None
+        registry = '- button "Pay now" -> #pay-now (id)'  # the FakePage collector record, parsed and rendered
+        assert provider.calls[0]["structure"] == registry  # the request carried the PAGE STRUCTURE block body
+        assert len(provider.compliance_calls) == 1  # the empty instructions did not switch the gate off
+        assert provider.compliance_calls[0]["structure"] == registry  # the gate judges the same registry
+
     def test_steer_gate_off_config_makes_zero_compliance_calls(
         self,
         tmp_path: Path,

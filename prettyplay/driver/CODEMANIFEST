@@ -110,6 +110,11 @@ Annotations: |
       - Playwright objects never cross back to the calling thread through `result` — the callable returns plain data
     "aria_snapshot() -> snapshot: str": |
       The structured accessibility-tree representation of the page — the primary machine-readable page state (see `playwright`).
+    "structure_registry() -> registry: list[dict[str, str]]": |
+      The structural element registry of the page — every interactive element as a plain record
+      with its structural attributes and the first runtime-verified unique selector of its
+      candidate ladder (see the document annotations); one in-page evaluate pass inside the
+      driver worker thread, plain JSON data only.
     "screenshot() -> image: bytes": |
       A full-page PNG image of the current state.
     "close()": |
@@ -151,4 +156,4 @@ Annotations: |
 Author: Goga
 CreatedAt: 10/09/26
 Description: |
-  The Playwright sync driver of prettyplay: the per-test session with local launches, remote connects — ws/wss over the Playwright protocol, http/https over CDP of the chromium family — the screen modes and the dialog routing — and the internal runtime plumbing handle of the test page (the worker-thread run primitive, the accessibility snapshot, the screenshot, the context close); generated step code runs against the genuine sync Page inside the worker thread, the pace (slow_mo) at launch and connect.
+  The Playwright sync driver of prettyplay: the per-test session with local launches, remote connects — ws/wss over the Playwright protocol, http/https over CDP of the chromium family — the screen modes and the dialog routing — and the internal runtime plumbing handle of the test page (the worker-thread run primitive, the accessibility snapshot, the structural element registry, the screenshot, the context close); generated step code runs against the genuine sync Page inside the worker thread, the pace (slow_mo) at launch and connect.

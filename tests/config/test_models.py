@@ -81,6 +81,16 @@ class TestConfigContract:
         with pytest.raises(pydantic.ValidationError):
             PrettyConfig(request_max_tokens=-1)
 
+    def test_config_send_structure_field_default_and_order(self) -> None:
+        """Contract: the structure flag defaults to True (the opt-out default), after send_screenshots."""
+        assert PrettyConfig().send_structure is True
+
+        assert list(PrettyConfig.model_fields)[17:20] == [
+            "send_screenshots",
+            "send_structure",
+            "generation_approve",
+        ]
+
     def test_signature_declares_twenty_one_fields_in_contract_order(self) -> None:
         fields = PrettyConfig.model_fields
         assert list(fields.keys()) == [

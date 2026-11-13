@@ -42,7 +42,9 @@ run? [y/N] y
   `screenshot` writes a full PNG to a temporary file and prints the path, `error` and `code`
   reprint the stored texts
 - Every other line is guidance: one regeneration request carrying the step type, the
-  prepared instruction, a USER GUIDANCE block, the current page URL and the grown attempt history
+  prepared instruction, a USER GUIDANCE block, the structural element registry when
+  `send_structure` captures it (a failed read degrades to no PAGE STRUCTURE block), the
+  current page URL and the grown attempt history
   as the HISTORY block — record 0 anchors the original failure
 - The banner and every guided request carry the prepared instruction — with INPUTS and RESULTS blocks when the
   step carries inputs or declarations; the model never sees raw Jinja
@@ -74,8 +76,9 @@ group-marked previous steps; the banner is unchanged.
 ## The compliance gate of a guided heal
 
 A guided candidate that executes successfully is verified on two dimensions before the
-write-back — instruction compliance and step adequacy, judged from the step type and the
-shared attempt history — the same gate as unattended generation:
+write-back — instruction compliance and step adequacy, judged from the step type, the
+shared attempt history and the structural registry the guided request carried — the same
+gate as unattended generation:
 
 - a high finding of either dimension never reaches the cache: the dialog shows it, the turn
   lands in the history with the violation text and the guidance prompt reopens — steer the
