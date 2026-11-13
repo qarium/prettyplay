@@ -63,6 +63,7 @@ class TestComplianceGateContract:
             "step_type",
             "code",
             "attempt_history",
+            "structure",
         ]
 
     def test_check_step_compliance_threads_the_render_product(self) -> None:

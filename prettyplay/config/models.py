@@ -241,6 +241,14 @@ class PrettyConfig(BaseModel):
             model's maximum output the endpoint rejects; the openai side
             sends no cap and the model maximum applies; must be positive.
         send_screenshots: whether screenshots are attached to LLM requests.
+        send_structure: whether the structural element registry is captured and
+            attached to LLM requests; True — every generation and regeneration
+            request carries a PAGE STRUCTURE block: the interactive elements of
+            the page with runtime-verified unique selectors (test-id, id, name,
+            aria-label, class, CSS, XPath — the first unique wins), letting the
+            code anchor on the markup instead of the element text; False — the
+            registry is never captured, fully the old snapshot-only behavior;
+            default True (the opt-out default).
         generation_approve: whether the instruction compliance gate runs before
             caching a generated step; True — every successfully executed
             generation and regeneration candidate is verified against the user
@@ -279,6 +287,7 @@ class PrettyConfig(BaseModel):
     llm_request_attempts: PositiveInt = 3
     request_max_tokens: PositiveInt = 16384
     send_screenshots: bool = False
+    send_structure: bool = True
     generation_approve: bool = True
     probe_timeout: float = 0
 

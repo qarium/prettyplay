@@ -86,6 +86,7 @@ class TestBuildFieldsTextContract:
             "inputs",
             "declarations",
             "snapshot",
+            "structure",
             "page_url",
             "skill",
             "attempt_history",
@@ -121,6 +122,7 @@ class TestBuildFieldsTextStepTypeLine:
             inputs={},
             declarations=[],
             snapshot="- snap",
+            structure="",
             page_url=None,
             skill="# sheet",
             attempt_history=[],
@@ -148,6 +150,7 @@ class TestBuildFieldsTextUserInstructions:
             inputs={},
             declarations=[],
             snapshot="- button 'Войти'",
+            structure="",
             page_url=None,
             skill=SKILL,
             attempt_history=[],
@@ -168,6 +171,7 @@ class TestBuildFieldsTextUserInstructions:
             inputs={},
             declarations=[],
             snapshot="- button 'Войти'",
+            structure="",
             page_url=None,
             skill=SKILL,
             attempt_history=[],
@@ -188,6 +192,7 @@ class TestBuildFieldsTextUserInstructions:
             inputs={},
             declarations=[],
             snapshot="- tree",
+            structure="",
             page_url=None,
             skill="…reference…",
             attempt_history=[],
@@ -241,6 +246,7 @@ class TestBuildComplianceFieldsContract:
             "inputs",
             "declarations",
             "attempt_history",
+            "structure",
             "code",
         ]
         assert parameters["instruction"].annotation is str
@@ -261,6 +267,7 @@ class TestBuildComplianceFields:
             {},
             [],
             [ATTEMPT_RECORD],
+            "",
             STEP_CODE,
         )
 
@@ -283,6 +290,7 @@ class TestBuildComplianceFields:
             {},
             [],
             [],
+            "",
             STEP_CODE,
         )
 
@@ -292,7 +300,7 @@ class TestBuildComplianceFields:
         )
 
     def test_build_compliance_fields_renders_the_fixed_order_without_history(self) -> None:
-        text = build_compliance_fields("i", "s", "action", {}, [], [], "c")
+        text = build_compliance_fields("i", "s", "action", {}, [], [], "", "c")
 
         assert text == "INSTRUCTIONS:\ni\n\nSTEP TYPE: action\nSTEP:\ns\n\nCODE:\nc"  # every optional block omitted
 
@@ -312,6 +320,7 @@ class TestBuildComplianceFieldsPreparedInputs:
             {"expected": "Details"},
             ["name"],
             [ATTEMPT_RECORD],
+            "",
             STEP_CODE,
         )
 
@@ -328,11 +337,84 @@ class TestBuildComplianceFieldsPreparedInputs:
         )  # the fixed compliance order with both optional blocks inserted
 
     def test_compliance_omits_inputs_and_results_blocks_when_empty(self) -> None:
-        text = build_compliance_fields("i", "s", "action", {}, [], [ATTEMPT_RECORD], STEP_CODE)
+        text = build_compliance_fields("i", "s", "action", {}, [], [ATTEMPT_RECORD], "", STEP_CODE)
 
         assert "INPUTS" not in text  # empty bindings — no block, the success-without-result form
         assert "RESULTS" not in text
         assert text.index("STEP:\ns") < text.index("ATTEMPT HISTORY:") < text.index("CODE:")  # positions kept
+
+
+class TestBuildFieldsTextPageStructure:
+    """Logic tests: the PAGE STRUCTURE block placement and omission."""
+
+    def test_places_the_structure_block_between_the_snapshot_and_the_url(self) -> None:
+        text = build_fields_text(
+            "",
+            "open the page",
+            "action",
+            [],
+            group_prompt=None,
+            inputs={},
+            declarations=[],
+            snapshot="- snap",
+            structure='- button "Sign in" -> #login (id)',
+            page_url="https://app.example.com",
+            skill=SKILL,
+            attempt_history=[],
+            recommendation=None,
+            guidance=None,
+        )
+
+        assert (
+            text.index("PAGE SNAPSHOT:\n- snap")
+            < text.index('PAGE STRUCTURE:\n- button "Sign in" -> #login (id)')
+            < text.index("PAGE URL: https://app.example.com")
+        )  # the registry rides between the snapshot and the URL line
+
+    def test_omits_the_structure_block_when_empty(self) -> None:
+        text = build_fields_text(
+            "",
+            "open the page",
+            "action",
+            [],
+            group_prompt=None,
+            inputs={},
+            declarations=[],
+            snapshot="- snap",
+            structure="",
+            page_url="https://app.example.com",
+            skill=SKILL,
+            attempt_history=[],
+            recommendation=None,
+            guidance=None,
+        )
+
+        assert "PAGE STRUCTURE" not in text  # the degrade path — byte-identical to the snapshot-only request
+        assert text.index("PAGE SNAPSHOT:\n- snap") < text.index("PAGE URL: https://app.example.com")
+
+
+class TestBuildComplianceFieldsPageStructure:
+    """Logic tests: the verdict request carries the registry the generation request carried."""
+
+    def test_places_the_structure_block_between_history_and_code(self) -> None:
+        text = build_compliance_fields("i", "s", "action", {}, [], ["record"], '- button "Go" -> #go (id)', "c")
+
+        assert (
+            text.index("ATTEMPT HISTORY:\nrecord")
+            < text.index('PAGE STRUCTURE:\n- button "Go" -> #go (id)')
+            < text.index("CODE:\nc")
+        )  # the registry the candidate's locators are judged against rides before the code
+
+    def test_omits_the_structure_block_when_empty(self) -> None:
+        text = build_compliance_fields("i", "s", "action", {}, [], ["record"], "", "c")
+
+        assert "PAGE STRUCTURE" not in text
+
+    def test_omits_the_instructions_block_when_empty(self) -> None:
+        text = build_compliance_fields("", "s", "action", {}, [], [], "", "c")
+
+        assert text.startswith("STEP TYPE:")  # no INSTRUCTIONS block — the structural priority alone is judged
+        assert "INSTRUCTIONS" not in text
 
 
 class TestBuildFieldsTextRegenerationInputs:
@@ -348,6 +430,7 @@ class TestBuildFieldsTextRegenerationInputs:
             inputs={},
             declarations=[],
             snapshot="- button 'Войти'",
+            structure="",
             page_url=None,
             skill=SKILL,
             attempt_history=["h1", "h2"],
@@ -374,6 +457,7 @@ class TestBuildFieldsTextRegenerationInputs:
             inputs={},
             declarations=[],
             snapshot="- button 'Войти'",
+            structure="",
             page_url=None,
             skill=SKILL,
             attempt_history=[],
@@ -400,6 +484,7 @@ class TestBuildFieldsTextPageUrl:
             inputs={},
             declarations=[],
             snapshot="- body",
+            structure="",
             page_url="https://x.test/a",
             skill="CS",
             attempt_history=[],
@@ -426,6 +511,7 @@ class TestBuildFieldsTextPageUrl:
             inputs={},
             declarations=[],
             snapshot="- body",
+            structure="",
             page_url=page_url,
             skill="CS",
             attempt_history=[],
@@ -449,6 +535,7 @@ class TestBuildFieldsTextHistoryRecords:
             inputs={},
             declarations=[],
             snapshot="- snap",
+            structure="",
             page_url=None,
             skill=SKILL,
             attempt_history=[ATTEMPT_RECORD],
@@ -486,6 +573,7 @@ class TestBuildFieldsTextHistoryRecords:
             inputs={},
             declarations=[],
             snapshot="- body",
+            structure="",
             page_url=None,
             skill=SKILL,
             attempt_history=[record1, record2],
@@ -515,6 +603,7 @@ class TestBuildFieldsTextPreparedInputs:
             inputs={"expected": "Details"},
             declarations=["name"],
             snapshot="snap",
+            structure="",
             page_url="https://x",
             skill="cs",
             attempt_history=[],
@@ -544,6 +633,7 @@ class TestBuildFieldsTextPreparedInputs:
             inputs={"a": "1", "b": "2"},
             declarations=["x", "y"],
             snapshot="snap",
+            structure="",
             page_url=None,
             skill="cs",
             attempt_history=[],
@@ -564,6 +654,7 @@ class TestBuildFieldsTextPreparedInputs:
             inputs={},
             declarations=[],
             snapshot="snap",
+            structure="",
             page_url=None,
             skill="cs",
             attempt_history=[],
@@ -596,6 +687,7 @@ class TestTypedScenarioRecords:
             inputs={},
             declarations=[],
             snapshot="- snap",
+            structure="",
             page_url=None,
             skill=SKILL,
             attempt_history=[],
@@ -616,6 +708,7 @@ class TestTypedScenarioRecords:
             inputs={},
             declarations=[],
             snapshot="- snap",
+            structure="",
             page_url=None,
             skill=SKILL,
             attempt_history=[],
@@ -652,6 +745,7 @@ class TestTypedScenarioRecords:
             inputs={},
             declarations=[],
             snapshot="- snap",
+            structure="",
             page_url=None,
             skill=SKILL,
             attempt_history=[],
@@ -671,6 +765,7 @@ class TestTypedScenarioRecords:
             inputs={},
             declarations=[],
             snapshot="- snap",
+            structure="",
             page_url=None,
             skill=SKILL,
             attempt_history=[],

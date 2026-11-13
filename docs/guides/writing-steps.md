@@ -151,7 +151,8 @@ from playwright.sync_api import expect
 # «open the login page and sign in» — an action step ends at its action
 page.goto("https://example.com/login")
 page.get_by_label("Username").fill("user")
-page.get_by_role("button", name="Sign in").click()
+# the structural anchor first, the text anchor as the chained fallback
+page.locator("#login-submit").or_(page.get_by_role("button", name="Sign in")).first.click()
 
 # «the page shows a list of videos» — count forms, one check per meaning
 items = page.get_by_role("listitem")
@@ -176,6 +177,16 @@ checkout.get_by_role("button", name="Pay").click()
 page.mouse.wheel(0, 600)
 expect(page.get_by_text("Footer")).to_be_visible()
 ```
+
+When a step is generated, the engine also captures the structural element
+registry of the page — every interactive element with a runtime-verified
+unique selector (a test-id, an id, a name, an aria-label, a class, a scoped
+CSS or a structural XPath) — and sends it alongside the accessibility
+snapshot. The generated code anchors through that selector first and keeps
+the text or role+name locator only as the chained `.or_()` fallback, so a
+reworded label no longer breaks the step; elements the registry cannot
+anchor uniquely still locate by role+name. Set `send_structure = false` to
+capture nothing and generate exactly as before.
 
 Dialogs that no in-step capture claims are resolved by the driver's
 resolver of last resort — accepted when the `accept_dialogs` browser

@@ -18,6 +18,7 @@ probe_timeout = 0          # candidate probe bound, seconds; 0 -> off (the page 
 llm_request_attempts = 3  # total sends per LLM request; 1 disables request retries
 request_max_tokens = 16384 # anthropic completion cap (max_tokens); sized so a reasoning model never truncates
 send_screenshots = false
+send_structure = true     # structural element registry (PAGE STRUCTURE block) in LLM requests
 strict = false             # replay-only mode; default false
 polling_timeout = 6.0      # None (default) — polling off; 0 — explicit disable; >0 — settle window seconds
 polling_delay = 0.5        # pause between re-executions, seconds
@@ -61,6 +62,7 @@ Every setting has an override for CI — env variable PRETTYPLAY_<SETTING> in up
 | llm_request_attempts | PRETTYPLAY_LLM_REQUEST_ATTEMPTS |
 | request_max_tokens | PRETTYPLAY_REQUEST_MAX_TOKENS |
 | send_screenshots | PRETTYPLAY_SEND_SCREENSHOTS |
+| send_structure | PRETTYPLAY_SEND_STRUCTURE |
 | strict | PRETTYPLAY_STRICT |
 | polling_timeout | PRETTYPLAY_POLLING_TIMEOUT |
 | polling_delay | PRETTYPLAY_POLLING_DELAY |

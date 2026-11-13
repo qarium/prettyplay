@@ -140,6 +140,10 @@ class FakePage:
         self.calls.append(("aria_snapshot",))
         return "- snapshot"
 
+    def structure_registry(self) -> list[dict[str, str]]:
+        self.calls.append(("structure_registry",))
+        return [{"tag": "button", "text": "Войти", "selector": "#login", "via": "id"}]
+
     def screenshot(self) -> bytes:
         self.calls.append(("screenshot",))
         return b"png"
@@ -174,6 +178,7 @@ class StubProvider:
         inputs: dict[str, str] | None = None,
         declarations: list[str] | None = None,
         snapshot: str = "",
+        structure: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
         skill: str = "",
@@ -192,6 +197,7 @@ class StubProvider:
                 "inputs": inputs,
                 "declarations": declarations,
                 "snapshot": snapshot,
+                "structure": structure,
                 "page_url": page_url,
                 "screenshot": screenshot,
                 "skill": skill,
@@ -425,6 +431,7 @@ class GeneratorFixture:
         generation_prompt: str = "",
         probe_timeout: float = 0,
         browser_timeout: float = 30,
+        send_structure: bool = True,
     ) -> None:
         self.recorder = RecorderHook()
         self.reporter = StepReporter(hooks=[self.recorder])
@@ -434,6 +441,7 @@ class GeneratorFixture:
             generation_prompt=generation_prompt,
             probe_timeout=probe_timeout,
             browser=BrowserConfig(timeout=browser_timeout),
+            send_structure=send_structure,
         )
         self.cache = StepCache(self.config, None, self.reporter)
         self.budgets = RunBudgets(*limits)
@@ -477,6 +485,70 @@ def url_cycle(*urls: str) -> Callable[[], str]:
     """Script a FakePage URL returning the given values in order, one per read."""
     values = iter(urls)
     return lambda: next(values)
+
+
+class TestStepGeneratorStructure:
+    """Canary tests: the structural registry rides the request and the gate — never silently."""
+
+    def test_the_request_carries_the_rendered_registry_by_default(self, tmp_path: Path) -> None:
+        provider = StubProvider([WORKING_CODE])
+        fixture = GeneratorFixture(tmp_path, provider)
+        page = FakePage()
+
+        fixture.generator.generate(
+            make_identity(),
+            PreparedStep(addressing_text="открыть страницу", instruction="open the page"),
+            "action",
+            [],
+            None,
+            page,
+            [],
+            fixture.window,
+            fixture.memory,
+        )
+
+        assert provider.calls[0]["structure"] == '- button "Войти" -> #login (id)'  # parsed and rendered
+        assert page.calls[0] == ("structure_registry",)  # the registry read precedes the snapshot read
+
+    def test_send_structure_false_reads_no_registry_and_carries_no_block(self, tmp_path: Path) -> None:
+        provider = StubProvider([WORKING_CODE])
+        fixture = GeneratorFixture(tmp_path, provider, send_structure=False)
+        page = FakePage()
+
+        fixture.generator.generate(
+            make_identity(),
+            PreparedStep(addressing_text="открыть страницу", instruction="open the page"),
+            "action",
+            [],
+            None,
+            page,
+            [],
+            fixture.window,
+            fixture.memory,
+        )
+
+        assert provider.calls[0]["structure"] == ""  # no block — the request identical to the old shape
+        assert ("structure_registry",) not in page.calls  # the page was never asked
+
+    def test_the_gate_judges_against_the_request_time_registry(self, tmp_path: Path) -> None:
+        provider = StubProvider([WORKING_CODE])
+        fixture = GeneratorFixture(tmp_path, provider, generation_prompt="Prefer id attributes")
+        page = FakePage()
+
+        fixture.generator.generate(
+            make_identity(),
+            PreparedStep(addressing_text="открыть страницу", instruction="open the page"),
+            "action",
+            [],
+            None,
+            page,
+            [],
+            fixture.window,
+            fixture.memory,
+        )
+
+        assert len(provider.compliance_calls) == 1  # the gate ran on the green candidate
+        assert provider.compliance_calls[0]["structure"] == '- button "Войти" -> #login (id)'  # the very registry
 
 
 class TestStepGeneratorLogic:
@@ -727,14 +799,17 @@ class TestStepGeneratorLogic:
         assert history[0].code == NAMEERROR_CODE
         assert "undefined name 'missing_symbol'" in history[0].error
         assert history[0].url_before == history[0].url_after  # never executed — the equal URL pair
-        assert not provider.compliance_calls  # the compliance gate never saw the blocked candidate
+        assert len(provider.compliance_calls) == 1  # the gate judged only the green retry
+        assert provider.compliance_calls[0]["code"] == WORKING_CODE  # never the blocked candidate
         assert page.calls == [
+            ("structure_registry",),
             ("aria_snapshot",),
+            ("structure_registry",),
             ("aria_snapshot",),
             (
                 "goto",
                 "https://example.com",
-            ),  # request snapshots only, then the retry's action — the blocked candidate never acted
+            ),  # request registry+snapshot pairs only, then the retry's action — the blocked candidate never acted
         ]
         attempts = [
             payload["attempt"] for event, payload in fixture.recorder.events if event == "on_generation_started"
@@ -1947,9 +2022,12 @@ class TestStepGeneratorPreflight:
         assert "does not compile" in history[0].error
         assert "(line 2)" in history[0].error
         assert history[0].url_before == history[0].url_after
-        assert not provider.compliance_calls
+        assert len(provider.compliance_calls) == 1  # the gate judged only the green retry
+        assert provider.compliance_calls[0]["code"] == WORKING_CODE  # never the blocked candidate
         assert page.calls == [
+            ("structure_registry",),
             ("aria_snapshot",),
+            ("structure_registry",),
             ("aria_snapshot",),
             ("goto", "https://example.com"),  # the blocked candidate acted never — only the retry did
         ]
@@ -2372,6 +2450,7 @@ class TestStepGeneratorProbeTimeout:
         )
 
         assert page.calls == [
+            ("structure_registry",),
             ("aria_snapshot",),
             ("set_default_timeout", 8000.0),  # set inside the worker, right before the step call
             ("goto", "https://example.com"),
@@ -2396,6 +2475,7 @@ class TestStepGeneratorProbeTimeout:
         )
 
         assert page.calls == [
+            ("structure_registry",),
             ("aria_snapshot",),
             ("set_default_timeout", 8000.0),
             ("goto", "https://example.com"),
@@ -2420,6 +2500,7 @@ class TestStepGeneratorProbeTimeout:
         )
 
         assert page.calls == [
+            ("structure_registry",),
             ("aria_snapshot",),
             ("set_default_timeout", 8000.0),
             ("goto", "https://example.com"),
@@ -2443,7 +2524,7 @@ class TestStepGeneratorProbeTimeout:
             fixture.memory,
         )
 
-        assert page.calls == [("aria_snapshot",), ("goto", "https://example.com")]
+        assert page.calls == [("structure_registry",), ("aria_snapshot",), ("goto", "https://example.com")]
 
 
 class TestStepGeneratorComplianceGate:

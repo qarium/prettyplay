@@ -38,6 +38,7 @@ members:
 | `page.run(action)` | execute the callable inside the worker thread; receives the genuine sync `Page` |
 | `page.url` | the current URL — an immediate read executed as one unit inside the worker thread |
 | `page.aria_snapshot()` | accessibility-tree page state — the primary LLM input |
+| `page.structure_registry()` | the structural element registry — interactive elements with runtime-verified unique selectors (test-id, id, name, aria-label, class, CSS, structural XPath), one in-page `evaluate` pass; open shadow roots included, iframes and closed shadow roots absent by design |
 | `page.screenshot()` | full-page PNG bytes |
 | `page.close()` | close this page's isolated context |
 

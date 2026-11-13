@@ -310,6 +310,8 @@ The a11y snapshot (structured accessibility-tree representation of the page) is 
 snapshot = page.locator("body").aria_snapshot()
 ```
 
+The structural element registry rides alongside it (ADR — selector priority): one `page.evaluate` pass collects the interactive elements — the document tree plus open shadow roots — with the first runtime-verified unique selector of each element's candidate ladder (data-testid, id, name, aria-label, class chain, parent-id-scoped CSS, structural XPath built from attributes and position, never text); iframe content and closed shadow roots stay absent.
+
 ## Scrolling — explicit programmatic scroll
 
 Playwright auto-scrolls only as part of actions. Explicit scenario scrolling (scroll to an element, scroll by an amount, to the page end/start, inside a scrollable container) goes through the primitives:

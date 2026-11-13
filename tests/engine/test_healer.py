@@ -77,6 +77,9 @@ class FakePage:
     def aria_snapshot(self) -> str:
         return "- snapshot"
 
+    def structure_registry(self) -> list[dict[str, str]]:
+        return [{"tag": "button", "text": "Войти", "selector": "#login", "via": "id"}]
+
     def screenshot(self) -> bytes:
         return b"png"
 
@@ -193,6 +196,7 @@ class FakeProvider:
         inputs: dict[str, str] | None = None,
         declarations: list[str] | None = None,
         snapshot: str = "",
+        structure: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
         skill: str = "",
@@ -211,6 +215,7 @@ class FakeProvider:
                 "inputs": inputs,
                 "declarations": declarations,
                 "snapshot": snapshot,
+                "structure": structure,
                 "page_url": page_url,
                 "screenshot": screenshot,
                 "skill": skill,

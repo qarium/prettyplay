@@ -31,6 +31,7 @@ PROMPTS_ROOT = REPO_ROOT / ".goga" / "usages" / "prompts"
 GENERATION_PRACTICE = PROMPTS_ROOT / "step_generation.md"
 GROUP_DIAGNOSIS_PRACTICE = PROMPTS_ROOT / "group_diagnosis.md"
 
+REGISTRY_TEXT = '- button "Checkout" -> #checkout (id)'
 GROUP_PROMPT = "the checkout flow"
 COOKIE_STEP = "accept the cookie banner"
 FILL_STEP = "fill the email field"
@@ -92,6 +93,9 @@ class FakePage:
     def aria_snapshot(self) -> str:
         return "body: main"
 
+    def structure_registry(self) -> list[dict[str, str]]:
+        return [{"tag": "button", "text": "Checkout", "selector": "#checkout", "via": "id"}]
+
     def screenshot(self) -> bytes:
         return b"png"
 
@@ -124,6 +128,7 @@ class ForbiddenProvider(LLMProvider):
         inputs: dict[str, str] | None = None,
         declarations: list[str] | None = None,
         snapshot: str = "",
+        structure: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
         skill: str = "",
@@ -172,6 +177,7 @@ class ForbiddenProvider(LLMProvider):
         declarations: list[str],
         code: str,
         attempt_history: list[str] | None = None,
+        structure: str = "",
     ) -> list[ComplianceFinding]:
         self.calls += 1
         raise AssertionError("provider must not be called")
@@ -197,6 +203,7 @@ class RecordingProvider(LLMProvider):
         inputs: dict[str, str] | None = None,
         declarations: list[str] | None = None,
         snapshot: str = "",
+        structure: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
         skill: str = "",
@@ -258,6 +265,7 @@ class RecordingProvider(LLMProvider):
         declarations: list[str],
         code: str,
         attempt_history: list[str] | None = None,
+        structure: str = "",
     ) -> list[ComplianceFinding]:
         return []  # compliant by default — the gate passes
 
@@ -282,6 +290,7 @@ class TemplateGroupProvider(LLMProvider):
         inputs: dict[str, str] | None = None,
         declarations: list[str] | None = None,
         snapshot: str = "",
+        structure: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
         skill: str = "",
@@ -349,6 +358,7 @@ class TemplateGroupProvider(LLMProvider):
         declarations: list[str],
         code: str,
         attempt_history: list[str] | None = None,
+        structure: str = "",
     ) -> list[ComplianceFinding]:
         return []  # compliant by default — the gate passes
 
@@ -609,6 +619,7 @@ def test_typed_scenario_context_flows_end_to_end(
         group_prompt=None,
         inputs={},
         declarations=[],
+        structure=REGISTRY_TEXT,
         snapshot="body: main",
         page_url="https://shop.example.com/checkout",
         skill=load_skill("playwright"),
@@ -685,6 +696,7 @@ def test_group_template_flow_traces_instruction_and_vars_and_requests_carry_inst
         group_prompt=GROUP_PROMPT,
         inputs={"code": "A1"},
         declarations=[],
+        structure=REGISTRY_TEXT,
         snapshot="body: main",
         page_url="https://shop.example.com/checkout",
         skill=load_skill("playwright"),

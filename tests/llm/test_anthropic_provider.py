@@ -30,6 +30,7 @@ GENERATE_STEP_CODE_PARAMS = [
     "inputs",
     "declarations",
     "snapshot",
+    "structure",
     "page_url",
     "screenshot",
     "skill",
@@ -69,6 +70,7 @@ CHECK_INSTRUCTION_COMPLIANCE_PARAMS = [
     "declarations",
     "code",
     "attempt_history",
+    "structure",
 ]
 
 WORKING_CODE = "def step(page) -> None:\n    page.goto('https://example.com')\n"
@@ -171,6 +173,7 @@ class TestAnthropicProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -201,6 +204,7 @@ class TestAnthropicProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -236,6 +240,7 @@ class TestAnthropicProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -264,6 +269,7 @@ class TestAnthropicProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -351,6 +357,7 @@ class TestAnthropicProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -373,9 +380,7 @@ class TestAnthropicProviderLogic:
         assert "CODE" not in user["content"]  # no regeneration fields on the first attempt
         assert "PAGE URL" not in user["content"]  # no URL line when page_url is None
 
-    def test_generate_request_carries_the_configured_completion_cap(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_generate_request_carries_the_configured_completion_cap(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
         client, requests = make_client_create(answer=WORKING_CODE)
         provider = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5", request_max_tokens=32768))
@@ -391,6 +396,7 @@ class TestAnthropicProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -419,6 +425,7 @@ class TestAnthropicProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url="https://shop.example.com/cart",
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -449,6 +456,7 @@ class TestAnthropicProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -483,6 +491,7 @@ class TestAnthropicProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -549,6 +558,7 @@ class TestAnthropicProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=b"png-bytes",
                 skill="expect(locator).to_be_visible()",
@@ -582,6 +592,7 @@ class TestAnthropicProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -610,6 +621,7 @@ class TestAnthropicProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -701,6 +713,7 @@ class TestAnthropicProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -780,6 +793,7 @@ class TestAnthropicProviderLogic:
                 declarations=[],
                 code=WORKING_CODE,
                 attempt_history=[record],
+                structure="",
             )
 
         assert len(requests) == 1  # exactly one verdict request
@@ -791,7 +805,7 @@ class TestAnthropicProviderLogic:
         assert user["role"] == "user"
         # parity: the shared builder — the user content equals the openai implementation's
         assert user["content"] == build_compliance_fields(
-            "Prefer id attributes", "нажать Войти", "action", {}, [], [record], WORKING_CODE
+            "Prefer id attributes", "нажать Войти", "action", {}, [], [record], "", WORKING_CODE
         )
 
         assert len(findings) == 1
@@ -818,6 +832,7 @@ class TestAnthropicProviderLogic:
                 declarations=[],
                 code="c",
                 attempt_history=[],
+                structure="",
             )
 
         assert str(excinfo.value) == "llm unavailable: anthropic request failed permanently: invalid_request"
@@ -1003,6 +1018,7 @@ class TestAnthropicProviderTransportWiring:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -1042,6 +1058,7 @@ class TestAnthropicProviderTransportWiring:
                 declarations=[],
                 code="c",
                 attempt_history=[],
+                structure="",
             )
 
         assert [(label, operation) for label, operation, _attempts, _classify in calls] == [
@@ -1088,6 +1105,7 @@ class TestAnthropicProviderTransportWiring:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",

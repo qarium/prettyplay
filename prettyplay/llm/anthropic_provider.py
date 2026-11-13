@@ -118,6 +118,7 @@ class AnthropicProvider(LLMProvider):
         inputs: dict[str, str],
         declarations: list[str],
         snapshot: str,
+        structure: str,
         page_url: str | None,
         screenshot: bytes | None,
         skill: str,
@@ -165,8 +166,15 @@ class AnthropicProvider(LLMProvider):
                 implementation; empty — no block, the
                 success-without-result code form.
             snapshot: the accessibility snapshot of the current page.
+            structure: the rendered structural element registry of the
+                current page — one line per interactive element with its
+                runtime-verified unique selector; non-empty — rendered as
+                its own PAGE STRUCTURE block immediately after the PAGE
+                SNAPSHOT block of the user content, identically to the
+                openai implementation; empty — no block, the request
+                identical to the snapshot-only one.
             page_url: the current URL of the page; non-empty — rendered as
-                its own PAGE URL line immediately after the PAGE SNAPSHOT
+                its own PAGE URL line immediately after the PAGE STRUCTURE
                 block of the user content, identically to the openai
                 implementation; None — no line; supplied by the engine and
                 steering generation paths.
@@ -215,6 +223,7 @@ class AnthropicProvider(LLMProvider):
             inputs=inputs,
             declarations=declarations,
             snapshot=snapshot,
+            structure=structure,
             page_url=page_url,
             skill=skill,
             attempt_history=attempt_history,
@@ -397,6 +406,7 @@ class AnthropicProvider(LLMProvider):
         declarations: list[str],
         code: str,
         attempt_history: list[str],
+        structure: str,
     ) -> list[ComplianceFinding]:
         """Check the successfully executed candidate code in two dimensions.
 
@@ -404,9 +414,9 @@ class AnthropicProvider(LLMProvider):
             prompt: the gate system prompt text supplied by the calling
                 engine; applied verbatim as the system parameter.
             user_instructions: the project's generation instructions from
-                the generation_prompt setting; the calling engine
-                guarantees non-empty — the gate never runs on empty
-                instructions.
+                the generation_prompt setting; empty — the request carries
+                no instructions block, the verdict then judges the
+                structural priority and adequacy dimensions alone.
             instruction: the prepared plain-text instruction of the generated
                 step — rendered as the STEP block; the raw template sentence
                 never reaches the request.
@@ -428,11 +438,17 @@ class AnthropicProvider(LLMProvider):
                 as a separate ATTEMPT HISTORY block, every record verbatim,
                 no collapsing, no size limits; empty — no block; rendered
                 identically to the openai implementation.
+            structure: the rendered structural element registry the
+                generation request carried — the runtime-verified selectors
+                the gate checks the candidate's locators against;
+                non-empty — rendered as its own PAGE STRUCTURE block
+                immediately before the CODE section; empty — no block.
 
         Returns:
             The parsed findings; an empty list means compliant — the block
-            order INSTRUCTIONS, STEP, the optional INPUTS and RESULTS
-            sections, ATTEMPT HISTORY, CODE; no fence unwrapping: a
+            order INSTRUCTIONS (when configured), STEP, the optional INPUTS
+            and RESULTS sections, ATTEMPT HISTORY, the optional PAGE
+            STRUCTURE and CODE sections; no fence unwrapping: a
             malformed verdict raises, never a silent pass.
 
         Raises:
@@ -440,7 +456,7 @@ class AnthropicProvider(LLMProvider):
                 service request failed.
         """
         text = build_compliance_fields(
-            user_instructions, instruction, step_type, inputs, declarations, attempt_history, code
+            user_instructions, instruction, step_type, inputs, declarations, attempt_history, structure, code
         )
 
         client = self._get_client()

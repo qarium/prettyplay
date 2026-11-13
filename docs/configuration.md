@@ -27,6 +27,7 @@ request_max_tokens = 16384     # anthropic completion cap (max_tokens); sized so
 polling_timeout = 6.0            # settle window seconds; omit -> off, 0.0 -> explicit disable
 polling_delay = 0.5              # pause between settle re-executions
 send_screenshots = false
+send_structure = true           # structural element registry (PAGE STRUCTURE) in LLM requests
 
 [tool.prettyplay.browser]
 name = "chromium"                # chromium | firefox | webkit | chrome | msedge
@@ -70,6 +71,7 @@ upper case; the browser group keeps flat env names:
 | polling_delay | `PRETTYPLAY_POLLING_DELAY` |
 | interactive | `PRETTYPLAY_INTERACTIVE` |
 | send_screenshots | `PRETTYPLAY_SEND_SCREENSHOTS` |
+| send_structure | `PRETTYPLAY_SEND_STRUCTURE` |
 | strict | `PRETTYPLAY_STRICT` |
 | generation_prompt | `PRETTYPLAY_GENERATION_PROMPT` |
 | generation_approve | `PRETTYPLAY_GENERATION_APPROVE` |
@@ -166,6 +168,7 @@ fields, the convention behind the loader's layered resolution.
 | `polling_timeout` | float \| None | `None` | settle window seconds per step execution; `None`/`0` — polling off |
 | `polling_delay` | float | `0.5` | pause between settle re-executions |
 | `send_screenshots` | bool | `False` | attach screenshots to LLM requests |
+| `send_structure` | bool | `True` | capture the structural element registry and attach it to LLM requests — the generated code anchors on verified selectors (test-id, id, name, aria-label, class, CSS, structural XPath) instead of element text; `False` — never captured, the snapshot-only behavior |
 
 Read-only effective-model properties resolve the per-operation fallback:
 

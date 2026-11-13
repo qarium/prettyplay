@@ -65,6 +65,9 @@ class FakePage:
     def aria_snapshot(self) -> str:
         return "- snapshot"
 
+    def structure_registry(self) -> list[dict[str, str]]:
+        return []
+
     def screenshot(self) -> bytes:
         return b"png"
 

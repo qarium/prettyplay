@@ -81,7 +81,7 @@ class TestConfigContract:
         with pytest.raises(pydantic.ValidationError):
             PrettyConfig(request_max_tokens=-1)
 
-    def test_signature_declares_twenty_fields_in_contract_order(self) -> None:
+    def test_signature_declares_twenty_one_fields_in_contract_order(self) -> None:
         fields = PrettyConfig.model_fields
         assert list(fields.keys()) == [
             "provider",
@@ -102,6 +102,7 @@ class TestConfigContract:
             "llm_request_attempts",
             "request_max_tokens",
             "send_screenshots",
+            "send_structure",
             "generation_approve",
             "probe_timeout",
         ]

@@ -82,7 +82,7 @@ Annotations: |
     "timeout -> float": |
       The default action timeout of the page in seconds, explicitly applied at page creation; default 30 — the Playwright library default made explicit; 0 disables the timeout without disabling auto-wait; the baseline every probe restores to.
 
-"PrettyConfig(provider: str, browser: BrowserConfig, model: str, generation_model: str, classification_model: str, base_url: str, cache_root: str, generation_prompt: str, classification_prompt: str, strict: bool, polling_timeout: float | None, polling_delay: float, interactive: bool, generation_attempts: int, healing_attempts: int, llm_request_attempts: int, request_max_tokens: int, send_screenshots: bool, generation_approve: bool, probe_timeout: float)":
+"PrettyConfig(provider: str, browser: BrowserConfig, model: str, generation_model: str, classification_model: str, base_url: str, cache_root: str, generation_prompt: str, classification_prompt: str, strict: bool, polling_timeout: float | None, polling_delay: float, interactive: bool, generation_attempts: int, healing_attempts: int, llm_request_attempts: int, request_max_tokens: int, send_screenshots: bool, send_structure: bool, generation_approve: bool, probe_timeout: float)":
   location: models.py
   annotations: |
     Validated project settings — the single source of the immutable configuration part.
@@ -105,6 +105,7 @@ Annotations: |
     `llm_request_attempts`: the total attempt budget of one LLM request — the maximum number of physical request sends of one logical LLM attempt of the port (generation, failure classification, group diagnosis, compliance verdict alike), the initial request included; default 3; 1 — request retries disabled, fully the single-send behavior; the retry delays themselves are fixed policy, never configurable; participates in the layered merge like every other scalar setting.
     `request_max_tokens`: the completion cap of one anthropic request — the max_tokens the Messages API requires on every send; default 16384. A reasoning model spends the same budget on its thinking blocks before the text block, and a cap-truncated response carries no text block at all — an empty completion — so the default is sized for a reasoning model never truncating; raising it fits models that think longer, a value above the model's maximum output the endpoint rejects; the openai side sends no cap and the model maximum applies; must be positive.
     `send_screenshots`: optional screenshot input to the LLM; default False.
+    `send_structure`: whether the structural element registry is captured and attached to LLM requests; True — every generation and regeneration request carries a PAGE STRUCTURE block: the interactive elements with runtime-verified unique selectors (test-id, id, name, aria-label, class, CSS, XPath — the first unique wins), letting the code anchor on the markup instead of the element text; False — never captured, fully the old snapshot-only behavior; default True (the opt-out default).
     `probe_timeout`: the probe bound of candidate executions inside the generation and healing
         loops, in seconds — int or float; 0 — off (the default): every execution runs with the
         page default action timeout; a positive value — every candidate of the loops runs with
@@ -173,6 +174,8 @@ Annotations: |
       The completion cap of one anthropic request; the openai side sends no cap.
     "send_screenshots -> bool": |
       Whether screenshots are attached to LLM requests.
+    "send_structure -> bool": |
+      Whether the structural element registry is captured and attached to LLM requests; default True.
     "generation_approve -> bool": |
       Whether the instruction compliance gate runs before caching a generated step.
     "probe_timeout -> float": |

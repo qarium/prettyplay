@@ -102,6 +102,9 @@ class FakePage:
     def aria_snapshot(self) -> str:
         return "- heading: Pay\n- button: Pay now"
 
+    def structure_registry(self) -> list[dict[str, str]]:
+        return [{"tag": "button", "text": "Pay now", "selector": "#pay-now", "via": "id"}]
+
     def screenshot(self) -> bytes:
         return b"png"
 
@@ -116,6 +119,9 @@ class DeadPage:
     def aria_snapshot(self) -> str:
         raise PlaywrightError("Target closed")
 
+    def structure_registry(self) -> list[dict[str, str]]:
+        raise PlaywrightError("Target closed")
+
     def screenshot(self) -> bytes:
         raise PlaywrightError("Target closed")
 
@@ -127,6 +133,9 @@ class TallSnapshotPage:
 
     def aria_snapshot(self) -> str:
         return "\n".join(f"- line {index}" for index in range(1, 31))
+
+    def structure_registry(self) -> list[dict[str, str]]:
+        return []
 
     def screenshot(self) -> bytes:
         return b"png"
@@ -162,6 +171,7 @@ class FakeProvider:
         inputs: dict[str, str] | None,
         declarations: list[str] | None,
         snapshot: str,
+        structure: str,
         page_url: str | None,
         screenshot: bytes | None,
         skill: str,
@@ -180,6 +190,7 @@ class FakeProvider:
                 "inputs": inputs,
                 "declarations": declarations,
                 "snapshot": snapshot,
+                "structure": structure,
                 "page_url": page_url,
                 "screenshot": screenshot,
                 "skill": skill,
@@ -469,7 +480,8 @@ class TestStepSteeringContract:
         from prettyplay.engine.steering import StepSteering  # noqa: PLC0415 — cell facade check
 
         provider = FakeProvider(answers=[GENERATED_CODE])
-        fixture = SteeringFixture(provider, tmp_path)  # the default config holds no generation instructions
+        fixture = SteeringFixture(provider, tmp_path)
+        fixture.config = fixture.config.model_copy(update={"generation_approve": False})  # the approve switch off
         steering = StepSteering(fixture.config, fixture.provider, fixture.cache, fixture.reporter)
         _script_input(monkeypatch, ["dismiss the modal first", "y"])
         monkeypatch.setattr(f"{STEPPING_MODULE}.run_step_code", mock.Mock(return_value=None))
@@ -731,6 +743,7 @@ class TestStepSteeringLogic:
             "inputs",
             "declarations",
             "snapshot",
+            "structure",
             "page_url",
             "screenshot",
             "skill",

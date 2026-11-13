@@ -113,6 +113,7 @@ class RecordingProvider(LLMProvider):
         inputs: dict[str, str] | None,
         declarations: list[str] | None,
         snapshot: str,
+        structure: str,
         page_url: str | None,
         screenshot: bytes | None,
         skill: str,
@@ -163,6 +164,7 @@ class GateHardFailingProvider(LLMProvider):
         inputs: dict[str, str] | None,
         declarations: list[str] | None,
         snapshot: str,
+        structure: str,
         page_url: str | None,
         screenshot: bytes | None,
         skill: str,
@@ -212,6 +214,7 @@ class GateHardFailingProvider(LLMProvider):
         declarations: list[str],
         code: str,
         attempt_history: list[str],
+        structure: str = "",
     ) -> list[ComplianceFinding]:
         self.compliance_calls.append(
             {

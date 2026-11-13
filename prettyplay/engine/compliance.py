@@ -21,12 +21,14 @@ _VERDICT_ATTEMPTS = 2
 COMPLIANCE_PROMPT = """You verify generated step code on two dimensions: the project's user instructions and what the step says.
 
 Input you receive:
-- INSTRUCTIONS: the project's user instructions, verbatim
+- INSTRUCTIONS: the project's user instructions, verbatim — present when the project configured them
 - STEP TYPE: action or assertion
 - STEP: the prepared instruction of the step — the plain-text sentence with actual values embedded
 - INPUTS: the call input bindings, one name = value line each — present when the step carries inputs
 - RESULTS: the declared result names — present when the step declares captures; the code must return a dictionary of exactly these names to non-blank strings observed on the page
 - ATTEMPT HISTORY: the verbatim record of every attempt of this step so far, when present — the original cached code first when it exists; each record carries the attempt outcome, the URL before -> after line, the complete candidate code and the complete error
+- PAGE STRUCTURE: the structural element registry the generation request carried — one line per
+  interactive element with a runtime-verified unique selector — present when the registry was captured
 - CODE: the successfully executed candidate code
 
 Check the code on both dimensions and answer with exactly one JSON list of
@@ -47,7 +49,11 @@ Priority calibration:
   and the attempt history; for instruction: a material violation evident
   from the code itself — the instruction was expressible through the page
   API the code already uses, and the code plainly skipped or contradicted
-  it without any fallback attempt; for adequacy: an action step whose code
+  it without any fallback attempt; for the structural priority: a locator
+  that addresses an element PAGE STRUCTURE anchors with a verified selector
+  through text or role+name alone, with that selector not chained, is a
+  material violation — quote the PAGE STRUCTURE line — and only when the
+  locator's role or text evidently names the element of that line; for adequacy: an action step whose code
   contains no action of the step — the page state the code relies on was
   produced by a prior attempt or manual intervention, not by the code
   itself, use the URL lines and the records of the history to see it — or
@@ -84,6 +90,10 @@ Rules:
   is an adequacy finding
 - The code uses the values of the STEP sentence exactly as the step states them — embedding
   them in the code is correct, never a finding
+- The structural priority is judged against PAGE STRUCTURE alone: no registry line for the
+  element, or the line marks it text only — a text or role+name locator is correct, never a
+  finding; when the correspondence between the locator's element and a registry line stays in
+  doubt, the finding is never high
 - Output only the JSON list, no other text"""
 
 
@@ -94,6 +104,7 @@ def check_step_compliance(  # noqa: PLR0913, PLR0917 — the parameter list is f
     step_type: str,
     code: str,
     attempt_history: list[StepAttempt],
+    structure: str = "",
 ) -> list[ComplianceFinding]:
     """Gate a successfully executed candidate on the two compliance dimensions.
 
@@ -109,20 +120,25 @@ def check_step_compliance(  # noqa: PLR0913, PLR0917 — the parameter list is f
         attempt_history: the step's attempt history — rendered through the
             record render and passed to the verdict request as the ATTEMPT
             HISTORY block.
+        structure: the structural element registry the generation request
+            carried — the same registry the model saw; passed to the verdict
+            request as the PAGE STRUCTURE block so the gate can reject a
+            purely text locator for an element the registry anchors; empty —
+            no block, no structural dimension to judge.
 
     Returns:
         The verdict findings of both dimensions; an empty list — compliant
-        and adequate, the gate is off, or the verdict stayed unparsable
-        after the bounded re-asks and the green candidate passed unchecked
-        with a WARNING. The single check of every caching path —
-        generation, healing and steering alike; never runs on replayed
-        cached code.
+        and adequate, the gate is off, nothing to check against, or the
+        verdict stayed unparsable after the bounded re-asks and the green
+        candidate passed unchecked with a WARNING. The single check of every
+        caching path — generation, healing and steering alike; never runs on
+        replayed cached code.
 
     Raises:
         LLMUnavailableError: the provider service failed after the bounded
             transport retries; the calling path never caches the candidate.
     """
-    if not config.generation_approve or not config.generation_prompt:
+    if not config.generation_approve or not (config.generation_prompt or structure):
         return []  # the gate is off or nothing to check against — zero provider calls
 
     for attempt in range(1, _VERDICT_ATTEMPTS + 1):
@@ -136,6 +152,7 @@ def check_step_compliance(  # noqa: PLR0913, PLR0917 — the parameter list is f
                 declarations=prepared.declarations,
                 code=code,
                 attempt_history=[record.render() for record in attempt_history],
+                structure=structure,
             )
         except ComplianceVerdictError:
             if attempt == _VERDICT_ATTEMPTS:

@@ -20,6 +20,176 @@ logger = logging.getLogger("prettyplay")
 # unit — alive forever; the excess rolls forward to the next unit tail instead.
 _RESOLVE_PASS_LIMIT = 128
 
+#: The one-pass structural registry collector: every interactive element of the
+#: page (document order, open shadow roots included) with the first unique
+#: selector of its candidate ladder — data-testid, id, name, aria-label, class
+#: chain, parent-id-scoped CSS, structural XPath — computed wholly inside the
+#: page, no round-trips. Bounds: 200 elements, 50 roots, shadow depth 4, 40
+#: chars of visible text. Out of scope by design: iframe content and closed
+#: shadow roots stay absent from the registry.
+_STRUCTURE_SCRIPT = r"""() => {
+  const LIMIT = 200;
+  const TEXT_LIMIT = 40;
+  const MAX_DEPTH = 4;
+  const MAX_ROOTS = 50;
+  const INTERACTIVE = "button, a, input, select, textarea, [role], [data-testid], [onclick]";
+  const IDENT = /^[A-Za-z][A-Za-z0-9_-]*$/;
+
+  const roots = [];
+  const collectRoots = (root, depth) => {
+    roots.push(root);
+    if (depth >= MAX_DEPTH || roots.length >= MAX_ROOTS) {
+      return;
+    }
+    for (const host of root.querySelectorAll("*")) {
+      if (host.shadowRoot) {
+        collectRoots(host.shadowRoot, depth + 1);
+        if (roots.length >= MAX_ROOTS) {
+          return;
+        }
+      }
+    }
+  };
+  collectRoots(document, 0);
+
+  const esc = (value) => value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const identOf = (value) => (IDENT.test(value) ? value : null);
+  const positionalIndex = (element) => {
+    let index = 1;
+    let sibling = element;
+    while ((sibling = sibling.previousElementSibling)) {
+      if (sibling.tagName === element.tagName) {
+        index += 1;
+      }
+    }
+    return index;
+  };
+  const uniqueCssInPage = (selector) => {
+    let total = 0;
+    for (const root of roots) {
+      total += root.querySelectorAll(selector).length;
+      if (total > 1) {
+        return false;
+      }
+    }
+    return total === 1;
+  };
+  const uniqueXpathInPage = (expression) => {
+    const result = document.evaluate(
+      expression.slice("xpath=".length), document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null
+    );
+    return result.snapshotLength === 1;
+  };
+  const structuralXpath = (element) => {
+    const steps = [];
+    let node = element;
+    while (node !== document.documentElement) {
+      steps.push(node.localName.toLowerCase() + "[" + positionalIndex(node) + "]");
+      node = node.parentElement;
+      if (!node) {
+        return null;
+      }
+      if (node.id) {
+        steps.push('//*[@id="' + esc(node.id) + '"]');
+        return steps.reverse().join("/");
+      }
+      if (steps.length >= 10) {
+        return null;
+      }
+    }
+    steps.push("html[" + positionalIndex(node) + "]");
+    return "/" + steps.reverse().join("/");
+  };
+  const candidatesOf = (element) => {
+    const candidates = [];
+    const attr = (name) => element.getAttribute(name);
+    const testid = attr("data-testid");
+    if (testid) {
+      candidates.push({ selector: '[data-testid="' + esc(testid) + '"]', via: "testid" });
+    }
+    const id = attr("id");
+    if (id) {
+      candidates.push({ selector: identOf(id) ? "#" + id : '[id="' + esc(id) + '"]', via: "id" });
+    }
+    const name = attr("name");
+    if (name) {
+      candidates.push({ selector: '[name="' + esc(name) + '"]', via: "name" });
+    }
+    const ariaLabel = attr("aria-label");
+    if (ariaLabel) {
+      candidates.push({ selector: '[aria-label="' + esc(ariaLabel) + '"]', via: "aria-label" });
+    }
+    const classes = Array.from(element.classList).filter((cls) => IDENT.test(cls)).slice(0, 4);
+    for (let count = 1; count <= classes.length; count += 1) {
+      candidates.push({ selector: classes.slice(0, count).map((cls) => "." + cls).join(""), via: "class" });
+    }
+    const scope = element.closest("[id]");
+    if (scope && scope !== element) {
+      const scopeId = scope.getAttribute("id");
+      const base = identOf(scopeId) ? "#" + scopeId : '[id="' + esc(scopeId) + '"]';
+      const tag = element.localName.toLowerCase();
+      candidates.push({ selector: base + " " + tag, via: "css" });
+      candidates.push({ selector: base + " > " + tag + ":nth-of-type(" + positionalIndex(element) + ")", via: "css" });
+    }
+    const xpath = structuralXpath(element);
+    if (xpath) {
+      candidates.push({ selector: "xpath=" + xpath, via: "xpath" });
+    }
+    return candidates;
+  };
+
+  const records = [];
+  for (const root of roots) {
+    for (const element of root.querySelectorAll(INTERACTIVE)) {
+      if (records.length >= LIMIT) {
+        return records;
+      }
+      if (element.type === "hidden") {
+        continue;
+      }
+      let rendered = true;
+      try {
+        rendered = element.getClientRects().length > 0;
+      } catch (error) {
+        rendered = false;
+      }
+      if (!rendered) {
+        continue;
+      }
+      let chosen = { selector: "", via: "" };
+      for (const candidate of candidatesOf(element)) {
+        let unique = false;
+        try {
+          if (candidate.via === "xpath") {
+            unique = uniqueXpathInPage(candidate.selector);
+          } else {
+            unique = uniqueCssInPage(candidate.selector);
+          }
+        } catch (error) {
+          unique = false;
+        }
+        if (unique) {
+          chosen = candidate;
+          break;
+        }
+      }
+      records.push({
+        tag: element.localName.toLowerCase(),
+        text: (element.textContent || "").replace(/\s+/g, " ").trim().slice(0, TEXT_LIMIT),
+        id: element.id || "",
+        testid: element.getAttribute("data-testid") || "",
+        name: element.getAttribute("name") || "",
+        aria_label: element.getAttribute("aria-label") || "",
+        placeholder: element.getAttribute("placeholder") || "",
+        classes: Array.from(element.classList).slice(0, 6).join(" ").slice(0, 80),
+        selector: chosen.selector,
+        via: chosen.via,
+      });
+    }
+  }
+  return records;
+}"""
+
 
 class PageFacade:
     """The internal runtime plumbing handle of a single test page — plumbing only, no proxies of page capabilities.
@@ -107,6 +277,23 @@ class PageFacade:
             The aria snapshot of the page body.
         """
         return self._call(lambda: self._page.locator("body").aria_snapshot())
+
+    def structure_registry(self) -> list[dict[str, str]]:
+        """Capture the structural element registry of the page.
+
+        One in-page pass collects every interactive element — the document
+        tree plus open shadow roots — with its structural attributes and the
+        first unique selector of its candidate ladder (data-testid, id, name,
+        aria-label, class chain, parent-id-scoped CSS, structural XPath),
+        verified in the same pass; iframe content and closed shadow roots
+        stay absent by design.
+
+        Returns:
+            One plain record per interactive element in document order —
+            plain JSON data only, never a Playwright object.
+        """
+        records = self._call(lambda: self._page.evaluate(_STRUCTURE_SCRIPT))
+        return list(records)
 
     def screenshot(self) -> bytes:
         """Capture a full-page screenshot.

@@ -9,10 +9,21 @@ from typing import get_type_hints
 
 import prettyplay.driver
 import pytest
-from playwright.sync_api import Error
+from playwright.sync_api import Error, sync_playwright
 from prettyplay.driver import PageFacade
-from prettyplay.driver.page import _RESOLVE_PASS_LIMIT, _DialogRouter
+from prettyplay.driver.page import _RESOLVE_PASS_LIMIT, _STRUCTURE_SCRIPT, _DialogRouter
 from prettyplay.driver.session import PlaywrightWorker
+
+
+def _browser_is_available() -> bool:
+    """Check whether a Chromium-family browser can start — the live-page contract needs one."""
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            browser.close()
+            return True
+    except Exception:
+        return False
 
 
 class FakeBodyLocator:
@@ -47,6 +58,10 @@ class FakeRawPage:
         if selector == "body":
             return self._body
         raise AssertionError(f"the handle locates only the body, got {selector!r}")
+
+    def evaluate(self, script: str) -> list[dict[str, str]]:
+        self.calls.append(("evaluate", script))
+        return [{"tag": "button", "text": "Sign in", "selector": "#login", "via": "id"}]
 
     def screenshot(self, full_page: bool = False) -> bytes:
         self.calls.append(("screenshot", full_page))
@@ -194,7 +209,7 @@ class TestPageFacadeContract:
     def test_page_handle_surface_matches_contract(self) -> None:
         public = {name for name in dir(PageFacade) if not name.startswith("_")}
 
-        assert public == {"url", "run", "aria_snapshot", "screenshot", "close"}  # plumbing, not a surface
+        assert public == {"url", "run", "aria_snapshot", "structure_registry", "screenshot", "close"}  # plumbing
 
     def test_url_is_a_property_returning_str(self) -> None:
         assert isinstance(PageFacade.url, property)  # a read property — an immediate read, not a call
@@ -227,6 +242,7 @@ class TestPageFacadeContract:
 
     def test_kept_member_signatures_match_contract(self) -> None:
         assert list(inspect.signature(PageFacade.aria_snapshot).parameters) == ["self"]
+        assert list(inspect.signature(PageFacade.structure_registry).parameters) == ["self"]
         assert list(inspect.signature(PageFacade.screenshot).parameters) == ["self"]
         assert list(inspect.signature(PageFacade.close).parameters) == ["self"]
 
@@ -243,6 +259,15 @@ class TestPageFacadeLogic:
         assert page.calls == [("locator", "body")]
         assert page._body.calls == [("aria_snapshot",)]
         assert snapshot == "- heading Профиль"
+
+    def test_structure_registry_evaluates_the_collector_script_and_returns_the_records(self) -> None:
+        page = FakeRawPage()
+        handle = make_handle(page)
+
+        records = handle.structure_registry()
+
+        assert page.calls == [("evaluate", _STRUCTURE_SCRIPT)]  # one in-page pass, nothing else
+        assert records == [{"tag": "button", "text": "Sign in", "selector": "#login", "via": "id"}]
 
     def test_screenshot_requests_full_page_and_returns_bytes(self) -> None:
         page = FakeRawPage()
@@ -610,3 +635,71 @@ class TestRunPrimitive:
         worker.close()
 
         assert dialog.resolved_on == pump_ident  # the plumbing tail ran on the worker pump thread
+
+
+#: the live-page markup of the collector contract: every ladder rung, the shadow walk, duplicates.
+_LADDER_HTML = """
+<html><body>
+  <form id="login">
+    <input id="search" name="q" placeholder="Search" aria-label="Search">
+    <button data-testid="login-submit" type="submit">Sign in</button>
+    <button type="button" class="btn ghost">Cancel</button>
+    <button type="button">Maybe</button>
+    <input type="hidden" name="csrf" value="x">
+  </form>
+  <div><span><button>Deep</button></span></div>
+  <my-widget></my-widget>
+  <my-widget></my-widget>
+  <script>
+    for (const widget of document.querySelectorAll('my-widget')) {
+      const root = widget.attachShadow({mode: 'open'});
+      root.innerHTML = '<button data-testid="dup">Dup</button>';
+    }
+  </script>
+</body></html>
+"""
+
+
+class TestStructureScriptLivePage:
+    """Contract tests: the in-page collector against a genuine browser page."""
+
+    @pytest.mark.skipif(not _browser_is_available(), reason="no Playwright browser is available")
+    def test_the_ladder_the_shadow_walk_and_the_skips(self) -> None:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.set_content(_LADDER_HTML)
+
+            records = page.evaluate(_STRUCTURE_SCRIPT)
+            browser.close()
+
+        def _descriptor(record: dict[str, str]) -> str:
+            return record["text"] or record["aria_label"] or record["placeholder"] or record["name"]
+
+        by_descriptor = {_descriptor(record): record for record in records}
+
+        assert "csrf" not in by_descriptor  # the hidden input never reaches the registry
+        assert by_descriptor["Sign in"]["selector"] == '[data-testid="login-submit"]'  # the testid rung wins
+        assert by_descriptor["Sign in"]["via"] == "testid"
+        assert by_descriptor["Search"]["selector"] == "#search"  # the id rung — the input itself
+        assert by_descriptor["Cancel"]["selector"] == ".btn"  # the unique-class rung
+        assert by_descriptor["Maybe"]["selector"] == "#login > button:nth-of-type(3)"  # the scoped CSS rung
+        assert by_descriptor["Deep"]["selector"].startswith("xpath=/html[1]/")  # the structural XPath rung
+        duplicates = [record for record in records if record["text"] == "Dup"]
+        assert len(duplicates) == 2  # both shadow roots collected
+        assert all(record["selector"] == "" for record in duplicates)  # cross-root duplicates anchor nothing
+
+    @pytest.mark.skipif(not _browser_is_available(), reason="no Playwright browser is available")
+    def test_the_element_cap_holds_on_a_large_page(self) -> None:
+        html = "<html><body>" + "".join(f'<button id="b{index}">go {index}</button>' for index in range(260))
+        html += "</body></html>"
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.set_content(html)
+
+            records = page.evaluate(_STRUCTURE_SCRIPT)
+            browser.close()
+
+        assert len(records) == 200  # the collector bound — never the whole page

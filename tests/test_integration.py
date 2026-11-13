@@ -85,6 +85,9 @@ class FakePage:
     def aria_snapshot(self) -> str:
         return "- button 'Войти'"
 
+    def structure_registry(self) -> list[dict[str, str]]:
+        return [{"tag": "button", "text": "Войти", "selector": "#login", "via": "id"}]
+
     def screenshot(self) -> bytes:
         return b"png"
 
@@ -134,6 +137,7 @@ class StubProvider(LLMProvider):
         inputs: dict[str, str] | None = None,
         declarations: list[str] | None = None,
         snapshot: str = "",
+        structure: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
         skill: str = "",
@@ -151,6 +155,7 @@ class StubProvider(LLMProvider):
                 "inputs": inputs,
                 "declarations": declarations,
                 "snapshot": snapshot,
+                "structure": structure,
                 "page_url": page_url,
                 "screenshot": screenshot,
                 "skill": skill,
@@ -196,6 +201,7 @@ class StubProvider(LLMProvider):
         declarations: list[str],
         code: str,
         attempt_history: list[str] | None = None,
+        structure: str = "",
     ) -> list[ComplianceFinding]:
         self.compliance_requests.append(
             {
@@ -207,6 +213,7 @@ class StubProvider(LLMProvider):
                 "declarations": declarations,
                 "code": code,
                 "attempt_history": list(attempt_history or []),
+                "structure": structure,
             }
         )
         if self.compliance_verdicts is not None:
@@ -262,6 +269,7 @@ class ForbiddenProvider(LLMProvider):
         declarations: list[str],
         code: str,
         attempt_history: list[str] | None = None,
+        structure: str = "",
     ) -> list[ComplianceFinding]:
         self.calls += 1
         raise AssertionError("provider must not be called")
@@ -876,7 +884,9 @@ def test_interactive_steering_heals_a_stuck_step_end_to_end(tmp_path: Path, monk
     monkeypatch.setattr(builtins, "input", scripted_input)
     existing_pngs = set(Path(tempfile.gettempdir()).glob("prettyplay-steering-*.png"))
 
-    with configured_test(PrettyConfig(cache_root=str(tmp_path), interactive=True), provider, page) as test:
+    with configured_test(
+        PrettyConfig(cache_root=str(tmp_path), interactive=True, generation_approve=False), provider, page
+    ) as test:
         test.add_hooks(hook)
         test.step("нажать Войти")  # the incurable verdict opens the dialog instead of failing the step
         test.close()
@@ -901,7 +911,7 @@ def test_interactive_steering_heals_a_stuck_step_end_to_end(tmp_path: Path, monk
     assert record0.startswith("original cached code\n")
     assert failing_code.rstrip("\n") in record0
     assert "RuntimeError: element not found" in record0
-    assert provider.compliance_requests == []  # the gate is off without configured instructions
+    assert provider.compliance_requests == []  # the gate is off with the approve switch off
 
     out = capsys.readouterr().out
     assert "run? [y/N]" in out  # the approval gate asked before anything executed
@@ -1549,6 +1559,7 @@ def test_scenario_records_carry_both_texts_and_events_carry_the_ready_layer(tmp_
         inputs={},
         declarations=[],
         snapshot="- button 'Войти'",
+        structure=request["structure"],
         page_url="https://app.example.com",
         skill="cs",
         attempt_history=[],

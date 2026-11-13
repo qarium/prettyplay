@@ -46,7 +46,7 @@ The classification verdict decides the path:
 
 ## Rules
 
-- A healed candidate passes the [compliance gate](../configuration.md#the-compliance-gate) before the write-back: a `high` finding in either dimension fails the healing attempt — the violation text joins the attempt record's error and the retry carries the grown attempt history — `medium` and `low` findings pass with a `WARNING`, and a malformed verdict (`ComplianceVerdictError`) is re-asked once and then permits an unchecked pass with a WARNING if still malformed; provider unavailability (`LLMUnavailableError`) remains a hard failure — nothing is cached on that outage path
+- A healed candidate passes the [compliance gate](../configuration.md#the-compliance-gate) before the write-back — the gate also judges the structural locator priority when the request carried the element registry (a purely text locator for an element the registry anchors is a `high` finding), a `high` finding in either dimension fails the healing attempt — the violation text joins the attempt record's error and the retry carries the grown attempt history — `medium` and `low` findings pass with a `WARNING`, and a malformed verdict (`ComplianceVerdictError`) is re-asked once and then permits an unchecked pass with a WARNING if still malformed; provider unavailability (`LLMUnavailableError`) remains a hard failure — nothing is cached on that outage path
 - Anti-masking: healing never turns a product defect into a green test
 - The healed code replaces the cached code only after a successful execution
 - Generation and healing attempts live in one per-test registry — owned by the

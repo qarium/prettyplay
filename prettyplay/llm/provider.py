@@ -18,6 +18,7 @@ class LLMProvider:
         inputs: dict[str, str],
         declarations: list[str],
         snapshot: str,
+        structure: str,
         page_url: str | None,
         screenshot: bytes | None,
         skill: str,
@@ -65,9 +66,17 @@ class LLMProvider:
                 declared names to non-blank strings observed on the page;
                 empty — no block, the success-without-result code form.
             snapshot: the accessibility snapshot of the current page.
+            structure: the rendered structural element registry of the
+                current page — one line per interactive element with its
+                runtime-verified unique selector; non-empty — rendered by
+                the provider implementations as its own PAGE STRUCTURE
+                block immediately after the PAGE SNAPSHOT block of the
+                user content, identically in both; empty — no block, the
+                request identical to the snapshot-only one; supplied by
+                the engine and steering generation paths.
             page_url: the current URL of the page; non-empty — rendered by
                 the provider implementations as its own PAGE URL line
-                immediately after the PAGE SNAPSHOT block of the user
+                immediately after the PAGE STRUCTURE block of the user
                 content, identically in both; None — no line; supplied by
                 the engine and steering generation paths.
             screenshot: an optional PNG image of the page; passed only when
@@ -210,6 +219,7 @@ class LLMProvider:
         declarations: list[str],
         code: str,
         attempt_history: list[str],
+        structure: str,
     ) -> list[ComplianceFinding]:
         """Check the successfully executed candidate code in two dimensions.
 
@@ -218,8 +228,9 @@ class LLMProvider:
                 engine; applied verbatim as the system message.
             user_instructions: the project's generation instructions
                 supplied by the calling engine from the generation_prompt
-                setting; the calling engine guarantees non-empty — the gate
-                never runs on empty instructions.
+                setting; empty — the request carries no instructions block,
+                the verdict then judges the structural priority and adequacy
+                dimensions alone.
             instruction: the prepared plain-text instruction of the generated
                 step — rendered as the STEP block; the raw template sentence
                 never reaches the request.
@@ -240,12 +251,18 @@ class LLMProvider:
                 ground truth of what was already tried; non-empty — rendered
                 as a separate ATTEMPT HISTORY block, every record verbatim,
                 no collapsing, no size limits; empty — no block.
+            structure: the rendered structural element registry the
+                generation request carried — the runtime-verified selectors
+                the gate checks the candidate's locators against;
+                non-empty — rendered as its own PAGE STRUCTURE block
+                immediately before the CODE section; empty — no block.
 
         Returns:
             The parsed findings; an empty list means compliant — one verdict
-            request per executed candidate; the block order INSTRUCTIONS,
-            STEP, the optional INPUTS and RESULTS sections, ATTEMPT HISTORY,
-            CODE.
+            request per executed candidate; the block order INSTRUCTIONS
+            (when configured), STEP, the optional INPUTS and RESULTS
+            sections, ATTEMPT HISTORY, the optional PAGE STRUCTURE and CODE
+            sections.
 
         Raises:
             NotImplementedError: the port itself carries no implementation.
