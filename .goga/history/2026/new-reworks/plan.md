@@ -890,14 +890,27 @@ scope → a new address with a fresh budget — the designed semantics.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (expected to fail now): in `tests/engine/groups/test_recovery.py` — a row step's `regenerate` receives an identity carrying the trace identity's `scope`
-- [ ] **Code**: add `scope=trace.identity.scope` to the `fresh_identity` construction (recovery.py:344)
-- [ ] **Code**: update the `GroupStepOutcome.identity` documentation in `outcome.py` — "both address parts (cache_key, scope); the row re-render derives a fresh address — this record keeps the execution fact"
-- [ ] **Interface verification**: `/opt/project/bin/pytest tests/engine/groups/ -v` — contract tests pass; the existing recovery tests stay green
-- [ ] **Logic tests** in `tests/engine/groups/test_recovery.py` (design scenario, verbatim assertions): `test_recovery_row_readdresses_under_group_scope` — the existing recovery harness with a scoped trace identity (`StepIdentity(cache_key="k", step_type="action", normalized_text="fill the login field", scope="pages/login")`), a diagnosis verdict naming the earliest row step, a generator double recording the `identity` of `regenerate`; asserts `recorded_identity.scope == "pages/login"`, `recorded_identity.cache_key == "k"`, `recorded_identity.normalized_text == normalize_step_text(fresh.addressing_text)`
-- [ ] **Debugging**: `/opt/project/bin/pytest tests/engine/groups/ -v` — fix implementation until green
-- [ ] **Contract re-verification**: the write-back never lands under a stale or scope-less trace identity; unscoped groups behave exactly as before
-- [ ] **Lint**: `/opt/project/bin/ruff check prettyplay/ tests/`
+- [x] **Contract tests** (expected to fail now): in `tests/engine/groups/test_recovery.py` — a row step's `regenerate` receives an identity carrying the trace identity's `scope`
+      (done: `test_row_regenerations_carry_the_trace_identity_scope` — observed failing live pre-implementation,
+      every fresh row identity carried `scope=''`; the `_scoped`/`_scoped_identity` helpers rebuild the reference
+      group under one scope)
+- [x] **Code**: add `scope=trace.identity.scope` to the `fresh_identity` construction (recovery.py:344)
+      (done: the construction comment and the `recover` docstring's identity param now name both execution facts —
+      cache_key AND scope)
+- [x] **Code**: update the `GroupStepOutcome.identity` documentation in `outcome.py` — "both address parts (cache_key, scope); the row re-render derives a fresh address — this record keeps the execution fact"
+- [x] **Interface verification**: `/opt/project/bin/pytest tests/engine/groups/ -v` — contract tests pass; the existing recovery tests stay green
+      (done via `/opt/goga/project/bin/pytest` — 30 passed in test_recovery.py, 69 in tests/engine/groups/)
+- [x] **Logic tests** in `tests/engine/groups/test_recovery.py` (design scenario, verbatim assertions): `test_recovery_row_readdresses_under_group_scope` — the existing recovery harness with a scoped trace identity (`StepIdentity(cache_key="k", step_type="action", normalized_text="fill the login field", scope="pages/login")`), a diagnosis verdict naming the earliest row step, a generator double recording the `identity` of `regenerate`; asserts `recorded_identity.scope == "pages/login"`, `recorded_identity.cache_key == "k"`, `recorded_identity.normalized_text == normalize_step_text(fresh.addressing_text)`
+      (done: verbatim three assertions on the verdict-named row step, plus every-row-step scope coverage and the
+      budgets refresh pinning the scoped fresh identities)
+- [x] **Debugging**: `/opt/project/bin/pytest tests/engine/groups/ -v` — fix implementation until green
+      (done: 69 passed in tests/engine/groups/; full suite 1628 passed, 3 skipped)
+- [x] **Contract re-verification**: the write-back never lands under a stale or scope-less trace identity; unscoped groups behave exactly as before
+      (done: REPL run with the real generator + cache — scoped rows write under `root/pages/login/` keyed on the
+      fresh scoped identity, the scope-less stale variant is a miss, nothing at the root; the same run without a
+      scope writes at the root with no subdirectories)
+- [x] **Lint**: `/opt/project/bin/ruff check prettyplay/ tests/`
+      (done: all checks passed; touched files format-clean; `goga lint` 13 cells / 0 errors)
 
 ### Task 10: `StepExecutor.execute` — the `scope` parameter and the scoped identity build
 

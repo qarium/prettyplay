@@ -164,7 +164,8 @@ class GroupRecovery:
             identity: the address of the failed step — the active failure's
                 identity on entry; the row re-addresses every regeneration,
                 the failed step's included, from the fresh re-render of each
-                trace record, keyed by the trace's execution-fact cache_key.
+                trace record, keyed by the trace's execution-fact cache_key
+                and scope.
             attempt_history: the per-step attempt history of the failed
                 step, grown to the failure — the active failure's history;
                 the failed step's row entry reuses it, the terminal-failure
@@ -340,9 +341,11 @@ class GroupRecovery:
             fresh = render_step(trace.sentence, trace.step_type, memory, trace.vars)
 
             # the fresh address of the regeneration — the re-rendered addressing text; the trace
-            # identity contributes only its cache_key, the execution fact, never the address
+            # identity contributes its cache_key and scope, the execution facts — a scoped group's
+            # rows re-address under the group's scope
             fresh_identity = StepIdentity(
                 cache_key=trace.identity.cache_key,
+                scope=trace.identity.scope,
                 step_type=trace.step_type,
                 normalized_text=normalize_step_text(fresh.addressing_text),
             )
