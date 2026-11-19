@@ -18,10 +18,14 @@ _SCOPE_SEGMENT = re.compile(r"[A-Za-z0-9._-]+")
 class StepIdentity(BaseModel):
     """The address of a step in the repository cache.
 
+    The record holds no validation — the validation rings own the scope
+    rule; an empty scope keeps every address unscoped.
+
     Attributes:
         cache_key: the key of the test the step belongs to.
         step_type: the kind of the step sentence ({action, assertion}).
         normalized_text: the normalized step sentence.
+        scope: the scope the step addresses under; empty — unscoped.
     """
 
     model_config = ConfigDict(kw_only=True)
@@ -29,17 +33,30 @@ class StepIdentity(BaseModel):
     cache_key: str
     step_type: str
     normalized_text: str
+    scope: str = ""
+
+    @property
+    def address_key(self) -> str:
+        """Return the addressing key — the scope when set, the cache key otherwise.
+
+        Returns:
+            ``scope`` when non-empty, ``cache_key`` otherwise; the first
+            member of the digest identity and the metadata ``CACHE_KEY``.
+        """
+        return self.scope if self.scope != "" else self.cache_key
 
     @property
     def filename(self) -> str:
-        """Return the cache filename deterministically derived from the triple.
+        """Return the cache filename deterministically derived from the address.
 
         Returns:
-            The filename — the parts joined with the Unit Separator,
-            sha256-hashed, ``.py``-extended; the cache loader parses the
-            text and never imports the module by name.
+            The filename — the address key, the step type and the
+            normalized text joined with the Unit Separator, sha256-hashed,
+            ``.py``-extended; the cache loader parses the text and never
+            imports the module by name. An empty scope keeps the digest
+            byte-identical to the unscoped identity.
         """
-        identity_string = _IDENTITY_SEPARATOR.join((self.cache_key, self.step_type, self.normalized_text))
+        identity_string = _IDENTITY_SEPARATOR.join((self.address_key, self.step_type, self.normalized_text))
         digest = hashlib.sha256(identity_string.encode("utf-8")).hexdigest()
         return f"{digest}.py"
 

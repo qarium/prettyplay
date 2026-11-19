@@ -667,16 +667,28 @@ byte-identical to the pre-change triple — no unscoped address changes.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (expected to fail now): in `tests/cache/test_models.py` — `StepIdentity` accepts `scope` kwarg with default `""`; exposes properties `scope` and `address_key`; existing construction sites (no `scope`) still valid
-- [ ] **Code**: add the `scope` field and the `address_key` property; rebase `filename` onto `address_key` (models.py:37 today joins `cache_key` first)
-- [ ] **Interface verification**: `/opt/project/bin/pytest tests/cache/test_models.py -v` — contract tests pass; REPL-verify an unscoped digest equals the pre-change value
-- [ ] **Logic tests** in `tests/cache/test_models.py` (design scenarios, verbatim assertions):
+- [x] **Contract tests** (expected to fail now): in `tests/cache/test_models.py` — `StepIdentity` accepts `scope` kwarg with default `""`; exposes properties `scope` and `address_key`; existing construction sites (no `scope`) still valid
+      (done: the three new contract scenarios observed failing live (AttributeError: no attribute 'scope') before
+      implementation; the "exactly the triple" / "four properties" pins updated to the quad address surface the
+      contract now declares)
+- [x] **Code**: add the `scope` field and the `address_key` property; rebase `filename` onto `address_key` (models.py:37 today joins `cache_key` first)
+      (done: REPL-verified the model shape against the recorded pre-change digests before migration; `scope` is a
+      plain field — pydantic exposes it as the attribute surface, only `address_key` is a property)
+- [x] **Interface verification**: `/opt/project/bin/pytest tests/cache/test_models.py -v` — contract tests pass; REPL-verify an unscoped digest equals the pre-change value
+      (done: fresh-interpreter check — the three baseline digests recorded before the edit reproduce byte-identically)
+- [x] **Logic tests** in `tests/cache/test_models.py` (design scenarios, verbatim assertions):
       `test_step_identity_scoped_address_key_and_filename` — `StepIdentity(cache_key="login-flow", step_type="action", normalized_text="open the dashboard", scope="pages/dashboard")`; asserts `address_key == "pages/dashboard"`, `filename == f"{hashlib.sha256('\x1f'.join(('pages/dashboard', 'action', 'open the dashboard')).encode()).hexdigest()}.py"`, `scope == "pages/dashboard"`;
       `test_step_identity_unscoped_digest_unchanged` — asserts `address_key == "login-flow"`, `filename` equals the inline-computed pre-change digest of `("login-flow", "action", "open the dashboard")`, and `StepIdentity(..., scope="").filename == StepIdentity(...).filename`;
       edge `test_scoped_identity_and_equal_cache_key_share_one_address` — `a` with `cache_key="pages/login", scope=""` and `b` with `cache_key="k", scope="pages/login"`; asserts `a.filename == b.filename` (one address space)
-- [ ] **Debugging**: `/opt/project/bin/pytest tests/cache/ -v` — fix implementation until green
-- [ ] **Contract re-verification**: unscoped digests byte-stable; the record performs no validation
-- [ ] **Lint**: `/opt/project/bin/ruff check prettyplay/ tests/`
+      (done: all three verbatim; the join moved out of the f-string — a backslash escape inside an f-string is
+      py310-invalid syntax under the ruff target and the inline form exceeded line-length 120)
+- [x] **Debugging**: `/opt/project/bin/pytest tests/cache/ -v` — fix implementation until green
+      (done: 122 passed in tests/cache/; full suite 1611 passed, 3 skipped)
+- [x] **Contract re-verification**: unscoped digests byte-stable; the record performs no validation
+      (done: baseline digests recorded pre-change and re-verified byte-identical post-change;
+      `StepIdentity(..., scope="../escape")` constructs — the record holds no validation, the rings own the rule)
+- [x] **Lint**: `/opt/project/bin/ruff check prettyplay/ tests/`
+      (done: all checks passed; touched files format-clean; `goga lint` 13 cells / 0 errors)
 
 ### Task 6: `StepCache` — ring 2, scoped routing, address-key metadata, sweep guard
 
