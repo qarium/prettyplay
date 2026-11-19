@@ -794,10 +794,20 @@ here; these tests pin contract properties the unit tests argue only analytically
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] Create/extend the scenarios in `tests/cache/test_store.py` and `tests/cache/test_budgets.py`
-- [ ] `test_store_two_writers_same_scoped_step_reader_accepts_either` (test_store.py) — two stores over one `tmp_path` root; `identity_a` (cache_key `"a"`) and `identity_b` (cache_key `"b"`) with identical `step_type`, `normalized_text`, `scope="pages/login"` — identical `address_key`, identical digest; two `CachedStep`s with identical code, different `created_at`; save a then b, load through both; asserts `stored_a is True and stored_b is True`, `loaded_by_a is not None and loaded_by_b is not None`, `loaded_by_a.code == loaded_by_b.code == step_b.code` (last writer wins, valid for every reader), `len(list((tmp_path / "cache" / "pages" / "login").glob("*.py"))) == 1` (one address ⇒ one file)
-- [ ] `test_budgets_scoped_step_pays_per_test` (test_budgets.py) — `RunBudgets(generation_limit=1, healing_limit=1)` and a scoped identity; registry A: `a.try_generation(identity) is True` then `is False`; fresh registry B: `b.try_generation(identity) is True` — per-test budgets, no shared scope budget
-- [ ] Run validation: `/opt/project/bin/pytest tests/cache/ -v`
+- [x] Create/extend the scenarios in `tests/cache/test_store.py` and `tests/cache/test_budgets.py`
+      (done: `TestStepCacheScopedEconomics` and `TestRunBudgetsScopedEconomics` — the economics REPL-verified
+      live before migration: identical address_key/filename from distinct cache_keys, one file, budgets
+      True/False/True)
+- [x] `test_store_two_writers_same_scoped_step_reader_accepts_either` (test_store.py) — two stores over one `tmp_path` root; `identity_a` (cache_key `"a"`) and `identity_b` (cache_key `"b"`) with identical `step_type`, `normalized_text`, `scope="pages/login"` — identical `address_key`, identical digest; two `CachedStep`s with identical code, different `created_at`; save a then b, load through both; asserts `stored_a is True and stored_b is True`, `loaded_by_a is not None and loaded_by_b is not None`, `loaded_by_a.code == loaded_by_b.code == step_b.code` (last writer wins, valid for every reader), `len(list((tmp_path / "cache" / "pages" / "login").glob("*.py"))) == 1` (one address ⇒ one file)
+      (done: all four design assertions verbatim plus a `created_at` pin of the last-writer-wins read; the
+      compound `and` forms split into single asserts — ruff PT018; the scenario lives in
+      `TestStepCacheScopedEconomics`)
+- [x] `test_budgets_scoped_step_pays_per_test` (test_budgets.py) — `RunBudgets(generation_limit=1, healing_limit=1)` and a scoped identity; registry A: `a.try_generation(identity) is True` then `is False`; fresh registry B: `b.try_generation(identity) is True` — per-test budgets, no shared scope budget
+      (done: verbatim, in `TestRunBudgetsScopedEconomics`)
+- [x] Run validation: `/opt/project/bin/pytest tests/cache/ -v`
+      (done via `/opt/goga/project/bin/pytest tests/cache/ -v` — 132 passed (130 pre-existing + 2 new); full
+      suite 1621 passed, 3 skipped; ruff all checks passed, touched files format-clean; `goga lint` 13 cells /
+      0 errors)
 
 ### Task 8: `DriverSession.open_context` — the insecure-TLS context parameter
 

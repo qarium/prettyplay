@@ -182,3 +182,19 @@ class TestRunBudgetsRecoveryLogic:
         assert budgets.try_generation(IDENTITY) is True  # the generation pool intact
         assert budgets.try_healing(IDENTITY) is True  # other steps' healing pools intact
         assert budgets.open_group_cycle("the login flow") is True  # other groups' caps intact
+
+
+class TestRunBudgetsScopedEconomics:
+    """Integration tests: a scoped step draws its own per-test pools — no shared scope budget."""
+
+    def test_budgets_scoped_step_pays_per_test(self) -> None:
+        """The budgets key by the scoped identity's file name — each test's registry pays its own."""
+        identity = StepIdentity(
+            cache_key="k", step_type="action", normalized_text="fill the login field", scope="pages/login"
+        )
+        a = RunBudgets(generation_limit=1, healing_limit=1)
+        b = RunBudgets(generation_limit=1, healing_limit=1)
+
+        assert a.try_generation(identity) is True
+        assert a.try_generation(identity) is False  # exhausted within test A
+        assert b.try_generation(identity) is True  # a fresh registry — the scope is no shared budget

@@ -815,3 +815,38 @@ class TestStepCacheScopedRouting:
             ("on_cache_skipped", {"step_text": "open the dashboard", "reason": "cache target busy"})
         ]
         assert not (tmp_path / "pages" / "dashboard").exists()
+
+
+class TestStepCacheScopedEconomics:
+    """Integration tests: the shared scoped address across two writer instances."""
+
+    def test_store_two_writers_same_scoped_step_reader_accepts_either(self, tmp_path: Path) -> None:
+        """Two tests write the same scoped address — one file, the last writer valid for every reader."""
+        root = tmp_path / "cache"
+        identity_a = StepIdentity(
+            cache_key="a", step_type="action", normalized_text="fill the login field", scope="pages/login"
+        )
+        identity_b = StepIdentity(
+            cache_key="b", step_type="action", normalized_text="fill the login field", scope="pages/login"
+        )
+        step_a = CachedStep(
+            identity=identity_a, addressing_text="fill the login field", code=STEP_CODE, created_at="2026-11-18"
+        )
+        step_b = CachedStep(
+            identity=identity_b, addressing_text="fill the login field", code=STEP_CODE, created_at="2026-11-19"
+        )
+        store_a = make_root_cache(root)
+        store_b = make_root_cache(root)
+
+        stored_a = store_a.save(step_a)
+        stored_b = store_b.save(step_b)
+        loaded_by_a = store_a.load(identity_a)
+        loaded_by_b = store_b.load(identity_b)
+
+        assert stored_a is True
+        assert stored_b is True
+        assert loaded_by_a is not None
+        assert loaded_by_b is not None
+        assert loaded_by_a.code == loaded_by_b.code == step_b.code  # last writer wins, valid for every reader
+        assert loaded_by_a.created_at == loaded_by_b.created_at == step_b.created_at
+        assert len(list((tmp_path / "cache" / "pages" / "login").glob("*.py"))) == 1  # one address ⇒ one file
