@@ -53,6 +53,11 @@ class BrowserConfig(BaseModel):
             action timeout — the baseline the probe bound of the engine loops
             restores to; 0 disables the timeout, not auto-wait — an unready
             action can wait indefinitely; navigations keep their own default timeout.
+        ignore_https_errors: open pages behind self-signed or otherwise
+            invalid certificates; the driver applies it as a context
+            parameter at context creation — never a launch argument; default
+            False keeps Playwright's certificate checking untouched; enabling
+            is silent.
     """
 
     model_config = ConfigDict(kw_only=True, extra="forbid")
@@ -64,6 +69,7 @@ class BrowserConfig(BaseModel):
     accept_dialogs: bool = False
     speed: int = 100
     timeout: float = 30
+    ignore_https_errors: bool = False
 
     @field_validator("name")
     @classmethod
@@ -184,6 +190,49 @@ class BrowserConfig(BaseModel):
         return value
 
 
+class SiteConfig(BaseModel):
+    """The nested site group of the project settings — the environment under test, never the LLM endpoint.
+
+    Attributes:
+        base_url: the root URL of the environment under test; empty means
+            unset; kept verbatim — no trailing-slash normalization, the
+            author composes URL strings; a non-empty value must be an
+            http/https URL with a host. No collision with the top-level
+            ``base_url`` (the LLM API endpoint) — the group scopes the field,
+            exactly as the browser group scopes ``name``.
+    """
+
+    model_config = ConfigDict(kw_only=True, extra="forbid")
+
+    base_url: str = ""
+
+    @field_validator("base_url")
+    @classmethod
+    def _validate_base_url(cls, value: str) -> str:
+        """Check that a non-empty base URL is an http/https URL with a host.
+
+        Args:
+            value: the raw site setting; empty means unset and passes
+                through verbatim.
+
+        Returns:
+            The unchanged base URL when empty or a valid http/https URL.
+
+        Raises:
+            ValueError: when a non-empty value carries neither an http nor
+                an https scheme, or no host.
+        """
+        if value == "":
+            return value
+
+        parsed = urlparse(value)
+
+        if parsed.scheme not in {"http", "https"} or parsed.netloc == "":
+            raise ValueError("must be an http/https URL with a host")
+
+        return value
+
+
 class PrettyConfig(BaseModel):
     """Validated project settings loaded from ``[tool.prettyplay]`` — fields default empty, load_config fills them.
 
@@ -192,6 +241,10 @@ class PrettyConfig(BaseModel):
         browser: the nested browser group — a :class:`BrowserConfig` with the
             engine, the screen mode, the window visibility and the remote
             endpoint.
+        site: the nested site group — a :class:`SiteConfig` with the root
+            URL of the environment under test; empty base_url means unset;
+            kept verbatim and never wired into Playwright navigation — the
+            author composes it into step sentences.
         model: main LLM model name.
         generation_model: optional generation override; empty falls back to ``model``.
         classification_model: optional classification override; empty falls back to ``model``.
@@ -271,6 +324,7 @@ class PrettyConfig(BaseModel):
 
     provider: Literal["openai", "anthropic"] = "openai"
     browser: BrowserConfig = BrowserConfig()
+    site: SiteConfig = SiteConfig()
     model: str = ""
     generation_model: str = ""
     classification_model: str = ""

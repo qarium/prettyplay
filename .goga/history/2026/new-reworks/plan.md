@@ -498,18 +498,22 @@ Edge cases: `""` → unset, valid; `"https://"` (no netloc), `"example.com"` (no
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (expected to fail now): in `tests/config/test_models.py` — `from prettyplay.config import SiteConfig` (facade); `SiteConfig(base_url=...)` constructs kw_only and exposes property `base_url`; `BrowserConfig()` exposes `ignore_https_errors` (bool) and `PrettyConfig()` exposes `site` (a `SiteConfig`)
-- [ ] **Code**: add `SiteConfig` to `prettyplay/config/models.py` per the algorithm above (field + `field_validator("base_url")`, verbatim keeping, no dedicated error type — plain `ValueError` through pydantic)
-- [ ] **Code**: add `ignore_https_errors: bool = False` + property to `BrowserConfig` (no dedicated validator) and `site: SiteConfig = SiteConfig()`-style default group + property to `PrettyConfig` — symmetric to `browser`
-- [ ] **Code**: export `SiteConfig` from `prettyplay/config/__init__.py` (relative import; `__all__` sorted per the existing listing)
-- [ ] **Interface verification**: `/opt/project/bin/pytest tests/config/test_models.py -v` — contract tests pass; `/opt/project/bin/python -c "from prettyplay.config import SiteConfig"`
-- [ ] **Logic tests** in `tests/config/test_models.py` (design scenarios, verbatim assertions):
+- [x] **Contract tests** (expected to fail now): in `tests/config/test_models.py` — `from prettyplay.config import SiteConfig` (facade); `SiteConfig(base_url=...)` constructs kw_only and exposes property `base_url`; `BrowserConfig()` exposes `ignore_https_errors` (bool) and `PrettyConfig()` exposes `site` (a `SiteConfig`)
+- [x] **Code**: add `SiteConfig` to `prettyplay/config/models.py` per the algorithm above (field + `field_validator("base_url")`, verbatim keeping, no dedicated error type — plain `ValueError` through pydantic)
+- [x] **Code**: add `ignore_https_errors: bool = False` + property to `BrowserConfig` (no dedicated validator) and `site: SiteConfig = SiteConfig()`-style default group + property to `PrettyConfig` — symmetric to `browser`
+      (done: fields are the attribute surface — a same-named property is discarded by pydantic, REPL-verified; the field-order pins in test_models.py and the env-parity pin in test_loader.py track the new contract, the parity pending set covers the two env names of Task 3)
+- [x] **Code**: export `SiteConfig` from `prettyplay/config/__init__.py` (relative import; `__all__` sorted per the existing listing)
+- [x] **Interface verification**: `/opt/project/bin/pytest tests/config/test_models.py -v` — contract tests pass; `/opt/project/bin/python -c "from prettyplay.config import SiteConfig"`
+- [x] **Logic tests** in `tests/config/test_models.py` (design scenarios, verbatim assertions):
       `test_site_config_accepts_http_url` — asserts `PrettyConfig(site=SiteConfig(base_url="https://staging.example.com")).site.base_url == "https://staging.example.com"` (the group reachable inside the model) and `SiteConfig().base_url == ""` (the empty default);
       `test_browser_config_has_ignore_https_errors_default` — `BrowserConfig().ignore_https_errors is False`, `BrowserConfig(ignore_https_errors=True).ignore_https_errors is True`;
       negative `test_site_config_rejects_non_http_url` — parametrized `["example.com", "ftp://example.com", "https://", "http:///path"]`, `pytest.raises(ValidationError)`
-- [ ] **Debugging**: `/opt/project/bin/pytest tests/config/ -v` — fix implementation (never tests) until green
-- [ ] **Contract re-verification**: facade (`from prettyplay.config import SiteConfig`), API shape (three fields/properties match the contract signatures), behavior (empty default, verbatim keeping, loud rejection)
-- [ ] **Lint**: `/opt/project/bin/ruff check prettyplay/ tests/` — fix formatting of touched files if necessary
+      (done: all three verbatim plus verbatim-keeping and non-boolean-rejection scenarios — `"true"`/`1` coerce through pydantic's ordinary bool wrap per the "no dedicated validator" contract, so the rejection set is `["maybe", 2, 1.5, None]`)
+- [x] **Debugging**: `/opt/project/bin/pytest tests/config/ -v` — fix implementation (never tests) until green
+      (done: 185 passed; full suite 1581 passed, 3 skipped)
+- [x] **Contract re-verification**: facade (`from prettyplay.config import SiteConfig`), API shape (three fields/properties match the contract signatures), behavior (empty default, verbatim keeping, loud rejection)
+- [x] **Lint**: `/opt/project/bin/ruff check prettyplay/ tests/` — fix formatting of touched files if necessary
+      (done: all checks passed; `goga lint` 13 cells / 0 errors)
 
 ### Task 3: `load_config` — env names, per-group env merge, group-aware `_apply_overrides`
 

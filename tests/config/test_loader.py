@@ -4,7 +4,7 @@ import inspect
 from pathlib import Path
 
 import pytest
-from prettyplay.config import BrowserConfig, ConfigurationError, PrettyConfig, adopt_config, load_config
+from prettyplay.config import BrowserConfig, ConfigurationError, PrettyConfig, SiteConfig, adopt_config, load_config
 from prettyplay.config import loader as _loader
 from prettyplay.failures import PrettyplayError
 from pydantic import ValidationError
@@ -143,9 +143,13 @@ class TestLoadConfigContract:
         values = set(_loader._ENV_NAMES.values())
 
         assert expected <= values  # every setting present — all seven browser variables included
-        # one entry per top-level scalar field (the group itself excluded) plus per group field
-        wired = [name for name in PrettyConfig.model_fields if name != "browser"]
-        assert len(_loader._ENV_NAMES) == len(wired) + len(BrowserConfig.model_fields)
+        # one entry per top-level scalar field (the groups themselves excluded) plus per wired group
+        # field; site.base_url and browser.ignore_https_errors gain their env names with the loader
+        # env-wiring change (PRETTYPLAY_SITE_BASE_URL / PRETTYPLAY_BROWSER_IGNORE_HTTPS_ERRORS)
+        pending_env_wiring = {"site.base_url", "browser.ignore_https_errors"}
+        wired = [name for name in PrettyConfig.model_fields if name not in {"browser", "site"}]
+        wired_group_fields = len(BrowserConfig.model_fields) + len(SiteConfig.model_fields) - len(pending_env_wiring)
+        assert len(_loader._ENV_NAMES) == len(wired) + wired_group_fields
 
     def test_browser_speed_env_name_and_allowed_text(self) -> None:
         """Contract: the pace reads PRETTYPLAY_BROWSER_SPEED; its validation line is authored."""

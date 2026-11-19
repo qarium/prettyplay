@@ -5,14 +5,14 @@ import inspect
 import prettyplay.config
 import pydantic
 import pytest
-from prettyplay.config import BrowserConfig, PrettyConfig, models
+from prettyplay.config import BrowserConfig, PrettyConfig, SiteConfig, models
 
 
 class TestConfigContract:
     """Contract tests: facade, base class, construction shape, property surface."""
 
     def test_facade_exports_models_loader_and_error(self) -> None:
-        for name in ("BrowserConfig", "PrettyConfig", "ConfigurationError", "load_config"):
+        for name in ("BrowserConfig", "PrettyConfig", "SiteConfig", "ConfigurationError", "load_config"):
             assert hasattr(prettyplay.config, name), f"missing facade export: {name}"
             assert name in prettyplay.config.__all__
 
@@ -26,11 +26,12 @@ class TestConfigContract:
         with pytest.raises(TypeError):
             PrettyConfig("openai")  # type: ignore[misc]
 
-    def test_all_twenty_one_properties_accessible(self) -> None:
+    def test_all_twenty_two_properties_accessible(self) -> None:
         config = PrettyConfig()
         expected = [
             "provider",
             "browser",
+            "site",
             "model",
             "generation_model",
             "classification_model",
@@ -58,7 +59,7 @@ class TestConfigContract:
         """Contract: the transport retry budget defaults to 3 and slots after healing_attempts."""
         assert PrettyConfig().llm_request_attempts == 3
 
-        assert list(PrettyConfig.model_fields)[13:16] == [
+        assert list(PrettyConfig.model_fields)[14:17] == [
             "generation_attempts",
             "healing_attempts",
             "llm_request_attempts",
@@ -68,7 +69,7 @@ class TestConfigContract:
         """Contract: the completion cap defaults to 16384 and slots after llm_request_attempts."""
         assert PrettyConfig().request_max_tokens == 16384
 
-        assert list(PrettyConfig.model_fields)[13:17] == [
+        assert list(PrettyConfig.model_fields)[14:18] == [
             "generation_attempts",
             "healing_attempts",
             "llm_request_attempts",
@@ -85,17 +86,18 @@ class TestConfigContract:
         """Contract: the structure flag defaults to True (the opt-out default), after send_screenshots."""
         assert PrettyConfig().send_structure is True
 
-        assert list(PrettyConfig.model_fields)[17:20] == [
+        assert list(PrettyConfig.model_fields)[18:21] == [
             "send_screenshots",
             "send_structure",
             "generation_approve",
         ]
 
-    def test_signature_declares_twenty_one_fields_in_contract_order(self) -> None:
+    def test_signature_declares_twenty_two_fields_in_contract_order(self) -> None:
         fields = PrettyConfig.model_fields
         assert list(fields.keys()) == [
             "provider",
             "browser",
+            "site",
             "model",
             "generation_model",
             "classification_model",
@@ -116,6 +118,20 @@ class TestConfigContract:
             "generation_approve",
             "probe_timeout",
         ]
+
+    def test_config_carries_nested_site_group(self) -> None:
+        """Contract: the site group is a SiteConfig field defaulting to an empty group."""
+        site = PrettyConfig.model_fields["site"]
+
+        assert site.annotation is SiteConfig or site.annotation == SiteConfig
+        assert isinstance(PrettyConfig().site, SiteConfig)
+        assert PrettyConfig().site.base_url == ""
+
+    def test_site_group_default_is_deep_copied_per_instance(self) -> None:
+        first = PrettyConfig()
+        second = PrettyConfig()
+
+        assert first.site is not second.site  # pydantic deep-copies model defaults
 
     def test_generation_approve_is_a_declared_field(self) -> None:
         """Contract: the compliance gate switch is a model field; the probe bound closes the set."""
@@ -205,7 +221,7 @@ class TestBrowserConfigContract:
     def test_browser_config_is_kw_only(self) -> None:
         assert BrowserConfig.model_config.get("kw_only") is True
 
-    def test_browser_config_declares_seven_fields_in_contract_order(self) -> None:
+    def test_browser_config_declares_eight_fields_in_contract_order(self) -> None:
         assert list(BrowserConfig.model_fields) == [
             "name",
             "screen",
@@ -214,7 +230,17 @@ class TestBrowserConfigContract:
             "accept_dialogs",
             "speed",
             "timeout",
+            "ignore_https_errors",
         ]
+
+    def test_browser_config_ignore_https_errors_field_type_and_default(self) -> None:
+        """Contract: the insecure-TLS switch is a bool field defaulting to False."""
+        switch = BrowserConfig.model_fields["ignore_https_errors"]
+
+        assert switch.annotation is bool
+        assert switch.default is False
+        assert BrowserConfig().ignore_https_errors is False
+        assert PrettyConfig().browser.ignore_https_errors is False
 
     def test_browser_config_timeout_field_type_and_explicit_default(self) -> None:
         """Contract: the page action timeout is a float field of seconds defaulting to 30."""
@@ -275,6 +301,33 @@ class TestBrowserConfigContract:
         assert first.browser is not second.browser  # pydantic deep-copies model defaults
 
 
+class TestSiteConfigContract:
+    """Contract tests: the nested site group model."""
+
+    def test_site_config_is_pydantic_base_model(self) -> None:
+        assert issubclass(SiteConfig, pydantic.BaseModel)
+
+    def test_site_config_is_kw_only(self) -> None:
+        assert SiteConfig.model_config.get("kw_only") is True
+
+    def test_site_config_declares_single_base_url_field(self) -> None:
+        """Contract: one field, string, empty default — the group scopes it."""
+        assert list(SiteConfig.model_fields) == ["base_url"]
+
+        base_url = SiteConfig.model_fields["base_url"]
+        assert base_url.annotation is str
+        assert base_url.default == ""
+
+    def test_site_config_positional_construction_is_rejected(self) -> None:
+        with pytest.raises(TypeError):
+            SiteConfig("https://example.com")  # type: ignore[misc]
+
+    def test_site_config_is_the_same_model_on_facade(self) -> None:
+        assert prettyplay.config.SiteConfig is SiteConfig
+        assert "SiteConfig" in prettyplay.config.__all__
+        assert models.SiteConfig is prettyplay.config.SiteConfig
+
+
 class TestConfigLogic:
     """Logic tests: defaults, effective fallbacks, loud validation."""
 
@@ -293,6 +346,55 @@ class TestConfigLogic:
         """The gate switch carries the opt-out default — loud errors unless disabled."""
         assert PrettyConfig().generation_approve is True
         assert PrettyConfig(generation_approve=False).generation_approve is False
+
+    def test_site_config_accepts_http_url(self) -> None:
+        """Positive: the group is reachable inside the model; empty default means unset."""
+        assert (
+            PrettyConfig(site=SiteConfig(base_url="https://staging.example.com")).site.base_url
+            == "https://staging.example.com"
+        )
+
+        assert SiteConfig().base_url == ""
+
+    def test_site_config_keeps_url_verbatim(self) -> None:
+        """Verbatim adoption: the trailing slash and the path survive — the author composes URLs."""
+        assert SiteConfig(base_url="https://example.com/").base_url == "https://example.com/"
+        assert SiteConfig(base_url="http://ci:8080/x").base_url == "http://ci:8080/x"
+
+        config = PrettyConfig(site={"base_url": "https://file.example.com"})
+
+        assert config.site.base_url == "https://file.example.com"
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "example.com",
+            "ftp://example.com",
+            "https://",
+            "http:///path",
+        ],
+    )
+    def test_site_config_rejects_non_http_url(self, value: str) -> None:
+        """Negative: no scheme, a non-http scheme, no host — loud rejection naming the field and value."""
+        with pytest.raises(pydantic.ValidationError) as excinfo:
+            SiteConfig(base_url=value)
+
+        locations = [entry["loc"] for entry in excinfo.value.errors()]
+        assert ("base_url",) in locations
+        assert "http/https" in str(excinfo.value)
+
+    def test_browser_config_has_ignore_https_errors_default(self) -> None:
+        """The insecure-TLS switch: neutral default False, explicit True, no dedicated validator."""
+        assert BrowserConfig().ignore_https_errors is False
+        assert BrowserConfig(ignore_https_errors=True).ignore_https_errors is True
+
+    @pytest.mark.parametrize("value", ["maybe", 2, 1.5, None])
+    def test_browser_config_ignore_https_errors_rejects_non_boolean(self, value: object) -> None:
+        """Negative: unparseable forms reject through the ordinary validation wrap."""
+        with pytest.raises(pydantic.ValidationError) as excinfo:
+            BrowserConfig(ignore_https_errors=value)
+
+        assert "ignore_https_errors" in str(excinfo.value)
 
     def test_config_invalid_provider_fails_loudly(self) -> None:
         with pytest.raises(pydantic.ValidationError) as excinfo:
