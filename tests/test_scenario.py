@@ -15,7 +15,7 @@ import pytest
 from playwright.sync_api import Error
 from prettyplay import BrowserConfig, PrettyPlay
 from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step_text
-from prettyplay.config import PrettyConfig
+from prettyplay.config import PrettyConfig, SiteConfig
 from prettyplay.driver import PageFacade
 from prettyplay.driver.session import PlaywrightWorker
 from prettyplay.engine.groups import GroupRecovery
@@ -367,6 +367,10 @@ class TestPrettyPlayContract:
         assert BrowserConfig is prettyplay.config.models.BrowserConfig
         assert "BrowserConfig" in prettyplay.__all__
 
+    def test_facade_reexports_site_config(self) -> None:
+        assert prettyplay.SiteConfig is SiteConfig
+        assert "SiteConfig" in prettyplay.__all__
+
     def test_facade_reexports_step_hooks(self) -> None:
         assert prettyplay.StepHooks is StepHooks
         assert "StepHooks" in prettyplay.__all__
@@ -393,6 +397,7 @@ class TestPrettyPlayContract:
 
     def test_surface_matches_contract(self) -> None:
         assert isinstance(PrettyPlay.cache_key, property)
+        assert isinstance(PrettyPlay.site_base_url, property)
 
         for name in (
             "step",
@@ -412,18 +417,18 @@ class TestPrettyPlayContract:
         for method in (PrettyPlay.step, PrettyPlay.expect):
             parameters = list(inspect.signature(method).parameters.values())[1:]
 
-            assert [parameter.name for parameter in parameters] == ["text", "tries", "delay", "vars"]
+            assert [parameter.name for parameter in parameters] == ["text", "tries", "delay", "vars", "_scope"]
             assert parameters[0].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD  # text stays positional
-            for parameter in parameters[1:]:  # tries/delay/vars — keyword-only, None defaults
+            for parameter in parameters[1:]:  # tries/delay/vars/_scope — keyword-only, None defaults
                 assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
                 assert parameter.default is None
 
     def test_group_method_signature_matches_contract(self) -> None:
         parameters = list(inspect.signature(PrettyPlay.group).parameters.values())[1:]
 
-        assert [parameter.name for parameter in parameters] == ["prompt", "speed", "delay"]
+        assert [parameter.name for parameter in parameters] == ["prompt", "speed", "delay", "_scope"]
         assert parameters[0].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD  # prompt stays positional
-        for parameter in parameters[1:]:  # speed/delay — keyword-only, None defaults
+        for parameter in parameters[1:]:  # speed/delay/_scope — keyword-only, None defaults
             assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
             assert parameter.default is None
 
@@ -537,6 +542,14 @@ class TestPrettyPlayLogic:
             with mock.patch.object(silent._runtime, "open_page", return_value=page):
                 silent.step(STEP_TEXT)
                 silent.close()
+
+    def test_scenario_site_base_url_property(self, tmp_path: Path) -> None:
+        """The property returns the verbatim site.base_url of the effective config; empty string when unset."""
+        with scenario_on_tmp_cache(tmp_path):
+            test = PrettyPlay("k", config=PrettyConfig(site=SiteConfig(base_url="https://staging.example.com")))
+
+            assert test.site_base_url == "https://staging.example.com"
+            assert PrettyPlay("k2", config=PrettyConfig()).site_base_url == ""
 
     def test_scenario_builds_own_runtime_per_test(self, tmp_path: Path) -> None:
         """ADR-1 core acceptance: two tests hold two runtimes with two registries, no singleton."""
@@ -857,7 +870,15 @@ class TestPrettyPlayLogic:
             cache_key = CACHE_KEY
 
             def execute(  # noqa: PLR0913, PLR0917 — the signature is fixed by the root cell contract
-                self, step_text: str, step_type: str, page_: FakePage, group=None, tries=None, delay=None, vars=None
+                self,
+                step_text: str,
+                step_type: str,
+                page_: FakePage,
+                group=None,
+                tries=None,
+                delay=None,
+                vars=None,
+                scope=None,
             ) -> None:
                 engine_depth_two()
 
@@ -884,7 +905,15 @@ class TestPrettyPlayLogic:
             cache_key = CACHE_KEY
 
             def execute(  # noqa: PLR0913, PLR0917 — the signature is fixed by the root cell contract
-                self, step_text: str, step_type: str, page_: FakePage, group=None, tries=None, delay=None, vars=None
+                self,
+                step_text: str,
+                step_type: str,
+                page_: FakePage,
+                group=None,
+                tries=None,
+                delay=None,
+                vars=None,
+                scope=None,
             ) -> None:
                 raise error
 
@@ -913,7 +942,15 @@ class TestPrettyPlayLogic:
             cache_key = CACHE_KEY
 
             def execute(  # noqa: PLR0913, PLR0917 — the signature is fixed by the root cell contract
-                self, step_text: str, step_type: str, page_: FakePage, group=None, tries=None, delay=None, vars=None
+                self,
+                step_text: str,
+                step_type: str,
+                page_: FakePage,
+                group=None,
+                tries=None,
+                delay=None,
+                vars=None,
+                scope=None,
             ) -> None:
                 try:
                     raise original
@@ -949,7 +986,15 @@ class TestPrettyPlayLogic:
             cache_key = CACHE_KEY
 
             def execute(  # noqa: PLR0913, PLR0917 — the signature is fixed by the root cell contract
-                self, step_text: str, step_type: str, page_: FakePage, group=None, tries=None, delay=None, vars=None
+                self,
+                step_text: str,
+                step_type: str,
+                page_: FakePage,
+                group=None,
+                tries=None,
+                delay=None,
+                vars=None,
+                scope=None,
             ) -> None:
                 try:
                     raise original
@@ -985,7 +1030,15 @@ class TestPrettyPlayLogic:
             cache_key = CACHE_KEY
 
             def execute(  # noqa: PLR0913, PLR0917 — the signature is fixed by the root cell contract
-                self, step_text: str, step_type: str, page_: FakePage, group=None, tries=None, delay=None, vars=None
+                self,
+                step_text: str,
+                step_type: str,
+                page_: FakePage,
+                group=None,
+                tries=None,
+                delay=None,
+                vars=None,
+                scope=None,
             ) -> None:
                 try:
                     raise structured
@@ -1015,7 +1068,15 @@ class TestPrettyPlayLogic:
             cache_key = CACHE_KEY
 
             def execute(  # noqa: PLR0913, PLR0917 — the signature is fixed by the root cell contract
-                self, step_text: str, step_type: str, page_: FakePage, group=None, tries=None, delay=None, vars=None
+                self,
+                step_text: str,
+                step_type: str,
+                page_: FakePage,
+                group=None,
+                tries=None,
+                delay=None,
+                vars=None,
+                scope=None,
             ) -> None:
                 raise RuntimeError("hook bug")
 
@@ -1560,12 +1621,13 @@ class TestStepParametersValidation:
         step_call, expect_call, plain_call, group_call = executor.execute.call_args_list
 
         assert step_call.args == ("open the page", "action", page)
-        assert step_call.kwargs == {"tries": None, "delay": None, "vars": bindings}
+        assert step_call.kwargs == {"tries": None, "delay": None, "vars": bindings, "scope": None}
         assert expect_call.args == ("check {{ vars.expected }}", "assertion", page)
         assert expect_call.kwargs["vars"] is bindings  # the same object — never copied
         assert plain_call.kwargs["vars"] is None  # the default — no validation error
         assert isinstance(group_call.kwargs["group"], StepGroup)  # the delegation carries the group context
         assert group_call.kwargs["vars"] is bindings
+        assert group_call.kwargs["scope"] is None  # the unscoped group delegates its None scope
 
     def test_validation_error_carries_the_folded_traceback(self, tmp_path: Path) -> None:
         """A validation failure leaving step carries its traceback folded to the facade boundary."""
@@ -1579,6 +1641,49 @@ class TestStepParametersValidation:
         frames = [entry.filename for entry in traceback.extract_tb(excinfo.value.__traceback__)]
         assert frames[-1].endswith("scenario.py")  # the folded head link — the facade frame
         assert not any(frame.endswith(("groups.py", "executor.py")) for frame in frames)
+
+
+class TestStepScopeRing1:
+    """Ring 1 at the facade call site: the scope validates before any page, render or execution."""
+
+    def test_scenario_step_scope_ring1_validates_before_execution(self, tmp_path: Path) -> None:
+        """An invalid step _scope fails at the call — no page opens, no browser starts, nothing renders."""
+        opener = mock.Mock(name="open_page")
+        config = PrettyConfig(strict=True, cache_root=str(tmp_path))
+
+        with scenario_on_tmp_cache(tmp_path):
+            test = PrettyPlay(CACHE_KEY, config=config)
+
+            with (
+                mock.patch.object(test._runtime, "open_page", opener),
+                pytest.raises(PrettyplayError) as excinfo,
+            ):
+                test.step("open the dashboard", _scope="pages/../escape")
+
+        for fragment in ("_scope", "pages/../escape", "1..N segments"):  # the parameter, value, allowed form
+            assert fragment in str(excinfo.value), f"{fragment!r} missing from: {excinfo.value}"
+
+        opener.assert_not_called()  # ring 1 fired before _ensure_page() — no browser start
+        assert test._page is None  # the validation preceded everything
+
+    def test_scenario_group_invalid_scope_rejected_at_entry(self, tmp_path: Path) -> None:
+        """An invalid group _scope fails at entry — before the StepGroup construction, no lifecycle event."""
+        hook = GroupRecorderHook()
+
+        with scenario_on_tmp_cache(tmp_path):
+            test = PrettyPlay(CACHE_KEY, hooks=[hook])
+
+            with (
+                mock.patch("prettyplay.scenario.StepGroup") as step_group,
+                pytest.raises(PrettyplayError) as excinfo,
+            ):
+                test.group("the user signs in", _scope="bad scope")
+
+        for fragment in ("_scope", "bad scope", "1..N segments"):  # the parameter, value, allowed form
+            assert fragment in str(excinfo.value), f"{fragment!r} missing from: {excinfo.value}"
+
+        step_group.assert_not_called()  # the rejection precedes the StepGroup construction
+        assert hook.events == []  # on_group_started can never fire for an invalid scope
 
 
 class TestGroupAuthoringBlock:

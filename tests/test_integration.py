@@ -338,7 +338,7 @@ def clean_prettyplay_env(monkeypatch):
 
 
 def test_pretty_config_exported_and_get_runtime_removed() -> None:
-    """The embedding contract: PrettyConfig, BrowserConfig and StepHooks re-exported, the singleton gone."""
+    """The embedding contract: PrettyConfig, BrowserConfig, SiteConfig and StepHooks re-exported, the singleton gone."""
     assert prettyplay.PrettyConfig is PrettyConfig
     assert prettyplay.BrowserConfig is BrowserConfig
     assert prettyplay.StepHooks is StepHooks
@@ -347,6 +347,7 @@ def test_pretty_config_exported_and_get_runtime_removed() -> None:
         "StepHooks",
         "PrettyConfig",
         "BrowserConfig",
+        "SiteConfig",
         "PrettyplayRuntime",
         "StepExecutor",
         "StepGroup",

@@ -12,7 +12,7 @@ from typing import TypeVar
 
 from playwright.sync_api import Page
 
-from .cache import StepCache
+from .cache import StepCache, validate_step_scope
 from .config import PrettyConfig, adopt_config, load_config
 from .driver import PageFacade
 from .engine import StepGenerator, StepHealer
@@ -163,7 +163,8 @@ class PrettyPlay:
                 every cached step of this scenario.
             cache_path: the optional subdirectory inside the cache; part of
                 the address, so steps of different subdirectories never
-                collide.
+                collide; a scoped step routes by its ``_scope`` instead —
+                this subdirectory never applies to it.
             cleanup: the cache lifecycle switch, keyword-only — ``True``:
                 close deletes the untouched step files of this test's cache
                 key in its cache scope; ``False``: keeps every file, the
@@ -235,6 +236,15 @@ class PrettyPlay:
         """The context key of this test, for diagnostics."""
         return self._executor.cache_key
 
+    @property
+    def site_base_url(self) -> str:
+        """The root URL of the environment under test, verbatim; ``""`` — unset.
+
+        The verbatim ``site.base_url`` of the effective config; no
+        trailing-slash normalization — the author composes URL strings.
+        """
+        return self._runtime.config.site.base_url
+
     def _ensure_page(self) -> PageFacade:
         """Open the isolated page of this test lazily, exactly once.
 
@@ -252,6 +262,7 @@ class PrettyPlay:
         tries: int | None = None,
         delay: float | None = None,
         vars: dict[str, str] | None = None,
+        _scope: str | None = None,
     ) -> None:
         """Execute one action step sentence through the step cycle.
 
@@ -272,12 +283,18 @@ class PrettyPlay:
                 from memory — ``{{ vars.name }}`` reads these values,
                 ``{{ name }}`` reads memory; call inputs never establish
                 memory.
+            _scope: keyword-only — the step scope: the shared cache
+                namespace of one page object; ``None`` — unscoped, the step
+                addresses exactly as before; a non-``None`` value validates
+                through ``validate_step_scope`` before the page opens and
+                before any render or execution — ring 1.
 
         Raises:
-            PrettyplayError: ``tries``, ``delay`` or ``vars`` is invalid —
-                the loud failure names the parameter, the received value
-                and the allowed form; every library failure leaving this
-                method carries its traceback folded to this boundary.
+            PrettyplayError: ``tries``, ``delay``, ``vars`` or ``_scope``
+                is invalid — the loud failure names the parameter, the
+                received value and the allowed form; every library failure
+                leaving this method carries its traceback folded to this
+                boundary.
             ProductDefectError: the step expectation is genuinely broken in the product.
             IncurableStepError: the step never generated successfully, or the verdict
                 says regeneration cannot help.
@@ -287,7 +304,13 @@ class PrettyPlay:
             _validate_tries(tries)
             _validate_delay(delay)
             _validate_vars(vars)
-            self._executor.execute(text, "action", self._ensure_page(), tries=tries, delay=delay, vars=vars)
+
+            if _scope is not None:
+                validate_step_scope(_scope)  # ring 1 — before _ensure_page(), before any render or execution
+
+            self._executor.execute(
+                text, "action", self._ensure_page(), tries=tries, delay=delay, vars=vars, scope=_scope
+            )
         except PrettyplayError as error:
             _raise_folded(error)
 
@@ -298,6 +321,7 @@ class PrettyPlay:
         tries: int | None = None,
         delay: float | None = None,
         vars: dict[str, str] | None = None,
+        _scope: str | None = None,
     ) -> None:
         """Execute one assertion step sentence through the step cycle.
 
@@ -313,10 +337,14 @@ class PrettyPlay:
                 non-negative, fractional allowed; ``None`` — no pause.
             vars: keyword-only — the call-local string inputs of the step,
                 validated exactly as :meth:`step`; ``None`` — no inputs.
+            _scope: keyword-only — the step scope, validated exactly as
+                :meth:`step` — ring 1, before the page opens and before
+                any render or execution.
 
         Raises:
-            PrettyplayError: ``tries``, ``delay`` or ``vars`` is invalid;
-                the traceback folding is exactly as :meth:`step`.
+            PrettyplayError: ``tries``, ``delay``, ``vars`` or ``_scope``
+                is invalid; the traceback folding is exactly as
+                :meth:`step`.
             ProductDefectError: the step expectation is genuinely broken in the product.
             IncurableStepError: the step never generated successfully, or the verdict
                 says regeneration cannot help.
@@ -326,11 +354,24 @@ class PrettyPlay:
             _validate_tries(tries)
             _validate_delay(delay)
             _validate_vars(vars)
-            self._executor.execute(text, "assertion", self._ensure_page(), tries=tries, delay=delay, vars=vars)
+
+            if _scope is not None:
+                validate_step_scope(_scope)  # ring 1 — before _ensure_page(), before any render or execution
+
+            self._executor.execute(
+                text, "assertion", self._ensure_page(), tries=tries, delay=delay, vars=vars, scope=_scope
+            )
         except PrettyplayError as error:
             _raise_folded(error)
 
-    def group(self, prompt: str, *, speed: int | None = None, delay: float | None = None) -> StepGroup:
+    def group(
+        self,
+        prompt: str,
+        *,
+        speed: int | None = None,
+        delay: float | None = None,
+        _scope: str | None = None,
+    ) -> StepGroup:
         """Open the group authoring block — one coherent mini-scenario with a shared goal.
 
         Args:
@@ -343,6 +384,10 @@ class PrettyPlay:
                 ``None`` — no between-step pauses.
             delay: keyword-only — the quiet pause before the group's first
                 step, seconds, non-negative; ``None`` — no pause.
+            _scope: keyword-only — the block's scope, set once per group;
+                validated at entry, before the block opens — every step of
+                the group inherits it; ``None`` — the group's steps address
+                unscoped.
 
         Returns:
             The authoring group object — yield it from a ``with`` block: it
@@ -352,7 +397,8 @@ class PrettyPlay:
 
         Raises:
             PrettyplayError: ``prompt`` is empty, ``speed`` is malformed or
-                outside 0-100, or ``delay`` is negative or malformed.
+                outside 0-100, ``delay`` is negative or malformed, or
+                ``_scope`` is invalid — the rejection precedes the block.
         """
         try:
             if not prompt:
@@ -363,7 +409,10 @@ class PrettyPlay:
             _validate_group_speed(speed)
             _validate_delay(delay)
 
-            block = StepGroup(prompt, speed, delay, None, self._executor, self._reporter)
+            if _scope is not None:
+                validate_step_scope(_scope)  # ring 1 — before the StepGroup construction, before the block opens
+
+            block = StepGroup(prompt, speed, delay, _scope, self._executor, self._reporter)
             block._open_page = self._ensure_page  # the lazy opener of this test; the constructor stays six-parameter
 
             return block

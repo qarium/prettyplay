@@ -1075,20 +1075,41 @@ Edge cases: `_scope=None` everywhere — exactly the pre-change behavior; `t.sit
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (expected to fail now): in `tests/test_scenario.py` — `from prettyplay import SiteConfig` (facade re-export); `PrettyPlay` exposes `site_base_url`; `step`/`expect`/`group` accept keyword-only `_scope`
-- [ ] **Code**: add `_scope` + ring-1 validation + `scope=_scope` delegation to `step`/`expect` (scenario.py:248, 294) and `group` (scenario.py:333); pass `_scope` into the `StepGroup` construction
-- [ ] **Code**: add the `site_base_url` property (`self._runtime.config.site.base_url`)
-- [ ] **Code**: update the `cache_path` constructor docstring in `scenario.py` — a scoped step routes by its
+- [x] **Contract tests** (expected to fail now): in `tests/test_scenario.py` — `from prettyplay import SiteConfig` (facade re-export); `PrettyPlay` exposes `site_base_url`; `step`/`expect`/`group` accept keyword-only `_scope`
+      (done: all seven red states observed live pre-implementation — AttributeError on the re-export and the
+      property, `_scope`-missing diffs on both signature pins, TypeError on both ring-1 scenarios)
+- [x] **Code**: add `_scope` + ring-1 validation + `scope=_scope` delegation to `step`/`expect` (scenario.py:248, 294) and `group` (scenario.py:333); pass `_scope` into the `StepGroup` construction
+      (done: ring 1 sits after the tries/delay/vars validations and before `_ensure_page()`/the `StepGroup`
+      construction; the StepGroup call passes `_scope` as its fourth argument)
+- [x] **Code**: add the `site_base_url` property (`self._runtime.config.site.base_url`)
+      (done: placed right after `cache_key` per the contract's property listing; verbatim, `""` when unset)
+- [x] **Code**: update the `cache_path` constructor docstring in `scenario.py` — a scoped step routes by its
       `_scope` instead; this subdirectory never applies to it (the contract's parameter description)
-- [ ] **Code**: re-export `SiteConfig` from `prettyplay/__init__.py` (relative import, `__all__` per the facade listing order)
-- [ ] **Interface verification**: `/opt/project/bin/pytest tests/test_scenario.py -v`; `/opt/project/bin/python -c "from prettyplay import SiteConfig"`
-- [ ] **Logic tests** (design scenarios, verbatim assertions) in `tests/test_scenario.py`:
+- [x] **Code**: re-export `SiteConfig` from `prettyplay/__init__.py` (relative import, `__all__` per the facade listing order)
+      (done: `SiteConfig` beside `BrowserConfig` in the contract-fixed listing; the `noqa RUF022` covers the
+      non-alphabetical facade order)
+- [x] **Interface verification**: `/opt/project/bin/pytest tests/test_scenario.py -v`; `/opt/project/bin/python -c "from prettyplay import SiteConfig"`
+      (done via `/opt/goga/project/bin/...` — 74 passed; the facade import check clean in a fresh interpreter)
+- [x] **Logic tests** (design scenarios, verbatim assertions) in `tests/test_scenario.py`:
       `test_scenario_site_base_url_property` — `t = PrettyPlay("k", config=PrettyConfig(site=SiteConfig(base_url="https://staging.example.com")))`; asserts `t.site_base_url == "https://staging.example.com"` and `PrettyPlay("k2", config=PrettyConfig()).site_base_url == ""`;
       `test_scenario_step_scope_ring1_validates_before_execution` — `t = PrettyPlay("k", config=PrettyConfig(strict=True))` (no page opened, no browser started); `t.step("open the dashboard", _scope="pages/../escape")`; `pytest.raises(PrettyplayError)` — the message names `_scope`, the received value `"pages/../escape"` and the allowed form; `t._page is None` (the validation preceded everything);
       negative `test_scenario_group_invalid_scope_rejected_at_entry` — `t.group("the user signs in", _scope="bad scope")`; `pytest.raises(PrettyplayError)` — before `StepGroup` construction, `on_group_started` never fires
-- [ ] **Debugging**: `/opt/project/bin/pytest tests/test_scenario.py -v` then `/opt/project/bin/pytest tests/ -x` — fix implementation until green
-- [ ] **Contract re-verification**: facade (`SiteConfig`, `site_base_url`, `_scope` surfaces); ring-1 ordering (before `_ensure_page()`, before the block opens); the traceback folding guarantee
-- [ ] **Lint**: `/opt/project/bin/ruff check prettyplay/ tests/`
+      (done: all three verbatim in `TestPrettyPlayLogic`/`TestStepScopeRing1`; the group scenario pins the
+      never-constructed `StepGroup` through a patch AND the silent `GroupRecorderHook`; the ring-1 step
+      scenario additionally pins the never-called page opener)
+- [x] **Debugging**: `/opt/project/bin/pytest tests/test_scenario.py -v` then `/opt/project/bin/pytest tests/ -x` — fix implementation until green
+      (done: three auxiliary pins updated to the amended contract — the six inline `FailingExecutor`/
+      `ChainingExecutor` doubles in test_scenario.py gain the `scope` parameter their real counterpart owns
+      since Task 10, the exact-kwargs delegation pin gains `"scope": None`, and the `__all__` pin in
+      test_integration.py gains `SiteConfig`; full suite 1637 passed, 3 skipped)
+- [x] **Contract re-verification**: facade (`SiteConfig`, `site_base_url`, `_scope` surfaces); ring-1 ordering (before `_ensure_page()`, before the block opens); the traceback folding guarantee
+      (done: REPL — ring-1 errors on step/expect/group carry tracebacks folded to the scenario.py boundary
+      with the message naming `_scope`, the value and the allowed form; the page opener never fires for an
+      invalid scope, `StepGroup` is never constructed; a valid scope rides the delegation (`scope="pages/login"`)
+      with the page opened exactly once, and the group constructor receives the scope as its fourth argument)
+- [x] **Lint**: `/opt/project/bin/ruff check prettyplay/ tests/`
+      (done via `/opt/goga/project/bin/ruff` — all checks passed; the four touched files format-clean;
+      `goga lint` 13 cells / 0 errors)
 
 ### Task 13: Integration tests — the scoped group block end to end
 
