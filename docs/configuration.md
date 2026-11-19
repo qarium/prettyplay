@@ -37,6 +37,10 @@ endpoint = ""                    # remote browser endpoint; ws/wss -> Playwright
 accept_dialogs = false           # true -> accept (else dismiss) dialogs no in-step capture claims
 speed = 100                      # pace of the run: 0-100 %, 100 — full speed (default)
 timeout = 30                     # page default action timeout, seconds; explicitly applied; 0 disables the timeout, not auto-wait
+ignore_https_errors = false      # true -> open pages behind self-signed/invalid certificates; a context parameter in every start mode
+
+[tool.prettyplay.site]
+base_url = ""                    # root URL of the environment under test; empty -> unset; http/https with a host, kept verbatim
 ```
 
 The browser group settings — engines, screen modes, remote endpoints — are
@@ -57,6 +61,8 @@ upper case; the browser group keeps flat env names:
 | browser.accept_dialogs | `PRETTYPLAY_BROWSER_ACCEPT_DIALOGS` |
 | browser.speed | `PRETTYPLAY_BROWSER_SPEED` |
 | browser.timeout | `PRETTYPLAY_BROWSER_TIMEOUT` |
+| browser.ignore_https_errors | `PRETTYPLAY_BROWSER_IGNORE_HTTPS_ERRORS` |
+| site.base_url | `PRETTYPLAY_SITE_BASE_URL` |
 | model | `PRETTYPLAY_MODEL` |
 | generation_model | `PRETTYPLAY_GENERATION_MODEL` |
 | classification_model | `PRETTYPLAY_CLASSIFICATION_MODEL` |
@@ -134,10 +140,10 @@ or keep `config=None` and use the file layer.
 
 `PrettyConfig` is the canonical validated settings model, exported from
 `prettyplay.config` and re-exported from the package root without an alias,
-together with the nested browser group:
+together with the nested browser and site groups:
 
 ```python
-from prettyplay import BrowserConfig, PrettyConfig
+from prettyplay import BrowserConfig, PrettyConfig, SiteConfig
 ```
 
 Both models are pydantic v2 with keyword-only construction; every field
@@ -150,6 +156,7 @@ fields, the convention behind the loader's layered resolution.
 |---|---|---|---|
 | `provider` | str | `"openai"` | LLM provider: `openai` or `anthropic` |
 | `browser` | BrowserConfig | neutral group | the nested browser settings group |
+| `site` | SiteConfig | neutral group | the nested site settings group (the environment under test) |
 | `model` | str | `""` | the main LLM model name |
 | `generation_model` | str | `""` | generation-only override; empty → `model` |
 | `classification_model` | str | `""` | classification-only override; empty → `model` |
@@ -188,6 +195,13 @@ config.effective_classification_model  # classification_model when non-empty, ot
 | `accept_dialogs` | bool | `False` | accept (else dismiss) dialogs no in-step stock dialog capture claims, at the run-unit tail |
 | `speed` | int | `100` | pace of the run, 0–100 inclusive; 100 — full speed (the default behavior), lower values slow the run linearly, 0 — the slowest supported pace |
 | `timeout` | float | `30` | page default action timeout in seconds (int or float), explicitly applied at the creation of every page; `30` — the Playwright library default made visible; `0` disables the timeout without disabling auto-wait; an unready action can wait indefinitely; the baseline the probe bound restores to |
+| `ignore_https_errors` | bool | `False` | open pages behind self-signed or otherwise invalid certificates — staging grids and CI; applied as a Playwright context parameter in every start mode identically, never a launch argument; `False` (the default) keeps certificate checking untouched |
+
+### SiteConfig
+
+| Field | Type | Default | Meaning |
+|---|---|---|---|
+| `base_url` | str | `""` | root URL of the environment under test; empty — unset; a non-empty value must be an http/https URL with a host, kept verbatim (no trailing-slash normalization); read in tests through the `t.site_base_url` property; not wired into Playwright navigation — rendering it into a sentence makes it part of the step address, so staging and production keep separate cache entries |
 
 Fields inside the group carry no `browser_` prefix — the group name scopes
 them; env overrides stay flat (`PRETTYPLAY_BROWSER_NAME`, ...). Validation:
@@ -214,7 +228,7 @@ config = load_config(pyproject_path=None, overrides=None)
 
 Resolution order: TOML file → environment overrides (`PRETTYPLAY_*`) →
 explicitly set fields of `overrides` (the merge reaches inside the browser
-group — see
+and site groups — see
 [The programmatic configuration](#the-programmatic-configuration)). `load_config` keeps the layered merge for file-based resolution; a config passed to the test object itself adopts verbatim.
 
 ### Examples
@@ -358,6 +372,65 @@ resort settles unclaimed dialogs:
   dismissed by the step itself — the setting does not apply to captured
   dialogs
 
+## Insecure TLS
+
+`ignore_https_errors` of the browser group (default false, env
+`PRETTYPLAY_BROWSER_IGNORE_HTTPS_ERRORS`, programmatically assembled config)
+opens pages behind self-signed or otherwise invalid certificates — staging
+grids and CI:
+
+```toml
+[tool.prettyplay.browser]
+ignore_https_errors = true
+```
+
+- The switch applies as a Playwright **context parameter** in every start
+  mode identically — local launch, ws/wss remote connect (the Playwright
+  protocol), http/https remote connect (CDP); never a launch argument
+- `false` (the default) keeps Playwright's certificate checking untouched
+- Enabling is silent — an explicit configuration is not a suspicious state,
+  nothing is logged
+- Booleans parse `true/false/1/0` case-insensitively; anything else fails
+  loudly naming the setting, the received value and the accepted form
+
+## Site base URL
+
+The nested `site` group holds the single `base_url` field — the root URL of
+the environment under test, set once instead of being hardcoded in every
+step sentence:
+
+```toml
+[tool.prettyplay.site]
+base_url = "https://staging.example.com"
+```
+
+```python
+from prettyplay import PrettyConfig, PrettyPlay, SiteConfig
+
+test = PrettyPlay(
+    cache_key="login-flow",
+    config=PrettyConfig(site=SiteConfig(base_url="https://staging.example.com")),
+)
+test.step(f"open the page {test.site_base_url}/login")
+```
+
+- The layered merge is symmetric to the browser group: an explicitly passed
+  value wins, an empty field never overwrites the file layer; the env
+  override is `PRETTYPLAY_SITE_BASE_URL` (a set-but-empty variable clears
+  the file value)
+- A non-empty value must be an http/https URL — scheme and host present;
+  anything else fails loudly at load naming the setting, the received value
+  and the allowed form; an empty value means unset
+- The value is kept verbatim — no trailing-slash normalization; the author
+  composes URL strings
+- Tests read it through the facade property `site_base_url` — an empty
+  string when unset
+- No collision with the top-level `base_url` (the LLM API endpoint): the
+  group scopes the field, exactly as the browser group scopes `name`
+- The URL is not wired into Playwright navigation: rendering it into a
+  sentence makes it part of the step address — staging and production keep
+  separate cache entries (rendered values are data)
+
 ## Pace
 
 `speed` of the browser group (a percentage, 0–100 inclusive, default 100)
@@ -410,5 +483,7 @@ type — see [Failure taxonomy](reference/failure-taxonomy.md) and
   `firefox`, `webkit`, `chrome`, `msedge`
 - A non-empty `browser.endpoint` must be a valid ws/wss or http/https URL —
   http/https is a CDP endpoint of the chromium family only
+- A non-empty `site.base_url` is an http/https URL with a host — violations
+  fail loudly at load
 - The cache root default: `<cwd>/.prettyplay/cache/` — anchored at the working
   directory of the run, wherever the pyproject.toml was found

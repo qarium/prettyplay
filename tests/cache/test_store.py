@@ -5,6 +5,7 @@ import inspect
 import logging
 import os
 import pathlib
+import threading
 from pathlib import Path
 from unittest import mock
 
@@ -850,3 +851,53 @@ class TestStepCacheScopedEconomics:
         assert loaded_by_a.code == loaded_by_b.code == step_b.code  # last writer wins, valid for every reader
         assert loaded_by_a.created_at == loaded_by_b.created_at == step_b.created_at
         assert len(list((tmp_path / "cache" / "pages" / "login").glob("*.py"))) == 1  # one address ⇒ one file
+
+    def test_store_concurrent_writers_one_scoped_address_readers_never_see_a_torn_file(self, tmp_path: Path) -> None:
+        """Under contention the atomic replace keeps the shared file complete — every load is one written body."""
+        root = tmp_path / "cache"
+        steps = [
+            CachedStep(
+                identity=StepIdentity(
+                    cache_key=f"writer-{index}",
+                    step_type="action",
+                    normalized_text="fill the login field",
+                    scope="pages/login",
+                ),
+                addressing_text="fill the login field",
+                code=f"# variant {index}\n{STEP_CODE}",
+                created_at=f"2026-11-1{index}",
+            )
+            for index in range(6)
+        ]
+        written_codes = {step.code for step in steps}
+        stores = [make_root_cache(root) for _ in steps]
+        reader = make_root_cache(root)
+        read_identity = StepIdentity(
+            cache_key="reader", step_type="action", normalized_text="fill the login field", scope="pages/login"
+        )
+        failures: list[str] = []
+
+        def write_repeatedly(store: StepCache, step: CachedStep) -> None:
+            for _ in range(5):
+                if not store.save(step):
+                    failures.append(f"save of {step.identity.cache_key} skipped under contention")
+
+        def read_repeatedly() -> None:
+            for _ in range(40):
+                loaded = reader.load(read_identity)
+                if loaded is not None and loaded.code not in written_codes:
+                    failures.append(f"torn read: {loaded.code!r}")
+
+        threads = [threading.Thread(target=write_repeatedly, args=pair) for pair in zip(stores, steps, strict=True)]
+        threads.append(threading.Thread(target=read_repeatedly))
+
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        assert failures == []  # every write landed, every read saw one complete written body
+        final = reader.load(read_identity)
+
+        assert final is not None
+        assert final.code in written_codes  # the last writer wins with a complete body

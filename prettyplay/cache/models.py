@@ -68,12 +68,18 @@ def validate_step_scope(scope: str) -> None:
         scope: the candidate scope value.
 
     Raises:
-        PrettyplayError: the value is not 1..N segments of ASCII letters,
-            digits, dot, underscore or hyphen joined by single ``/``
+        PrettyplayError: the value is not a string of 1..N segments of ASCII
+            letters, digits, dot, underscore or hyphen joined by single ``/``
             characters — the loud failure names the parameter, the received
             value and the allowed form; a valid value passes verbatim,
             nothing is rewritten.
     """
+    if not isinstance(scope, str):
+        raise PrettyplayError(
+            f"invalid _scope {scope!r} — 1..N segments of ASCII letters, digits, dot, "
+            "underscore or hyphen joined by single / characters, keyword-only"
+        )
+
     segments = scope.split("/")
 
     if scope == "" or any(not _SCOPE_SEGMENT.fullmatch(segment) for segment in segments) or ".." in segments:

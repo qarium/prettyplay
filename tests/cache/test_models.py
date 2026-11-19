@@ -258,3 +258,14 @@ class TestValidateStepScopeLogic:
     @pytest.mark.parametrize("scope", [".", "pages/.", "..."])
     def test_validate_step_scope_accepts_dot_only_segments(self, scope: str) -> None:
         assert validate_step_scope(scope) is None  # the dot is a legal segment character, only ".." is banned
+
+    @pytest.mark.parametrize("scope", [123, b"pages", True, ["pages", "login"]])
+    def test_validate_step_scope_rejects_non_string_scopes(self, scope: object) -> None:
+        """A non-string value raises the loud PrettyplayError, not a raw AttributeError."""
+        with pytest.raises(PrettyplayError) as excinfo:
+            validate_step_scope(scope)  # type: ignore[arg-type]
+
+        message = str(excinfo.value)
+        assert "_scope" in message
+        assert repr(scope) in message
+        assert "segments of ASCII letters" in message

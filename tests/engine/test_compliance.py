@@ -200,9 +200,7 @@ class TestCheckStepComplianceLogic:
         config = PrettyConfig(generation_approve=True, generation_prompt="")
         registry = '- button "Sign in" -> #login-submit (testid)'
 
-        findings = check_step_compliance(
-            config, provider, prepared_step(), "action", STEP_CODE, [], registry
-        )
+        findings = check_step_compliance(config, provider, prepared_step(), "action", STEP_CODE, [], registry)
 
         assert findings == []
         assert len(provider.compliance_calls) == 1  # the captured registry alone keeps the gate on

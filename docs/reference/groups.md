@@ -15,19 +15,27 @@ with t.group("accept cookies, fill and submit the order form") as g:
     g.expect("the status shows order confirmed", tries=2)
 ```
 
-- `t.group(prompt, speed=None, delay=None)` yields the group object; the
-  prompt names the shared goal of the block and reaches the generation and
-  diagnosis requests verbatim as the framing — an empty prompt fails loudly
-  at entry
+- `t.group(prompt, speed=None, delay=None, _scope=None)` yields the group
+  object; the prompt names the shared goal of the block and reaches the
+  generation and diagnosis requests verbatim as the framing — an empty
+  prompt fails loudly at entry
 - `g.step` / `g.expect` — the ordinary authoring surface inside the block,
-  the `tries`/`delay`/`vars` step parameters included
-- `g.prompt` — the group prompt verbatim; `g.traces` — one verbatim trace
+  the `tries`/`delay`/`vars` step parameters included; a per-step `_scope`
+  is the one rejection — the scope is set once on the group
+  (`group(..., _scope=...)`), never per step
+- `g.prompt` — the group prompt verbatim; `g.scope` — the block's shared
+  cache namespace (`None` — the group's steps address unscoped);
+  `g.traces` — one verbatim trace
   record per executed group step (sentence, rendered instruction, call inputs,
   outcome, URL transition),
   appended by the executor in execution order and never rewritten
 - A group with zero steps is a quiet no-op — the entry and exit framing
   records and nothing else
-- Group membership changes no step's cache address: cached group steps
+- Group membership changes no step's cache address: a group opened with
+  `_scope` addresses every step under that scope (validated at entry,
+  inherited by every step of the block — see
+  [Step cache → The step scope](step-cache.md#the-step-scope)); otherwise
+  cached group steps
   replay as ordinary steps — no LLM calls, strict replay-only included.
   After the block there is no ambient rerouting: the steps that follow are
   ordinary steps again
@@ -86,7 +94,9 @@ heal; inside a group there is no isolated per-step healing.
    the failed step — each step regenerates as its own unit (the diagnosis
    recommendation and the group framing ride the request), re-executes
    immediately on the current page, passes the compliance gate and writes
-   back to the cache per step
+   back to the cache per step; the row steps re-address under the group's
+   scope — a scoped group recovers its steps into the same shared namespace
+   the block addresses under
 4. A repeat failure re-enters a fresh diagnosis and a new cycle while cycles
    remain — never infinite; see [Budgets](#budgets)
 

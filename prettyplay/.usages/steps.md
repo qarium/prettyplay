@@ -144,6 +144,7 @@ layer sets it, per step or once per group:
 # per step on the facade, outside any group
 t.step("open the dashboard", _scope="pages/dashboard")
 
+
 # once per block — inherited by every step of the group
 class LoginPage:
     def __init__(self, t: PrettyPlay):

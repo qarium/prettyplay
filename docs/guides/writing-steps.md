@@ -25,6 +25,23 @@ with PrettyPlay("login-flow") as t:
     t.step("open the login page")
 ```
 
+## The site base URL
+
+The root URL of the environment under test — configured once, read through
+the property:
+
+```python
+with PrettyPlay("login-flow") as t:
+    t.step(f"open the page {t.site_base_url}/login")
+```
+
+- The value comes from `[tool.prettyplay.site] base_url` (env
+  `PRETTYPLAY_SITE_BASE_URL`, programmatic `SiteConfig(base_url=...)`) — an
+  http/https URL with a host, kept verbatim, empty when unset
+- It is not wired into Playwright navigation: the URL the author renders
+  into a sentence becomes part of the step address — staging and production
+  keep separate cache entries
+
 ## Step kinds
 
 - `step(text)` — performs what the sentence says
@@ -43,9 +60,12 @@ with PrettyPlay("login-flow") as t:
 - `step(text, delay=1.5)` — a quiet pause in seconds before the step's code
   runs: the started event fires, the declared seconds pass, then the code; a
   step never reached never pauses
+- `step(text, _scope="pages/login")` — the step scope: the shared cache
+  namespace of one page object; keyword-only, `None` — unscoped; see
+  [The step scope](#the-step-scope-_scope)
 - These parameters and `vars` are keyword-only and accepted by both step kinds; invalid
-  values (zero or negative `tries`, negative `delay`) fail loudly at the
-  call — before any page or LLM involvement
+  values (zero or negative `tries`, negative `delay`, a malformed `_scope`)
+  fail loudly at the call — before any page or LLM involvement
 
 ## Templates and step memory
 
@@ -93,6 +113,44 @@ included. A failing group step on a non-strict run is diagnosed with the
 whole group in view and the affected row is recovered automatically; group
 membership changes no step's cache address. See
 [Groups](../reference/groups.md).
+
+## The step scope (`_scope`)
+
+A scope is the shared cache namespace of one page object: the same step
+phrase under one scope is one cache entry for all tests — the first test
+generates it, the rest replay it without a model call. The integrator layer
+sets it, per step or once per group:
+
+```python
+# per step on the facade, outside any group
+t.step("open the dashboard", _scope="pages/dashboard")
+
+# once per block — inherited by every step of the group
+class LoginPage:
+    def __init__(self, t: PrettyPlay):
+        self._group = t.group("the user signs in", _scope="pages/login_page")
+
+    def login(self, user: str):
+        with self._group as g:
+            g.step("fill the login field with {{ vars.user }}", vars={"user": user})
+            g.step("click the sign-in button")
+```
+
+- `_scope` is keyword-only; `None` (the default) — unscoped, the step
+  addresses exactly as before
+- Inside a group the scope is set once at creation — a per-step `_scope` on
+  the group object is rejected with a loud error naming the remedy
+- Form: 1..N segments of `[A-Za-z0-9._-]+` joined by exactly one `/` (e.g.
+  `pages/login_page`); an invalid value fails loudly at the call naming
+  `_scope`, the received value and the allowed form — before anything
+  renders or executes
+- The scope replaces exactly two things: the key part of the step address
+  and the file routing (`<cache root>/<scope>/`); the same phrase as an
+  action and as an assertion remains two entries
+- Scoped files survive every close-time sweep — cleanup concerns the test's
+  unscoped steps only; budgets stay per test: the generating test pays, a
+  reusing test pays nothing
+- The scope never enters the rendered sentence or any LLM request
 
 ## Stateful page actions — the escape hatch
 
@@ -198,7 +256,9 @@ setting is on, explicitly dismissed when off — see
 The step's address is built from its rendered sentence (the addressing
 text); a template rendered with different values is a different step. The
 constructor arguments form the cache address: `cache_key` (mandatory) and
-`cache_path` (optional subdirectory). Equal cache keys in the shared root
+`cache_path` (optional subdirectory) — unless the step runs under a
+`_scope`, which replaces the key part of the address (see
+[The step scope](#the-step-scope-_scope)). Equal cache keys in the shared root
 reuse one cached step across tests; a different language, step type or key is
 a different step. User instructions (`generation_prompt`,
 `classification_prompt`) take no part in the address — a cached step never

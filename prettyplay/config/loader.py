@@ -95,6 +95,7 @@ _ALLOWED_TEXT: dict[str, str] = {
     "browser.headless": "a boolean",
     "browser.accept_dialogs": "a boolean",
     "browser.ignore_https_errors": "a boolean",
+    "site": "a [tool.prettyplay.site] table",
     "site.base_url": "an empty value or a valid http/https URL with a host",
     "strict": "a boolean",
     "polling_timeout": "None or a non-negative number (finite)",

@@ -1685,6 +1685,62 @@ class TestStepScopeRing1:
         step_group.assert_not_called()  # the rejection precedes the StepGroup construction
         assert hook.events == []  # on_group_started can never fire for an invalid scope
 
+    def test_scenario_expect_scope_ring1_validates_before_execution(self, tmp_path: Path) -> None:
+        """An invalid expect _scope fails at the call — expect rejects exactly as step, before the page opens."""
+        opener = mock.Mock(name="open_page")
+        config = PrettyConfig(strict=True, cache_root=str(tmp_path))
+
+        with scenario_on_tmp_cache(tmp_path):
+            test = PrettyPlay(CACHE_KEY, config=config)
+
+            with (
+                mock.patch.object(test._runtime, "open_page", opener),
+                pytest.raises(PrettyplayError) as excinfo,
+            ):
+                test.expect("the dashboard is visible", _scope="pages/../escape")
+
+        for fragment in ("_scope", "pages/../escape", "1..N segments"):  # the parameter, value, allowed form
+            assert fragment in str(excinfo.value), f"{fragment!r} missing from: {excinfo.value}"
+
+        opener.assert_not_called()  # ring 1 fired before _ensure_page() — no browser start
+        assert test._page is None  # the validation preceded everything
+
+    def test_scenario_step_non_string_scope_fails_loudly_at_the_call(self, tmp_path: Path) -> None:
+        """A non-string _scope raises the loud PrettyplayError — never a raw AttributeError from the split."""
+        executor = mock.Mock(name="executor")
+
+        with scenario_on_tmp_cache(tmp_path):
+            test = PrettyPlay(CACHE_KEY)
+            test._executor = executor
+
+            with pytest.raises(PrettyplayError) as excinfo:
+                test.step("open the dashboard", _scope=123)  # type: ignore[arg-type]
+
+        for fragment in ("_scope", "123", "segments"):  # the parameter, value, allowed form
+            assert fragment in str(excinfo.value), f"{fragment!r} missing from: {excinfo.value}"
+
+        executor.execute.assert_not_called()  # a bad value never reaches the executor
+
+    def test_scenario_valid_scope_threads_into_the_executor_delegation(self, tmp_path: Path) -> None:
+        """A valid _scope rides the delegation of both step kinds; None stays the unscoped default."""
+        executor = mock.Mock(name="executor")
+        page = FakePage()
+
+        with scenario_on_tmp_cache(tmp_path):
+            test = PrettyPlay(CACHE_KEY)
+            test._executor = executor
+
+            with mock.patch.object(test._runtime, "open_page", return_value=page):
+                test.step("open the dashboard", _scope="pages/dashboard")
+                test.expect("the dashboard is visible", _scope="pages/dashboard")
+                test.step("plain sentence")
+
+        step_call, expect_call, plain_call = executor.execute.call_args_list
+
+        assert step_call.kwargs["scope"] == "pages/dashboard"  # the scoped action addresses under the scope
+        assert expect_call.kwargs["scope"] == "pages/dashboard"  # the assertion step threads it identically
+        assert plain_call.kwargs["scope"] is None  # no _scope — the unscoped default, unchanged addressing
+
 
 class TestGroupAuthoringBlock:
     """The group block: the lazy entry pause, the between-step pace, the framing records, the traces."""

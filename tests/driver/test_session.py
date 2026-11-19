@@ -784,16 +784,6 @@ class TestDriverSessionPace:
 class TestDriverSessionInsecureTls:
     """Contract and logic tests: the browser-group TLS switch rides the one context-creation surface."""
 
-    def test_open_context_passes_ignore_https_errors_into_new_context(self) -> None:
-        factory = FakePlaywrightFactory()
-
-        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
-            session = DriverSession(PrettyConfig(browser=BrowserConfig(ignore_https_errors=True)))
-            session.open_context()
-            session.close()
-
-        assert factory.context_kwargs == [{"ignore_https_errors": True}]  # screen empty — the switch alone rides
-
     def test_open_context_passes_ignore_https_errors(self) -> None:
         factory = FakePlaywrightFactory()
 
@@ -826,7 +816,9 @@ class TestDriverSessionInsecureTls:
             session.close()
 
         assert factory.context_kwargs[0].get("ignore_https_errors") is True  # one context surface, every mode
-        assert all("ignore_https_errors" not in kwargs for kwargs in factory.launch_kwargs)  # never a launch argument
+        engine_kwargs = factory.launch_kwargs + factory.chromium.connect_kwargs + factory.chromium.cdp_kwargs
+        assert engine_kwargs  # every mode starts the engine exactly once — launch, connect or connect_over_cdp
+        assert all("ignore_https_errors" not in kwargs for kwargs in engine_kwargs)  # never an engine-start argument
 
 
 def viewport_params(width: int, height: int) -> dict:

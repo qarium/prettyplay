@@ -35,8 +35,8 @@ Case and internal whitespace are significant: rendered values are data («Sign i
 A scope is the shared cache namespace of one page object — the integrator layer sets it once per block:
 
 ```python
-t.step("open the dashboard", _scope="pages/dashboard")          # per step on the facade
-g = t.group("the user signs in", _scope="pages/login_page")     # once per block — inherited by every step
+t.step("open the dashboard", _scope="pages/dashboard")  # per step on the facade
+g = t.group("the user signs in", _scope="pages/login_page")  # once per block — inherited by every step
 ```
 
 - For a scoped step the scope replaces exactly two things: the key part of the address (key = the scope) and

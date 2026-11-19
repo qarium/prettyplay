@@ -58,9 +58,11 @@ it.
 The cache address uses `cache_key` (mandatory), `cache_path` (optional
 subdirectory), step type, and the rendered step sentence. Template values
 therefore change the address; case and internal spaces remain significant.
-By default, `close()` removes cache files for this key that this test did not
-load or save. Pass `cleanup=False` to keep unused entries, including a
-committed cache intended for later runs.
+A step run under a `_scope` (see [Step scopes](#step-scopes)) addresses by
+the scope instead of the key and routes to `<cache root>/<scope>/`. By
+default, `close()` removes cache files for this key that this test did not
+load or save — scoped files are never swept. Pass `cleanup=False` to keep
+unused entries, including a committed cache intended for later runs.
 
 The `config` argument is the pre-assembled configuration — taken verbatim:
 pyproject.toml and the environment never load for it, fields left at their
@@ -73,6 +75,19 @@ from prettyplay import BrowserConfig, PrettyConfig
 
 t = PrettyPlay("login-flow", config=PrettyConfig(browser=BrowserConfig(name="firefox")))
 ```
+
+The root URL of the environment under test is a setting —
+`[tool.prettyplay.site] base_url` (env `PRETTYPLAY_SITE_BASE_URL`,
+programmatic `SiteConfig(base_url=...)`) — read in tests through the
+property and rendered into the sentence:
+
+```python
+t.step(f"open the page {t.site_base_url}/login")
+```
+
+The value is kept verbatim and is not wired into Playwright navigation:
+rendering it into a sentence makes it part of the step address — staging and
+production keep separate cache entries.
 
 Screenshots belong to the author — nothing is captured automatically. Both
 methods need a step to have run (the page opens lazily):
@@ -161,14 +176,15 @@ code (syntax, names, types) never poll. Size the window above the longest
 auto-wait it must absorb (6.0 covers one exhausted 5 s expectation plus one
 re-execution).
 
-Every step also takes two keyword-only parameters: `tries` replaces the time
+Every step also takes three keyword-only parameters: `tries` replaces the time
 bound with a count bound for that step (`t.step("open the cart", tries=3)` —
 at most 3 executions in total, the first included; exhaustion propagates the
-failure, the step never stays green on retries alone), and `delay` is a
+failure, the step never stays green on retries alone), `delay` is a
 quiet pause in seconds before the step's code runs
 (`t.expect("the total updates", delay=1.5)` — the step's `on_step_started`
-event fires, then the pause, then the code). Invalid values fail loudly at
-the call, before any page or LLM involvement.
+event fires, then the pause, then the code), and `_scope` sets the shared
+cache namespace of the step (see [Step scopes](#step-scopes)). Invalid values
+fail loudly at the call, before any page or LLM involvement.
 
 ## Step groups
 
@@ -183,10 +199,11 @@ with t.group("the checkout flow", speed=50, delay=2) as g:
 ```
 
 Inside the block the surface is the ordinary one — `g.step`/`g.expect` with
-the `tries`/`delay` parameters — and group membership changes nothing about
-addressing: a group step lands at the same cache address it would outside
-the block, replays LLM-free, and steps outside the block are ordinary steps
-(no ambient rerouting). What changes is failure handling on a non-strict run:
+the `tries`/`delay` parameters (a per-step `_scope` inside a group is
+rejected: the block's scope is set once at creation) — and group membership
+changes nothing about addressing: a group step lands at the same cache
+address it would outside the block, replays LLM-free, and steps outside the
+block are ordinary steps (no ambient rerouting). What changes is failure handling on a non-strict run:
 a failed group step is diagnosed once against the whole interaction — the
 group prompt, every step trace and the failed step's attempt history — and
 the verdict drives a group-scoped recovery row that regenerates the affected
@@ -200,6 +217,32 @@ before the first step, `speed` (0–100) inserts
 
 See the [Groups reference](https://qarium.github.io/prettyplay/reference/groups/)
 for the recovery cycle, the budgets and the log records.
+
+## Step scopes
+
+`_scope` is the shared cache namespace of one page object: the same step
+phrase under one scope is one cache entry for all tests — the first test
+generates it, the rest replay it without a model call. Set it per step or
+once per group block:
+
+```python
+t.step("open the dashboard", _scope="pages/dashboard")
+
+with t.group("the user signs in", _scope="pages/login_page") as g:  # every step inherits it
+    g.step("fill the login field")
+```
+
+- keyword-only; `None` (the default) — unscoped, the step addresses exactly
+  as before
+- form: 1..N segments of ASCII letters, digits, dot, underscore or hyphen
+  joined by single `/` characters (e.g. `pages/login_page`); an invalid
+  value fails loudly at the call
+- the scope replaces the key part of the address and routes the file to
+  `<cache root>/<scope>/` — the same phrase as an action and as an assertion
+  remains two entries
+- scoped files survive every close-time sweep; budgets stay per test — the
+  generating test pays, a reusing test pays nothing
+- the scope never enters the rendered sentence or any LLM request
 
 ## Interactive steering
 
@@ -276,6 +319,11 @@ headless = true                  # false -> run with a visible browser window
 endpoint = ""                    # remote browser endpoint; ws/wss -> Playwright server, http/https -> CDP (chromium family); empty -> local launch
 accept_dialogs = false           # true -> accept (else dismiss) dialogs no in-step capture claims
 speed = 100                      # pace of the run, 0-100 %; 100 -> full speed (default)
+timeout = 30                     # page default action timeout, seconds; 0 disables the timeout, not auto-wait
+ignore_https_errors = false      # true -> open pages behind self-signed/invalid certificates; a context parameter in every start mode
+
+[tool.prettyplay.site]
+base_url = ""                    # root URL of the environment under test; empty -> unset; http/https with a host, kept verbatim
 ```
 
 `llm_request_attempts` applies to generation, classification, group diagnosis
@@ -361,11 +409,13 @@ loudly with the endpoint in the message.
 ### Environment overrides
 
 Every setting has a `PRETTYPLAY_<SETTING_UPPER>` environment override for CI —
-including `PRETTYPLAY_STRICT` and `PRETTYPLAY_CLASSIFICATION_PROMPT` — and the
+including `PRETTYPLAY_STRICT` and `PRETTYPLAY_CLASSIFICATION_PROMPT` — the
 browser group reads the flat `PRETTYPLAY_BROWSER_NAME`,
 `PRETTYPLAY_BROWSER_SCREEN`, `PRETTYPLAY_BROWSER_HEADLESS`,
-`PRETTYPLAY_BROWSER_ENDPOINT`, `PRETTYPLAY_BROWSER_ACCEPT_DIALOGS` and
-`PRETTYPLAY_BROWSER_SPEED`. Env
+`PRETTYPLAY_BROWSER_ENDPOINT`, `PRETTYPLAY_BROWSER_ACCEPT_DIALOGS`,
+`PRETTYPLAY_BROWSER_SPEED`, `PRETTYPLAY_BROWSER_TIMEOUT` and
+`PRETTYPLAY_BROWSER_IGNORE_HTTPS_ERRORS`, and the site group reads
+`PRETTYPLAY_SITE_BASE_URL`. Env
 values parse by the field type: booleans
 accept `true/false/1/0` case-insensitively, integers parse as decimals, floats
 (the polling settings) parse as decimal floats, and an

@@ -39,7 +39,10 @@ with PrettyPlay("login-flow") as t:
   expectation fails the test as a product defect
 
 The constructor arguments form the cache address: `cache_key` (mandatory) and
-`cache_path` (optional subdirectory). Equal keys in the shared root reuse one
+`cache_path` (optional subdirectory) — unless the step runs under a `_scope`,
+which replaces the key part of the address (see
+[Writing steps → The step scope](guides/writing-steps.md#the-step-scope-_scope)).
+Equal keys in the shared root reuse one
 cached step across tests; a different language, step type or key is a different
 step — see [Step cache](reference/step-cache.md).
 

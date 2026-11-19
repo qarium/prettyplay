@@ -82,6 +82,27 @@ msedge) such as a CI grid exposing a DevTools endpoint:
 - The endpoint is an address, not a secret: it is valid in the config file;
   CI rotation goes through the `PRETTYPLAY_BROWSER_ENDPOINT` env override
 
+## Insecure TLS
+
+```toml
+[tool.prettyplay.browser]
+ignore_https_errors = true
+```
+
+`ignore_https_errors` (default `false`, env
+`PRETTYPLAY_BROWSER_IGNORE_HTTPS_ERRORS`, programmatically assembled config)
+opens pages behind self-signed or otherwise invalid certificates — staging
+grids and CI:
+
+- The switch applies as a Playwright **context parameter** in every start
+  mode identically — local launch, ws/wss remote connect (the Playwright
+  protocol), http/https remote connect (CDP); never a launch argument
+- `false` (the default) keeps Playwright's certificate checking untouched
+- Enabling is silent — an explicit configuration is not a suspicious state,
+  nothing is logged
+- Booleans parse `true/false/1/0` case-insensitively; anything else fails
+  loudly naming the setting, the received value and the accepted form
+
 ## Pace
 
 `speed` (default `100` — full speed; an integer 0–100, env

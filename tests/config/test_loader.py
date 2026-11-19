@@ -1059,6 +1059,30 @@ class TestSiteGroupAndTlsSwitch:
 
         assert config.site.base_url == "https://staging.example.com"
 
+        # an explicitly empty string is an unset — it never overwrites the file layer either
+        config = load_config(path, PrettyConfig(site=SiteConfig(base_url="")))
+
+        assert config.site.base_url == "https://staging.example.com"
+
+    def test_load_config_env_site_creates_group_without_file_section(self, tmp_path, monkeypatch) -> None:
+        """PRETTYPLAY_SITE_BASE_URL with no [tool.prettyplay.site] section creates the group from env alone."""
+        monkeypatch.setenv("PRETTYPLAY_SITE_BASE_URL", "https://env-only.example.com")
+
+        config = load_config(pyproject_path=write_section(tmp_path, '[tool.prettyplay]\nmodel = "gpt-5"\n'))
+
+        assert config.site.base_url == "https://env-only.example.com"
+
+    def test_load_config_rejects_non_table_site_group(self, tmp_path) -> None:
+        """Negative: a scalar where the site table belongs renders an authored line — no pydantic internals."""
+        path = write_section(tmp_path, '[tool.prettyplay]\nmodel = "gpt-5"\nsite = "oops"\n')
+
+        with pytest.raises(ConfigurationError) as excinfo:
+            load_config(pyproject_path=path)
+
+        assert str(excinfo.value).splitlines() == ["site: received 'oops' — allowed: a [tool.prettyplay.site] table"]
+        assert isinstance(excinfo.value, PrettyplayError)
+        assert isinstance(excinfo.value.__cause__, ValidationError)
+
     def test_load_config_env_invalid_tls_boolean_fails_loudly(self, tmp_path, monkeypatch) -> None:
         """Negative: an unparseable boolean names the setting, the received value and the accepted form."""
         monkeypatch.setenv("PRETTYPLAY_BROWSER_IGNORE_HTTPS_ERRORS", "maybe")
