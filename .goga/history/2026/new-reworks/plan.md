@@ -622,16 +622,22 @@ root itself) — document nothing extra, they are simply accepted.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (expected to fail now): in `tests/cache/test_models.py` — `from prettyplay.cache import validate_step_scope` (facade); called with a valid scope returns `None`
-- [ ] **Code**: implement `validate_step_scope` in `prettyplay/cache/models.py` per the algorithm (module-level compiled `_SCOPE_SEGMENT`; keep it beside `StepIdentity` — pure function)
-- [ ] **Code**: export `validate_step_scope` from `prettyplay/cache/__init__.py` (relative import; `__all__` sorted)
-- [ ] **Interface verification**: `/opt/project/bin/pytest tests/cache/test_models.py -v` — contract tests pass; `/opt/project/bin/python -c "from prettyplay.cache import validate_step_scope"`
-- [ ] **Logic tests** in `tests/cache/test_models.py` (design scenarios):
+- [x] **Contract tests** (expected to fail now): in `tests/cache/test_models.py` — `from prettyplay.cache import validate_step_scope` (facade); called with a valid scope returns `None`
+      (done: `TestValidateStepScopeContract` — the ImportError was observed live before implementation)
+- [x] **Code**: implement `validate_step_scope` in `prettyplay/cache/models.py` per the algorithm (module-level compiled `_SCOPE_SEGMENT`; keep it beside `StepIdentity` — pure function)
+      (done: REPL-verified on every design edge value before migration; `PrettyplayError` via the relative `from ..failures import` — the contract edge)
+- [x] **Code**: export `validate_step_scope` from `prettyplay/cache/__init__.py` (relative import; `__all__` sorted)
+- [x] **Interface verification**: `/opt/project/bin/pytest tests/cache/test_models.py -v` — contract tests pass; `/opt/project/bin/python -c "from prettyplay.cache import validate_step_scope"`
+- [x] **Logic tests** in `tests/cache/test_models.py` (design scenarios):
       `test_validate_step_scope_accepts_valid_scopes` — parametrized `["pages/login_page", "a", "v1.2.config-x", "pages/nested/deep"]`, each returns `None`;
       negative `test_validate_step_scope_rejects_invalid_scopes` — parametrized `["", "/pages", "pages/", "pages//login", "..", "a/../b", "pages\login", "C:/pages", "pages login", "страница", "pages:login"]`, `pytest.raises(PrettyplayError)` — the message names `_scope`, the received value and the allowed form
-- [ ] **Debugging**: `/opt/project/bin/pytest tests/cache/ -v` — fix implementation until green
-- [ ] **Contract re-verification**: pure function (verify in the REPL: same input → same outcome, no filesystem access); facade importable
-- [ ] **Lint**: `/opt/project/bin/ruff check prettyplay/ tests/`
+      (done: both verbatim plus the dot-only-segment acceptance edge `[".", "pages/.", "..."]` from the task's edge-case note)
+- [x] **Debugging**: `/opt/project/bin/pytest tests/cache/ -v` — fix implementation until green
+      (done: 118 passed in tests/cache/; full suite 1607 passed, 3 skipped)
+- [x] **Contract re-verification**: pure function (verify in the REPL: same input → same outcome, no filesystem access); facade importable
+      (done: audit-hook REPL check — zero open/mkdir/scandir/stat events, deterministic double render)
+- [x] **Lint**: `/opt/project/bin/ruff check prettyplay/ tests/`
+      (done: all checks passed; `goga lint` 13 cells / 0 errors)
 
 ### Task 5: `StepIdentity` — `scope`, `address_key`, digest rule
 

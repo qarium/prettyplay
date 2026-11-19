@@ -2,7 +2,8 @@
 
 import pydantic
 import pytest
-from prettyplay.cache import CachedStep, StepIdentity
+from prettyplay.cache import CachedStep, StepIdentity, validate_step_scope
+from prettyplay.failures import PrettyplayError
 
 
 class TestStepIdentityContract:
@@ -164,3 +165,50 @@ class TestCachedStepLogic:
         )
 
         assert step.identity.filename == identity.filename
+
+
+class TestValidateStepScopeContract:
+    """Contract tests: facade import, valid scope returns None."""
+
+    def test_validate_step_scope_is_importable_from_facade(self) -> None:
+        assert callable(validate_step_scope)
+
+    def test_validate_step_scope_returns_none_for_valid_scope(self) -> None:
+        assert validate_step_scope("pages/login_page") is None
+
+
+class TestValidateStepScopeLogic:
+    """Logic tests: the one scope charset rule serving both validation rings."""
+
+    @pytest.mark.parametrize("scope", ["pages/login_page", "a", "v1.2.config-x", "pages/nested/deep"])
+    def test_validate_step_scope_accepts_valid_scopes(self, scope: str) -> None:
+        assert validate_step_scope(scope) is None
+
+    @pytest.mark.parametrize(
+        "scope",
+        [
+            "",
+            "/pages",
+            "pages/",
+            "pages//login",
+            "..",
+            "a/../b",
+            "pages\\login",
+            "C:/pages",
+            "pages login",
+            "страница",
+            "pages:login",
+        ],
+    )
+    def test_validate_step_scope_rejects_invalid_scopes(self, scope: str) -> None:
+        with pytest.raises(PrettyplayError) as excinfo:
+            validate_step_scope(scope)
+
+        message = str(excinfo.value)
+        assert "_scope" in message
+        assert repr(scope) in message
+        assert "segments of ASCII letters" in message
+
+    @pytest.mark.parametrize("scope", [".", "pages/.", "..."])
+    def test_validate_step_scope_accepts_dot_only_segments(self, scope: str) -> None:
+        assert validate_step_scope(scope) is None  # the dot is a legal segment character, only ".." is banned

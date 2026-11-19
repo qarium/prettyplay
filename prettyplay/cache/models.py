@@ -1,13 +1,18 @@
 """In-memory models of the step cache: step addressing and a cached unit."""
 
 import hashlib
+import re
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
+from ..failures import PrettyplayError
 from .text import normalize_step_text
 
 #: Unit Separator: makes the identity concatenation unambiguous.
 _IDENTITY_SEPARATOR = "\x1f"
+
+#: One scope segment: at least one ASCII letter, digit, dot, underscore or hyphen.
+_SCOPE_SEGMENT = re.compile(r"[A-Za-z0-9._-]+")
 
 
 class StepIdentity(BaseModel):
@@ -37,6 +42,28 @@ class StepIdentity(BaseModel):
         identity_string = _IDENTITY_SEPARATOR.join((self.cache_key, self.step_type, self.normalized_text))
         digest = hashlib.sha256(identity_string.encode("utf-8")).hexdigest()
         return f"{digest}.py"
+
+
+def validate_step_scope(scope: str) -> None:
+    """Validate a step scope — the one rule of both validation rings.
+
+    Args:
+        scope: the candidate scope value.
+
+    Raises:
+        PrettyplayError: the value is not 1..N segments of ASCII letters,
+            digits, dot, underscore or hyphen joined by single ``/``
+            characters — the loud failure names the parameter, the received
+            value and the allowed form; a valid value passes verbatim,
+            nothing is rewritten.
+    """
+    segments = scope.split("/")
+
+    if scope == "" or any(not _SCOPE_SEGMENT.fullmatch(segment) for segment in segments) or ".." in segments:
+        raise PrettyplayError(
+            f"invalid _scope {scope!r} — 1..N segments of ASCII letters, digits, dot, "
+            "underscore or hyphen joined by single / characters, keyword-only"
+        )
 
 
 class CachedStep(BaseModel):
