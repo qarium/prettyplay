@@ -291,8 +291,8 @@ test.step(f"open the page {test.site_base_url}/login")
   subdirectory of the store — the sweep boundary).
   The scope charset rule lives here once and serves two rings: the facade validates at the call site (ring 1)
   through `validate_step_scope`, the store re-enforces it at addressing (ring 2) — the same forbidden set, never
-  softer than the structural bans; the existing `cache_path` is not tightened retroactively — the strict charset
-  applies to the scope only, from birth.
+  softer than the structural bans; the store's existing subdirectory argument (`path`) is not tightened
+  retroactively — the strict charset applies to the scope only, from birth.
   The metadata key of a scoped file is the scope itself: the close-time sweep of any test — filtering by its own
   cache key — never touches scoped files; shared entries survive every sweep.
   Budgets follow the runtime, addressing follows the scope: budgets stay per test; the generating test pays from
@@ -378,6 +378,9 @@ test.step(f"open the page {test.site_base_url}/login")
       - Unscoped identities keep the exact pre-scope digests (address_key = cache_key)
       - The routing path (the scope directory, the store subdirectory) never enters the digest
 ```
+
+- **ADD** — `StepCache` annotation, the `path` param line appends: `; a scoped step routes by its scope — this
+  subdirectory never applies to scoped steps`.
 
 - **CHANGE** — `StepCache.load` Algorithm: insert two steps at the head and adjust the resolution/validation:
 
@@ -503,7 +506,7 @@ version and are never invalidated by a library upgrade.
 ```md
 ## Shared scope entries
 
-A scoped step (see addressing) writes to `root/<scope>/` with the metadata key equal to the scope itself:
+A scoped step (a step executed with a non-empty `_scope`) writes to `root/<scope>/` with the metadata key equal to the scope itself:
 
 - Identical bytes whichever test wrote it — two tests missing the same scope both generate on their own budgets;
   the atomic write (temp file + replace) keeps the file valid for both readers; last writer wins
@@ -683,6 +686,9 @@ project-level `playwright` cook, already updated, read-only).
 ```
 
 **Body**
+
+- **CHANGE** — `PrettyPlay` annotation, the `cache_path` param line appends: `; a scoped step routes by its
+  `_scope` instead — this subdirectory never applies to it`.
 
 - **ADD** — embedding after `->BrowserConfig: {}`:
 

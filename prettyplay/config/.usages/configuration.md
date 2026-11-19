@@ -35,6 +35,10 @@ endpoint = ""              # remote browser endpoint; ws/wss -> Playwright serve
 accept_dialogs = false     # true — accept (else dismiss) dialogs no in-step capture claims, at the run-unit tail
 speed = 100            # pace of the run: 0–100 %, 100 — full speed (default)
 timeout = 30           # page default action timeout, seconds; explicitly applied at page creation; 0 disables the timeout, not auto-wait
+ignore_https_errors = false  # true — open pages behind self-signed/invalid certificates; a context parameter in every start mode
+
+[tool.prettyplay.site]
+base_url = ""              # root URL of the environment under test; empty — unset; http/https with a host, kept verbatim
 ```
 
 ## Environment overrides
@@ -51,6 +55,8 @@ Every setting has an override for CI — env variable PRETTYPLAY_<SETTING> in up
 | browser.accept_dialogs | PRETTYPLAY_BROWSER_ACCEPT_DIALOGS |
 | browser.speed | PRETTYPLAY_BROWSER_SPEED |
 | browser.timeout | PRETTYPLAY_BROWSER_TIMEOUT |
+| browser.ignore_https_errors | PRETTYPLAY_BROWSER_IGNORE_HTTPS_ERRORS |
+| site.base_url | PRETTYPLAY_SITE_BASE_URL |
 | model | PRETTYPLAY_MODEL |
 | generation_model | PRETTYPLAY_GENERATION_MODEL |
 | classification_model | PRETTYPLAY_CLASSIFICATION_MODEL |
@@ -276,6 +282,55 @@ The `screen` field of the browser group is the single size setting:
 - The resolution runs at the tail of the driver-thread run unit, not at the moment the dialog fires: a dialog unclaimed by the step blocks the page until the unit ends, which can fail the remainder of the step
 - A dialog claimed by a step's in-step stock capture is accepted or dismissed by the step itself — the setting does not apply to captured dialogs
 
+## Insecure TLS
+
+`ignore_https_errors` of the browser group (default false, env PRETTYPLAY_BROWSER_IGNORE_HTTPS_ERRORS,
+programmatically assembled config) opens pages behind self-signed or otherwise invalid certificates — staging
+grids and CI:
+
+```toml
+[tool.prettyplay.browser]
+ignore_https_errors = true
+```
+
+- The switch applies as a Playwright **context parameter** in every start mode identically — local launch, ws/wss
+  remote connect (the Playwright protocol), http/https remote connect (CDP); never a launch argument
+- `false` (the default) keeps Playwright's certificate checking untouched
+- Enabling is silent — an explicit configuration is not a suspicious state, nothing is logged
+- Booleans parse true/false/1/0 case-insensitively; anything else fails loudly naming the setting, the received
+  value and the accepted form
+
+## Site base URL
+
+The nested `site` group holds the single `base_url` field — the root URL of the environment under test, set once
+instead of being hardcoded in every step sentence:
+
+```toml
+[tool.prettyplay.site]
+base_url = "https://staging.example.com"
+```
+
+```python
+from prettyplay import PrettyPlay, PrettyConfig, SiteConfig
+
+test = PrettyPlay(
+    cache_key="login-flow",
+    config=PrettyConfig(site=SiteConfig(base_url="https://staging.example.com")),
+)
+test.step(f"open the page {test.site_base_url}/login")
+```
+
+- The layered merge is symmetric to the browser group: an explicitly passed value wins, an empty field never
+  overwrites the file layer; the env override is PRETTYPLAY_SITE_BASE_URL
+- A non-empty value must be an http/https URL — scheme and host present; anything else fails loudly at load
+  naming the setting, the received value and the allowed form; an empty value means unset
+- The value is kept verbatim — no trailing-slash normalization; the author composes URL strings
+- Tests read it through the facade property `site_base_url` — an empty string when unset
+- No collision with the top-level `base_url` (the LLM API endpoint): the group scopes the field, exactly as the
+  browser group scopes `name`
+- The URL is not wired into Playwright navigation: rendering it into a sentence makes it part of the step
+  address — staging and production keep separate cache entries (rendered values are data)
+
 ## Strict mode
 
 `strict = true` (env PRETTYPLAY_STRICT, programmatically assembled config) switches the run to replay-only: cached code executes honestly and nothing is ever (re)generated. A cache miss fails as an incurable step; a failed cached step is at most classified — never regenerated. Settle polling applies to cached code (re-execution, not generation). Classification is the only LLM call strict mode makes; without LLM access the failure raises immediately by step type.
@@ -293,6 +348,7 @@ A non-empty browser.endpoint switches the test to a remote connect. The scheme p
 - The cache root default: <cwd>/.prettyplay/cache/ — anchored at the working directory of the run, wherever the pyproject.toml was found
 - polling_timeout is None or non-negative; polling_delay is non-negative — violations fail loudly at load
 - generation_prompt reaches generation and regeneration requests only; classification_prompt reaches classification requests only — neither ever invalidates the cache
+- A non-empty site.base_url is an http/https URL with a host — violations fail loudly at load
 
 ## Loading
 
