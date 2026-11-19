@@ -448,18 +448,22 @@ cells / 0 errors. No product code is written here.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] Create the venv if missing: `python3 -m venv /opt/project` (skip when `/opt/project/bin/python` exists). When
+- [x] Create the venv if missing: `python3 -m venv /opt/project` (skip when `/opt/project/bin/python` exists). When
       `/opt/project` cannot be created (no write permission on `/opt` and no elevation available), bootstrap the
       venv at a user-writable location OUTSIDE the repository — `/opt/goga/project` (the writable `/opt/goga`
       subtree) — and use that interpreter path consistently in every command of this plan; record the chosen venv
       path once and substitute it wherever `/opt/project/bin/...` appears
-- [ ] Install the project and the test toolchain from the repository root:
+      (done: `/opt` root-owned and not writable — venv created at `/opt/goga/project`, Python 3.12.16; path recorded
+      in the progress log and substituted in all commands)
+- [x] Install the project and the test toolchain from the repository root:
       `/opt/project/bin/pip install -e ".[test]"`
-- [ ] Baseline tests: `/opt/project/bin/pytest tests/ -x` — all pass (baseline: 1562 passed, 3 skipped)
-- [ ] Baseline lint: `/opt/project/bin/ruff check prettyplay/ tests/` — zero errors
-- [ ] Baseline facades: `/opt/project/bin/python -c "from prettyplay import PrettyPlay, PrettyConfig, BrowserConfig"` and
+      (done via `/opt/goga/project/bin/pip install -e ".[test]"`)
+- [x] Baseline tests: `/opt/project/bin/pytest tests/ -x` — all pass (baseline: 1562 passed, 3 skipped)
+      (done: 1562 passed, 3 skipped — exact match)
+- [x] Baseline lint: `/opt/project/bin/ruff check prettyplay/ tests/` — zero errors (all checks passed)
+- [x] Baseline facades: `/opt/project/bin/python -c "from prettyplay import PrettyPlay, PrettyConfig, BrowserConfig"` and
       `/opt/project/bin/python -c "from prettyplay.config import PrettyConfig; from prettyplay.cache import StepIdentity"` — both import cleanly
-- [ ] Contract baseline: `goga lint` — 13 cells, 0 errors
+- [x] Contract baseline: `goga lint` — 13 cells, 0 errors
 
 ### Task 2: `SiteConfig`, `BrowserConfig.ignore_https_errors`, `PrettyConfig.site` (models)
 
