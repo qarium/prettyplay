@@ -796,3 +796,74 @@ def test_group_delegation_carries_the_block_scope(tmp_path: Path) -> None:
             unscoped.step(COOKIE_STEP)
 
         assert plain_execute.call_args.kwargs["scope"] is None  # no scope — the group's steps address unscoped
+
+
+def test_scenario_group_scope_threads_to_executor(tmp_path: Path) -> None:
+    """The group block scope threads from the facade ring 1 through the executor into the store routing."""
+    provider = RecordingProvider(answers=[FILL_CODE])
+    page = FakePage()
+
+    with (
+        installed_test(tmp_path, provider, page, "login-flow") as test,
+        mock.patch.object(test._cache, "load", wraps=test._cache.load) as load,
+        mock.patch.object(test._cache, "save", wraps=test._cache.save) as save,
+    ):
+        with test.group("the user signs in", _scope="pages/login_page") as group:
+            group.step(FILL_STEP)  # a cache miss — the generation runs and saves through the real store
+        test.close()
+
+    assert group.scope == "pages/login_page"  # the facade handed the validated block scope to StepGroup
+    assert load.call_args.args[0].scope == "pages/login_page"  # the executor addressed the load under the scope
+    stored = save.call_args.args[0]
+    assert stored.identity.scope == "pages/login_page"  # the save carried the same scoped identity
+    assert stored.identity.cache_key == "login-flow"  # the cache key stays the execution fact of the test
+    assert (tmp_path / "pages" / "login_page" / stored.identity.filename).is_file()  # the file routed by scope
+    assert list(tmp_path.glob("*.py")) == []  # nothing at the unscoped root — the address moved wholesale
+    assert group.traces[0].identity.scope == "pages/login_page"  # the trace record keeps the scoped identity
+
+
+def test_scenario_scope_never_enters_sentence_or_request(tmp_path: Path) -> None:
+    """The scope addresses and routes only — it never leaks into the rendered sentence or any LLM request."""
+    provider = RecordingProvider(answers=[WORKING_CODE])
+    page = FakePage()
+    hook = RecorderHook()
+
+    with installed_test(tmp_path, provider, page, "dashboard-flow") as test:
+        test.add_hooks(hook)
+        with mock.patch.object(test._cache, "save", wraps=test._cache.save) as save:
+            test.step("open the dashboard", _scope="pages/dashboard")  # a cache miss — the generation runs
+        test.close()
+
+    captured_instruction = provider.generation_requests[0]["instruction"]
+    assert captured_instruction == "open the dashboard"  # the LLM boundary saw the plain sentence, verbatim
+    assert "pages/dashboard" not in captured_instruction
+
+    stored = save.call_args.args[0]
+    assert "pages/dashboard" not in stored.addressing_text  # prepared.addressing_text — scope-free
+    started = next(
+        payload["step_text"]  # the ready layer of the started event — the rendered sentence again
+        for event, payload in hook.events
+        if event == "on_step_started"
+    )
+    assert "pages/dashboard" not in started
+
+    rendered = build_fields_text(
+        user_instructions="",
+        instruction=str(captured_instruction),
+        step_type="action",
+        previous_steps=[],
+        group_prompt=None,
+        inputs={},
+        declarations=[],
+        structure=REGISTRY_TEXT,
+        snapshot="body: main",
+        page_url="https://shop.example.com/checkout",
+        skill=load_skill("playwright"),
+        attempt_history=[],
+        recommendation=None,
+        guidance=None,
+    )
+    assert "pages/dashboard" not in rendered  # the whole request render — every field, scope-free
+
+    assert stored.identity.scope == "pages/dashboard"  # the scope addressed the step...
+    assert (tmp_path / "pages" / "dashboard" / stored.identity.filename).is_file()  # ...and routed its file

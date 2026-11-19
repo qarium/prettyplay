@@ -1126,10 +1126,26 @@ the rendered sentence or any LLM request. These close the D3 page-object story o
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] Extend `tests/test_groups_integration.py` with the two scenarios
-- [ ] `test_scenario_group_scope_threads_to_executor` — `with t.group("the user signs in", _scope="pages/login_page") as g: g.step("fill the login field")`, the executor identity build observed (spy on `StepCache.save`/`load` identity or the executor call, per the file's established pattern); asserts `g.scope == "pages/login_page"`, the saved/loaded `identity.scope == "pages/login_page"`, the file landed under `<cache root>/pages/login_page/`
-- [ ] `test_scenario_scope_never_enters_sentence_or_request` — an integration run with `_scope` set; the generator/LLM boundary doubled, capturing the rendered instruction; asserts `"pages/dashboard" not in captured_instruction` and `"pages/dashboard" not in prepared.addressing_text` (a cache miss — generation runs)
-- [ ] Run validation: `/opt/project/bin/pytest tests/test_groups_integration.py -v` then `/opt/project/bin/pytest tests/ -x`
+- [x] Extend `tests/test_groups_integration.py` with the two scenarios
+      (done: appended after the Task 11 group tests — the file's installed_test/RecordingProvider/
+      RecorderHook harness, the identity observed through wraps spies on the real `StepCache`
+      `load`/`save`; both scenarios REPL-verified live in the `/opt/goga/project` venv before
+      migration, scratch outside the repo)
+- [x] `test_scenario_group_scope_threads_to_executor` — `with t.group("the user signs in", _scope="pages/login_page") as g: g.step("fill the login field")`, the executor identity build observed (spy on `StepCache.save`/`load` identity or the executor call, per the file's established pattern); asserts `g.scope == "pages/login_page"`, the saved/loaded `identity.scope == "pages/login_page"`, the file landed under `<cache root>/pages/login_page/`
+      (done: all design assertions verbatim — a cache miss, so the generation runs and saves through
+      the real store; plus the trace-identity pin (Flow 2's "trace records carry the scoped
+      identity"), the `cache_key == "login-flow"` execution-fact pin, and the empty unscoped root —
+      the address moved wholesale)
+- [x] `test_scenario_scope_never_enters_sentence_or_request` — an integration run with `_scope` set; the generator/LLM boundary doubled, capturing the rendered instruction; asserts `"pages/dashboard" not in captured_instruction` and `"pages/dashboard" not in prepared.addressing_text` (a cache miss — generation runs)
+      (done: both design assertions verbatim — `prepared.addressing_text` observed as the saved
+      `CachedStep.addressing_text`; plus the `on_step_started` ready layer and the full
+      `build_fields_text` render of exactly the recorded request (every field scope-free), and the
+      routing pins proving the scope addressed the step while leaking nowhere)
+- [x] Run validation: `/opt/project/bin/pytest tests/test_groups_integration.py -v` then `/opt/project/bin/pytest tests/ -x`
+      (done via `/opt/goga/project/bin/pytest` — 9 passed in the file, 7 pre-existing plus the 2
+      new; full suite 1639 passed, 3 skipped; `ruff check prettyplay/ tests/` all checks passed,
+      the touched file format-clean; `goga lint` 13 cells / 0 errors; both facade import checks
+      clean)
 
 ---
 
@@ -1148,16 +1164,16 @@ Task 1 fallback venv path substitutes for `/opt/project` in every command below)
 
 ## Completion Criteria
 
-- [ ] Every contract entity is implemented in the correct `location` (`models.py`/`loader.py`/`store.py`/`session.py`/`outcome.py`/`recovery.py`/`scenario.py`/`groups.py`/`executor.py`)
-- [ ] Every contract entity is accessible from its facade (`SiteConfig`, `validate_step_scope`, the `prettyplay` re-export)
-- [ ] Properties and methods match the declared API (`site_base_url`, `address_key`, `scope`, `_scope` surfaces, `execute(..., scope)`)
-- [ ] Descriptions are reflected in behavior (two rings, scoped routing, sweep immunity, silent TLS, verbatim base URL, digest stability)
-- [ ] Contract dependencies are met (`cache → failures` for `PrettyplayError`; `facade`, `groups → cache` for `addressing`)
-- [ ] Re-exports are accessible from the facade (`from prettyplay import SiteConfig`)
-- [ ] Every coding task followed the TDD workflow (contract tests → code → verification → logic tests → debugging → re-verification → lint)
-- [ ] Contract tests and logic tests cover facade, API, and behavior within each coding task — all 29 design test scenarios exist and pass
-- [ ] Integration tests exist for the cross-entity scenarios (Tasks 7 and 13)
-- [ ] No package boundary was expanded; no new cells; no `.usages/` files changed (already current)
-- [ ] `CODEMANIFEST` files were not modified (contract is read-only); `goga lint` still 13 cells / 0 errors
-- [ ] The Mandatory Rules were followed: conventions-extracted style (R1), test rules (R2), ruff enforcement at every task and every local commit (R3), the REPL-cycle workflow (R4)
-- [ ] All validation commands pass; unscoped cache digests byte-identical to the pre-change values (compatibility test green)
+- [x] Every contract entity is implemented in the correct `location` (`models.py`/`loader.py`/`store.py`/`session.py`/`outcome.py`/`recovery.py`/`scenario.py`/`groups.py`/`executor.py`)
+- [x] Every contract entity is accessible from its facade (`SiteConfig`, `validate_step_scope`, the `prettyplay` re-export)
+- [x] Properties and methods match the declared API (`site_base_url`, `address_key`, `scope`, `_scope` surfaces, `execute(..., scope)`)
+- [x] Descriptions are reflected in behavior (two rings, scoped routing, sweep immunity, silent TLS, verbatim base URL, digest stability)
+- [x] Contract dependencies are met (`cache → failures` for `PrettyplayError`; `facade`, `groups → cache` for `addressing`)
+- [x] Re-exports are accessible from the facade (`from prettyplay import SiteConfig`)
+- [x] Every coding task followed the TDD workflow (contract tests → code → verification → logic tests → debugging → re-verification → lint)
+- [x] Contract tests and logic tests cover facade, API, and behavior within each coding task — all 29 design test scenarios exist and pass
+- [x] Integration tests exist for the cross-entity scenarios (Tasks 7 and 13)
+- [x] No package boundary was expanded; no new cells; no `.usages/` files changed (already current)
+- [x] `CODEMANIFEST` files were not modified (contract is read-only); `goga lint` still 13 cells / 0 errors
+- [x] The Mandatory Rules were followed: conventions-extracted style (R1), test rules (R2), ruff enforcement at every task and every local commit (R3), the REPL-cycle workflow (R4)
+- [x] All validation commands pass; unscoped cache digests byte-identical to the pre-change values (compatibility test green)
