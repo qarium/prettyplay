@@ -58,8 +58,9 @@ with PrettyPlay("login-flow") as t:
   as `settle_retry` records only, the step stays green — see
   [Settle polling](../reference/settle-polling.md)
 - `step(text, delay=1.5)` — a quiet pause in seconds before the step's code
-  runs: the started event fires, the declared seconds pass, then the code; a
-  step never reached never pauses
+  runs: the declared seconds pass first — no event, no log record — then the
+  started event fires with the ready render, then the code; a step never
+  reached never pauses
 - `step(text, _scope="pages/login")` — the step scope: the shared cache
   namespace of one page object; keyword-only, `None` — unscoped; see
   [The step scope](#the-step-scope-_scope)
@@ -111,7 +112,8 @@ The group block is one coherent mini-scenario with a shared goal: inside,
 steps use the ordinary authoring surface — retry count, start pause and `vars`
 included. A failing group step on a non-strict run is diagnosed with the
 whole group in view and the affected row is recovered automatically; group
-membership changes no step's cache address. See
+membership changes no step's cache address — a group opened with `_scope`
+addresses every step under that scope. See
 [Groups](../reference/groups.md).
 
 ## The step scope (`_scope`)
@@ -141,8 +143,9 @@ class LoginPage:
 - Inside a group the scope is set once at creation — a per-step `_scope` on
   the group object is rejected with a loud error naming the remedy
 - Form: 1..N segments of `[A-Za-z0-9._-]+` joined by exactly one `/` (e.g.
-  `pages/login_page`); an invalid value fails loudly at the call naming
-  `_scope`, the received value and the allowed form — before anything
+  `pages/login_page`); a segment equal to exactly `..` is invalid — `.` and
+  `...` pass, `..` never does; an invalid value fails loudly at the call
+  naming `_scope`, the received value and the allowed form — before anything
   renders or executes
 - The scope replaces exactly two things: the key part of the step address
   and the file routing (`<cache root>/<scope>/`); the same phrase as an

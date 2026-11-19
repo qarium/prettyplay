@@ -89,9 +89,23 @@ block, whose group entries are marked (`- {sentence} [group step —
 renders no block and no marking, identically in both providers. The framing
 is an input of the request, never a capability difference.
 
+Structure-registry parity: a generation, regeneration or guided request may
+carry the rendered structural element registry of the current page — one
+line per interactive element with its runtime-verified unique selector (the
+`structure_registry` capture of the page handle — see
+[Driver facade](driver-facade.md#the-internal-page-handle)); a non-empty
+registry renders as its own `PAGE STRUCTURE` block immediately after the
+`PAGE SNAPSHOT` block, identically in both providers; empty — no block, the
+request identical to the snapshot-only one. Supplied by every engine
+generation and healing request and by the guided requests of the interactive
+steering when the `send_structure` setting is on (the default) — see
+[Configuration](../configuration.md). A parity requirement, not a
+capability difference.
+
 Page-URL parity: a generation request may carry the current page URL — a
 non-empty `page_url` renders as its own `PAGE URL` line immediately after
-the `PAGE SNAPSHOT` block, identically in both providers; `None` renders no
+the `PAGE STRUCTURE` block, or immediately after the `PAGE SNAPSHOT` block
+when no registry was sent, identically in both providers; `None` renders no
 line. Supplied by every engine generation and healing request and by the
 guided requests of the interactive steering. A parity requirement, not a
 capability difference.
@@ -168,18 +182,24 @@ never for replayed cached code, never when `generation_approve` is off or
 findings = provider.check_instruction_compliance(
     prompt=system_prompt,  # the gate system prompt text comes from the calling engine
     user_instructions=instructions,  # the project's user instructions (the generation_prompt setting)
-    step_text="click the «Sign in» button",
+    instruction="click the «Sign in» button",  # the prepared plain-text instruction, never the raw template sentence
     step_type="action",  # action | assertion — the adequacy dimension judges by it
+    inputs={"code": "A1"},  # the call-local input bindings of the step; empty — no INPUTS block
+    declarations=["title"],  # the reached capture names of the step; empty — no RESULTS block
     code=step_code,
     attempt_history=[r.render() for r in history],  # the verbatim per-step attempt records, when present
+    structure=registry_text,  # the element registry the generation request carried; empty — no PAGE STRUCTURE block
 )
 ```
 
-- full parity between the providers: the user content carries four blocks in
-  the fixed order — `INSTRUCTIONS`, `STEP` (with its `STEP TYPE` line),
-  `ATTEMPT HISTORY` (omitted when the step has no attempt records) and
-  `CODE` — built identically by both through one shared builder; no
-  screenshot input on this operation
+- full parity between the providers: the user content carries the blocks in
+  the fixed order — `INSTRUCTIONS` (when configured), `STEP` (with its
+  `STEP TYPE` line and the optional `INPUTS` and `RESULTS` sections),
+  `ATTEMPT HISTORY` (omitted when the step has no attempt records), the
+  optional `PAGE STRUCTURE` (when the generation request carried the element
+  registry — the runtime-verified selectors the gate checks the candidate's
+  locators against) and `CODE` — built identically by both through one
+  shared builder; no screenshot input on this operation
 - the gate model is the effective classification model (`classification_model`
   or `model`)
 - the answer parses strictly: a JSON list of findings, each with

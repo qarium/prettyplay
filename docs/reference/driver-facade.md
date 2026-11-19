@@ -30,7 +30,7 @@ result = page.run(action)  # action(page) executes wholly inside the worker
 ## The internal page handle
 
 `PageFacade` (exported from `prettyplay.driver`) is the runtime plumbing
-handle of a single test page — not the API of step code. Exactly five
+handle of a single test page — not the API of step code. Exactly six
 members:
 
 | Call | Purpose |
@@ -45,8 +45,9 @@ members:
 No member proxies, delegates or re-exports of page capabilities exist: the
 handle is plumbing, not a managed surface. Everything step code does is a
 standard Playwright call on the genuine page inside `run`. Each context
-opens with the screen mode configured in the browser group — the handle and
-the contour are identical in every mode.
+opens with the screen mode and the `ignore_https_errors` switch of the
+browser group — the handle and the contour are identical in every mode (see
+[Browser setup](../guides/browser-setup.md)).
 
 ## The generated-code contour
 
@@ -199,9 +200,9 @@ never reads settings and never asks an LLM. See
   with the strict-mode violation — narrow positionally (`first`, `last`,
   `nth`) to address one match; over an `or_` composition the positional
   narrowing is the canonical guard when both branches may match
-- The screen mode of the browser group (empty, WxH, fullscreen, device
-  name) changes only how the context opens — never the contour; step code
-  is identical in every mode
+- The browser group's context inputs — the screen mode (empty, WxH,
+  fullscreen, device name) and `ignore_https_errors` — change only how the
+  context opens, never the contour; step code is identical in every mode
 - Dialogs: an in-step stock capture claims its dialog; dialogs outside a
   capture follow the `accept_dialogs` browser setting
 - No `page.route` outside the bounded route+unroute pair of one step, no

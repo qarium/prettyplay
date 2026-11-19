@@ -3,8 +3,9 @@
 PrettyPlay settings. For integrators configuring a test project and CI.
 
 The immutable part of the settings lives in the `[tool.prettyplay]` section of
-pyproject.toml. Load it once per test; a test can additionally override
-specific values programmatically through `PrettyConfig`.
+pyproject.toml. Load it once per test; a test can instead pass a fully
+assembled `PrettyConfig` — taken verbatim, the file layer never loads for it
+(see [The programmatic configuration](#the-programmatic-configuration)).
 
 ```toml
 [tool.prettyplay]
@@ -84,10 +85,15 @@ upper case; the browser group keeps flat env names:
 | classification_prompt | `PRETTYPLAY_CLASSIFICATION_PROMPT` |
 
 Env values parse by the field type: booleans accept `true/false/1/0`
-case-insensitively, integers parse as decimals, floats (the polling settings)
+case-insensitively, integers parse as decimals, floats (the polling
+settings, `probe_timeout` and `browser.timeout`)
 parse as decimal floats, and an unparseable value fails
 loudly with a `ConfigurationError` naming the setting, the received value and
-the accepted form.
+the accepted form. A set-but-empty variable overrides the file value with
+the empty form — unset for string settings (the `site.base_url` case), a
+parse error for typed ones. `browser.name` has no empty form at all: an
+empty name from the file or env layer fails the load naming the five
+allowed engines — empty means unset only in the programmatic overlay.
 
 ## Old flat keys are gone — hard break
 
@@ -146,7 +152,7 @@ together with the nested browser and site groups:
 from prettyplay import BrowserConfig, PrettyConfig, SiteConfig
 ```
 
-Both models are pydantic v2 with keyword-only construction; every field
+All three models are pydantic v2 with keyword-only construction; every field
 carries an empty or neutral default — an empty string means unset for string
 fields, the convention behind the loader's layered resolution.
 
@@ -227,9 +233,10 @@ config = load_config(pyproject_path=None, overrides=None)
 - returns the fully resolved and validated `PrettyConfig`
 
 Resolution order: TOML file → environment overrides (`PRETTYPLAY_*`) →
-explicitly set fields of `overrides` (the merge reaches inside the browser
-and site groups — see
-[The programmatic configuration](#the-programmatic-configuration)). `load_config` keeps the layered merge for file-based resolution; a config passed to the test object itself adopts verbatim.
+explicitly set fields of `overrides` — the merge reaches inside the browser
+and site groups. `load_config` keeps the layered merge for file-based
+resolution; a config passed to the test object itself adopts verbatim (see
+[The programmatic configuration](#the-programmatic-configuration)).
 
 ### Examples
 
@@ -248,7 +255,7 @@ t2 = PrettyPlay(
     ),
 )
 
-# override one field of the browser group — file values for the rest keep working
+# a fully assembled config — firefox for this test, every other field at its model default
 t3 = PrettyPlay("login-flow", config=PrettyConfig(browser=BrowserConfig(name="firefox")))
 
 # dedicated models per operation, one main fallback
@@ -414,10 +421,11 @@ test = PrettyPlay(
 test.step(f"open the page {test.site_base_url}/login")
 ```
 
-- The layered merge is symmetric to the browser group: an explicitly passed
-  value wins, an empty field never overwrites the file layer; the env
-  override is `PRETTYPLAY_SITE_BASE_URL` (a set-but-empty variable clears
-  the file value)
+- The layered merge of `load_config` is symmetric to the browser group: an
+  explicitly passed value wins, an empty field never overwrites the file
+  layer; the env override is `PRETTYPLAY_SITE_BASE_URL` (a set-but-empty
+  variable clears the file value); a config passed to the test object takes
+  the group verbatim instead
 - A non-empty value must be an http/https URL — scheme and host present;
   anything else fails loudly at load naming the setting, the received value
   and the allowed form; an empty value means unset

@@ -74,7 +74,11 @@ The classification verdict decides the path:
   — the label distinguishes a recovered group row from an ordinary
   `rot`/`fixable` heal
 - Every candidate execution runs under the settle window of the current step
-  execution — see [Settle polling](settle-polling.md)
+  execution — see [Settle polling](settle-polling.md) — and, when the
+  `probe_timeout` setting is positive, under its short action bound: after
+  every candidate the page default restores to the browser timeout baseline,
+  and replayed cached code always runs under the baseline (see
+  [Configuration](../configuration.md))
 
 ## Verdicts
 

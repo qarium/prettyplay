@@ -67,10 +67,11 @@ g = t.group("the user signs in", _scope="pages/login_page")  # once per block �
   addresses and routes only; the routing path never enters the digest file
   name
 - Form: 1..N segments of `[A-Za-z0-9._-]+` joined by exactly one `/` (e.g.
-  `pages/login_page`); an invalid value fails loudly at the call naming
-  `_scope`, the received value and the allowed form — the store re-enforces
-  the same rule at addressing (`validate_step_scope`, exported from
-  `prettyplay.cache`)
+  `pages/login_page`); a segment equal to exactly `..` is invalid — `.` and
+  `...` pass, `..` never does; an invalid value fails loudly at the call
+  naming `_scope`, the received value and the allowed form — the store
+  re-enforces the same rule at addressing (`validate_step_scope`, exported
+  from `prettyplay.cache`)
 
 ### Normalize and address
 
@@ -114,7 +115,8 @@ cache = StepCache(config=PrettyConfig(), path="checkout", reporter=StepReporter(
 
 step = cache.load(identity)  # None on a cache miss
 if step is None:
-    # a miss means: generate the step, then store it
+    # a miss means: generate the step's code, then store it
+    step_code = "... the generated step code, verbatim ..."
     cache.save(
         CachedStep(
             identity=identity,
@@ -135,15 +137,14 @@ imports when present, then the fixed-form `def step` function (see
 [Driver facade](driver-facade.md)), restored verbatim on load. Files carry no library version: an
 upgrade never invalidates them mechanically. The code inside targets the
 standard Playwright sync API, so it keeps replaying across upgrades that
-keep that API — the one recorded break is the switch to the genuine page:
-caches written against the retired page facade call methods that no longer
-exist (an `AttributeError` at replay, a hard failure in strict mode), so
-purge the cache directory once when upgrading across that change.
-
-The addressing change is a break of the same kind: steps address by their
-rendered sentence, so some existing addresses change. Purge the
-cache directory once after upgrading across it — or let the first default
-close sweep the untouched legacy files of each test's key out of its scope.
+keep that API — two breaks are on record. The first is the switch to the
+genuine page: caches written against the retired page facade call methods
+that no longer exist (an `AttributeError` at replay, a hard failure in
+strict mode), so purge the cache directory once when upgrading across that
+change. The second is the addressing change: steps address by their
+rendered sentence, so some existing addresses change — purge the cache
+directory once after upgrading across it, or let the first default close
+sweep the untouched legacy files of each test's key out of its scope.
 
 ### Write behavior
 
