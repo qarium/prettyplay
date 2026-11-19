@@ -562,20 +562,30 @@ survives untouched.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (expected to fail now): in `tests/config/test_loader.py` — a pyproject with `[tool.prettyplay.site] base_url` and `[tool.prettyplay.browser] ignore_https_errors` loads through `load_config` into the effective model; env names `PRETTYPLAY_SITE_BASE_URL` / `PRETTYPLAY_BROWSER_IGNORE_HTTPS_ERRORS` override the file layer
-- [ ] **Code**: extend `_ENV_NAMES` and `_BOOL_ENV_SETTINGS` per the algorithm
-- [ ] **Code**: generalize the dotted env merge to per-group prefixes (replace the browser-only `group_env` block at loader.py:323–327)
-- [ ] **Code**: widen `_apply_overrides`'s isinstance branch to `BrowserConfig | SiteConfig` — one branch, both group models
-- [ ] **Interface verification**: `/opt/project/bin/pytest tests/config/test_loader.py -v` — contract tests pass
-- [ ] **Logic tests** in `tests/config/test_loader.py` (design scenarios):
+- [x] **Contract tests** (expected to fail now): in `tests/config/test_loader.py` — a pyproject with `[tool.prettyplay.site] base_url` and `[tool.prettyplay.browser] ignore_https_errors` loads through `load_config` into the effective model; env names `PRETTYPLAY_SITE_BASE_URL` / `PRETTYPLAY_BROWSER_IGNORE_HTTPS_ERRORS` override the file layer
+- [x] **Code**: extend `_ENV_NAMES` and `_BOOL_ENV_SETTINGS` per the algorithm
+      (done: `_ALLOWED_TEXT` also gains the two authored allowed-values lines; the parity pin in
+      test_loader.py dropped its Task 2 pending set)
+- [x] **Code**: generalize the dotted env merge to per-group prefixes (replace the browser-only `group_env` block at loader.py:323–327)
+      (done: extracted as the private `_merge_env_groups` helper — the inline version tripped C901 on
+      `load_config` (11 > 10); a non-dict file value under a group name stays verbatim for the model to
+      reject loudly)
+- [x] **Code**: widen `_apply_overrides`'s isinstance branch to `BrowserConfig | SiteConfig` — one branch, both group models
+      (done: the branch is field-name-driven — `update[name] = getattr(file_config, name).model_copy(...)`)
+- [x] **Interface verification**: `/opt/project/bin/pytest tests/config/test_loader.py -v` — contract tests pass
+- [x] **Logic tests** in `tests/config/test_loader.py` (design scenarios):
       `test_load_config_reads_site_group_and_tls_switch` — file layer only (monkeypatched env without PRETTYPLAY_*); asserts `config.site.base_url == "https://staging.example.com"`, `config.browser.ignore_https_errors is True`;
       `test_load_config_env_overrides_site_and_tls` — file `https://file.example.com`/`false` + env `PRETTYPLAY_SITE_BASE_URL=https://env.example.com`, `PRETTYPLAY_BROWSER_IGNORE_HTTPS_ERRORS=1`; asserts the env values win (`"1"` parses to True);
       `test_load_config_env_empty_site_base_url_clears_file_value` — env `PRETTYPLAY_SITE_BASE_URL=""` set-but-empty; asserts `config.site.base_url == ""` (pins "a set-but-empty env variable clears the file layer");
       `test_apply_overrides_site_group_merge` — `overrides=PrettyConfig(site=SiteConfig(base_url="https://prod.example.com"))` wins; `overrides=PrettyConfig(site=SiteConfig())` leaves the file value `https://staging.example.com` untouched;
       negative `test_load_config_env_invalid_tls_boolean_fails_loudly` — env `PRETTYPLAY_BROWSER_IGNORE_HTTPS_ERRORS=maybe`; `pytest.raises(ConfigurationError)` with `"browser.ignore_https_errors"` and `"maybe"` in the message
-- [ ] **Debugging**: `/opt/project/bin/pytest tests/config/ -v` then `/opt/project/bin/pytest tests/ -x` — fix implementation until green
-- [ ] **Contract re-verification**: no raw `pydantic.ValidationError` leaves the loader; the existing browser merge behavior is unchanged (existing loader tests still pass)
-- [ ] **Lint**: `/opt/project/bin/ruff check prettyplay/ tests/`
+      (done: all five verbatim plus `test_load_config_invalid_site_base_url_renders_allowed_text` pinning the
+      authored `_ALLOWED_TEXT` line and the wrapped `__cause__`)
+- [x] **Debugging**: `/opt/project/bin/pytest tests/config/ -v` then `/opt/project/bin/pytest tests/ -x` — fix implementation until green
+      (done: 191 passed in tests/config/; full suite 1587 passed, 3 skipped)
+- [x] **Contract re-verification**: no raw `pydantic.ValidationError` leaves the loader; the existing browser merge behavior is unchanged (existing loader tests still pass)
+- [x] **Lint**: `/opt/project/bin/ruff check prettyplay/ tests/`
+      (done: all checks passed; `goga lint` 13 cells / 0 errors)
 
 ### Task 4: `validate_step_scope` — the one rule of both rings
 

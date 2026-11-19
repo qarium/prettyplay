@@ -7,7 +7,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from ..failures import PrettyplayError
-from .models import BrowserConfig, PrettyConfig
+from .models import BrowserConfig, PrettyConfig, SiteConfig
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -18,7 +18,8 @@ else:
 _LEGACY_BROWSER_ENV = "PRETTYPLAY_BROWSER"
 
 #: Env variable name of every overridable setting; dotted names address the
-#: browser group, whose flat PRETTYPLAY_BROWSER_* names stay historical.
+#: nested groups (browser, site), whose flat PRETTYPLAY_BROWSER_* names stay
+#: historical.
 _ENV_NAMES: dict[str, str] = {
     setting: f"PRETTYPLAY_{setting.upper().replace('.', '_')}"
     for setting in (
@@ -49,6 +50,8 @@ _ENV_NAMES: dict[str, str] = {
         "browser.accept_dialogs",
         "browser.speed",
         "browser.timeout",
+        "browser.ignore_https_errors",
+        "site.base_url",
     )
 }
 
@@ -62,6 +65,7 @@ _BOOL_ENV_SETTINGS = frozenset(
         "generation_approve",
         "browser.headless",
         "browser.accept_dialogs",
+        "browser.ignore_https_errors",
     }
 )
 
@@ -90,6 +94,8 @@ _ALLOWED_TEXT: dict[str, str] = {
     "request_max_tokens": "a positive integer",
     "browser.headless": "a boolean",
     "browser.accept_dialogs": "a boolean",
+    "browser.ignore_https_errors": "a boolean",
+    "site.base_url": "an empty value or a valid http/https URL with a host",
     "strict": "a boolean",
     "polling_timeout": "None or a non-negative number (finite)",
     "polling_delay": "a non-negative number",
@@ -255,9 +261,10 @@ def _apply_overrides(file_config: PrettyConfig, overrides: PrettyConfig) -> Pret
 
     Returns:
         The effective configuration: ``file_config`` with the participating
-        overrides applied; the merge reaches inside the browser group —
-        explicitly set fields of a passed :class:`BrowserConfig` win over the
-        file group, untouched group defaults never overwrite it.
+        overrides applied; the merge reaches inside the browser and site
+        groups — explicitly set fields of a passed :class:`BrowserConfig` or
+        :class:`SiteConfig` win over the file group, untouched group defaults
+        never overwrite it.
     """
     update: dict[str, object] = {}
 
@@ -268,19 +275,45 @@ def _apply_overrides(file_config: PrettyConfig, overrides: PrettyConfig) -> Pret
             continue
         if isinstance(value, str) and not value:
             continue
-        if isinstance(value, BrowserConfig):
+        if isinstance(value, BrowserConfig | SiteConfig):
             group_update = {
                 group_name: group_value
                 for group_name, group_value in value
                 if group_name in value.model_fields_set and (group_value or not isinstance(group_value, str))
             }
             if group_update:
-                update["browser"] = file_config.browser.model_copy(update=group_update)
+                update[name] = getattr(file_config, name).model_copy(update=group_update)
             # no explicitly set group fields — the file group survives untouched
         else:
             update[name] = value
 
     return file_config.model_copy(update=update)
+
+
+def _merge_env_groups(merged: dict[str, object], env: dict[str, object]) -> None:
+    """Merge the dotted env overrides into their per-group sections of ``merged``.
+
+    Args:
+        merged: the mutable pyproject layer whose group sections update in
+            place; every dotted setting addresses a field of a nested group
+            (``browser.*``, ``site.*``).
+        env: the parsed env overrides of :data:`_ENV_NAMES`.
+    """
+    group_env: dict[str, dict[str, object]] = {}
+
+    for setting, value in env.items():
+        if "." in setting:
+            group, field = setting.split(".", 1)
+            group_env.setdefault(group, {})[field] = value
+
+    for group, fields in group_env.items():
+        file_group = merged.get(group)
+
+        if isinstance(file_group, dict):
+            merged[group] = {**file_group, **fields}
+        elif file_group is None:
+            merged[group] = dict(fields)
+        # a non-dict file value under a group name stays verbatim — the model rejects it loudly
 
 
 def load_config(pyproject_path: str | None = None, overrides: PrettyConfig | None = None) -> PrettyConfig:
@@ -294,7 +327,7 @@ def load_config(pyproject_path: str | None = None, overrides: PrettyConfig | Non
             fields) returns the validated file layer as is — an explicitly set
             field (``model_fields_set``, non-None, non-empty for strings)
             wins over the pyproject+env layer, the merge reaching inside the
-            browser group.
+            browser and site groups.
 
     Returns:
         Validated configuration.
@@ -321,10 +354,7 @@ def load_config(pyproject_path: str | None = None, overrides: PrettyConfig | Non
     env = _collect_env_overrides()
 
     merged = {**section, **{setting: value for setting, value in env.items() if "." not in setting}}
-    group_env = {setting.split(".", 1)[1]: value for setting, value in env.items() if "." in setting}
-
-    if group_env:
-        merged["browser"] = {**(merged.get("browser") or {}), **group_env}
+    _merge_env_groups(merged, env)
 
     browser_section = merged.get("browser")
 
