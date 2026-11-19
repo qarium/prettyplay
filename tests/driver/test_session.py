@@ -781,6 +781,54 @@ class TestDriverSessionPace:
         assert factory.launch_kwargs[0]["slow_mo"] == 3000
 
 
+class TestDriverSessionInsecureTls:
+    """Contract and logic tests: the browser-group TLS switch rides the one context-creation surface."""
+
+    def test_open_context_passes_ignore_https_errors_into_new_context(self) -> None:
+        factory = FakePlaywrightFactory()
+
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(ignore_https_errors=True)))
+            session.open_context()
+            session.close()
+
+        assert factory.context_kwargs == [{"ignore_https_errors": True}]  # screen empty — the switch alone rides
+
+    def test_open_context_passes_ignore_https_errors(self) -> None:
+        factory = FakePlaywrightFactory()
+
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(PrettyConfig(browser=BrowserConfig(ignore_https_errors=True)))
+            session.open_context()
+            session.close()
+
+        recorded_kwargs = factory.context_kwargs[0]
+        assert recorded_kwargs.get("ignore_https_errors") is True
+
+        factory = FakePlaywrightFactory()  # the untouched default — passed explicitly, certificate checking on
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(PrettyConfig(browser=BrowserConfig()))
+            session.open_context()
+            session.close()
+
+        recorded_kwargs = factory.context_kwargs[0]
+        assert recorded_kwargs.get("ignore_https_errors") is False
+
+    @pytest.mark.parametrize("endpoint", ["", "ws://grid:3000/playwright/chromium", "http://grid:3000"])
+    def test_ignore_https_errors_applies_identically_in_every_start_mode(self, endpoint: str) -> None:
+        factory = FakePlaywrightFactory()
+
+        with mock.patch("prettyplay.driver.session.sync_playwright", return_value=factory):
+            session = DriverSession(
+                PrettyConfig(browser=BrowserConfig(name="chromium", endpoint=endpoint, ignore_https_errors=True))
+            )
+            session.open_context()
+            session.close()
+
+        assert factory.context_kwargs[0].get("ignore_https_errors") is True  # one context surface, every mode
+        assert all("ignore_https_errors" not in kwargs for kwargs in factory.launch_kwargs)  # never a launch argument
+
+
 def viewport_params(width: int, height: int) -> dict:
     """The expected new_context kwargs of a WxH-shaped screen value."""
     return {"viewport": {"width": width, "height": height}}
@@ -891,7 +939,8 @@ class TestDriverSessionScreenModesContract:
             session.close()
 
         assert isinstance(page, PageFacade)
-        assert factory.context_kwargs == [expected_params]
+        # the TLS switch rides every resolution path — the same new_context surface
+        assert factory.context_kwargs == [expected_params | {"ignore_https_errors": False}]
         assert threading.get_ident() not in set(factory.threads)  # the resolution ran in the worker
 
 
@@ -916,7 +965,8 @@ class TestDriverSessionScreenModes:
             session.close()
 
         assert isinstance(page, PageFacade)
-        assert factory.context_kwargs == [expected_context]
+        # the TLS switch rides every screen mode — the same new_context surface
+        assert factory.context_kwargs == [expected_context | {"ignore_https_errors": False}]
 
         if expected_launch is None:  # the remote connect path
             assert factory.launches == []

@@ -178,7 +178,10 @@ class DriverSession:
                 The page, its context and the dialog router registered
                 before the first page event.
             """
-            params = self._screen_context_params()
+            params = {
+                **self._screen_context_params(),
+                "ignore_https_errors": self._config.browser.ignore_https_errors,
+            }
             context: BrowserContext = browser.new_context(**params)
             router = _DialogRouter(self._config.browser.accept_dialogs)
             # registered before new_page: the first page fires the event and registers once

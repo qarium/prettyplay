@@ -837,14 +837,26 @@ Playwright's untouched certificate checking.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (expected to fail now): in `tests/driver/test_session.py` — `open_context` passes `ignore_https_errors` into `new_context` (recorded by the existing fake-browser double pattern of the file)
-- [ ] **Code**: extend the `params` dict per the algorithm (session.py:181) — one line joining the screen params; nothing else in the unit changes
-- [ ] **Interface verification**: `/opt/project/bin/pytest tests/driver/test_session.py -v` — contract tests pass; the existing session tests stay green
-- [ ] **Logic tests** in `tests/driver/test_session.py` (design scenario):
+- [x] **Contract tests** (expected to fail now): in `tests/driver/test_session.py` — `open_context` passes `ignore_https_errors` into `new_context` (recorded by the existing fake-browser double pattern of the file)
+      (done: `TestDriverSessionInsecureTls` — all five new scenarios observed failing live pre-implementation,
+      the recorded kwargs lacked the key entirely (`.get()` → None))
+- [x] **Code**: extend the `params` dict per the algorithm (session.py:181) — one line joining the screen params; nothing else in the unit changes
+      (done: the `{**screen, "ignore_https_errors": ...}` merge, wrapped multi-line for the 120-char limit; the
+      only change in the unit)
+- [x] **Interface verification**: `/opt/project/bin/pytest tests/driver/test_session.py -v` — contract tests pass; the existing session tests stay green
+      (done via `/opt/goga/project/bin/pytest` — 71 passed, 66 pre-existing plus the 5 new; the two
+      exact-equality screen assertions now carry the always-present key — the contract change, not a weakening)
+- [x] **Logic tests** in `tests/driver/test_session.py` (design scenario):
       `test_open_context_passes_ignore_https_errors` — the existing session test double (a fake browser recording `new_context` kwargs), `config = PrettyConfig(browser=BrowserConfig(ignore_https_errors=True))` (screen empty); asserts `recorded_kwargs.get("ignore_https_errors") is True`; and with the default `ignore_https_errors=False`: `recorded_kwargs.get("ignore_https_errors") is False`
-- [ ] **Debugging**: `/opt/project/bin/pytest tests/driver/ -v` — fix implementation until green
-- [ ] **Contract re-verification**: one `new_context` surface; silent enablement (no new log records — grep the diff for logging calls)
-- [ ] **Lint**: `/opt/project/bin/ruff check prettyplay/ tests/`
+      (done: verbatim scenario plus the exact pass-through contract test and the every-start-mode
+      parametrization (local/ws/CDP) pinning "identical in every start mode" and "never a launch argument")
+- [x] **Debugging**: `/opt/project/bin/pytest tests/driver/ -v` — fix implementation until green
+      (done: 123 passed, 2 skipped in tests/driver/; full suite 1626 passed, 3 skipped)
+- [x] **Contract re-verification**: one `new_context` surface; silent enablement (no new log records — grep the diff for logging calls)
+      (done: grep of the session.py diff — zero logging calls added; `new_context` still called from exactly
+      one place; the recorded launch kwargs carry no TLS key in any mode)
+- [x] **Lint**: `/opt/project/bin/ruff check prettyplay/ tests/`
+      (done: all checks passed; touched files format-clean; `goga lint` 13 cells / 0 errors)
 
 ### Task 9: `GroupRecovery.recover` row re-addressing + `GroupStepOutcome.identity` documentation
 
