@@ -745,21 +745,39 @@ creates a directory matching the digest pattern — the `is_file()` guard keeps 
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (expected to fail now): in `tests/cache/test_store.py` — `StepCache.load`/`save` accept scoped identities: a scoped save stores under `<root>/<scope>/` and a scoped load finds it; unscoped roundtrip unchanged
-- [ ] **Code**: add `_step_dir(identity)` (ring 2 + scoped routing) and route `load` (store.py:111) and `save` (store.py:165, 182) through it
-- [ ] **Code**: `_serialize` — the `CACHE_KEY` literal from `step.identity.address_key`; `load` verifies `CACHE_KEY == identity.address_key`
-- [ ] **Code**: the scoped `mkdir(parents=True, exist_ok=True)` inside the OSError-guarded skip path (a failure reports `on_cache_skipped` with the reason "cache target busy" and returns False — never raising)
-- [ ] **Code**: add `entry.is_file()` to the sweep candidate filter (store.py:222)
-- [ ] **Interface verification**: `/opt/project/bin/pytest tests/cache/test_store.py -v` — contract tests pass; the existing unscoped store tests stay green
-- [ ] **Logic tests** in `tests/cache/test_store.py` (design scenarios):
+- [x] **Contract tests** (expected to fail now): in `tests/cache/test_store.py` — `StepCache.load`/`save` accept scoped identities: a scoped save stores under `<root>/<scope>/` and a scoped load finds it; unscoped roundtrip unchanged
+      (done: 7 of the 8 new scenarios observed failing live pre-implementation — scoped saves landed in the store
+      directory, no ring 2, no sweep guard, busy-mkdir raised nothing; the eighth (unscoped roundtrip unchanged)
+      passed pre-change and pins the compatibility)
+- [x] **Code**: add `_step_dir(identity)` (ring 2 + scoped routing) and route `load` (store.py:111) and `save` (store.py:165, 182) through it
+      (done: in `save` the directory resolves before the writability probe, so ring 2 fires before any filesystem
+      touch — REPL-verified: an invalid scope leaves the cache root uncreated)
+- [x] **Code**: `_serialize` — the `CACHE_KEY` literal from `step.identity.address_key`; `load` verifies `CACHE_KEY == identity.address_key`
+- [x] **Code**: the scoped `mkdir(parents=True, exist_ok=True)` inside the OSError-guarded skip path (a failure reports `on_cache_skipped` with the reason "cache target busy" and returns False — never raising)
+      (done: the mkdir shares the mkstemp try block — one OSError surface, one skip reason)
+- [x] **Code**: add `entry.is_file()` to the sweep candidate filter (store.py:222)
+- [x] **Interface verification**: `/opt/project/bin/pytest tests/cache/test_store.py -v` — contract tests pass; the existing unscoped store tests stay green
+      (done: 51 passed — 43 pre-existing plus the 8 new)
+- [x] **Logic tests** in `tests/cache/test_store.py` (design scenarios):
       `test_store_save_and_load_scoped_step_roundtrip` — setup `StepCache(config=PrettyConfig(cache_root=str(tmp_path / "cache")), reporter=StepReporter(hooks=[]))`, identity with `scope="pages/dashboard"`; asserts `stored is True`, `loaded is not None`, `loaded.code == step.code`, `loaded.addressing_text == "open the dashboard"`, `(tmp_path / "cache" / "pages" / "dashboard").is_dir()`, the routed `*.py` file exists, its text contains `CACHE_KEY = 'pages/dashboard'`, and the unscoped address (`scope=""`) is a miss (`None`);
       `test_store_sweep_never_deletes_scoped_files` — a scoped step plus an untouched unscoped step of key `"login-flow"`; `sweep_untouched("login-flow")` asserts `removed == [<unscoped digest>.py]` and the scoped file still exists;
       negative `test_store_ring2_rejects_invalid_scope_on_load_and_save` — `bad = StepIdentity(cache_key="k", step_type="action", normalized_text="x", scope="../escape")` constructed directly; `pytest.raises(PrettyplayError)` on load AND on save; nothing read or written outside the root;
       edge `test_store_scoped_step_with_store_subdirectory_ignores_it` — `StepCache(..., path="checkout")` with a scoped save; asserts the file exists at `<root>/pages/dashboard/<digest>.py`, `(<root>/checkout/pages/dashboard)` does not exist, `(<root>/checkout/<digest>.py)` does not exist;
       edge `test_store_scoped_dir_matching_digest_name_not_swept` — a scope of exactly `<64 hex>.py`; `sweep_untouched("k")` leaves the digest-named directory existing and `removed` contains only the unscoped file
-- [ ] **Debugging**: `/opt/project/bin/pytest tests/cache/ -v` then `/opt/project/bin/pytest tests/ -x` — fix implementation until green
-- [ ] **Contract re-verification**: ring-2 ordering (validation before path composition) in both `load` and `save`; unscoped behavior byte-identical; a save never raises on I/O failure
-- [ ] **Lint**: `/opt/project/bin/ruff check prettyplay/ tests/`
+      (done: all five verbatim plus `test_store_save_scope_dir_occupied_by_file_skips_loudly` pinning the
+      mkdir-degrades-to-busy-skip bullet; one auxiliary change — `load` now drops the single trailing newline
+      `save` appends so the verbatim `loaded.code == step.code` assertion holds (the design scenario and
+      CachedStep's "restores the whole text verbatim" docstring demand it); file bytes are unchanged and no
+      existing test pinned the extra in-memory newline (every prior exact check used `startswith` or
+      `rstrip("\n")`), full suite green)
+- [x] **Debugging**: `/opt/project/bin/pytest tests/cache/ -v` then `/opt/project/bin/pytest tests/ -x` — fix implementation until green
+      (done: 130 passed in tests/cache/; full suite 1619 passed, 3 skipped)
+- [x] **Contract re-verification**: ring-2 ordering (validation before path composition) in both `load` and `save`; unscoped behavior byte-identical; a save never raises on I/O failure
+      (done: REPL — an invalid scope raises on both entry points naming `_scope`, the value and the allowed form
+      with the root never created; unscoped `CACHE_KEY` literal and file layout byte-identical; the
+      file-occupied-scope mkdir reports "cache target busy" and returns False)
+- [x] **Lint**: `/opt/project/bin/ruff check prettyplay/ tests/`
+      (done: all checks passed; touched files format-clean; `goga lint` 13 cells / 0 errors)
 
 ### Task 7: Integration tests — scoped cache economics (two writers, per-test budgets)
 
