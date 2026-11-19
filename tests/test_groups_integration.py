@@ -14,7 +14,7 @@ from prettyplay.engine.generator import SYSTEM_PROMPT as ENGINE_SYSTEM_PROMPT
 from prettyplay.engine.groups import GroupStepOutcome
 from prettyplay.engine.groups.diagnosis import GROUP_DIAGNOSIS_PROMPT
 from prettyplay.engine.steering.steering import SYSTEM_PROMPT
-from prettyplay.failures import ProductDefectError
+from prettyplay.failures import PrettyplayError, ProductDefectError
 from prettyplay.llm import (
     ComplianceFinding,
     FailureClassification,
@@ -735,3 +735,64 @@ def test_group_template_flow_traces_instruction_and_vars_and_requests_carry_inst
 
     # the terminal verdict carries the prepared instruction — "A1" embedded, never the template
     assert excinfo.value.step_text == "the code A1 is confirmed"
+
+
+def test_step_group_constructs_with_scope_and_exposes_it(tmp_path: Path) -> None:
+    """Contract: the six-parameter construction carries the block scope; the property returns it verbatim."""
+    with installed_test(tmp_path, ForbiddenProvider(), FakePage(), "login-flow") as test:
+        scoped = StepGroup("the user signs in", None, None, "pages/login_page", test._executor, test._reporter)
+        assert scoped.scope == "pages/login_page"  # the block scope — the constructor value, verbatim
+
+        unscoped = StepGroup("the user signs in", None, None, None, test._executor, test._reporter)
+        assert unscoped.scope is None  # None — the group's steps address unscoped
+
+
+def test_group_step_rejects_per_step_scope(tmp_path: Path) -> None:
+    """A per-step _scope inside a group is rejected before the pause, the page opener and the delegation."""
+    with installed_test(tmp_path, ForbiddenProvider(), FakePage(), "login-flow") as test:
+        group = StepGroup("the user signs in", 50, 0.25, "pages/login_page", test._executor, test._reporter)
+        group._open_page = test._ensure_page  # the facade binding — the lazy opener of this test
+
+        with (
+            mock.patch("prettyplay.groups.time") as clock,
+            mock.patch.object(test._executor, "execute") as execute,
+            pytest.raises(PrettyplayError) as excinfo,
+        ):
+            group.step("fill the login field", _scope="pages/other")
+
+        message = str(excinfo.value)
+        assert "_scope" in message  # names the parameter
+        assert "group(..., _scope=...)" in message  # and the remedy — the scope is set once on the group
+        assert clock.sleep.called is False  # the rejection precedes the entry pause and the pace
+        assert test._page is None  # ... and the page opener — no page was opened
+        assert execute.called is False  # ... and the delegation — the executor is never reached
+
+        with pytest.raises(PrettyplayError) as expect_rejection:
+            group.expect("the dashboard is visible", _scope="pages/other")  # expect rejects exactly as step
+
+        assert "group(..., _scope=...)" in str(expect_rejection.value)
+
+
+def test_group_delegation_carries_the_block_scope(tmp_path: Path) -> None:
+    """The block scope threads into every step's delegation; a per-step _scope=None attempts no override."""
+    with installed_test(tmp_path, ForbiddenProvider(), FakePage(), "login-flow") as test:
+        group = StepGroup("the user signs in", None, None, "pages/login_page", test._executor, test._reporter)
+        group._open_page = test._ensure_page  # the facade binding — the lazy opener of this test
+
+        with mock.patch.object(test._executor, "execute") as execute:
+            group.step("fill the login field", _scope=None)  # None — accepted, no override attempt
+            group.expect("the dashboard is visible", _scope=None)
+
+        assert [call.args[1] for call in execute.call_args_list] == ["action", "assertion"]  # both kinds delegate
+        assert [call.kwargs["scope"] for call in execute.call_args_list] == [
+            "pages/login_page",
+            "pages/login_page",
+        ]  # the delegation carries the group's scope with every step
+
+        with (
+            test.group("the user checks out") as unscoped,
+            mock.patch.object(test._executor, "execute") as plain_execute,
+        ):
+            unscoped.step(COOKIE_STEP)
+
+        assert plain_execute.call_args.kwargs["scope"] is None  # no scope — the group's steps address unscoped

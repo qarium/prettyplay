@@ -999,14 +999,41 @@ changes neither a step's scope nor its address — the group only passes its sco
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (expected to fail now): in `tests/test_groups_integration.py` — `StepGroup` exposes `scope`; `g.step(..., _scope="x")` raises `PrettyplayError` naming the parameter and the remedy
-- [ ] **Code**: extend `StepGroup.__init__` (groups.py:108) with `scope` and store `self._scope`; add the `scope` property; update the "five-parameter" comment at scenario.py:367 and the constructor call to pass `_scope` positionally-after-`delay` (the facade still sends `None` until Task 12)
-- [ ] **Code**: add the `_scope` rejection to `step`/`expect` BEFORE the pause and page opener; thread `scope=self._scope` through `_delegate`
-- [ ] **Interface verification**: `/opt/project/bin/pytest tests/test_groups_integration.py -v` — contract tests pass; the existing group tests stay green
-- [ ] **Logic tests** in `tests/test_groups_integration.py` (design scenario): negative `test_group_step_rejects_per_step_scope` — an opened group block `g = t.group("the user signs in", _scope="pages/login_page")` (after Task 12; until then construct via the harness used by the existing file) — `g.step("fill the login field", _scope="pages/other")`; `pytest.raises(PrettyplayError)` with the remedy naming `group(..., _scope=...)`; no pause, no page open, no delegation
-- [ ] **Debugging**: `/opt/project/bin/pytest tests/test_groups_integration.py -v` — fix implementation until green
-- [ ] **Contract re-verification**: the rejection precedes the delegation, the pause and the page opener; `g.scope` matches the constructor value
-- [ ] **Lint**: `/opt/project/bin/ruff check prettyplay/ tests/`
+- [x] **Contract tests** (expected to fail now): in `tests/test_groups_integration.py` — `StepGroup` exposes `scope`; `g.step(..., _scope="x")` raises `PrettyplayError` naming the parameter and the remedy
+      (done: all three new scenarios observed failing live pre-implementation —
+      `TypeError: StepGroup.__init__() takes 6 positional arguments but 7 were given`)
+- [x] **Code**: extend `StepGroup.__init__` (groups.py:108) with `scope` and store `self._scope`; add the `scope` property; update the "five-parameter" comment at scenario.py:367 and the constructor call to pass `_scope` positionally-after-`delay` (the facade still sends `None` until Task 12)
+      (done: `scope` carries no default — a default on the fourth positional parameter would force
+      defaults on `executor`/`reporter` (Python non-default-after-default) and the read-only
+      CODEMANIFEST declares none; the coordination goal is met by the call site passing `None`
+      explicitly; both "five-parameter" comments (scenario.py:367 and the groups.py docstring)
+      now read six-parameter)
+- [x] **Code**: add the `_scope` rejection to `step`/`expect` BEFORE the pause and page opener; thread `scope=self._scope` through `_delegate`
+      (done: the rejection is the first statement of `step`/`expect` — before the tries/delay/vars
+      validations, the pauses and `_open_page()`; the design's message verbatim; `__init__` carries
+      the contract-signature noqa PLR0913/PLR0917 as executor.execute does)
+- [x] **Interface verification**: `/opt/project/bin/pytest tests/test_groups_integration.py -v` — contract tests pass; the existing group tests stay green
+      (done via `/opt/goga/project/bin/pytest` — 7 passed, 4 pre-existing plus the 3 new)
+- [x] **Logic tests** in `tests/test_groups_integration.py` (design scenario): negative `test_group_step_rejects_per_step_scope` — an opened group block `g = t.group("the user signs in", _scope="pages/login_page")` (after Task 12; until then construct via the harness used by the existing file) — `g.step("fill the login field", _scope="pages/other")`; `pytest.raises(PrettyplayError)` with the remedy naming `group(..., _scope=...)`; no pause, no page open, no delegation
+      (done: verbatim scenario — constructed through the file's `installed_test` harness with the
+      six-parameter constructor, pause pinned via the mocked `prettyplay.groups.time`, page open via
+      `test._page is None`, delegation via the mocked executor; plus
+      `test_step_group_constructs_with_scope_and_exposes_it` and
+      `test_group_delegation_carries_the_block_scope` — the delegation carries the block scope with
+      every step, a per-step `_scope=None` is accepted, a facade group delegates with `scope=None`)
+- [x] **Debugging**: `/opt/project/bin/pytest tests/test_groups_integration.py -v` — fix implementation until green
+      (done: two auxiliary pins updated to the amended contract — the three `TestStepGroupContract`
+      signature/surface pins in test_scenario.py (constructor gains `scope`, property list gains
+      `scope`, step/expect gain `_scope` keyword-only) and the three group-path executor doubles
+      (`RecordingGroupExecutor`, `FailingExecutor`, `RecoveringExecutor`) gain the `scope` parameter
+      their real counterpart owns since Task 10; full suite 1633 passed, 3 skipped)
+- [x] **Contract re-verification**: the rejection precedes the delegation, the pause and the page opener; `g.scope` matches the constructor value
+      (done: REPL — the constructor signature matches the CODEMANIFEST declaration exactly, `scope`
+      returns the constructor value verbatim (`None` included), the rejection fires with no
+      `time.sleep` call and no second `execute` call, the delegation kwargs carry the block scope)
+- [x] **Lint**: `/opt/project/bin/ruff check prettyplay/ tests/`
+      (done via `/opt/goga/project/bin/ruff` — all checks passed; the four touched files
+      format-clean; `goga lint` 13 cells / 0 errors)
 
 ### Task 12: `PrettyPlay` — ring 1, `site_base_url`, the `SiteConfig` re-export
 

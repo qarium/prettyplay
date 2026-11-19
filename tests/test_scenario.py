@@ -464,11 +464,19 @@ class TestStepGroupContract:
     def test_step_group_constructor_signature_matches_contract(self) -> None:
         parameters = list(inspect.signature(StepGroup.__init__).parameters.values())[1:]
 
-        assert [parameter.name for parameter in parameters] == ["prompt", "speed", "delay", "executor", "reporter"]
+        assert [parameter.name for parameter in parameters] == [
+            "prompt",
+            "speed",
+            "delay",
+            "scope",
+            "executor",
+            "reporter",
+        ]
         assert all(parameter.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD for parameter in parameters)
 
     def test_step_group_surface_matches_contract(self) -> None:
         assert isinstance(StepGroup.prompt, property)
+        assert isinstance(StepGroup.scope, property)
         assert isinstance(StepGroup.traces, property)
 
         for name in ("step", "expect", "__enter__", "__exit__"):
@@ -478,9 +486,9 @@ class TestStepGroupContract:
         for method in (StepGroup.step, StepGroup.expect):
             parameters = list(inspect.signature(method).parameters.values())[1:]
 
-            assert [parameter.name for parameter in parameters] == ["text", "tries", "delay", "vars"]
+            assert [parameter.name for parameter in parameters] == ["text", "tries", "delay", "vars", "_scope"]
             assert parameters[0].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD  # text stays positional
-            for parameter in parameters[1:]:  # tries/delay/vars — keyword-only, None defaults
+            for parameter in parameters[1:]:  # tries/delay/vars/_scope — keyword-only, None defaults
                 assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
                 assert parameter.default is None
 
@@ -1447,6 +1455,7 @@ class RecordingGroupExecutor:
         tries: int | None = None,
         delay: float | None = None,
         vars: dict[str, str] | None = None,
+        scope: str | None = None,
     ) -> None:
         self.calls.append(
             {
@@ -1456,6 +1465,7 @@ class RecordingGroupExecutor:
                 "tries": tries,
                 "delay": delay,
                 "vars": vars,
+                "scope": scope,
             }
         )
 
@@ -1696,6 +1706,7 @@ class TestGroupAuthoringBlock:
                 tries: int | None = None,
                 delay: float | None = None,
                 vars: dict[str, str] | None = None,
+                scope: str | None = None,
             ) -> None:
                 raise RuntimeError("step exploded")
 
@@ -1759,6 +1770,7 @@ class TestGroupAuthoringBlock:
                 tries: int | None = None,
                 delay: float | None = None,
                 vars: dict[str, str] | None = None,
+                scope: str | None = None,
             ) -> None:
                 if group is not None:
                     group.traces.append(("failed", step_text))

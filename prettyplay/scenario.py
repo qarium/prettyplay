@@ -363,8 +363,8 @@ class PrettyPlay:
             _validate_group_speed(speed)
             _validate_delay(delay)
 
-            block = StepGroup(prompt, speed, delay, self._executor, self._reporter)
-            block._open_page = self._ensure_page  # the lazy opener of this test; the constructor stays five-parameter
+            block = StepGroup(prompt, speed, delay, None, self._executor, self._reporter)
+            block._open_page = self._ensure_page  # the lazy opener of this test; the constructor stays six-parameter
 
             return block
         except PrettyplayError as error:
