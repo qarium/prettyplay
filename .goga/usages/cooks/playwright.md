@@ -93,6 +93,19 @@ Rules:
 - An unknown device name fails loudly with an actionable message suggesting close device names
 - Device names resolve against the `devices` registry of the running Playwright — the package never hard-codes a device list
 
+## Insecure TLS — the `ignore_https_errors` context parameter
+
+The `ignore_https_errors` setting of the browser group (env `PRETTYPLAY_BROWSER_IGNORE_HTTPS_ERRORS`, default `False`) opens pages behind self-signed or otherwise invalid certificates — staging and CI grids. It is a **context parameter**, never a launch argument, which makes every start mode identical: local launch, ws/wss remote connect (the Playwright protocol), http/https remote connect (CDP):
+
+```python
+context = browser.new_context(ignore_https_errors=True)
+```
+
+Rules:
+- The switch rides the same `new_context` call as the screen modes — one surface at context creation, applied in every start mode
+- Enabling is silent: an explicit configuration is not a suspicious state, no WARNING is logged
+- Default `False` keeps Playwright's certificate checking untouched
+
 ## Remote execution — endpoint connect: ws/wss Playwright protocol, http/https CDP
 
 A set `browser.endpoint` of the browser group (env `PRETTYPLAY_BROWSER_ENDPOINT`) switches the driver from a local launch to a remote connect. The scheme picks the protocol: ws/wss connects over the Playwright protocol — a Playwright Server or a hosted browser grid, any engine; http/https connects over CDP — a chromium-family endpoint (chromium, chrome, msedge) such as a CI grid exposing a DevTools endpoint:
