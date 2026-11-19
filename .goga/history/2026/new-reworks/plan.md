@@ -941,13 +941,29 @@ the identity differs.
 
 **CRITICAL: `CODEMANIFEST` files — read-only contract definitions. Do NOT modify them. If implementation does not match the contract, fix the implementation — never fix the contract.**
 
-- [ ] **Contract tests** (expected to fail now): in `tests/test_executor.py` — `execute` accepts `scope` (a cache double records the loaded identity)
-- [ ] **Code**: add the `scope` parameter and the identity build change per the algorithm (executor.py:182)
-- [ ] **Interface verification**: `/opt/project/bin/pytest tests/test_executor.py -v` — contract tests pass; the existing executor tests stay green
-- [ ] **Logic tests** in `tests/test_executor.py` (design scenario, verbatim assertions): edge `test_executor_none_scope_becomes_empty_scope` — the existing executor harness; `executor.execute("plain sentence", "action", page, scope=None)`; asserts `recorded_identity.scope == ""` and `recorded_identity.address_key == executor.cache_key`
-- [ ] **Debugging**: `/opt/project/bin/pytest tests/test_executor.py -v` — fix implementation until green
-- [ ] **Contract re-verification**: the executor adds no validation; the recovery delegation carries the scoped identity unchanged
-- [ ] **Lint**: `/opt/project/bin/ruff check prettyplay/ tests/`
+- [x] **Contract tests** (expected to fail now): in `tests/test_executor.py` — `execute` accepts `scope` (a cache double records the loaded identity)
+      (done: both new scenarios observed failing live (TypeError: unexpected keyword argument 'scope')
+      before implementation; the signature pin gains `scope` with default `None` — the contract's parameter
+      order at CODEMANIFEST "execute(...)" — and the scoped-identity scenario spies `cache.load` through the
+      file's established mock side-effect pattern)
+- [x] **Code**: add the `scope` parameter and the identity build change per the algorithm (executor.py:182)
+      (done: `scope: str | None = None` after `vars`; the identity gains `scope=scope or ""`; the docstring's
+      Args documents the parameter — addressing data only, never rendered, no executor validation)
+- [x] **Interface verification**: `/opt/project/bin/pytest tests/test_executor.py -v` — contract tests pass; the existing executor tests stay green
+      (done via `/opt/goga/project/bin/pytest` — 74 passed, 72 pre-existing plus the 2 new; fresh-interpreter
+      signature check matches the contract exactly)
+- [x] **Logic tests** in `tests/test_executor.py` (design scenario, verbatim assertions): edge `test_executor_none_scope_becomes_empty_scope` — the existing executor harness; `executor.execute("plain sentence", "action", page, scope=None)`; asserts `recorded_identity.scope == ""` and `recorded_identity.address_key == executor.cache_key`
+      (done: verbatim, placed beside the identity-build scenario in `TestStepExecutorLogic`)
+- [x] **Debugging**: `/opt/project/bin/pytest tests/test_executor.py -v` — fix implementation until green
+      (done: 74 passed on the first post-implementation run; full suite 1630 passed, 3 skipped)
+- [x] **Contract re-verification**: the executor adds no validation; the recovery delegation carries the scoped identity unchanged
+      (done: REPL — an invalid scope raises from `cache/models.py` (ring 2 at the store boundary, message naming
+      `_scope`), proving the executor passed the identity through untouched; a scoped failed group step hands the
+      recovery the exact scoped identity; the miss path hands the generator `scope == address_key`;
+      `None or ""` builds the byte-identical unscoped filename)
+- [x] **Lint**: `/opt/project/bin/ruff check prettyplay/ tests/`
+      (done via `/opt/goga/project/bin/ruff` — all checks passed; touched files format-clean; `goga lint` 13
+      cells / 0 errors)
 
 ### Task 11: `StepGroup` — the block scope
 
