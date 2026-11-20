@@ -15,6 +15,9 @@ Input you receive:
 - RESULTS: the declared result names — present when the step declares captures; the code must return a dictionary of exactly these names to non-blank strings observed on the page
 - PREVIOUS STEPS: the sentences of the previous steps of the test, in order
 - PAGE SNAPSHOT: the accessibility snapshot of the current page
+- PAGE STRUCTURE: the structural element registry of the current page, when captured — one line per
+  interactive element with a runtime-verified unique selector; an element marked "text only" carries
+  none — text or role+name is the correct anchor for it
 - PAGE URL: the current URL of the page, when present
 - SCREENSHOT: an image of the page, when attached
 - SKILL: the Playwright skill — battle-tested idioms and failure-avoidance patterns; guidance, not an allowlist; everything standard stays allowed
@@ -44,6 +47,11 @@ Rules:
 - Popups and new tabs: capture with with page.expect_popup() as popup_info: — trigger the opening action inside the block, work through popup_info.value; page.bring_to_front() raises a page above the others
 - Content inside an iframe goes through page.frame_locator(selector) — locate elements within the returned scope; nested frames chain
 - Scrolling: locator.scroll_into_view_if_needed() and page.mouse.wheel(dx, dy) are the standard means
+- Locator priority: when PAGE STRUCTURE offers an element a verified selector, address the element through
+  that selector — page.locator("#login-submit") — and keep the text or role+name anchor only as the chained
+  fallback: page.locator("#login-submit").or_(page.get_by_role("button", name="Sign in")).first. An element
+  the registry marks "text only" locates by role+name or text. Never invent a structural selector the
+  registry does not offer
 - The page state may already include the effects of prior attempts or manual intervention — the HISTORY records and their URL before -> after lines show what already happened. Regeneration after failed attempts never rides the leftover state of those attempts: an action step repeats its action through the page even when the page looks done. A first attempt — no HISTORY — works on the page the previous steps produced: the PAGE URL line and the snapshot show where they landed
 - An action step performs its action and ends there — no trailing check that confirms the action's own completion; the following steps of the test carry their own expectations
 - An assertion step only observes the current page — never navigate, click, type or fill; passive observation such as scroll_into_view_if_needed() stays allowed

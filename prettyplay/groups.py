@@ -90,6 +90,9 @@ class StepGroup:
             the pace pause is a plain library wait, never ``slow_mo``.
         _delay: the quiet pause before the group's first step, seconds;
             ``None`` — no entry pause.
+        _scope: the block's step scope — carried from the facade group call
+            after its ring-1 validation; ``None`` — the group's steps
+            address unscoped.
         _executor: the step cycle executor of the owning test — every step
             delegates to it with this group as the context.
         _reporter: the visibility point of the owning test — the group
@@ -102,18 +105,19 @@ class StepGroup:
             entry pause for a later step of the same group.
         _open_page: the owning test's lazy page opener, bound by
             :meth:`PrettyPlay.group`; the declared constructor stays
-            five-parameter, the group is only ever constructed there.
+            six-parameter, the group is only ever constructed there.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913, PLR0917 — the signature is fixed by the root cell contract
         self,
         prompt: str,
         speed: int | None,
         delay: float | None,
+        scope: str | None,
         executor: StepExecutor,
         reporter: StepReporter,
     ) -> None:
-        """Keep the group framing, the pace settings and the owning executor and reporter.
+        """Keep the group framing, the pace settings, the block scope and the owning executor and reporter.
 
         Args:
             prompt: the group prompt, verbatim — reaches generation and
@@ -121,6 +125,10 @@ class StepGroup:
             speed: the group pace, 0-100; ``None`` — no between-step pauses.
             delay: the quiet pause before the group's first step, seconds;
                 ``None`` — no pause.
+            scope: the block's step scope — carried from the facade group
+                call (its ``_scope`` after ring-1 validation) and passed
+                down to the executor with every step; ``None`` — the
+                group's steps address unscoped.
             executor: the step cycle executor of the owning test.
             reporter: the visibility point of the owning test — the group
                 lifecycle events dispatch through it.
@@ -128,6 +136,7 @@ class StepGroup:
         self._prompt = prompt
         self._speed = speed
         self._delay = delay
+        self._scope = scope
         self._executor = executor
         self._reporter = reporter
         self._traces: list[GroupStepOutcome] = []
@@ -138,6 +147,11 @@ class StepGroup:
     def prompt(self) -> str:
         """The group prompt, verbatim."""
         return self._prompt
+
+    @property
+    def scope(self) -> str | None:
+        """The block's shared cache namespace; ``None`` — the group's steps address unscoped."""
+        return self._scope
 
     @property
     def traces(self) -> list[GroupStepOutcome]:
@@ -188,6 +202,7 @@ class StepGroup:
         tries: int | None = None,
         delay: float | None = None,
         vars: dict[str, str] | None = None,
+        _scope: str | None = None,
     ) -> None:
         """Execute the action step ``text`` inside the group.
 
@@ -202,12 +217,22 @@ class StepGroup:
                 every value must be a string. ``None`` — no inputs; a
                 separate namespace from memory — ``{{ vars.name }}`` reads
                 these values at render time.
+            _scope: keyword-only, NOT accepted per step inside a group —
+                the scope is set once on the group
+                (``group(..., _scope=...)``); ``None`` — no override
+                attempt, the delegation carries the group's scope instead.
 
         Raises:
-            PrettyplayError: ``tries``, ``delay`` or ``vars`` is invalid —
+            PrettyplayError: a non-``None`` ``_scope`` is passed — the
+                scope is set once on the group, never per step; the loud
+                failure fires before the pause, the page opener and the
+                executor. Or ``tries``, ``delay`` or ``vars`` is invalid —
                 the loud failure names the parameter, the received value
                 and the allowed form; the executor is never reached.
         """
+        if _scope is not None:
+            raise PrettyplayError("the _scope is set once on the group — group(..., _scope=...), never per step")
+
         self._delegate(text, "action", tries, delay, vars)
 
     def expect(
@@ -217,6 +242,7 @@ class StepGroup:
         tries: int | None = None,
         delay: float | None = None,
         vars: dict[str, str] | None = None,
+        _scope: str | None = None,
     ) -> None:
         """Execute the assertion step ``text`` inside the group — the same delegation, assertion kind.
 
@@ -231,12 +257,19 @@ class StepGroup:
                 every value must be a string. ``None`` — no inputs; a
                 separate namespace from memory — ``{{ vars.name }}`` reads
                 these values at render time.
+            _scope: keyword-only, rejected exactly as on ``step`` — the
+                scope is set once on the group.
 
         Raises:
-            PrettyplayError: ``tries``, ``delay`` or ``vars`` is invalid —
-                the loud failure names the parameter, the received value
-                and the allowed form; the executor is never reached.
+            PrettyplayError: a non-``None`` ``_scope`` is passed — the
+                rejection is exactly as on ``step``. Or ``tries``, ``delay``
+                or ``vars`` is invalid — the loud failure names the
+                parameter, the received value and the allowed form; the
+                executor is never reached.
         """
+        if _scope is not None:
+            raise PrettyplayError("the _scope is set once on the group — group(..., _scope=...), never per step")
+
         self._delegate(text, "assertion", tries, delay, vars)
 
     def _delegate(
@@ -247,7 +280,7 @@ class StepGroup:
         delay: float | None,
         vars: dict[str, str] | None,
     ) -> None:
-        """Validate, pause and delegate one group step to the executor.
+        """Validate, pause and delegate one group step to the executor under the group's block scope.
 
         Args:
             text: the raw sentence of the step, verbatim.
@@ -273,4 +306,13 @@ class StepGroup:
             time.sleep(int((100 - self._speed) * 30) / 1000)  # the between-step pace — never slow_mo
 
         self._delegated = True
-        self._executor.execute(text, step_type, self._open_page(), group=self, tries=tries, delay=delay, vars=vars)
+        self._executor.execute(
+            text,
+            step_type,
+            self._open_page(),
+            group=self,
+            tries=tries,
+            delay=delay,
+            vars=vars,
+            scope=self._scope,
+        )

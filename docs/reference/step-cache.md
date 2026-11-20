@@ -12,9 +12,10 @@ deterministically; the cache is always read, writes are best-effort.
 
 | Component | Source | Effect on identity |
 |---|---|---|
-| cache_key | the main object constructor argument | a different key — a different step |
+| cache_key | the main object constructor argument | a different key — a different step; replaced by the scope for a scoped step (see below) |
 | step type | action vs assertion | the same sentence as action and as assertion — two steps |
 | normalized sentence | the addressing text — the rendered sentence — after NFC + trim | «Click Sign in» and «click  sign in » are different steps; a plain sentence and a template producing the exact same text are one step |
+| scope | the `_scope` of the step call or the group block | non-empty — the shared cache namespace of one page object: the scope becomes the key part of the address and routes the file to `root/<scope>/`; empty — unscoped, exactly the old triple |
 
 A missing cache entry for the computed address is a cache miss — the step is
 generated, not an error.
@@ -44,6 +45,34 @@ values of the rendered sentence are embedded in the code as literals, every
 binding made by the code is used by it — a cached step depends on nothing
 beyond its page argument and carries no dead weight.
 
+### The step scope
+
+A scope is the shared cache namespace of one page object — the integrator
+layer sets it per step or once per block:
+
+```python
+t.step("open the dashboard", _scope="pages/dashboard")  # per step on the facade
+g = t.group("the user signs in", _scope="pages/login_page")  # once per block — inherited by every step
+```
+
+- For a scoped step the scope replaces exactly two things: the key part of
+  the address (key = the scope) and the file routing (`root/<scope>/`); the
+  full address stays (key, step type, normalized sentence)
+- One step phrase under one scope is one cache entry for all tests: the
+  first test generates through the LLM, the rest reuse the file without a
+  model call; unscoped steps address exactly as before — no collisions
+- The same phrase as an action and as an assertion remains two entries even
+  under one scope
+- The scope never enters the rendered sentence or the LLM requests — it
+  addresses and routes only; the routing path never enters the digest file
+  name
+- Form: 1..N segments of `[A-Za-z0-9._-]+` joined by exactly one `/` (e.g.
+  `pages/login_page`); a segment equal to exactly `..` is invalid — `.` and
+  `...` pass, `..` never does; an invalid value fails loudly at the call
+  naming `_scope`, the received value and the allowed form — the store
+  re-enforces the same rule at addressing (`validate_step_scope`, exported
+  from `prettyplay.cache`)
+
 ### Normalize and address
 
 ```python
@@ -54,9 +83,14 @@ identity = StepIdentity(
     cache_key="login-flow",
     step_type="action",
     normalized_text=normalized,
+    scope="pages/login",  # empty — unscoped (the default); non-empty — the scope IS the address key
 )
-# identity.filename — the deterministic digest of the triple
+# identity.address_key — "pages/login" here, the cache key otherwise: the digest and the file metadata key on it
+# identity.filename — the deterministic digest of (address_key, step_type, normalized_text)
 ```
+
+An empty scope keeps the digest byte-identical to the unscoped identity —
+existing caches never change addresses.
 
 ### Layout
 
@@ -64,7 +98,9 @@ The cache root defaults to `<cwd>/.prettyplay/cache/` — the working directory
 of the run — and is set by `cache_root`. The optional `cache_path` subdirectory
 argument is part of the address: steps never leak across subdirectories;
 without a subdirectory, equal cache keys are reused across tests. One `.py`
-file per step.
+file per step. A scoped step routes to `root/<scope>/` — the optional
+subdirectory argument never applies to scoped steps; unscoped steps keep the
+old layout: the root plus the store subdirectory.
 
 ## Storage
 
@@ -79,7 +115,8 @@ cache = StepCache(config=PrettyConfig(), path="checkout", reporter=StepReporter(
 
 step = cache.load(identity)  # None on a cache miss
 if step is None:
-    # a miss means: generate the step, then store it
+    # a miss means: generate the step's code, then store it
+    step_code = "... the generated step code, verbatim ..."
     cache.save(
         CachedStep(
             identity=identity,
@@ -93,22 +130,21 @@ if step is None:
 ### File format
 
 Each file carries the metadata fields (the step's addressing text — the
-rendered sentence with actual values — the cache key, the step type, the
-creation date), then the `# --- step code ---` sentinel line, then the
-generated step code — top-level imports when present, then the fixed-form
-`def step` function (see [Driver facade](driver-facade.md)), restored
-verbatim on load. Files carry no library version: an
+rendered sentence with actual values — the addressing key — the cache key,
+or the scope for a scoped step — the step type, the creation date), then the
+`# --- step code ---` sentinel line, then the generated step code — top-level
+imports when present, then the fixed-form `def step` function (see
+[Driver facade](driver-facade.md)), restored verbatim on load. Files carry no library version: an
 upgrade never invalidates them mechanically. The code inside targets the
 standard Playwright sync API, so it keeps replaying across upgrades that
-keep that API — the one recorded break is the switch to the genuine page:
-caches written against the retired page facade call methods that no longer
-exist (an `AttributeError` at replay, a hard failure in strict mode), so
-purge the cache directory once when upgrading across that change.
-
-The addressing change is a break of the same kind: steps address by their
-rendered sentence, so some existing addresses change. Purge the
-cache directory once after upgrading across it — or let the first default
-close sweep the untouched legacy files of each test's key out of its scope.
+keep that API — two breaks are on record. The first is the switch to the
+genuine page: caches written against the retired page facade call methods
+that no longer exist (an `AttributeError` at replay, a hard failure in
+strict mode), so purge the cache directory once when upgrading across that
+change. The second is the addressing change: steps address by their
+rendered sentence, so some existing addresses change — purge the cache
+directory once after upgrading across it, or let the first default close
+sweep the untouched legacy files of each test's key out of its scope.
 
 ### Write behavior
 
@@ -124,7 +160,10 @@ The cache is a per-test working set by default: `close()` deletes every step
 file of this test's `cache_key` in its cache scope that the test did not
 successfully load or save — best-effort, logged, never failing the close.
 Replayed and freshly generated steps survive (they were touched); strict
-replays keep what they replay.
+replays keep what they replay. Scoped files survive every sweep by
+construction: their metadata key is the scope, not a test's `cache_key`, and
+they live outside the swept directory — cleanup concerns the test's unscoped
+steps only.
 
 The store accumulates the touched set — the file names of every step it
 successfully loaded or saved; misses, damaged entries and skipped or failed
@@ -193,7 +232,9 @@ if budgets.try_generation(identity):
 
 - Budgets are per step per test: every test owns its registry and starts with
   full limits — a step reused across tests gets a fresh budget in each test
-  (N tests running one step in a process spend N × attempts in total)
+  (N tests running one step in a process spend N × attempts in total); a
+  scoped step is no exception — the generating test pays its attempts, a
+  reusing test pays nothing (there is no shared scope budget)
 - Defaults: 3 generation attempts, 2 healing attempts — configurable via
   `generation_attempts` / `healing_attempts` in the project settings
 - An exhausted budget is the incurable failure, never an infinite loop

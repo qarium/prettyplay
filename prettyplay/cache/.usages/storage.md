@@ -33,7 +33,7 @@ if step is None:
 
 ## File format
 
-Each file carries the metadata fields (the step's addressing text — the rendered sentence with actual values — the cache key, the step type, the creation date), then the `# --- step code ---` sentinel line, then the generated step code — top-level imports when present, then the fixed-form `def step` function, restored verbatim on load. Files carry no library version and are never invalidated by a library upgrade.
+Each file carries the metadata fields (the step's addressing text — the rendered sentence with actual values — the cache key — the address key: the scope of a scoped file, the cache key otherwise — the step type, the creation date), then the `# --- step code ---` sentinel line, then the generated step code — top-level imports when present, then the fixed-form `def step` function, restored verbatim on load. Files carry no library version and are never invalidated by a library upgrade.
 
 ## Write behavior
 
@@ -54,6 +54,19 @@ removed = cache.sweep_untouched(cache_key="login-flow")
 - a file with unreadable metadata is skipped with a WARNING — its ownership is unprovable
 - deletions are log records, one per file; a per-file failure is logged and never raises; the call is idempotent
 - `PrettyPlay(..., cleanup=False)` skips the sweep entirely — the persistence mode of the committed-cache workflow
+
+## Shared scope entries
+
+A scoped step (a step executed with a non-empty `_scope`) writes to `root/<scope>/` with the metadata key equal to the scope itself:
+
+- Identical bytes whichever test wrote it — two tests missing the same scope both generate on their own budgets;
+  the atomic write (temp file + replace) keeps the file valid for both readers; last writer wins
+- A load verifies CACHE_KEY/STEP_TYPE and the digest name against the identity — both writers' files pass,
+  being the same address
+- The close-time sweep never deletes scoped files: it filters by the sweeping test's cache key, and a scoped
+  file's metadata key is the scope — cleanup concerns the test's unscoped steps only
+- Budgets stay per test: the generating test pays from its own attempt budgets; a test that hits the shared
+  file pays nothing — there is no shared scope budget
 
 ## Team workflow
 

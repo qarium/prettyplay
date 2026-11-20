@@ -34,7 +34,7 @@ INDEX_HTML = """<!DOCTYPE html>
     <button id="save-changes" type="button">Save changes</button>
   </div>
   <div id="auth">
-    <button id="signin" type="button">Sign in</button>
+    <button id="signin" data-testid="login-submit" type="button">Sign in</button>
   </div>
   <span id="newsletter-opt-in"></span>
   <main id="main">

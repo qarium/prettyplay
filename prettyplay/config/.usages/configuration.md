@@ -16,7 +16,9 @@ generation_attempts = 3
 healing_attempts = 2
 probe_timeout = 0          # candidate probe bound, seconds; 0 -> off (the page default applies)
 llm_request_attempts = 3  # total sends per LLM request; 1 disables request retries
+request_max_tokens = 16384 # anthropic completion cap (max_tokens); sized so a reasoning model never truncates
 send_screenshots = false
+send_structure = true     # structural element registry (PAGE STRUCTURE block) in LLM requests
 strict = false             # replay-only mode; default false
 polling_timeout = 6.0      # None (default) — polling off; 0 — explicit disable; >0 — settle window seconds
 polling_delay = 0.5        # pause between re-executions, seconds
@@ -29,10 +31,14 @@ classification_prompt = "" # user instructions for classification requests; empt
 name = "chromium"          # chromium | firefox | webkit | chrome | msedge
 screen = ""                # "" | WxH | fullscreen | Playwright device name
 headless = true            # false — run with a visible window
-endpoint = ""              # ws endpoint of a remote browser; empty -> local launch
+endpoint = ""              # remote browser endpoint; ws/wss -> Playwright server, http/https -> CDP (chromium family); empty -> local launch
 accept_dialogs = false     # true — accept (else dismiss) dialogs no in-step capture claims, at the run-unit tail
 speed = 100            # pace of the run: 0–100 %, 100 — full speed (default)
 timeout = 30           # page default action timeout, seconds; explicitly applied at page creation; 0 disables the timeout, not auto-wait
+ignore_https_errors = false  # true — open pages behind self-signed/invalid certificates; a context parameter in every start mode
+
+[tool.prettyplay.site]
+base_url = ""              # root URL of the environment under test; empty — unset; http/https with a host, kept verbatim
 ```
 
 ## Environment overrides
@@ -49,6 +55,8 @@ Every setting has an override for CI — env variable PRETTYPLAY_<SETTING> in up
 | browser.accept_dialogs | PRETTYPLAY_BROWSER_ACCEPT_DIALOGS |
 | browser.speed | PRETTYPLAY_BROWSER_SPEED |
 | browser.timeout | PRETTYPLAY_BROWSER_TIMEOUT |
+| browser.ignore_https_errors | PRETTYPLAY_BROWSER_IGNORE_HTTPS_ERRORS |
+| site.base_url | PRETTYPLAY_SITE_BASE_URL |
 | model | PRETTYPLAY_MODEL |
 | generation_model | PRETTYPLAY_GENERATION_MODEL |
 | classification_model | PRETTYPLAY_CLASSIFICATION_MODEL |
@@ -58,7 +66,9 @@ Every setting has an override for CI — env variable PRETTYPLAY_<SETTING> in up
 | healing_attempts | PRETTYPLAY_HEALING_ATTEMPTS |
 | probe_timeout | PRETTYPLAY_PROBE_TIMEOUT |
 | llm_request_attempts | PRETTYPLAY_LLM_REQUEST_ATTEMPTS |
+| request_max_tokens | PRETTYPLAY_REQUEST_MAX_TOKENS |
 | send_screenshots | PRETTYPLAY_SEND_SCREENSHOTS |
+| send_structure | PRETTYPLAY_SEND_STRUCTURE |
 | strict | PRETTYPLAY_STRICT |
 | polling_timeout | PRETTYPLAY_POLLING_TIMEOUT |
 | polling_delay | PRETTYPLAY_POLLING_DELAY |
@@ -126,6 +136,28 @@ test = PrettyPlay(
 - a value below `1` fails loudly at configuration load — never a silent ignore
 - the retry delays are fixed policy (1–10 s with jitter; a Retry-After above 10 s terminates
   the request instead of waiting) — not configurable; only the attempt count is
+
+## Anthropic completion cap
+
+`request_max_tokens` (default 16384, env PRETTYPLAY_REQUEST_MAX_TOKENS, programmatically assembled
+config) is the `max_tokens` the anthropic Messages API requires on every send — generation, failure
+classification, group diagnosis and the compliance verdict alike carry it. The default is sized for
+a reasoning model never truncating: thinking blocks spend the same budget before the text block,
+and a cap-truncated response carries no text block at all — an empty completion. The openai side
+sends no cap and the model maximum applies; the setting never touches it.
+
+```python
+from prettyplay import PrettyConfig, PrettyPlay
+
+test = PrettyPlay(
+    cache_key="reasoning-model",
+    config=PrettyConfig(provider="anthropic", model="claude-sonnet-4-5", request_max_tokens=32768),
+)
+```
+
+- raise the cap for models that think longer than the default budget
+- a value above the model's maximum output is rejected by the endpoint — the cap must fit the model
+- a value below `1` fails loudly at configuration load — never a silent ignore
 
 ## Pace
 
@@ -250,23 +282,73 @@ The `screen` field of the browser group is the single size setting:
 - The resolution runs at the tail of the driver-thread run unit, not at the moment the dialog fires: a dialog unclaimed by the step blocks the page until the unit ends, which can fail the remainder of the step
 - A dialog claimed by a step's in-step stock capture is accepted or dismissed by the step itself — the setting does not apply to captured dialogs
 
+## Insecure TLS
+
+`ignore_https_errors` of the browser group (default false, env PRETTYPLAY_BROWSER_IGNORE_HTTPS_ERRORS,
+programmatically assembled config) opens pages behind self-signed or otherwise invalid certificates — staging
+grids and CI:
+
+```toml
+[tool.prettyplay.browser]
+ignore_https_errors = true
+```
+
+- The switch applies as a Playwright **context parameter** in every start mode identically — local launch, ws/wss
+  remote connect (the Playwright protocol), http/https remote connect (CDP); never a launch argument
+- `false` (the default) keeps Playwright's certificate checking untouched
+- Enabling is silent — an explicit configuration is not a suspicious state, nothing is logged
+- Booleans parse true/false/1/0 case-insensitively; anything else fails loudly naming the setting, the received
+  value and the accepted form
+
+## Site base URL
+
+The nested `site` group holds the single `base_url` field — the root URL of the environment under test, set once
+instead of being hardcoded in every step sentence:
+
+```toml
+[tool.prettyplay.site]
+base_url = "https://staging.example.com"
+```
+
+```python
+from prettyplay import PrettyPlay, PrettyConfig, SiteConfig
+
+test = PrettyPlay(
+    cache_key="login-flow",
+    config=PrettyConfig(site=SiteConfig(base_url="https://staging.example.com")),
+)
+test.step(f"open the page {test.site_base_url}/login")
+```
+
+- The layered merge is symmetric to the browser group: an explicitly passed value wins, an empty field never
+  overwrites the file layer; the env override is PRETTYPLAY_SITE_BASE_URL
+- A non-empty value must be an http/https URL — scheme and host present; anything else fails loudly at load
+  naming the setting, the received value and the allowed form; an empty value means unset
+- The value is kept verbatim — no trailing-slash normalization; the author composes URL strings
+- Tests read it through the facade property `site_base_url` — an empty string when unset
+- No collision with the top-level `base_url` (the LLM API endpoint): the group scopes the field, exactly as the
+  browser group scopes `name`
+- The URL is not wired into Playwright navigation: rendering it into a sentence makes it part of the step
+  address — staging and production keep separate cache entries (rendered values are data)
+
 ## Strict mode
 
 `strict = true` (env PRETTYPLAY_STRICT, programmatically assembled config) switches the run to replay-only: cached code executes honestly and nothing is ever (re)generated. A cache miss fails as an incurable step; a failed cached step is at most classified — never regenerated. Settle polling applies to cached code (re-execution, not generation). Classification is the only LLM call strict mode makes; without LLM access the failure raises immediately by step type.
 
 ## Remote execution
 
-A non-empty browser.endpoint switches the test to connecting over the Playwright ws endpoint — a Playwright Server or a hosted browser grid. The endpoint is an address, not a secret: it is valid in the config file; CI rotation goes through the env override. An empty endpoint keeps the local launch; headless does not apply to a connect — window visibility is controlled by the endpoint server.
+A non-empty browser.endpoint switches the test to a remote connect. The scheme picks the protocol: ws/wss connects over the Playwright protocol — a Playwright Server or a hosted browser grid, any engine; http/https connects over CDP — a chromium-family endpoint (chromium, chrome, msedge) such as a CI grid exposing a DevTools endpoint — an http/https endpoint with another engine fails loudly at start. The endpoint is an address, not a secret: it is valid in the config file; CI rotation goes through the env override. An empty endpoint keeps the local launch; headless does not apply to a connect — window visibility is controlled by the endpoint server.
 
 ## Rules
 
 - LLM API keys are never stored in the config file — secrets come only from environment variables: OPENAI_API_KEY for openai, ANTHROPIC_API_KEY for anthropic
 - Invalid configuration fails loudly: ConfigurationError names the setting, the received value and the allowed values; the raw pydantic error stays chained for debugging
 - The provider set: openai, anthropic; the browser name set: chromium, firefox, webkit, chrome, msedge
-- A non-empty browser.endpoint must be a valid ws/wss URL
+- A non-empty browser.endpoint must be a valid ws/wss or http/https URL — http/https is a CDP endpoint of the chromium family only
 - The cache root default: <cwd>/.prettyplay/cache/ — anchored at the working directory of the run, wherever the pyproject.toml was found
 - polling_timeout is None or non-negative; polling_delay is non-negative — violations fail loudly at load
 - generation_prompt reaches generation and regeneration requests only; classification_prompt reaches classification requests only — neither ever invalidates the cache
+- A non-empty site.base_url is an http/https URL with a host — violations fail loudly at load
 
 ## Loading
 

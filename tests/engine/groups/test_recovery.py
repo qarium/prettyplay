@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from prettyplay.cache import CachedStep, RunBudgets, StepCache, StepIdentity
+from prettyplay.cache import CachedStep, RunBudgets, StepCache, StepIdentity, normalize_step_text
 from prettyplay.config import PrettyConfig
 from prettyplay.engine import StepAttempt, StepGenerator
 from prettyplay.engine.attempts import OUTCOME_ORIGINAL
@@ -163,6 +163,21 @@ class RecoveryFixture:
 
 def _identity(sentence: str, step_type: str = "action") -> StepIdentity:
     return StepIdentity(cache_key="tests/test_checkout.py", step_type=step_type, normalized_text=sentence)
+
+
+#: the scope of the scoped-group scenarios — one address space under the cache root
+_SCOPE = "pages/login"
+
+
+def _scoped_identity(sentence: str, step_type: str = "action") -> StepIdentity:
+    return StepIdentity(cache_key="tests/test_checkout.py", step_type=step_type, normalized_text=sentence, scope=_SCOPE)
+
+
+def _scoped(traces: list[GroupStepOutcome]) -> list[GroupStepOutcome]:
+    """Re-address every trace identity under the one scope — the scoped-group trace view."""
+    return [
+        trace.model_copy(update={"identity": trace.identity.model_copy(update={"scope": _SCOPE})}) for trace in traces
+    ]
 
 
 def _trace(
@@ -340,6 +355,30 @@ class TestGroupRecoveryContract:
         assert status_call["prepared"].instruction == STATUS
         assert fill_call["memory"] is memory  # the per-test memory threads by identity
         assert status_call["memory"] is memory
+
+    def test_row_regenerations_carry_the_trace_identity_scope(self, tmp_path: Path) -> None:
+        provider = RecoveryProvider(verdicts=[_verdict(earliest_step=FILL)])
+        generator = FakeGenerator([_cached(FILL), _cached(SUBMIT), _cached(STATUS, "assertion")])
+        fixture = RecoveryFixture(tmp_path, provider, generator)
+
+        fixture.recovery.recover(
+            GROUP_PROMPT,
+            _scoped(_group_traces()),
+            PreparedStep(instruction=STATUS),
+            "assertion",
+            _group_scenario(),
+            _scoped_identity(STATUS, "assertion"),
+            [_attempt()],
+            FakePage(),
+            SettleWindow(None, 0),
+            StepMemory(),
+        )
+
+        assert [call["identity"] for call in generator.calls] == [
+            _scoped_identity(FILL),
+            _scoped_identity(SUBMIT),
+            _scoped_identity(STATUS, "assertion"),
+        ]
 
     def test_returns_the_healed_cached_step_of_the_failed_step(self, tmp_path: Path) -> None:
         healed = _cached(STATUS, "assertion")
@@ -706,6 +745,70 @@ class TestGroupRecoveryRowReRender:
         assert regenerate_identity.step_type == "action"
         assert regenerate_identity.filename != stale_identity.filename  # a new address, no stale replay
         assert fixture.budgets.refresh_calls == [regenerate_identity]  # once, under the fresh identity
+
+    def test_recovery_row_readdresses_under_group_scope(self, tmp_path: Path) -> None:
+        """A scoped group's rows re-address under the group's scope.
+
+        Every fresh row identity carries the trace identity's cache_key AND
+        scope — the regeneration, the healing refresh and the write-back all
+        key on the fresh scoped address, never a scope-less one.
+        """
+        login_sentence = "fill the login field"
+        login_identity = StepIdentity(
+            cache_key="k", step_type="action", normalized_text=login_sentence, scope="pages/login"
+        )
+        status_sentence = "the status shows signed in"
+        status_identity = StepIdentity(
+            cache_key="k", step_type="assertion", normalized_text=status_sentence, scope="pages/login"
+        )
+        traces = [
+            GroupStepOutcome(
+                sentence=login_sentence,
+                instruction=login_sentence,
+                step_type="action",
+                outcome="passed",
+                url_before="https://example.com/cart",
+                url_after="https://example.com/checkout",
+                identity=login_identity,
+            ),
+            GroupStepOutcome(
+                sentence=status_sentence,
+                instruction=status_sentence,
+                step_type="assertion",
+                outcome="failed",
+                url_before="https://example.com/checkout",
+                url_after="https://example.com/checkout",
+                identity=status_identity,
+            ),
+        ]
+        scenario = [ScenarioStep(sentence=login_sentence, instruction=login_sentence, group_prompt=GROUP_PROMPT)]
+        provider = RecoveryProvider(verdicts=[_verdict(earliest_step=login_sentence)])
+        generator = FakeGenerator([_cached(login_sentence), _cached(status_sentence, "assertion")])
+        fixture = RecoveryFixture(tmp_path, provider, generator)
+
+        fixture.recovery.recover(
+            GROUP_PROMPT,
+            traces,
+            PreparedStep(instruction=status_sentence),
+            "assertion",
+            scenario,
+            status_identity,
+            [_attempt()],
+            FakePage(),
+            SettleWindow(None, 0),
+            StepMemory(),
+        )
+
+        login_call, status_call = generator.calls
+        recorded_identity = login_call["identity"]
+        fresh = login_call["prepared"]
+
+        assert isinstance(recorded_identity, StepIdentity)
+        assert recorded_identity.scope == "pages/login"
+        assert recorded_identity.cache_key == "k"  # the execution fact
+        assert recorded_identity.normalized_text == normalize_step_text(fresh.addressing_text)
+        assert status_call["identity"].scope == "pages/login"  # every row step, never only the first
+        assert fixture.budgets.refresh_calls == [login_call["identity"], status_call["identity"]]
 
     def test_recovery_row_failure_updates_active_failure_for_next_diagnosis(self, tmp_path: Path) -> None:
         """A failing row step becomes the active failure — the next diagnosis describes it, not the original."""

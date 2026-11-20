@@ -6,20 +6,40 @@ Derived in part from the microsoft/playwright agent prompts (Apache-2.0).
 
 ## Locators
 
-Build locators from what the PAGE SNAPSHOT shows: it carries roles and accessible names, never
-ids or classes — never invent a selector you have not seen. A role + accessible name locator is
-the default: semantic, observable and resilient. A test-id, id or class wins when the snapshot
-or the step text reveals it. A selector over attributes the snapshot cannot show — href
-fragments, class chains — is an invented selector all the same.
+Two page sources build locators. The PAGE SNAPSHOT carries roles and accessible names. The PAGE
+STRUCTURE registry, when the request carries it, maps every interactive element to a
+runtime-verified unique selector — test-id, id, name, aria-label, class, CSS, structural XPath —
+and marks the rest "text only". Anchor through the registry selector first and keep the role+name
+anchor as the chained fallback: a renamed label or reworded text survives, and a markup change that
+drops one anchor does not take the step down with it. Never invent a structural selector neither
+source shows — an href fragment or class chain you have not seen is an invented selector all the
+same.
 
 ```python
-page.get_by_role("textbox", name="Search").fill("winter tires")
+page.locator("#signin").or_(page.get_by_role("button", name="Sign in")).first.click()
 ```
 
-Prefer role + exact accessible name over bare text, and anticipate multiple matches — strict mode
-fails any locator that resolves to several elements. Narrow by scoping to a container or by a
-more exact `name=`; `.first` and `.nth()` are the last resort — they hide the ambiguity
-instead of removing it.
+A test-id wins over an id when the registry offers it — the attribute exists for locating alone.
+
+```python
+page.locator('[data-testid="login-submit"]').or_(page.get_by_role("button", name="Sign in")).first.click()
+```
+
+The chain ends in `.first`: it picks whichever alternative matched — the intended use of `.first`,
+not an ambiguity patch.
+
+```python
+box = page.locator("#search").or_(page.get_by_role("textbox", name="Search")).first
+box.fill("winter tires")
+box.press("Enter")
+expect(page.locator("#result")).to_have_text("submitted: winter tires")
+```
+
+An element the registry does not anchor — no registry, or its line says "text only" — locates by
+role + exact accessible name. Prefer it over bare text, and anticipate multiple matches — strict
+mode fails any locator that resolves to several elements. Narrow by scoping to a container or by a
+more exact `name=`; `.first` and `.nth()` outside a fallback chain are the last resort — they hide
+the ambiguity instead of removing it.
 
 ```python
 page.locator("#settings").get_by_role("button", name="Save changes").click()

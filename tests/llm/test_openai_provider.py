@@ -29,6 +29,7 @@ GENERATE_STEP_CODE_PARAMS = [
     "inputs",
     "declarations",
     "snapshot",
+    "structure",
     "page_url",
     "screenshot",
     "skill",
@@ -68,6 +69,7 @@ CHECK_INSTRUCTION_COMPLIANCE_PARAMS = [
     "declarations",
     "code",
     "attempt_history",
+    "structure",
 ]
 
 WORKING_CODE = "def step(page) -> None:\n    page.goto('https://example.com')\n"
@@ -167,6 +169,7 @@ class TestOpenAIProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -233,6 +236,7 @@ class TestOpenAIProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -272,6 +276,7 @@ class TestOpenAIProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url="https://shop.example.com/cart",
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -302,6 +307,7 @@ class TestOpenAIProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -336,6 +342,7 @@ class TestOpenAIProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -366,6 +373,7 @@ class TestOpenAIProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=b"png-bytes",
                 skill="expect(locator).to_be_visible()",
@@ -420,6 +428,7 @@ class TestOpenAIProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -554,6 +563,7 @@ class TestOpenAIProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -587,6 +597,7 @@ class TestOpenAIProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -616,6 +627,7 @@ class TestOpenAIProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -721,6 +733,7 @@ class TestOpenAIProviderLogic:
                 declarations=[],
                 code=WORKING_CODE,
                 attempt_history=[record],
+                structure="",
             )
 
         assert len(requests) == 1  # exactly one verdict request
@@ -763,6 +776,7 @@ class TestOpenAIProviderLogic:
                 declarations=[],
                 code="c",
                 attempt_history=[],
+                structure="",
             )
 
         assert str(excinfo.value) == "llm unavailable: openai request failed permanently: invalid_request"
@@ -944,6 +958,7 @@ class TestOpenAIProviderTransportWiring:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -983,6 +998,7 @@ class TestOpenAIProviderTransportWiring:
                 declarations=[],
                 code="c",
                 attempt_history=[],
+                structure="",
             )
 
         assert [(label, operation) for label, operation, _attempts, _classify in calls] == [
@@ -1017,6 +1033,7 @@ class TestOpenAIProviderTransportWiring:
             "inputs": {},
             "declarations": [],
             "snapshot": "- snap",
+            "structure": "",
             "page_url": None,
             "screenshot": None,
             "skill": "expect(locator).to_be_visible()",
@@ -1072,6 +1089,7 @@ class TestOpenAIProviderTransportWiring:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",

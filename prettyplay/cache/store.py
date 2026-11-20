@@ -11,7 +11,7 @@ from pathlib import Path
 
 from ..config import PrettyConfig
 from ..reporting import StepReporter
-from .models import CachedStep, StepIdentity
+from .models import CachedStep, StepIdentity, validate_step_scope
 from .text import normalize_step_text
 
 logger = logging.getLogger("prettyplay")
@@ -102,13 +102,19 @@ class StepCache:
         """Load the cached step by address; any structural damage is a miss, not a failure.
 
         Args:
-            identity: the address of the step.
+            identity: the address of the step; a non-empty scope passes ring 2
+                before any path is composed.
 
         Returns:
             The cached step, or ``None`` when the file is missing, damaged, or
             its metadata does not match the address.
+
+        Raises:
+            PrettyplayError: the identity carries a scope violating the scope
+                rule — validated before any path is composed, so the address
+                never escapes the cache root even when the facade was bypassed.
         """
-        target = self._target_dir() / identity.filename
+        target = self._step_dir(identity) / identity.filename
         if not target.exists():
             return None
 
@@ -125,7 +131,9 @@ class StepCache:
                     raise KeyError("def step(")
                 code = text[marker + 1 :]
 
-            if fields["CACHE_KEY"] != identity.cache_key or fields["STEP_TYPE"] != identity.step_type:
+            code = code[:-1] if code.endswith("\n") else code  # save appends exactly one
+
+            if fields["CACHE_KEY"] != identity.address_key or fields["STEP_TYPE"] != identity.step_type:
                 return None
             if not isinstance(fields["STEP_TEXT"], str):
                 return None
@@ -148,21 +156,31 @@ class StepCache:
         """Store the step atomically, best-effort: no write error ever fails the run.
 
         Args:
-            step: the working step to store.
+            step: the working step to store; a non-empty identity scope passes
+                ring 2 before any path is composed.
 
         Returns:
             Whether the step was stored: ``True`` — the atomic replace
             landed; ``False`` — the write was skipped (a read-only cache or
             a busy target; the ``on_cache_skipped`` event carries the
             reason).
+
+        Raises:
+            PrettyplayError: the identity carries a scope violating the scope
+                rule — validated before any path is composed, so the address
+                never escapes the cache root even when the facade was bypassed.
         """
+        step_dir = self._step_dir(step.identity)
+
         if not self.writable:
             self._emit_skipped(step, "read-only cache")
             return False
 
         body = _serialize(step)
         try:
-            handle, tmp_name = tempfile.mkstemp(dir=self._target_dir(), prefix=".tmp-", suffix=".py")
+            if step.identity.scope:  # the scoped directory is created at save time only
+                step_dir.mkdir(parents=True, exist_ok=True)
+            handle, tmp_name = tempfile.mkstemp(dir=step_dir, prefix=".tmp-", suffix=".py")
         except OSError:
             self._emit_skipped(step, "cache target busy")
             return False
@@ -179,7 +197,7 @@ class StepCache:
 
         for _ in range(_REPLACE_ATTEMPTS):
             try:
-                os.replace(tmp_name, self._target_dir() / step.identity.filename)
+                os.replace(tmp_name, step_dir / step.identity.filename)
                 break
             except PermissionError:
                 time.sleep(_REPLACE_BACKOFF_SECONDS)  # Windows: target busy
@@ -219,7 +237,9 @@ class StepCache:
             if not scope.is_dir():
                 return removed
 
-            candidates = sorted(entry for entry in scope.iterdir() if _STEP_FILE_NAME.fullmatch(entry.name))
+            candidates = sorted(
+                entry for entry in scope.iterdir() if entry.is_file() and _STEP_FILE_NAME.fullmatch(entry.name)
+            )
         except OSError:
             logger.warning("cache sweep failed to list the scope", extra={"cache_key": cache_key})
 
@@ -256,6 +276,28 @@ class StepCache:
     def _target_dir(self) -> Path:
         """Return the directory holding the steps of this address."""
         return self._root / self._subdir if self._subdir else self._root
+
+    def _step_dir(self, identity: StepIdentity) -> Path:
+        """Return the directory of one address — ring 2 and the scoped routing.
+
+        Args:
+            identity: the address of the step.
+
+        Returns:
+            ``root/<scope>`` for a scoped step — the store subdirectory never
+            applies to it; the store's target directory for an unscoped one.
+
+        Raises:
+            PrettyplayError: the identity carries a scope violating the scope
+                rule — validated before any path is composed, so the address
+                never escapes the cache root even when the facade was bypassed.
+        """
+        if identity.scope:
+            validate_step_scope(identity.scope)
+
+            return self._root / Path(identity.scope)
+
+        return self._target_dir()
 
     @staticmethod
     def _validated_subdir(path: str | None) -> Path | None:
@@ -339,7 +381,7 @@ def _serialize(step: CachedStep) -> str:
         f"{name} = {value!r}\n"
         for name, value in (
             ("STEP_TEXT", step.addressing_text),
-            ("CACHE_KEY", step.identity.cache_key),
+            ("CACHE_KEY", step.identity.address_key),
             ("STEP_TYPE", step.identity.step_type),
             ("CREATED_AT", step.created_at),
         )

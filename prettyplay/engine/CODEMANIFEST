@@ -77,12 +77,14 @@ Usages:
     You verify generated step code on two dimensions: the project's user instructions and what the step says.
 
     Input you receive:
-    - INSTRUCTIONS: the project's user instructions, verbatim
+    - INSTRUCTIONS: the project's user instructions, verbatim — present when the project configured them
     - STEP TYPE: action or assertion
     - STEP: the prepared instruction of the step — the plain-text sentence with actual values embedded
     - INPUTS: the call input bindings, one name = value line each — present when the step carries inputs
     - RESULTS: the declared result names — present when the step declares captures; the code must return a dictionary of exactly these names to non-blank strings observed on the page
     - ATTEMPT HISTORY: the verbatim record of every attempt of this step so far, when present — the original cached code first when it exists; each record carries the attempt outcome, the URL before -> after line, the complete candidate code and the complete error
+    - PAGE STRUCTURE: the structural element registry the generation request carried — one line per
+      interactive element with a runtime-verified unique selector — present when the registry was captured
     - CODE: the successfully executed candidate code
 
     Check the code on both dimensions and answer with exactly one JSON list of
@@ -103,7 +105,11 @@ Usages:
       and the attempt history; for instruction: a material violation evident
       from the code itself — the instruction was expressible through the page
       API the code already uses, and the code plainly skipped or contradicted
-      it without any fallback attempt; for adequacy: an action step whose code
+      it without any fallback attempt; for the structural priority: a locator
+      that addresses an element PAGE STRUCTURE anchors with a verified selector
+      through text or role+name alone, with that selector not chained, is a
+      material violation — quote the PAGE STRUCTURE line — and only when the
+      locator's role or text evidently names the element of that line; for adequacy: an action step whose code
       contains no action of the step — the page state the code relies on was
       produced by a prior attempt or manual intervention, not by the code
       itself, use the URL lines and the records of the history to see it — or
@@ -140,8 +146,11 @@ Usages:
       is an adequacy finding
     - The code uses the values of the STEP sentence exactly as the step states them — embedding
       them in the code is correct, never a finding
+    - The structural priority is judged against PAGE STRUCTURE alone: no registry line for the
+      element, or the line marks it text only — a text or role+name locator is correct, never a
+      finding; when the correspondence between the locator's element and a registry line stays in
+      doubt, the finding is never high
     - Output only the JSON list, no other text
-
 Annotations: |
   Use `conventions` for code writing rules and testing.
   Use `playwright` from Imports as the packaged Playwright skill — the single source of its rules, threaded into every generation request; the imported usage is a connection note, never a copy — a test pins the connection, another test executes every fenced example against a live fixture.
@@ -168,7 +177,7 @@ Annotations: |
   The skill sent to the provider is the packaged Playwright skill read once per runtime through `load_skill` from Imports — the skills cell facade; the file is the single source of its bytes; the imported `playwright` usage is a connection note, never a copy; its content is the skill's own, never restated here.
   The system prompt sent to the provider is the frozen local mirror of `system_prompt` — the mirror and the practice change together.
   The user instructions of the project settings reach their own requests only: the generation_prompt field of `PrettyConfig` reaches generation and regeneration requests and the compliance verdict request — there as the checked INSTRUCTIONS block, never as guidance; the classification_prompt field reaches classification requests; neither crosses to the other kind; the instructions take no part in the step address: a cached step never regenerates because the instructions changed.
-  The instruction compliance gate runs inside the engines and judges two dimensions in one request — instruction compliance and step adequacy, the latter from the step type and the attempt history: every successfully executed candidate — generation, healing and steering alike — passes `check_step_compliance` before it is cached; the gate never runs on replayed cached code; a verdict that stays unparsable after its one bounded re-ask degrades to a loud unchecked pass — a green step never dies on verdict quality; a provider outage stays the hard failure it always was.
+  The instruction compliance gate runs inside the engines and judges two dimensions in one request — instruction compliance and step adequacy, the latter from the step type and the attempt history, the candidate's locators judged against the structural registry the generation request carried: every successfully executed candidate — generation, healing and steering alike — passes `check_step_compliance` before it is cached; the gate never runs on replayed cached code; a gate with neither configured instructions nor a captured registry is off, a captured registry alone keeps it on; a verdict that stays unparsable after its one bounded re-ask degrades to a loud unchecked pass — a green step never dies on verdict quality; a provider outage stays the hard failure it always was.
   The probe bound of the loops: a positive probe_timeout setting of `PrettyConfig` (seconds) shortens the default action timeout of every candidate execution — generation, healing and funded regeneration alike — set on the genuine Page inside the worker right before the step call, so a wrong locator fails fast instead of burning the page default; the finally of the probe head restores the baseline on every path — the browser timeout setting of `PrettyConfig`, explicitly applied at page creation and carried by the loops — the probe bound never outlives its candidate; replayed cached code and steering keep the baseline; 0 — off, the page default.
   The deterministic pre-flight gate runs inside the generator loops before every candidate execution — generation, healing and funded regeneration alike: `check_step_code` validates the syntax, the fixed step form and name resolution on the calling thread, before the settle window and any browser execution; a violation appends the attempt record (outcome preflight blocked, the violation text in the error field, the URL pair equal on both sides — the candidate never executed) and consumes the attempt like any candidate failure; the gate never runs on replayed cached code; an unexpected analysis error passes the candidate — the gate fails open, the execution channel stays the fallback.
   An unfollowed instruction and an inadequate candidate surface as a generation error, never as silent ignoring: a high finding of either dimension fails the attempt and the retry carries the finding in the attempt record's error field; the next request's RECOMMENDATION channel carries the standing finding as an imperative prohibition — the healing loop composes it with the entry diagnosis, never replacing it; a fresh candidate failure supersedes the standing finding.
@@ -232,7 +241,7 @@ Annotations: |
   annotations: |
     The generation engine: produce working step code for an unknown step, executing candidates against the live page and growing the per-step attempt history.
 
-    `config`: project settings — the screenshot flag, the generation instructions, the compliance gate switch, the probe bound of the candidate executions and the browser timeout baseline every probe restores to.
+    `config`: project settings — the screenshot flag, the structure flag, the generation instructions, the compliance gate switch, the probe bound of the candidate executions and the browser timeout baseline every probe restores to.
     `provider`: the LLM port.
     `cache`: the step cache — a generated step is stored on success.
     `budgets`: the per-test attempt registry.
@@ -249,10 +258,10 @@ Annotations: |
 
       Algorithm:
       1. Ask the budgets registry try_generation for the step identity; a refused attempt is the incurable failure
-      2. Collect the request inputs: the page accessibility snapshot, `prepared` — the instruction with its INPUTS and RESULTS blocks — `step_type`, `previous_steps` (typed records rendering their instructions), the packaged Playwright skill through `load_skill` from Imports; add the page screenshot when the project settings enable screenshots
-      3. Request step code from the provider port generate_step_code passing `system_prompt` as the system prompt, the packaged Playwright skill, the user instructions — the effective config generation_prompt — when non-empty, the rendered `attempt_history` and the guarded page URL read from `page`; a group step request carries the group framing per `group_framing`
+      2. Collect the request inputs: the page accessibility snapshot, `prepared` — the instruction with its INPUTS and RESULTS blocks — `step_type`, `previous_steps` (typed records rendering their instructions), the packaged Playwright skill through `load_skill` from Imports; add the page screenshot when the project settings enable screenshots; capture the structural element registry when the send_structure setting is on — a failed read degrades to the empty registry, the request then carries no PAGE STRUCTURE block
+      3. Request step code from the provider port generate_step_code passing `system_prompt` as the system prompt, the packaged Playwright skill, the user instructions — the effective config generation_prompt — when non-empty, the rendered `attempt_history`, the captured structural registry and the guarded page URL read from `page`; a group step request carries the group framing per `group_framing`
       4. Gate the candidate through `check_step_code` — a violation appends the attempt record (outcome preflight blocked, the violation text in the error field, the URL pair equal on both sides — the candidate never executed) and repeats from step 1 while attempts remain. Read the page URL, execute the candidate under the settle window: `settle` with run_step_code, the candidate code, `page` and `window`; read the page URL again — the pair brackets the whole attempt
-      5. On success: validate the returned result through `validate_step_result` from Imports — a violation appends the attempt record (outcome failed check, the deterministic violation text in the error field) and enters the failed-check paths of step 6 unchanged; a valid result waits for the gate. Gate the candidate through `check_step_compliance`. An empty findings list — publish the validated captures through `memory` publish, build `CachedStep` carrying the addressing_text of `prepared`, save it to the cache, return it. A high finding of either dimension — the attempt is failed: append the attempt record (outcome compliance blocked, the finding instruction and explanation in the error field); nothing publishes; the retry carries the grown history. Medium and low findings pass with a WARNING naming the instructions, then the captures publish, the step — built with the addressing_text of `prepared` — is stored and returned. The gate's only hard failure is provider unavailability — it propagates immediately: nothing is cached, nothing publishes; a malformed verdict never propagates — the gate owns its one bounded re-ask and the degraded unchecked pass (see `check_step_compliance`)
+      5. On success: validate the returned result through `validate_step_result` from Imports — a violation appends the attempt record (outcome failed check, the deterministic violation text in the error field) and enters the failed-check paths of step 6 unchanged; a valid result waits for the gate. Gate the candidate through `check_step_compliance` passing the structural registry the request carried — the gate judges the candidate against the very registry the model saw. An empty findings list — publish the validated captures through `memory` publish, build `CachedStep` carrying the addressing_text of `prepared`, save it to the cache, return it. A high finding of either dimension — the attempt is failed: append the attempt record (outcome compliance blocked, the finding instruction and explanation in the error field); nothing publishes; the retry carries the grown history. Medium and low findings pass with a WARNING naming the instructions, then the captures publish, the step — built with the addressing_text of `prepared` — is stored and returned. The gate's only hard failure is provider unavailability — it propagates immediately: nothing is cached, nothing publishes; a malformed verdict never propagates — the gate owns its one bounded re-ask and the degraded unchecked pass (see `check_step_compliance`)
       6. On a failed check — an AssertionError that survived the settle window or the violation of step 5: append the attempt record (outcome failed check, the full failure description); a group step (`group_prompt` non-empty) — no classification request and no healing-funded regeneration: raise `IncurableStepError` carrying the failed code in the code field and the full failure description in the error field; the calling executor routes it to the group recovery. Otherwise — as today: classify via `classify_step_failure` passing the prepared instruction; a product_defect verdict raises `ProductDefectError` carrying the verdict and the full failure description of the candidate in the error field; an incurable verdict raises `IncurableStepError` carrying them; a rot or fixable verdict grants exactly one regeneration: try_healing funds it — a refused funding leaves the failure terminal `IncurableStepError` carrying the verdict, the reason naming the exhausted healing pool; the request carries the classification recommendation and the grown history — a success stores and returns the healed step; a repeat failure gets one final classification deciding only the terminal kind — product_defect raises `ProductDefectError`, anything else raises `IncurableStepError` — no further regeneration; provider unavailability at these classifications is skipped quietly with a WARNING — the failure raises without a verdict as IncurableStepError, the conservative default uniform with the unrecognized-label fallback, the reason naming the failed candidate check
       7. On any other candidate failure: append the attempt record (outcome execution failed, the full failure description), repeat from step 1 with the fresh snapshot and the grown history, while attempts remain
       8. On budget exhaustion: the existing semantics preserved verbatim — a group step raises `IncurableStepError` carrying the failed code and the last candidate failure; otherwise the last candidate is classified (rot/fixable — one extra healing-funded regeneration carrying the recommendation; a repeat failure is terminal IncurableStepError without reclassification; product_defect → `ProductDefectError`; incurable → `IncurableStepError` naming the exhausted pool); budget exhaustion with a standing high finding raises `IncurableStepError` carrying the verdict built from the finding; provider unavailability at this classification is skipped quietly with a WARNING
@@ -384,10 +393,10 @@ Annotations: |
     Constraints:
     - Provider unavailability propagates to the caller: this routine never swallows it — the calling path decides whether it is a terminal infrastructure failure or a quiet verdict skip
 
-"check_step_compliance(config: PrettyConfig, provider: LLMProvider, prepared: PreparedStep, step_type: str, code: str, attempt_history: list[StepAttempt]) -> findings: list[ComplianceFinding]":
+"check_step_compliance(config: PrettyConfig, provider: LLMProvider, prepared: PreparedStep, step_type: str, code: str, attempt_history: list[StepAttempt], structure: str) -> findings: list[ComplianceFinding]":
   location: compliance.py
   annotations: |
-    Gate a successfully executed candidate on two dimensions — instruction compliance and step adequacy — the single gate of every caching path; the verdict request renders the prepared instruction with its INPUTS and RESULTS blocks so the reviewer judges the result-returning code against the declared contract.
+    Gate a successfully executed candidate on two dimensions — instruction compliance and step adequacy — the single gate of every caching path; the verdict request renders the prepared instruction with its INPUTS and RESULTS blocks so the reviewer judges the result-returning code against the declared contract, and the structural registry the generation request carried as the PAGE STRUCTURE block so the reviewer judges the candidate's locators against the very registry the model saw.
 
     `config`: project settings — the gate switch and the generation instructions.
     `provider`: the LLM port.
@@ -395,11 +404,12 @@ Annotations: |
     `step_type`: action or assertion — the adequacy dimension judges by it.
     `code`: the successfully executed candidate code — with the result return when declarations are present.
     `attempt_history`: the step's attempt history — rendered through the record render and passed to the verdict request as the ATTEMPT HISTORY block.
-    `findings`: the verdict findings of both dimensions; empty — compliant and adequate, or the gate is off.
+    `structure`: the rendered structural element registry the generation request carried — the same registry the model saw; non-empty — the verdict request renders it as the PAGE STRUCTURE block and the structural priority applies: a locator that addresses an element the registry anchors with a verified selector through text or role+name alone, the selector not chained, is a high finding; empty — no block and no structural priority to judge; a non-empty registry alone keeps the gate on even without configured generation instructions.
+    `findings`: the verdict findings of both dimensions; empty — compliant and adequate, or the gate is off, or nothing to check against.
 
     Algorithm:
-    1. The generation_approve setting is off or the generation_prompt setting is empty — return an empty list with zero provider calls: fully the old behavior
-    2. Ask the provider port check_instruction_compliance passing `compliance_prompt` as the system prompt, the effective config generation_prompt as the user instructions, `prepared` (instruction, inputs, declarations), `step_type`, `code` and the rendered `attempt_history`
+    1. The generation_approve setting is off, or both the generation_prompt setting and `structure` are empty — return an empty list with zero provider calls: nothing to check against; a non-empty `structure` alone keeps the gate on — the structural priority judges without configured instructions
+    2. Ask the provider port check_instruction_compliance passing `compliance_prompt` as the system prompt, the effective config generation_prompt as the user instructions, `prepared` (instruction, inputs, declarations), `step_type`, `code`, the rendered `attempt_history` and `structure`
     3. An unparsable verdict — a `ComplianceVerdictError` from Imports raised by the provider port — is re-asked exactly once; a fresh sample usually parses; a verdict that stays unparsable after the re-ask degrades: a WARNING lands in the library logger and the empty findings list returns — a green step never dies on verdict quality
     4. Return the findings
 

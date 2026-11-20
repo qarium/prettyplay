@@ -497,6 +497,7 @@ def build_fields_text(  # noqa: PLR0913, PLR0917 — the parameters mirror the f
     inputs: dict[str, str],
     declarations: list[str],
     snapshot: str,
+    structure: str,
     page_url: str | None,
     skill: str,
     attempt_history: list[str],
@@ -537,8 +538,13 @@ def build_fields_text(  # noqa: PLR0913, PLR0917 — the parameters mirror the f
             observed on the page; empty — no block, the
             success-without-result code form.
         snapshot: the accessibility snapshot of the current page.
+        structure: the rendered structural element registry of the current
+            page — one line per interactive element with its runtime-verified
+            unique selector; non-empty — rendered as its own PAGE STRUCTURE
+            block immediately after the PAGE SNAPSHOT section; empty — no
+            block, the request stays byte-identical to the snapshot-only one.
         page_url: the current URL of the page; non-empty — rendered as its
-            own PAGE URL line immediately after the PAGE SNAPSHOT section;
+            own PAGE URL line immediately after the PAGE STRUCTURE section;
             None or empty — no line.
         skill: the packaged Playwright skill — battle-tested idioms and
             failure-avoidance patterns supplied by the calling engine —
@@ -563,7 +569,8 @@ def build_fields_text(  # noqa: PLR0913, PLR0917 — the parameters mirror the f
         The request fields as one text with the STEP TYPE line, the STEP
         section, the optional INPUTS and RESULTS sections immediately after
         it, the optional GROUP PROMPT section, the PREVIOUS STEPS /
-        PAGE SNAPSHOT sections, the optional PAGE URL line, the PLAYWRIGHT SKILL
+        PAGE SNAPSHOT sections, the optional PAGE STRUCTURE section, the
+        optional PAGE URL line, the PLAYWRIGHT SKILL
         section and the optional USER INSTRUCTIONS / HISTORY /
         RECOMMENDATION / USER GUIDANCE sections — a non-empty input renders
         its named block.
@@ -577,6 +584,7 @@ def build_fields_text(  # noqa: PLR0913, PLR0917 — the parameters mirror the f
         *([f"GROUP PROMPT:\n{group_prompt}"] if group_prompt else []),
         previous if previous is not None else "PREVIOUS STEPS:\n(none)",
         f"PAGE SNAPSHOT:\n{snapshot}",
+        *([f"PAGE STRUCTURE:\n{structure}"] if structure else []),
         *([f"PAGE URL: {page_url}"] if page_url else []),
         f"PLAYWRIGHT SKILL:\n{skill}",
     ]
@@ -692,15 +700,16 @@ def build_compliance_fields(  # noqa: PLR0913, PLR0917 — the parameters mirror
     inputs: dict[str, str],
     declarations: list[str],
     attempt_history: list[str],
+    structure: str,
     code: str,
 ) -> str:
     """Build the plain-text compliance verdict request fields shared by both providers.
 
     Args:
         user_instructions: the project's generation instructions from the
-            generation_prompt setting; the calling engine guarantees
-            non-empty — the gate never runs on empty instructions, so the
-            block always renders.
+            generation_prompt setting; non-empty — rendered verbatim as the
+            INSTRUCTIONS block; empty — no block, the verdict then judges
+            the structural priority and adequacy dimensions alone.
         instruction: the prepared plain-text instruction of the generated
             step — rendered as the STEP block; never the raw template
             sentence.
@@ -717,17 +726,22 @@ def build_compliance_fields(  # noqa: PLR0913, PLR0917 — the parameters mirror
             truth of what was already tried; non-empty — rendered as a
             separate ATTEMPT HISTORY block with the records joined by
             newlines, every record verbatim; empty — no block.
+        structure: the rendered structural element registry the generation
+            request carried — the runtime-verified selectors the gate checks
+            the candidate's locators against; non-empty — rendered as its
+            own PAGE STRUCTURE block immediately before the CODE section;
+            empty — no block.
         code: the successfully executed candidate code.
 
     Returns:
-        The request fields as one text with INSTRUCTIONS, STEP (with its
-        STEP TYPE line), the optional INPUTS and RESULTS sections,
-        ATTEMPT HISTORY and CODE sections in this fixed order — the
-        ATTEMPT HISTORY block omitted when the history is empty,
-        identically in both implementations.
+        The request fields as one text with the optional INSTRUCTIONS,
+        STEP (with its STEP TYPE line), the optional INPUTS and RESULTS
+        sections, ATTEMPT HISTORY, the optional PAGE STRUCTURE and CODE
+        sections in this fixed order — the ATTEMPT HISTORY block omitted
+        when the history is empty, identically in both implementations.
     """
     sections = [
-        f"INSTRUCTIONS:\n{user_instructions}",
+        *([f"INSTRUCTIONS:\n{user_instructions}"] if user_instructions else []),
         f"STEP TYPE: {step_type}\nSTEP:\n{instruction}",
         *([_format_inputs(inputs)] if inputs else []),
         *([_format_results(declarations)] if declarations else []),
@@ -735,6 +749,8 @@ def build_compliance_fields(  # noqa: PLR0913, PLR0917 — the parameters mirror
 
     if attempt_history:
         sections.append("ATTEMPT HISTORY:\n" + "\n".join(attempt_history))
+    if structure:
+        sections.append(f"PAGE STRUCTURE:\n{structure}")
     sections.append(f"CODE:\n{code}")
 
     return "\n\n".join(sections)

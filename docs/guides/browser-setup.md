@@ -64,18 +64,44 @@ chromium family then launches maximized).
 endpoint = "ws://ci-grid:3000/playwright/chromium"
 ```
 
-A non-empty `endpoint` connects to a remote Playwright Server or browser grid
-instead of launching locally:
+A non-empty `endpoint` connects to a remote browser instead of launching
+locally. The scheme picks the protocol: ws/wss connects over the Playwright
+protocol — a Playwright Server or a hosted browser grid, any engine;
+http/https connects over CDP — a chromium-family endpoint (chromium, chrome,
+msedge) such as a CI grid exposing a DevTools endpoint:
 
 - `headless` does not apply to a connect — window visibility belongs to the
   endpoint server
 - `chrome`/`msedge` map to the chromium engine — channels are a local-launch
   concept
-- A non-empty endpoint must be a valid ws/wss URL (otherwise
-  `ConfigurationError` names the setting); a failed connect fails loudly with
+- A non-empty endpoint must be a valid ws/wss or http/https URL (otherwise
+  `ConfigurationError` names the setting); an http/https endpoint with a
+  non-chromium engine fails loudly at start — CDP supports the chromium
+  family only; a failed connect fails loudly with
   the endpoint in the message
 - The endpoint is an address, not a secret: it is valid in the config file;
   CI rotation goes through the `PRETTYPLAY_BROWSER_ENDPOINT` env override
+
+## Insecure TLS
+
+```toml
+[tool.prettyplay.browser]
+ignore_https_errors = true
+```
+
+`ignore_https_errors` (default `false`, env
+`PRETTYPLAY_BROWSER_IGNORE_HTTPS_ERRORS`, programmatically assembled config)
+opens pages behind self-signed or otherwise invalid certificates — staging
+grids and CI:
+
+- The switch applies as a Playwright **context parameter** in every start
+  mode identically — local launch, ws/wss remote connect (the Playwright
+  protocol), http/https remote connect (CDP); never a launch argument
+- `false` (the default) keeps Playwright's certificate checking untouched
+- Enabling is silent — an explicit configuration is not a suspicious state,
+  nothing is logged
+- Booleans parse `true/false/1/0` case-insensitively; anything else fails
+  loudly naming the setting, the received value and the accepted form
 
 ## Pace
 

@@ -4,7 +4,7 @@ import inspect
 from pathlib import Path
 
 import pytest
-from prettyplay.config import BrowserConfig, ConfigurationError, PrettyConfig, adopt_config, load_config
+from prettyplay.config import BrowserConfig, ConfigurationError, PrettyConfig, SiteConfig, adopt_config, load_config
 from prettyplay.config import loader as _loader
 from prettyplay.failures import PrettyplayError
 from pydantic import ValidationError
@@ -26,6 +26,7 @@ _ALL_ENV_FIELDS = (
     "GENERATION_ATTEMPTS",
     "HEALING_ATTEMPTS",
     "LLM_REQUEST_ATTEMPTS",
+    "REQUEST_MAX_TOKENS",
     "SEND_SCREENSHOTS",
     "GENERATION_APPROVE",
     "GENERATION_PROMPT",
@@ -36,6 +37,8 @@ _ALL_ENV_FIELDS = (
     "INTERACTIVE",
     "PROBE_TIMEOUT",
     "BROWSER_TIMEOUT",
+    "BROWSER_IGNORE_HTTPS_ERRORS",
+    "SITE_BASE_URL",
     "BROWSER",
 )
 
@@ -125,6 +128,8 @@ class TestLoadConfigContract:
             "PRETTYPLAY_INTERACTIVE",
             "PRETTYPLAY_GENERATION_ATTEMPTS",
             "PRETTYPLAY_HEALING_ATTEMPTS",
+            "PRETTYPLAY_LLM_REQUEST_ATTEMPTS",
+            "PRETTYPLAY_REQUEST_MAX_TOKENS",
             "PRETTYPLAY_SEND_SCREENSHOTS",
             "PRETTYPLAY_GENERATION_APPROVE",
             "PRETTYPLAY_PROBE_TIMEOUT",
@@ -135,14 +140,18 @@ class TestLoadConfigContract:
             "PRETTYPLAY_BROWSER_ACCEPT_DIALOGS",
             "PRETTYPLAY_BROWSER_SPEED",
             "PRETTYPLAY_BROWSER_TIMEOUT",
+            "PRETTYPLAY_BROWSER_IGNORE_HTTPS_ERRORS",
+            "PRETTYPLAY_SITE_BASE_URL",
         }
 
         values = set(_loader._ENV_NAMES.values())
 
-        assert expected <= values  # every setting present — all seven browser variables included
-        # one entry per top-level scalar field (the group itself excluded) plus per group field
-        wired = [name for name in PrettyConfig.model_fields if name != "browser"]
-        assert len(_loader._ENV_NAMES) == len(wired) + len(BrowserConfig.model_fields)
+        assert expected <= values  # every setting present — all browser and site variables included
+        # one entry per top-level scalar field (the groups themselves excluded) plus per wired
+        # group field of both groups
+        wired = [name for name in PrettyConfig.model_fields if name not in {"browser", "site"}]
+        wired_group_fields = len(BrowserConfig.model_fields) + len(SiteConfig.model_fields)
+        assert len(_loader._ENV_NAMES) == len(wired) + wired_group_fields
 
     def test_browser_speed_env_name_and_allowed_text(self) -> None:
         """Contract: the pace reads PRETTYPLAY_BROWSER_SPEED; its validation line is authored."""
@@ -431,7 +440,7 @@ class TestLoadConfigLogic:
         assert ("name",) in [entry["loc"] for entry in excinfo.value.errors()]
 
         with pytest.raises(ValidationError) as excinfo:
-            BrowserConfig(endpoint="http://x")
+            BrowserConfig(endpoint="ftp://x")
         assert ("endpoint",) in [entry["loc"] for entry in excinfo.value.errors()]
 
         with pytest.raises(ValidationError) as excinfo:
@@ -554,7 +563,7 @@ class TestLoadConfigOverlay:
         assert empty.browser.endpoint == ""
 
     def test_load_config_renders_actionable_line_for_endpoint(self, tmp_path) -> None:
-        path = write_section(tmp_path, '[tool.prettyplay.browser]\nendpoint = "http://bad"\n')
+        path = write_section(tmp_path, '[tool.prettyplay.browser]\nendpoint = "ftp://bad"\n')
 
         with pytest.raises(ConfigurationError) as excinfo:
             load_config(path)
@@ -689,13 +698,13 @@ class TestLoadConfigNewEnvNames:
             assert config.browser.endpoint == env_value
 
     def test_invalid_endpoint_env_renders_allowed_values(self, tmp_path, monkeypatch) -> None:
-        monkeypatch.setenv("PRETTYPLAY_BROWSER_ENDPOINT", "http://ci-grid:3000")
+        monkeypatch.setenv("PRETTYPLAY_BROWSER_ENDPOINT", "ftp://ci-grid:3000")
 
         with pytest.raises(ConfigurationError) as excinfo:
             load_config(pyproject_path=write_section(tmp_path, '[tool.prettyplay]\nmodel = "gpt-5"\n'))
 
         line = next(line for line in str(excinfo.value).splitlines() if line.startswith("browser.endpoint:"))
-        assert line.endswith("allowed: a valid ws/wss URL")
+        assert line.endswith("allowed: a valid ws/wss or http/https URL")
 
     @pytest.mark.parametrize(
         ("env_value", "expected"),
@@ -863,6 +872,40 @@ class TestLlmRequestAttemptsEnv:
         assert isinstance(excinfo.value, PrettyplayError)
 
 
+class TestRequestMaxTokensEnv:
+    """The anthropic completion cap loads from every layer and fails loudly on bad values."""
+
+    def test_loader_env_override_parses_decimal_integer(self, tmp_path, monkeypatch) -> None:
+        """Contract: PRETTYPLAY_REQUEST_MAX_TOKENS parses as a decimal integer and wins over the file."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('[tool.prettyplay]\nmodel = "m"\nrequest_max_tokens = 8192\n', encoding="utf-8")
+        monkeypatch.setenv("PRETTYPLAY_REQUEST_MAX_TOKENS", "32768")
+
+        config = load_config(str(tmp_path / "pyproject.toml"))
+
+        assert config.request_max_tokens == 32768
+
+    def test_loader_unparseable_env_request_max_tokens_fails_loudly(self, write_pyproject, monkeypatch) -> None:
+        """Negative: a non-decimal value fails loudly naming the setting, the value and the form."""
+        monkeypatch.setenv("PRETTYPLAY_REQUEST_MAX_TOKENS", "many")
+
+        with pytest.raises(ConfigurationError) as excinfo:
+            load_config(pyproject_path=write_pyproject())
+
+        assert str(excinfo.value).splitlines() == ["request_max_tokens: received 'many' — allowed: a decimal integer"]
+        assert isinstance(excinfo.value, PrettyplayError)
+
+    def test_loader_env_request_max_tokens_below_one_fails_loudly(self, write_pyproject, monkeypatch) -> None:
+        """Negative: a decimal value below 1 parses at the env layer and fails the field validation."""
+        monkeypatch.setenv("PRETTYPLAY_REQUEST_MAX_TOKENS", "0")
+
+        with pytest.raises(ConfigurationError) as excinfo:
+            load_config(pyproject_path=write_pyproject())
+
+        assert str(excinfo.value).splitlines() == ["request_max_tokens: received 0 — allowed: a positive integer"]
+        assert isinstance(excinfo.value, PrettyplayError)
+
+
 class TestProbeTimeoutEnv:
     """The candidate probe bound loads from every layer and fails loudly on bad values."""
 
@@ -951,6 +994,115 @@ class TestBrowserTimeoutEnv:
 
         assert str(excinfo.value).splitlines() == [
             "browser.timeout: received -1 — allowed: a non-negative number of seconds (finite)"
+        ]
+        assert isinstance(excinfo.value, PrettyplayError)
+        assert isinstance(excinfo.value.__cause__, ValidationError)
+
+
+class TestSiteGroupAndTlsSwitch:
+    """The site group and the insecure-TLS switch load through every layer."""
+
+    def test_load_config_reads_site_group_and_tls_switch(self, tmp_path) -> None:
+        """Contract: the file layer's site table and browser switch reach the effective model."""
+        path = write_section(
+            tmp_path,
+            '[tool.prettyplay]\nmodel = "gpt-5"\n\n[tool.prettyplay.browser]\nignore_https_errors = true\n'
+            '\n[tool.prettyplay.site]\nbase_url = "https://staging.example.com"\n',
+        )
+
+        config = load_config(pyproject_path=path)
+
+        assert config.site.base_url == "https://staging.example.com"
+        assert config.browser.ignore_https_errors is True
+
+    def test_load_config_env_overrides_site_and_tls(self, tmp_path, monkeypatch) -> None:
+        """Contract: PRETTYPLAY_SITE_BASE_URL / PRETTYPLAY_BROWSER_IGNORE_HTTPS_ERRORS win over the file."""
+        path = write_section(
+            tmp_path,
+            '[tool.prettyplay]\nmodel = "gpt-5"\n\n[tool.prettyplay.browser]\nignore_https_errors = false\n'
+            '\n[tool.prettyplay.site]\nbase_url = "https://file.example.com"\n',
+        )
+        monkeypatch.setenv("PRETTYPLAY_SITE_BASE_URL", "https://env.example.com")
+        monkeypatch.setenv("PRETTYPLAY_BROWSER_IGNORE_HTTPS_ERRORS", "1")
+
+        config = load_config(pyproject_path=path)
+
+        assert config.site.base_url == "https://env.example.com"
+        assert config.browser.ignore_https_errors is True  # "1" parses to True
+
+    def test_load_config_env_empty_site_base_url_clears_file_value(self, tmp_path, monkeypatch) -> None:
+        """A set-but-empty variable clears the file value — symmetric to PRETTYPLAY_MODEL=""."""
+        path = write_section(
+            tmp_path,
+            '[tool.prettyplay]\nmodel = "gpt-5"\n\n[tool.prettyplay.site]\nbase_url = "https://file.example.com"\n',
+        )
+        monkeypatch.setenv("PRETTYPLAY_SITE_BASE_URL", "")
+
+        config = load_config(pyproject_path=path)
+
+        assert config.site.base_url == ""
+
+    def test_apply_overrides_site_group_merge(self, tmp_path) -> None:
+        """The programmatic site group merges like the browser group — set fields win, defaults never overwrite."""
+        path = write_section(
+            tmp_path,
+            '[tool.prettyplay]\nmodel = "gpt-5"\n\n[tool.prettyplay.site]\nbase_url = "https://staging.example.com"\n',
+        )
+
+        # an explicitly set field of a passed SiteConfig wins over the file group
+        config = load_config(path, PrettyConfig(site=SiteConfig(base_url="https://prod.example.com")))
+
+        assert config.site.base_url == "https://prod.example.com"
+
+        # an untouched group default never overwrites the file value
+        config = load_config(path, PrettyConfig(site=SiteConfig()))
+
+        assert config.site.base_url == "https://staging.example.com"
+
+        # an explicitly empty string is an unset — it never overwrites the file layer either
+        config = load_config(path, PrettyConfig(site=SiteConfig(base_url="")))
+
+        assert config.site.base_url == "https://staging.example.com"
+
+    def test_load_config_env_site_creates_group_without_file_section(self, tmp_path, monkeypatch) -> None:
+        """PRETTYPLAY_SITE_BASE_URL with no [tool.prettyplay.site] section creates the group from env alone."""
+        monkeypatch.setenv("PRETTYPLAY_SITE_BASE_URL", "https://env-only.example.com")
+
+        config = load_config(pyproject_path=write_section(tmp_path, '[tool.prettyplay]\nmodel = "gpt-5"\n'))
+
+        assert config.site.base_url == "https://env-only.example.com"
+
+    def test_load_config_rejects_non_table_site_group(self, tmp_path) -> None:
+        """Negative: a scalar where the site table belongs renders an authored line — no pydantic internals."""
+        path = write_section(tmp_path, '[tool.prettyplay]\nmodel = "gpt-5"\nsite = "oops"\n')
+
+        with pytest.raises(ConfigurationError) as excinfo:
+            load_config(pyproject_path=path)
+
+        assert str(excinfo.value).splitlines() == ["site: received 'oops' — allowed: a [tool.prettyplay.site] table"]
+        assert isinstance(excinfo.value, PrettyplayError)
+        assert isinstance(excinfo.value.__cause__, ValidationError)
+
+    def test_load_config_env_invalid_tls_boolean_fails_loudly(self, tmp_path, monkeypatch) -> None:
+        """Negative: an unparseable boolean names the setting, the received value and the accepted form."""
+        monkeypatch.setenv("PRETTYPLAY_BROWSER_IGNORE_HTTPS_ERRORS", "maybe")
+
+        with pytest.raises(ConfigurationError) as excinfo:
+            load_config(pyproject_path=write_section(tmp_path, '[tool.prettyplay]\nmodel = "gpt-5"\n'))
+
+        assert "browser.ignore_https_errors" in str(excinfo.value)
+        assert "'maybe'" in str(excinfo.value)
+        assert isinstance(excinfo.value, PrettyplayError)
+
+    def test_load_config_invalid_site_base_url_renders_allowed_text(self, tmp_path) -> None:
+        """Negative: an invalid site URL renders the authored allowed-values line — no pydantic internals."""
+        path = write_section(tmp_path, '[tool.prettyplay]\nmodel = "gpt-5"\n\n[tool.prettyplay.site]\nbase_url = "x"\n')
+
+        with pytest.raises(ConfigurationError) as excinfo:
+            load_config(pyproject_path=path)
+
+        assert str(excinfo.value).splitlines() == [
+            "site.base_url: received 'x' — allowed: an empty value or a valid http/https URL with a host"
         ]
         assert isinstance(excinfo.value, PrettyplayError)
         assert isinstance(excinfo.value.__cause__, ValidationError)

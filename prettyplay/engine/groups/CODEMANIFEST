@@ -20,6 +20,8 @@ Imports:
       - normalize_step_text
       - CachedStep
       - RunBudgets
+    Usages:
+      - addressing
     From: prettyplay/cache
   - Types:
       - LLMProvider
@@ -70,6 +72,10 @@ Annotations: |
   Recovery also keeps the active failure facts locally: the failing row step's prepared instruction, step type, identity, attempt history and underlying error. A failed regeneration updates those facts before another diagnosis; STEP and HISTORY always describe the failure that triggered that diagnosis, while a fully successful row returns the healed code of the originally failed step.
   Accepted row steps publish their captures immediately through the `StepMemory` from Imports at each step's acceptance point — after validation and the compliance gate; a later row failure never rolls back the published values; steps left behind retain their last accepted values; the failed step's accepted captures publish with its acceptance and it is never executed again merely to recover them.
   The diagnosis request and the row matcher work on prepared instructions: the traces render their instruction field and the earliest-step quote matches against instructions — what the model saw; the raw template sentences never reach a request.
+  The recovery preserves the step scope: a group step's trace record carries both address parts — the cache key
+  and the scope — and every row step's fresh identity is rebuilt with them; a scoped group's rows re-address
+  under the group's scope (see `addressing` from Imports). Group membership changes neither a step's scope nor
+  its address — the group only passes its scope down.
 
 ---
 
@@ -87,7 +93,9 @@ Annotations: |
     `outcome`: passed or failed.
     `url_before`: the page URL read immediately before the step's execution.
     `url_after`: the page URL read immediately after the step's execution.
-    `identity`: the cache address of the step at its execution — recorded by the executor when the trace is appended; the row mechanics take only the cache_key from it and re-derive the address from the re-rendered addressing text; never rendered into the GROUP STEPS block.
+    `identity`: the cache address of the step at its execution — recorded by the executor when the trace is
+    appended; the row mechanics take the cache_key AND the scope from it and re-derive the address from the
+    re-rendered addressing text; never rendered into the GROUP STEPS block.
 
     Requirements:
     - pydantic v2, kw_only, empty defaults (see `conventions`)
@@ -112,7 +120,8 @@ Annotations: |
     "url_after -> str": |
       The page URL read immediately after the step's execution.
     "identity -> StepIdentity": |
-      The cache address recorded at the step's execution; the row re-render derives a fresh address — this record keeps the execution fact. Never rendered.
+      The cache address recorded at the step's execution — both address parts (cache_key, scope); the row
+      re-render derives a fresh address — this record keeps the execution fact. Never rendered.
   methods:
     "render() -> record: str": |
       Render the complete verbatim trace — the unit the GROUP STEPS block renders.
@@ -180,7 +189,7 @@ Annotations: |
       2. Copy the prior scenario records and group traces into recovery-local views on entry. Initialize the active failure from the executor's `prepared`, `step_type`, `identity` and `attempt_history`; derive its underlying error from that history. Diagnose via `classify_group_failure`, passing the local views and the active failure's instruction as STEP and its history as HISTORY. On later cycles, diagnose with the updated local views and active failure. A product_defect verdict raises `ProductDefectError` carrying the active failure verdict and underlying error; an incurable verdict raises `IncurableStepError` carrying them
       3. Match the earliest affected step: an exact verbatim match of earliest_step against the local traces' current instructions names the row start; an exact match against a step of the test outside the group raises the honest terminal `IncurableStepError` whose verdict names that step — recovery is out of mandate; no match degrades to the active failure's occurrence in the group
       4. The row healing counters refresh inside the row loop — a fresh identity exists only after the re-render of step 5; every cycle still grants each row step a fresh full counter
-      5. The row — from the earliest affected step through the failed step, the group's own steps only — sequentially: the step's declared delay passes quietly; re-render the step through `render_step` from Imports — the trace's sentence, step type, recorded vars and the current `memory` produce a fresh `PreparedStep` against the current context; build the fresh identity from the fresh render's addressing text — `normalize_step_text`, then `StepIdentity` with the trace identity's cache_key and the step type; refresh the step's healing counter via budgets refresh_healing for this cycle; the step regenerates via the generator regenerate carrying the fresh prepared step, the diagnosis recommendation, the group framing per `group_framing`, the recovery-local scenario view, the grown attempt history, the step's own window built from its declared tries and the fresh identity, and `memory`; the candidate executes immediately on the current page inside the regeneration loop; the returned result validates; the two-dimension compliance gate guards the write-back; the captures publish through `memory` at the step's acceptance; the cache stores the step under the fresh identity; update that step occurrence's instruction in the local scenario and trace views before the next row request; report on_healing_started and on_healed for the recovered step; a structured log record names the diagnosis and the row composition
+      5. The row — from the earliest affected step through the failed step, the group's own steps only — sequentially: the step's declared delay passes quietly; re-render the step through `render_step` from Imports — the trace's sentence, step type, recorded vars and the current `memory` produce a fresh `PreparedStep` against the current context; build the fresh identity from the fresh render's addressing text — `normalize_step_text`, then `StepIdentity` with the trace identity's cache_key AND scope and the step type — a scoped group's rows re-address under the group's scope (see `addressing` from Imports); refresh the step's healing counter via budgets refresh_healing for this cycle; the step regenerates via the generator regenerate carrying the fresh prepared step, the diagnosis recommendation, the group framing per `group_framing`, the recovery-local scenario view, the grown attempt history, the step's own window built from its declared tries and the fresh identity, and `memory`; the candidate executes immediately on the current page inside the regeneration loop; the returned result validates; the two-dimension compliance gate guards the write-back; the captures publish through `memory` at the step's acceptance; the cache stores the step under the fresh identity; update that step occurrence's instruction in the local scenario and trace views before the next row request; report on_healing_started and on_healed for the recovered step; a structured log record names the diagnosis and the row composition
       6. A repeat failure of a row step — an `IncurableStepError` from regeneration — updates the active failure to that row occurrence's fresh `PreparedStep`, step type, fresh identity, grown row attempt history and underlying error; mark that occurrence failed in the local trace view, preserving its freshly prepared instruction. Then re-enter a fresh diagnosis and cycle from step 1 with those facts, while cycles remain. The caller's stored traces and scenario records are not rewritten
       7. On success return the healed cached step of the failed step — the group continues normally
 
@@ -193,7 +202,9 @@ Annotations: |
       - Every accepted row step publishes its validated captures at its own acceptance point — a later row failure never rolls them back; the failed step's captures publish with its acceptance, never through a re-execution
       - A new diagnosis after a row failure uses the actual failing row step's STEP and HISTORY, not the executor's original failure; after full row success the return value remains the healed cached step of the originally failed step
       - A re-render authoring error of a row step surfaces as that step's failure — loud, never silently skipped
-      - A row step's re-rendered identity is the address of its regeneration and write-back — the recovery never writes a row step under a stale trace identity
+      - A row step's re-rendered identity is the address of its regeneration and write-back — the recovery
+      never writes a row step under a stale trace identity; the trace identity's scope threads into every fresh
+      identity — a group recovery row is re-addressed by the re-rendered text under the group's scope
 
       Constraints:
       - No page-state rollback — forward re-execution only
@@ -205,4 +216,4 @@ Annotations: |
 Author: Goga
 CreatedAt: 16/09/26
 Description: |
-  The group recovery of prettyplay: the group-level diagnosis request over the whole interaction, the group-scoped affected row with per-step re-rendering against the current context — addressed by the re-rendered addressing text — sequential regeneration and immediate forward re-execution, the compliance-gated per-step cache write-back with capture publication at each acceptance, and the bounded recovery cycles with fresh healing counters per cycle.
+  The group recovery of prettyplay: the group-level diagnosis request over the whole interaction, the group-scoped affected row with per-step re-rendering against the current context — addressed by the re-rendered addressing text with the step scope preserved through the row re-addressing — sequential regeneration and immediate forward re-execution, the compliance-gated per-step cache write-back with capture publication at each acceptance, and the bounded recovery cycles with fresh healing counters per cycle.

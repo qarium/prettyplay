@@ -24,6 +24,20 @@ with PrettyPlay("login-flow") as t:
     t.step("open the login page")
 ```
 
+## The site base URL
+
+The root URL of the environment under test — configured once, read through the property:
+
+```python
+with PrettyPlay("login-flow") as t:
+    t.step(f"open the page {t.site_base_url}/login")
+```
+
+- The value comes from `[tool.prettyplay.site] base_url` (env PRETTYPLAY_SITE_BASE_URL, programmatic
+  `SiteConfig(base_url=...)`) — an http/https URL with a host, kept verbatim, empty when unset
+- It is not wired into Playwright navigation: the URL the author renders into a sentence becomes part of the
+  step address — staging and production keep separate cache entries
+
 ## Step kinds
 
 - step(text) — performs what the sentence says
@@ -38,6 +52,8 @@ with PrettyPlay("login-flow") as t:
   pass first, then the render happens and the started event fires with the ready layer, then the
   code; a step never reached never pauses
 - step(text, vars={"expected": "Details"}) — the call-local string inputs; separate namespace from memory
+- step(text, _scope="pages/login") — the step scope: the shared cache namespace of one page object;
+  keyword-only, None — unscoped; see "The step scope (_scope)"
 - The optional tries, delay and vars parameters are keyword-only and accepted by both step kinds; invalid values (zero/negative
   tries, negative delay) and non-string vars values fail loudly at the call
 
@@ -117,6 +133,40 @@ with t.group("accept cookies, fill and submit the order form") as g:
 - Group pace and pause: `with t.group("…", speed=30, delay=2) as g:` slows the pauses between the
   group's steps (the same percent→pause mapping as the browser speed setting) and waits the
   declared seconds before the group's first step — quiet, library-level pauses
+
+## The step scope (_scope)
+
+A scope is the shared cache namespace of one page object: the same step phrase under one scope is one cache
+entry for all tests — the first test generates it, the rest replay it without a model call. The integrator
+layer sets it, per step or once per group:
+
+```python
+# per step on the facade, outside any group
+t.step("open the dashboard", _scope="pages/dashboard")
+
+
+# once per block — inherited by every step of the group
+class LoginPage:
+    def __init__(self, t: PrettyPlay):
+        self._group = t.group("the user signs in", _scope="pages/login_page")
+
+    def login(self, user: str):
+        with self._group as g:
+            g.step("fill the login field with {{ vars.user }}", vars={"user": user})
+            g.step("click the sign-in button")
+```
+
+- `_scope` is keyword-only; None (the default) — unscoped, the step addresses exactly as before
+- Inside a group the scope is set once at creation — a per-step `_scope` on the group object is rejected with
+  a loud error naming the remedy
+- Form: 1..N segments of `[A-Za-z0-9._-]+` joined by exactly one `/` (e.g. `pages/login_page`); an invalid
+  value fails loudly at the call naming `_scope`, the received value and the allowed form — before anything
+  renders or executes
+- The scope replaces exactly two things: the key part of the step address and the file routing
+  (`<cache root>/<scope>/`); the same phrase as an action and as an assertion remains two entries
+- Scoped files survive every close-time sweep — cleanup concerns the test's unscoped steps only; budgets stay
+  per test: the generating test pays, a reusing test pays nothing
+- The scope never enters the rendered sentence or any LLM request
 
 ## The honest step context
 

@@ -39,6 +39,8 @@ test = PrettyPlay("login-flow", cleanup=False)  # keep the cache directory after
 - `cleanup` is a keyword-only constructor parameter, default `True`; there is no config or env switch
 - the sweep scope is this test's cache directory filtered by its `cache_key` — other tests' entries
   in a shared root survive; a file with unreadable metadata is skipped with a WARNING
+- scoped files (a step written under a `_scope`) are never swept: their metadata key is the scope, not the
+  test's cache key — cleanup concerns the test's unscoped steps only
 - committed-cache workflow (generate locally, commit, replay in CI): pass `cleanup=False` on every
   run — a committed strict run is self-preserving (replayed entries are loaded, hence touched)
 - upgrading across the addressing change: purge the cache directory once, or let the first default

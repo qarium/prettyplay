@@ -330,6 +330,7 @@ class ScriptedProvider(LLMProvider):
         previous_steps: list[str] | None = None,
         group_prompt: str | None = None,
         snapshot: str = "",
+        structure: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
         skill: str = "",
@@ -372,6 +373,7 @@ class UnavailableProvider(LLMProvider):
         previous_steps: list[str] | None = None,
         group_prompt: str | None = None,
         snapshot: str = "",
+        structure: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
         skill: str = "",
@@ -411,6 +413,7 @@ class CrashingProvider(LLMProvider):
         previous_steps: list[str] | None = None,
         group_prompt: str | None = None,
         snapshot: str = "",
+        structure: str = "",
         page_url: str | None = None,
         screenshot: bytes | None = None,
         skill: str = "",
@@ -605,11 +608,29 @@ class TestStepExecutorContract:
             "tries",
             "delay",
             "vars",
+            "scope",
         ]
         assert defaults["group"] is None  # the ordinary step — every path byte-identical to today
         assert defaults["tries"] is None  # the time-bounded settle mode of the polling settings
         assert defaults["delay"] is None  # no quiet start pause
         assert defaults["vars"] is None  # no call-local inputs rendered into the step
+        assert defaults["scope"] is None  # unscoped — None and the empty string address alike
+
+    def test_execute_accepts_scope_the_cache_double_records_the_scoped_identity(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """execute accepts the scope keyword; the cache load records the scoped identity."""
+        generator = RecordingGenerator()
+        fixture = ExecutorFixture(tmp_path, generator, RecordingHealer())
+        load = mock.Mock(side_effect=fixture.cache.load)
+        monkeypatch.setattr(fixture.cache, "load", load)
+
+        fixture.executor.execute("open the dashboard", "action", FakePage(), scope="pages/dashboard")
+
+        recorded_identity = load.call_args.args[0]
+        assert isinstance(recorded_identity, StepIdentity)
+        assert recorded_identity.scope == "pages/dashboard"
+        assert recorded_identity.address_key == "pages/dashboard"  # for a scoped step the scope is the address key
 
     def test_constructor_builds_one_memory_per_executor(self, tmp_path: Path) -> None:
         """One StepMemory per test execution — constructed in __init__, owned for the test's life."""
@@ -795,6 +816,18 @@ class TestStepExecutorLogic:
                 cache_key="login-flow", step_type="action", normalized_text="Open the item named Book"
             ).filename
         )
+
+    def test_executor_none_scope_becomes_empty_scope(self, tmp_path: Path) -> None:
+        """scope=None addresses unscoped — the record's empty scope, the cache key the address key."""
+        generator = RecordingGenerator()
+        fixture = ExecutorFixture(tmp_path, generator, RecordingHealer())
+        page = FakePage()
+
+        fixture.executor.execute("plain sentence", "action", page, scope=None)
+
+        recorded_identity = generator.calls[0]["identity"]
+        assert recorded_identity.scope == ""
+        assert recorded_identity.address_key == fixture.executor.cache_key
 
     def test_hit_path_runs_cached_code_without_engines(self, tmp_path: Path) -> None:
         generator = RecordingGenerator()

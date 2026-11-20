@@ -5,12 +5,14 @@ import inspect
 import logging
 import os
 import pathlib
+import threading
 from pathlib import Path
 from unittest import mock
 
 import pytest
 from prettyplay.cache import CachedStep, StepCache, StepIdentity, normalize_step_text
 from prettyplay.config import PrettyConfig
+from prettyplay.failures import PrettyplayError
 from prettyplay.reporting import StepHooks, StepReporter
 
 
@@ -659,3 +661,243 @@ class TestStepCacheWorkingSet:
         assert len(warnings) == 1
         assert warnings[0].msg == "cache sweep failed to list the scope"
         assert warnings[0].cache_key == "k"
+
+
+def make_root_cache(root: Path) -> StepCache:
+    """Build a store on ``root`` without a subdirectory and without hooks."""
+    return StepCache(config=PrettyConfig(cache_root=str(root)), reporter=StepReporter(hooks=[]))
+
+
+class TestStepCacheScopedContract:
+    """Contract tests: scoped identities route under ``root/<scope>/`` and load back."""
+
+    def test_scoped_save_stores_under_scope_directory_and_scoped_load_finds_it(self, tmp_path: Path) -> None:
+        cache = make_root_cache(tmp_path / "cache")
+        identity = StepIdentity(
+            cache_key="login-flow", step_type="action", normalized_text="open the dashboard", scope="pages/dashboard"
+        )
+        step = CachedStep(
+            identity=identity, addressing_text="open the dashboard", code=STEP_CODE, created_at="2026-11-19"
+        )
+
+        stored = cache.save(step)
+        loaded = cache.load(identity)
+
+        assert stored is True
+        assert loaded is not None
+        assert (tmp_path / "cache" / "pages" / "dashboard" / identity.filename).is_file()
+
+    def test_unscoped_roundtrip_lands_in_target_directory_unchanged(self, tmp_path: Path) -> None:
+        cache, _ = make_cache(tmp_path)  # path="checkout" — the store subdirectory applies
+        identity = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="open the dashboard")
+        step = CachedStep(
+            identity=identity, addressing_text="open the dashboard", code=STEP_CODE, created_at="2026-11-19"
+        )
+
+        stored = cache.save(step)
+        loaded = cache.load(identity)
+
+        assert stored is True
+        assert loaded is not None
+        assert (tmp_path / "checkout" / identity.filename).is_file()
+        assert not (tmp_path / "pages").exists()  # an unscoped step never routes into a scope
+
+
+class TestStepCacheScopedRouting:
+    """Logic tests: ring 2, scoped routing, address-key metadata, sweep immunity."""
+
+    def test_store_save_and_load_scoped_step_roundtrip(self, tmp_path: Path) -> None:
+        cache = StepCache(config=PrettyConfig(cache_root=str(tmp_path / "cache")), reporter=StepReporter(hooks=[]))
+        identity = StepIdentity(
+            cache_key="login-flow", step_type="action", normalized_text="open the dashboard", scope="pages/dashboard"
+        )
+        step = CachedStep(
+            identity=identity, addressing_text="open the dashboard", code=STEP_CODE, created_at="2026-11-19"
+        )
+
+        stored = cache.save(step)
+        loaded = cache.load(identity)
+
+        assert stored is True
+        assert loaded is not None
+        assert loaded.code == step.code
+        assert loaded.addressing_text == "open the dashboard"
+        assert (tmp_path / "cache" / "pages" / "dashboard").is_dir()
+
+        routed = list((tmp_path / "cache" / "pages" / "dashboard").glob("*.py"))
+        assert [path.name for path in routed] == [identity.filename]
+        assert "CACHE_KEY = 'pages/dashboard'" in routed[0].read_text(encoding="utf-8")
+
+        unscoped = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="open the dashboard")
+        assert cache.load(unscoped) is None  # the unscoped address is a different file — a miss
+
+    def test_store_sweep_never_deletes_scoped_files(self, tmp_path: Path) -> None:
+        cache = make_root_cache(tmp_path / "cache")
+        scoped = StepIdentity(
+            cache_key="login-flow", step_type="action", normalized_text="open the dashboard", scope="pages/dashboard"
+        )
+        unscoped = StepIdentity(cache_key="login-flow", step_type="action", normalized_text="open the login page")
+
+        assert cache.save(
+            CachedStep(identity=scoped, addressing_text="open the dashboard", code=STEP_CODE, created_at="2026-11-19")
+        )
+        write_step_file(tmp_path / "cache" / unscoped.filename, "open the login page", "login-flow")
+
+        removed = cache.sweep_untouched("login-flow")
+
+        assert removed == [unscoped.filename]
+        assert (tmp_path / "cache" / "pages" / "dashboard" / scoped.filename).exists()
+
+    def test_store_ring2_rejects_invalid_scope_on_load_and_save(self, tmp_path: Path) -> None:
+        cache = make_root_cache(tmp_path / "cache")
+        bad = StepIdentity(cache_key="k", step_type="action", normalized_text="x", scope="../escape")
+        step = CachedStep(identity=bad, addressing_text="x", code=STEP_CODE, created_at="2026-11-19")
+
+        with pytest.raises(PrettyplayError, match="_scope"):
+            cache.load(bad)
+        with pytest.raises(PrettyplayError, match="_scope"):
+            cache.save(step)
+
+        assert not (tmp_path / "escape").exists()  # the address never escaped the root
+        assert not (tmp_path / "cache").exists()  # validation preceded even the writability probe
+
+    def test_store_scoped_step_with_store_subdirectory_ignores_it(self, tmp_path: Path) -> None:
+        cache = StepCache(
+            config=PrettyConfig(cache_root=str(tmp_path)), path="checkout", reporter=StepReporter(hooks=[])
+        )
+        identity = StepIdentity(
+            cache_key="login-flow", step_type="action", normalized_text="open the dashboard", scope="pages/dashboard"
+        )
+
+        stored = cache.save(
+            CachedStep(identity=identity, addressing_text="open the dashboard", code=STEP_CODE, created_at="2026-11-19")
+        )
+
+        assert stored is True
+        assert (tmp_path / "pages" / "dashboard" / identity.filename).is_file()
+        assert not (tmp_path / "checkout" / "pages" / "dashboard").exists()
+        assert not (tmp_path / "checkout" / identity.filename).exists()
+
+    def test_store_scoped_dir_matching_digest_name_not_swept(self, tmp_path: Path) -> None:
+        cache = make_root_cache(tmp_path / "cache")
+        digest_name = f"{'a' * 64}.py"  # a legal scope that looks exactly like a step file name
+        scoped = StepIdentity(
+            cache_key="k", step_type="action", normalized_text="open the dashboard", scope=digest_name
+        )
+        unscoped = StepIdentity(cache_key="k", step_type="action", normalized_text="open the login page")
+
+        assert cache.save(
+            CachedStep(identity=scoped, addressing_text="open the dashboard", code=STEP_CODE, created_at="2026-11-19")
+        )
+        write_step_file(tmp_path / "cache" / unscoped.filename, "open the login page", "k")
+
+        removed = cache.sweep_untouched("k")
+
+        assert removed == [unscoped.filename]
+        assert (tmp_path / "cache" / digest_name).is_dir()  # the digest-named directory survives
+
+    def test_store_save_scope_dir_occupied_by_file_skips_loudly(self, tmp_path: Path) -> None:
+        """Additional edge: a file occupying the scope path — the mkdir degrades to the busy skip."""
+        recorder = EventRecorder()
+        reporter = StepReporter(hooks=[recorder])
+        cache = StepCache(PrettyConfig(cache_root=str(tmp_path)), None, reporter)
+        (tmp_path / "pages").write_text("a file in the scope's way", encoding="utf-8")
+        identity = StepIdentity(
+            cache_key="k", step_type="action", normalized_text="open the dashboard", scope="pages/dashboard"
+        )
+
+        stored = cache.save(
+            CachedStep(identity=identity, addressing_text="open the dashboard", code=STEP_CODE, created_at="2026-11-19")
+        )
+
+        assert stored is False
+        skipped_events = [call for call in recorder.calls if call[0] == "on_cache_skipped"]
+        assert skipped_events == [
+            ("on_cache_skipped", {"step_text": "open the dashboard", "reason": "cache target busy"})
+        ]
+        assert not (tmp_path / "pages" / "dashboard").exists()
+
+
+class TestStepCacheScopedEconomics:
+    """Integration tests: the shared scoped address across two writer instances."""
+
+    def test_store_two_writers_same_scoped_step_reader_accepts_either(self, tmp_path: Path) -> None:
+        """Two tests write the same scoped address — one file, the last writer valid for every reader."""
+        root = tmp_path / "cache"
+        identity_a = StepIdentity(
+            cache_key="a", step_type="action", normalized_text="fill the login field", scope="pages/login"
+        )
+        identity_b = StepIdentity(
+            cache_key="b", step_type="action", normalized_text="fill the login field", scope="pages/login"
+        )
+        step_a = CachedStep(
+            identity=identity_a, addressing_text="fill the login field", code=STEP_CODE, created_at="2026-11-18"
+        )
+        step_b = CachedStep(
+            identity=identity_b, addressing_text="fill the login field", code=STEP_CODE, created_at="2026-11-19"
+        )
+        store_a = make_root_cache(root)
+        store_b = make_root_cache(root)
+
+        stored_a = store_a.save(step_a)
+        stored_b = store_b.save(step_b)
+        loaded_by_a = store_a.load(identity_a)
+        loaded_by_b = store_b.load(identity_b)
+
+        assert stored_a is True
+        assert stored_b is True
+        assert loaded_by_a is not None
+        assert loaded_by_b is not None
+        assert loaded_by_a.code == loaded_by_b.code == step_b.code  # last writer wins, valid for every reader
+        assert loaded_by_a.created_at == loaded_by_b.created_at == step_b.created_at
+        assert len(list((tmp_path / "cache" / "pages" / "login").glob("*.py"))) == 1  # one address ⇒ one file
+
+    def test_store_concurrent_writers_one_scoped_address_readers_never_see_a_torn_file(self, tmp_path: Path) -> None:
+        """Under contention the atomic replace keeps the shared file complete — every load is one written body."""
+        root = tmp_path / "cache"
+        steps = [
+            CachedStep(
+                identity=StepIdentity(
+                    cache_key=f"writer-{index}",
+                    step_type="action",
+                    normalized_text="fill the login field",
+                    scope="pages/login",
+                ),
+                addressing_text="fill the login field",
+                code=f"# variant {index}\n{STEP_CODE}",
+                created_at=f"2026-11-1{index}",
+            )
+            for index in range(6)
+        ]
+        written_codes = {step.code for step in steps}
+        stores = [make_root_cache(root) for _ in steps]
+        reader = make_root_cache(root)
+        read_identity = StepIdentity(
+            cache_key="reader", step_type="action", normalized_text="fill the login field", scope="pages/login"
+        )
+        failures: list[str] = []
+
+        def write_repeatedly(store: StepCache, step: CachedStep) -> None:
+            for _ in range(5):
+                if not store.save(step):
+                    failures.append(f"save of {step.identity.cache_key} skipped under contention")
+
+        def read_repeatedly() -> None:
+            for _ in range(40):
+                loaded = reader.load(read_identity)
+                if loaded is not None and loaded.code not in written_codes:
+                    failures.append(f"torn read: {loaded.code!r}")
+
+        threads = [threading.Thread(target=write_repeatedly, args=pair) for pair in zip(stores, steps, strict=True)]
+        threads.append(threading.Thread(target=read_repeatedly))
+
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        assert failures == []  # every write landed, every read saw one complete written body
+        final = reader.load(read_identity)
+
+        assert final is not None
+        assert final.code in written_codes  # the last writer wins with a complete body

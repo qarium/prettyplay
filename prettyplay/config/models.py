@@ -33,8 +33,9 @@ class BrowserConfig(BaseModel):
             belongs to the running Playwright, never to the config.
         headless: run the browser without a visible window of a local launch;
             default True; ignored on a remote connect.
-        endpoint: ws endpoint of a remote browser; empty means the local
-            launch.
+        endpoint: remote browser endpoint; empty means the local launch;
+            ws/wss — a Playwright server endpoint, http/https — a CDP
+            endpoint of the chromium family.
         accept_dialogs: how the resolver of last resort settles a dialog
             no in-step stock dialog capture claims — True accepts it,
             False dismisses it (the Playwright default outcome); default
@@ -52,6 +53,11 @@ class BrowserConfig(BaseModel):
             action timeout — the baseline the probe bound of the engine loops
             restores to; 0 disables the timeout, not auto-wait — an unready
             action can wait indefinitely; navigations keep their own default timeout.
+        ignore_https_errors: open pages behind self-signed or otherwise
+            invalid certificates; the driver applies it as a context
+            parameter at context creation — never a launch argument; default
+            False keeps Playwright's certificate checking untouched; enabling
+            is silent.
     """
 
     model_config = ConfigDict(kw_only=True, extra="forbid")
@@ -63,6 +69,7 @@ class BrowserConfig(BaseModel):
     accept_dialogs: bool = False
     speed: int = 100
     timeout: float = 30
+    ignore_https_errors: bool = False
 
     @field_validator("name")
     @classmethod
@@ -88,24 +95,26 @@ class BrowserConfig(BaseModel):
     @field_validator("endpoint")
     @classmethod
     def _validate_endpoint(cls, value: str) -> str:
-        """Check that a non-empty endpoint is a ws/wss URL.
+        """Check that a non-empty endpoint is a ws/wss or http/https URL.
 
         Args:
             value: the raw endpoint setting; empty means the local launch.
 
         Returns:
-            The unchanged endpoint when empty or a valid ws/wss URL.
+            The unchanged endpoint when empty or a valid ws/wss or
+            http/https URL.
 
         Raises:
-            ValueError: when a non-empty endpoint is not a ws/wss URL.
+            ValueError: when a non-empty endpoint is neither a ws/wss nor
+                an http/https URL.
         """
         if not value:
             return value
 
         parsed = urlparse(value)
 
-        if parsed.scheme not in {"ws", "wss"} or not parsed.netloc:
-            raise ValueError("must be a valid ws/wss URL")
+        if parsed.scheme not in {"ws", "wss", "http", "https"} or not parsed.netloc:
+            raise ValueError("must be a valid ws/wss or http/https URL")
 
         return value
 
@@ -181,6 +190,49 @@ class BrowserConfig(BaseModel):
         return value
 
 
+class SiteConfig(BaseModel):
+    """The nested site group of the project settings — the environment under test, never the LLM endpoint.
+
+    Attributes:
+        base_url: the root URL of the environment under test; empty means
+            unset; kept verbatim — no trailing-slash normalization, the
+            author composes URL strings; a non-empty value must be an
+            http/https URL with a host. No collision with the top-level
+            ``base_url`` (the LLM API endpoint) — the group scopes the field,
+            exactly as the browser group scopes ``name``.
+    """
+
+    model_config = ConfigDict(kw_only=True, extra="forbid")
+
+    base_url: str = ""
+
+    @field_validator("base_url")
+    @classmethod
+    def _validate_base_url(cls, value: str) -> str:
+        """Check that a non-empty base URL is an http/https URL with a host.
+
+        Args:
+            value: the raw site setting; empty means unset and passes
+                through verbatim.
+
+        Returns:
+            The unchanged base URL when empty or a valid http/https URL.
+
+        Raises:
+            ValueError: when a non-empty value carries neither an http nor
+                an https scheme, or no host.
+        """
+        if value == "":
+            return value
+
+        parsed = urlparse(value)
+
+        if parsed.scheme not in {"http", "https"} or parsed.netloc == "":
+            raise ValueError("must be an http/https URL with a host")
+
+        return value
+
+
 class PrettyConfig(BaseModel):
     """Validated project settings loaded from ``[tool.prettyplay]`` — fields default empty, load_config fills them.
 
@@ -189,6 +241,10 @@ class PrettyConfig(BaseModel):
         browser: the nested browser group — a :class:`BrowserConfig` with the
             engine, the screen mode, the window visibility and the remote
             endpoint.
+        site: the nested site group — a :class:`SiteConfig` with the root
+            URL of the environment under test; empty base_url means unset;
+            kept verbatim and never wired into Playwright navigation — the
+            author composes it into step sentences.
         model: main LLM model name.
         generation_model: optional generation override; empty falls back to ``model``.
         classification_model: optional classification override; empty falls back to ``model``.
@@ -228,7 +284,24 @@ class PrettyConfig(BaseModel):
             single-send behavior; the retry delays themselves are fixed
             policy, never configurable; participates in the layered merge
             like every other scalar setting.
+        request_max_tokens: the completion cap of one anthropic request —
+            the ``max_tokens`` the Messages API requires on every send;
+            default 16384. A reasoning model spends the same budget on its
+            thinking blocks before the text block, and a cap-truncated
+            response carries no text block at all — an empty completion —
+            so the default is sized for a reasoning model never truncating;
+            raising it fits models that think longer, a value above the
+            model's maximum output the endpoint rejects; the openai side
+            sends no cap and the model maximum applies; must be positive.
         send_screenshots: whether screenshots are attached to LLM requests.
+        send_structure: whether the structural element registry is captured and
+            attached to LLM requests; True — every generation and regeneration
+            request carries a PAGE STRUCTURE block: the interactive elements of
+            the page with runtime-verified unique selectors (test-id, id, name,
+            aria-label, class, CSS, XPath — the first unique wins), letting the
+            code anchor on the markup instead of the element text; False — the
+            registry is never captured, fully the old snapshot-only behavior;
+            default True (the opt-out default).
         generation_approve: whether the instruction compliance gate runs before
             caching a generated step; True — every successfully executed
             generation and regeneration candidate is verified against the user
@@ -251,6 +324,7 @@ class PrettyConfig(BaseModel):
 
     provider: Literal["openai", "anthropic"] = "openai"
     browser: BrowserConfig = BrowserConfig()
+    site: SiteConfig = SiteConfig()
     model: str = ""
     generation_model: str = ""
     classification_model: str = ""
@@ -265,7 +339,9 @@ class PrettyConfig(BaseModel):
     generation_attempts: PositiveInt = 3
     healing_attempts: PositiveInt = 2
     llm_request_attempts: PositiveInt = 3
+    request_max_tokens: PositiveInt = 16384
     send_screenshots: bool = False
+    send_structure: bool = True
     generation_approve: bool = True
     probe_timeout: float = 0
 

@@ -51,7 +51,8 @@ The `speed` setting of the browser group (a percentage, 0–100 inclusive, defau
 slow_mo = int((100 - speed) * 30)  # 100 -> 0 ms (no pause); 0 -> 3000 ms (the maximum)
 
 browser = engine.launch(headless=config.headless, slow_mo=slow_mo)  # local launch
-browser = engine.connect(ws_endpoint, slow_mo=slow_mo)  # remote connect
+browser = engine.connect(ws_endpoint, slow_mo=slow_mo)  # remote connect — ws/wss
+browser = engine.connect_over_cdp(cdp_endpoint, slow_mo=slow_mo)  # remote connect — http/https CDP
 ```
 
 Rules:
@@ -92,19 +93,36 @@ Rules:
 - An unknown device name fails loudly with an actionable message suggesting close device names
 - Device names resolve against the `devices` registry of the running Playwright — the package never hard-codes a device list
 
-## Remote execution — ws endpoint connect
+## Insecure TLS — the `ignore_https_errors` context parameter
 
-A set `browser_endpoint` (env `PRETTYPLAY_BROWSER_ENDPOINT`) switches the driver from a local launch to a connect over the Playwright ws endpoint — e.g. a Playwright Server or a hosted browser grid:
+The `ignore_https_errors` setting of the browser group (env `PRETTYPLAY_BROWSER_IGNORE_HTTPS_ERRORS`, default `False`) opens pages behind self-signed or otherwise invalid certificates — staging and CI grids. It is a **context parameter**, never a launch argument, which makes every start mode identical: local launch, ws/wss remote connect (the Playwright protocol), http/https remote connect (CDP):
+
+```python
+context = browser.new_context(ignore_https_errors=True)
+```
+
+Rules:
+- The switch rides the same `new_context` call as the screen modes — one surface at context creation, applied in every start mode
+- Enabling is silent: an explicit configuration is not a suspicious state, no WARNING is logged
+- Default `False` keeps Playwright's certificate checking untouched
+
+## Remote execution — endpoint connect: ws/wss Playwright protocol, http/https CDP
+
+A set `browser.endpoint` of the browser group (env `PRETTYPLAY_BROWSER_ENDPOINT`) switches the driver from a local launch to a remote connect. The scheme picks the protocol: ws/wss connects over the Playwright protocol — a Playwright Server or a hosted browser grid, any engine; http/https connects over CDP — a chromium-family endpoint (chromium, chrome, msedge) such as a CI grid exposing a DevTools endpoint:
 
 ```python
 engines = {"chromium": p.chromium, "firefox": p.firefox, "webkit": p.webkit}
 engine = engines["chromium" if name in ("chrome", "msedge") else name]  # channels are chromium
-browser = engine.connect(ws_endpoint)
+
+# an http(s) endpoint is CDP — the chromium family only; ws/wss — the Playwright protocol
+connect = engine.connect_over_cdp if urlparse(endpoint).scheme in {"http", "https"} else engine.connect
+browser = connect(endpoint, slow_mo=slow_mo)
 ```
 
 Rules:
 - An empty endpoint keeps the local launch — the current behavior
-- `browser` still selects the engine type to connect to; channels (chrome, msedge) do not apply to a connect
+- `browser` still selects the engine of the connect — chrome/msedge map to chromium; channels are a local-launch concept and never apply to a connect
+- An http/https endpoint connects over CDP of the chromium engine — a non-chromium name fails loudly before any connect: CDP supports the chromium family only
 - `headless` is ignored on a connect: window visibility is controlled by the endpoint server
 - The endpoint is an address, not a secret: it is valid in the config file; CI rotation goes through the env override
 
@@ -304,6 +322,8 @@ The a11y snapshot (structured accessibility-tree representation of the page) is 
 ```python
 snapshot = page.locator("body").aria_snapshot()
 ```
+
+The structural element registry rides alongside it (ADR — selector priority): one `page.evaluate` pass collects the interactive elements — the document tree plus open shadow roots — with the first runtime-verified unique selector of each element's candidate ladder (data-testid, id, name, aria-label, class chain, parent-id-scoped CSS, structural XPath built from attributes and position, never text); iframe content and closed shadow roots stay absent.
 
 ## Scrolling — explicit programmatic scroll
 

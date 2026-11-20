@@ -20,6 +20,9 @@ if budgets.try_generation(identity):
 - An exhausted budget is the incurable failure, never an infinite loop
 - Budgets exist only in the memory of the running process — nothing is persisted
 - The identity key follows the addressing: the same template re-rendered against changed memory is a different identity and draws a fresh budget
+- A scoped step draws budgets per test exactly like an unscoped one: the identity key carries the scope, the
+  registry stays per test — the generating test pays, a test reusing the shared file pays nothing (a cache hit
+  never consumes budgets); there is no shared scope budget
 
 ## Healing-funded regenerations
 

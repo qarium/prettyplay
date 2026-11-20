@@ -58,9 +58,11 @@ it.
 The cache address uses `cache_key` (mandatory), `cache_path` (optional
 subdirectory), step type, and the rendered step sentence. Template values
 therefore change the address; case and internal spaces remain significant.
-By default, `close()` removes cache files for this key that this test did not
-load or save. Pass `cleanup=False` to keep unused entries, including a
-committed cache intended for later runs.
+A step run under a `_scope` (see [Step scopes](#step-scopes)) addresses by
+the scope instead of the key and routes to `<cache root>/<scope>/`. By
+default, `close()` removes cache files for this key that this test did not
+load or save — scoped files are never swept. Pass `cleanup=False` to keep
+unused entries, including a committed cache intended for later runs.
 
 The `config` argument is the pre-assembled configuration — taken verbatim:
 pyproject.toml and the environment never load for it, fields left at their
@@ -73,6 +75,19 @@ from prettyplay import BrowserConfig, PrettyConfig
 
 t = PrettyPlay("login-flow", config=PrettyConfig(browser=BrowserConfig(name="firefox")))
 ```
+
+The root URL of the environment under test is a setting —
+`[tool.prettyplay.site] base_url` (env `PRETTYPLAY_SITE_BASE_URL`,
+programmatic `SiteConfig(base_url=...)`) — read in tests through the
+property and rendered into the sentence:
+
+```python
+t.step(f"open the page {t.site_base_url}/login")
+```
+
+The value is kept verbatim and is not wired into Playwright navigation:
+rendering it into a sentence makes it part of the step address — staging and
+production keep separate cache entries.
 
 Screenshots belong to the author — nothing is captured automatically. Both
 methods need a step to have run (the page opens lazily):
@@ -161,14 +176,17 @@ code (syntax, names, types) never poll. Size the window above the longest
 auto-wait it must absorb (6.0 covers one exhausted 5 s expectation plus one
 re-execution).
 
-Every step also takes two keyword-only parameters: `tries` replaces the time
+Every step also takes four keyword-only parameters: `tries` replaces the time
 bound with a count bound for that step (`t.step("open the cart", tries=3)` —
 at most 3 executions in total, the first included; exhaustion propagates the
-failure, the step never stays green on retries alone), and `delay` is a
+failure, the step never stays green on retries alone), `delay` is a
 quiet pause in seconds before the step's code runs
-(`t.expect("the total updates", delay=1.5)` — the step's `on_step_started`
-event fires, then the pause, then the code). Invalid values fail loudly at
-the call, before any page or LLM involvement.
+(`t.expect("the total updates", delay=1.5)` — the declared seconds pass
+first, then the step's `on_step_started` event fires, then the code), `vars`
+is the namespace of call-local string inputs
+(`t.step("Open {{ vars.code }}", vars={"code": "A1"})`), and `_scope` sets
+the shared cache namespace of the step (see [Step scopes](#step-scopes)).
+Invalid values fail loudly at the call, before any page or LLM involvement.
 
 ## Step groups
 
@@ -183,10 +201,12 @@ with t.group("the checkout flow", speed=50, delay=2) as g:
 ```
 
 Inside the block the surface is the ordinary one — `g.step`/`g.expect` with
-the `tries`/`delay` parameters — and group membership changes nothing about
-addressing: a group step lands at the same cache address it would outside
-the block, replays LLM-free, and steps outside the block are ordinary steps
-(no ambient rerouting). What changes is failure handling on a non-strict run:
+the `tries`/`delay`/`vars` parameters (a per-step `_scope` inside a group is
+rejected: the block's scope is set once at creation) — and group membership
+changes nothing about addressing: an unscoped group's step lands at the same
+cache address it would outside the block (a group opened with `_scope`
+addresses every step under that scope), replays LLM-free, and steps outside
+the block are ordinary steps (no ambient rerouting). What changes is failure handling on a non-strict run:
 a failed group step is diagnosed once against the whole interaction — the
 group prompt, every step trace and the failed step's attempt history — and
 the verdict drives a group-scoped recovery row that regenerates the affected
@@ -200,6 +220,33 @@ before the first step, `speed` (0–100) inserts
 
 See the [Groups reference](https://qarium.github.io/prettyplay/reference/groups/)
 for the recovery cycle, the budgets and the log records.
+
+## Step scopes
+
+`_scope` is the shared cache namespace of one page object: the same step
+phrase under one scope is one cache entry for all tests — the first test
+generates it, the rest replay it without a model call. Set it per step or
+once per group block:
+
+```python
+t.step("open the dashboard", _scope="pages/dashboard")
+
+with t.group("the user signs in", _scope="pages/login_page") as g:  # every step inherits it
+    g.step("fill the login field")
+```
+
+- keyword-only; `None` (the default) — unscoped, the step addresses exactly
+  as before
+- form: 1..N segments of ASCII letters, digits, dot, underscore or hyphen
+  joined by single `/` characters (e.g. `pages/login_page`); a segment equal
+  to exactly `..` is invalid — `.` and `...` pass, `..` never does; an
+  invalid value fails loudly at the call
+- the scope replaces the key part of the address and routes the file to
+  `<cache root>/<scope>/` — the same phrase as an action and as an assertion
+  remains two entries
+- scoped files survive every close-time sweep; budgets stay per test — the
+  generating test pays, a reusing test pays nothing
+- the scope never enters the rendered sentence or any LLM request
 
 ## Interactive steering
 
@@ -263,26 +310,42 @@ strict = false                   # true -> replay-only mode (no generation, no h
 interactive = false              # true -> the steering dialog on a terminally stuck step (local sessions)
 generation_attempts = 3
 healing_attempts = 2
+probe_timeout = 0                # candidate probe bound, seconds; 0 -> off (the page default applies)
 llm_request_attempts = 3       # total sends per LLM request; 1 disables transport retries
+request_max_tokens = 16384     # anthropic completion cap (max_tokens); sized so a reasoning model never truncates
 polling_timeout = 6.0            # settle window seconds; omit -> off, 0.0 -> explicit disable
 polling_delay = 0.5              # pause between settle re-executions
 send_screenshots = false
+send_structure = true            # structural element registry (PAGE STRUCTURE) in LLM requests
 
 [tool.prettyplay.browser]
 name = "chromium"                # chromium | firefox | webkit | chrome | msedge
 screen = ""                      # "" | WxH | fullscreen | Playwright device name
 headless = true                  # false -> run with a visible browser window
-endpoint = ""                    # ws:// endpoint of a remote browser; empty -> local launch
+endpoint = ""                    # remote browser endpoint; ws/wss -> Playwright server, http/https -> CDP (chromium family); empty -> local launch
 accept_dialogs = false           # true -> accept (else dismiss) dialogs no in-step capture claims
 speed = 100                      # pace of the run, 0-100 %; 100 -> full speed (default)
+timeout = 30                     # page default action timeout, seconds; 0 disables the timeout, not auto-wait
+ignore_https_errors = false      # true -> open pages behind self-signed/invalid certificates; a context parameter in every start mode
+
+[tool.prettyplay.site]
+base_url = ""                    # root URL of the environment under test; empty -> unset; http/https with a host, kept verbatim
 ```
 
 `llm_request_attempts` applies to generation, classification, group diagnosis
 and compliance requests. Its default is 3 total sends, including the first;
-`1` disables retries. Set `PRETTYPLAY_LLM_REQUEST_ATTEMPTS` in the environment
-or pass `PrettyConfig(llm_request_attempts=...)` for one test. Explicit test
-values override the environment, which overrides pyproject.toml. Values must
+`1` disables retries. Set `PRETTYPLAY_LLM_REQUEST_ATTEMPTS` in the
+environment — the environment overrides pyproject.toml — or pass
+`PrettyConfig(llm_request_attempts=...)` for one test: a passed config is
+taken verbatim, the file layer never loads for it. Values must
 be positive integers.
+
+`request_max_tokens` (default 16384, env `PRETTYPLAY_REQUEST_MAX_TOKENS`) is
+the anthropic completion cap — the `max_tokens` every Messages API request
+requires. The default is sized so a reasoning model never truncates: thinking
+blocks spend the same budget before the text block, and a cap-truncated
+response carries no text block at all (an empty completion). The openai side
+sends no cap — the setting never touches it.
 
 The old flat keys `browser`, `headless` and `browser_endpoint` at the
 `[tool.prettyplay]` level are gone — a pre-1.0 hard break: the loader rejects
@@ -339,24 +402,31 @@ never generation, and never invalidates cached steps either.
 ### Remote browsers
 
 A non-empty `endpoint` (e.g. `ws://ci-grid:3000/playwright/chromium`) connects
-to a remote Playwright Server or browser grid instead of launching locally:
-`headless` does not apply to a connect (window visibility belongs to the
-endpoint server) and `chrome`/`msedge` map to the chromium engine — channels
-are a local-launch concept. A non-empty endpoint must be a valid ws/wss URL
-(otherwise `ConfigurationError` names the setting), and a failed connect fails
+to a remote browser instead of launching locally: ws/wss connects over the
+Playwright protocol — a Playwright Server or a hosted browser grid, any
+engine; http/https connects over CDP — a chromium-family endpoint (chromium,
+chrome, msedge). `headless` does not apply to a connect (window visibility
+belongs to the endpoint server) and `chrome`/`msedge` map to the chromium
+engine — channels are a local-launch concept. A non-empty endpoint must be a
+valid ws/wss or http/https URL (otherwise `ConfigurationError` names the
+setting); an http/https endpoint with a non-chromium engine fails loudly at
+start, and a failed connect fails
 loudly with the endpoint in the message.
 
 ### Environment overrides
 
 Every setting has a `PRETTYPLAY_<SETTING_UPPER>` environment override for CI —
-including `PRETTYPLAY_STRICT` and `PRETTYPLAY_CLASSIFICATION_PROMPT` — and the
+including `PRETTYPLAY_STRICT` and `PRETTYPLAY_CLASSIFICATION_PROMPT` — the
 browser group reads the flat `PRETTYPLAY_BROWSER_NAME`,
 `PRETTYPLAY_BROWSER_SCREEN`, `PRETTYPLAY_BROWSER_HEADLESS`,
-`PRETTYPLAY_BROWSER_ENDPOINT`, `PRETTYPLAY_BROWSER_ACCEPT_DIALOGS` and
-`PRETTYPLAY_BROWSER_SPEED`. Env
+`PRETTYPLAY_BROWSER_ENDPOINT`, `PRETTYPLAY_BROWSER_ACCEPT_DIALOGS`,
+`PRETTYPLAY_BROWSER_SPEED`, `PRETTYPLAY_BROWSER_TIMEOUT` and
+`PRETTYPLAY_BROWSER_IGNORE_HTTPS_ERRORS`, and the site group reads
+`PRETTYPLAY_SITE_BASE_URL`. Env
 values parse by the field type: booleans
 accept `true/false/1/0` case-insensitively, integers parse as decimals, floats
-(the polling settings) parse as decimal floats, and an
+(the polling settings, `probe_timeout` and `browser.timeout`) parse as decimal
+floats, and an
 unparseable value fails loudly with a `ConfigurationError` naming the setting,
 the received value and the accepted form.
 
@@ -439,6 +509,10 @@ class Reporter(StepHooks):
     def on_step_failed(self, step_text: str, step_type: str, error: str) -> None: ...
     def on_step_verdict(self, step_text: str, category: str, explanation: str, recommendation: str) -> None: ...
     def on_step_finished(self, step_text: str, step_type: str, outcome: str) -> None: ...
+    def on_group_started(self, group_prompt: str) -> None: ...
+    def on_group_passed(self, group_prompt: str) -> None: ...
+    def on_group_failed(self, group_prompt: str) -> None: ...
+    def on_group_finished(self, group_prompt: str) -> None: ...
     def on_generation_started(self, step_text: str, attempt: int) -> None: ...
     def on_healing_started(self, step_text: str, category: str) -> None: ...
     def on_healed(self, step_text: str, explanation: str) -> None: ...
@@ -467,12 +541,15 @@ recommendation of a verdict-less `IncurableStepError`).
 ## Cache and CI workflow
 
 The cache lives under `.prettyplay/cache/` as plain Python files — one per
-step, carrying its metadata (step sentence, cache key, step type, creation
-date) and the step code. The code targets the standard Playwright sync API,
-so cached steps keep replaying across library upgrades — the one recorded
-break is the switch to the genuine page: caches written against the retired
-page facade call methods that no longer exist and fail at replay; purge the
-cache directory once and regenerate when upgrading across that change.
+step, carrying its metadata (step sentence, addressing key — the cache key,
+or the scope for a scoped step — step type, creation date) and the step
+code. The code targets the standard Playwright sync API, so cached steps
+keep replaying across library upgrades; the two recorded breaks are the
+switch to the genuine page (caches written against the retired page facade
+call methods that no longer exist and fail at replay) and the addressing
+change (steps address by their rendered sentence, so some existing
+addresses changed) — purge the cache directory once when upgrading across
+either.
 
 Generate locally where the LLM is reachable → commit the cache directory →
 CI runs the whole suite from the cache with no LLM keys at all — `strict = true`

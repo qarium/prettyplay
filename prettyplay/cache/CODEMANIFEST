@@ -1,5 +1,10 @@
 Imports:
   - Types:
+      - PrettyplayError
+    Usages:
+      - taxonomy
+    From: prettyplay/failures
+  - Types:
       - PrettyConfig
     From: prettyplay/config
   - Types:
@@ -20,6 +25,19 @@ Annotations: |
   Step identity is built from the addressing text — the rendered sentence with interpolations substituted and active capture tags verbatim; a plain sentence addresses as itself; exact-text equality unifies a plain sentence and a template producing the same text. One verbatim normalization serves every addressing text: case and internal whitespace are significant, because rendered values are data.
   The cache is a per-test working set by default: the store accumulates the addresses it successfully loaded or saved, and the close-time sweep deletes the untouched files of its cache key in its scope — best-effort, logged, never raising.
   RunBudgets lives in this cell because its accounting key is `StepIdentity`: per-test attempt accounting stays next to the addressing it is keyed by; the recovery-cycle accounting joins the registry — per-group cycle counters keyed by the group key, beside the per-step pools. Budgets follow the addressing: a re-rendered identity draws a fresh budget.
+  A step scope is the shared cache namespace of one page object: for a scoped step it replaces exactly two
+  things — the address key inside the address (key = the scope) and the file routing (root/<scope>/); the full
+  address stays (key, step_type, normalized_text) — the same phrase as an action and as an assertion remains two
+  entries even under one scope. Do not confuse it with the pre-existing cache scope (the cache root plus the
+  subdirectory of the store — the sweep boundary).
+  The scope charset rule lives here once and serves two rings: the facade validates at the call site (ring 1)
+  through `validate_step_scope`, the store re-enforces it at addressing (ring 2) — the same forbidden set, never
+  softer than the structural bans; the store's existing subdirectory argument (path) is not tightened
+  retroactively — the strict charset applies to the scope only, from birth.
+  The metadata key of a scoped file is the scope itself: the close-time sweep of any test — filtering by its own
+  cache key — never touches scoped files; shared entries survive every sweep.
+  Budgets follow the runtime, addressing follows the scope: budgets stay per test; the generating test pays from
+  its own budget, a test hitting the shared file pays nothing; there is no shared scope budget.
 
 ---
 
@@ -43,7 +61,36 @@ Annotations: |
     Constraints:
     - No casefold, no internal whitespace collapse, no template-marker detection
 
-"StepIdentity(cache_key: str, step_type: str, normalized_text: str)":
+"validate_step_scope(scope: str)":
+  location: models.py
+  annotations: |
+    Validate a step scope — the one rule of both validation rings (see the document annotations).
+
+    `scope`: the candidate scope value.
+
+    Algorithm:
+    1. Split `scope` into segments on the / separator — an empty `scope` yields no valid segments and is
+       rejected
+    2. Every segment must match [A-Za-z0-9._-]+ — at least one character: ASCII letters, digits, dot,
+       underscore, hyphen only; every other character (spaces, backslashes, colons, non-ASCII) fails here,
+       which also covers the absolute forms (a leading /, \, C:) and the empty segments of
+       leading/trailing/double slashes
+    3. No segment may equal ..
+    4. 1..N surviving segments joined by exactly one / is the accepted form; any rejection raises the loud
+       error
+
+    Requirements:
+    - Pure function: no I/O, no state, deterministic on `scope` alone
+    - A violation raises the loud actionable `PrettyplayError` (see `taxonomy` from Imports) naming the
+      parameter _scope, the received value and the allowed form — one render
+    - One rule serves both rings: the facade (ring 1) and the store (ring 2) reject the same values through
+      this one implementation — never two
+
+    Constraints:
+    - No normalization: a valid value passes verbatim, nothing is rewritten
+    - No filesystem access: the rule never touches the directory itself
+
+"StepIdentity(cache_key: str, step_type: str, normalized_text: str, scope: str)":
   location: models.py
   annotations: |
     The address of a cache step: the triple (cache_key, step_type, normalized_text) plus the deterministic file name derived from it.
@@ -51,6 +98,18 @@ Annotations: |
     `cache_key`: the explicit context key set by the integrator on the main object.
     `step_type`: action or assertion.
     `normalized_text`: the step's addressing text after `normalize_step_text` — the rendered sentence, verbatim-normalized.
+    `scope`: the step scope — the shared cache namespace of one page object; empty — unscoped, the address is
+    exactly as before; non-empty — it becomes the address key (see address_key) and routes the file to
+    root/<scope>/ (the routing itself belongs to `StepCache`).
+
+    Requirements:
+    - An identity with an empty `scope` addresses byte-identically to the pre-scope triple: the same cache key,
+    step type and normalized text always yield the same file name as before — no unscoped address changes
+    - A scoped identity (a non-empty `scope`) addresses by (scope, step_type, normalized_text): the scope is
+    the key part; the routing path never enters the digest — the scope already addresses the step, the path
+    only routes
+    - The record holds no validation: the scope rule lives in `validate_step_scope`, enforced by the facade and
+    the store — the record stays pure data
   properties:
     "cache_key -> str": |
       The explicit context key of the step address.
@@ -58,17 +117,24 @@ Annotations: |
       The step kind: action or assertion.
     "normalized_text -> str": |
       The normalized addressing text of the step — the rendered sentence after NFC + trim.
+    "scope -> str": |
+      The step scope; empty — the step is unscoped and addresses by cache_key.
+    "address_key -> str": |
+      The key part of the address: scope when set, otherwise cache_key. The digest file name, the metadata
+      key of the cache file and the sweep filter all key on this one value.
     "filename -> str": |
       The deterministic cache file name.
 
       Algorithm:
-      1. Build the identity string: cache_key, step_type and normalized_text joined with an unambiguous separator
+      1. Build the identity string: address_key, step_type and normalized_text joined with an unambiguous separator
       2. Hash the string with sha256
       3. Compose the file name from the hex digest
 
       Requirements:
       - The same triple always yields the same file name; any difference in the triple yields a different one
       - The digest identifies the file unambiguously inside the cache directory
+      - Unscoped identities keep the exact pre-scope digests (address_key = cache_key)
+      - The routing path (the scope directory, the store subdirectory) never enters the digest
 
 "CachedStep(identity: StepIdentity, addressing_text: str, code: str, created_at: str)":
   location: models.py
@@ -85,6 +151,9 @@ Annotations: |
     - The file carries no library version field and is never invalidated by a library upgrade
     - The metadata sentence field carries the step's addressing text — the rendered sentence with actual values; rendered values on disk are accepted by the design, the security posture is a deferred question
     - normalize_step_text(addressing_text) == identity.normalized_text for every newly built cached step; the load path may restore legacy files whose STEP_TEXT already contains the normalized sentence
+    - The metadata key of a scoped file is the scope itself: the writer (save) and the reader (load) agree on
+    identity.address_key as the CACHE_KEY value — the header contract stays consistent between them; this is
+    what makes scoped files survive every close-time sweep
   properties:
     "identity -> StepIdentity": |
       The step address.
@@ -101,7 +170,7 @@ Annotations: |
     The repository store of cache steps: addressing, atomic writes, the read-only mode — and the per-test working-set lifecycle: the touched-address accumulation and the close-time sweep.
 
     `config`: project settings; the cache_root setting is the cache root.
-    `path`: the optional subdirectory inside the cache; part of the address — steps of different subdirectories never collide; empty — the shared root, so equal cache keys are reused across tests.
+    `path`: the optional subdirectory inside the cache; part of the address — steps of different subdirectories never collide; empty — the shared root, so equal cache keys are reused across tests; a scoped step routes by its scope — this subdirectory never applies to scoped steps.
     `reporter`: the visibility point — cache events (saved, skipped) go through it; omitted — the hook-less default reporter, so a missing visibility point never fails a save.
 
     Requirements:
@@ -117,25 +186,39 @@ Annotations: |
       Load the cached step by address.
 
       Algorithm:
-      1. Resolve the target file by the effective root, the subdirectory and the identity file name
-      2. A missing file returns None
-      3. Read the module, validate the metadata fields — normalize the STEP_TEXT value through `normalize_step_text` and compare it with the normalized_text of `identity`; restore that value as the addressing_text of the reconstructed `CachedStep` so the saved metadata is preserved — the code tail starts at the sentinel line — legacy files without it carry the code starting at def step(
-      4. A successful reconstruct records the identity file name in the touched set; a miss or a damaged entry records nothing
+      1. Ring 2 first: validate a non-empty scope of `identity` through `validate_step_scope` — before any path is
+      composed; a violation raises the loud `PrettyplayError`, the address never escapes the cache root even by
+      bypassing the facade
+      2. Resolve the target directory: a scoped identity routes to root/<scope>/ — the store's subdirectory
+      never applies to scoped steps; an unscoped identity keeps the effective root plus the store's
+      subdirectory, as before
+      3. A missing file returns None; read the module, validate the metadata: CACHE_KEY equals
+      identity.address_key (the scope of a scoped step, the cache key otherwise — unchanged behavior for
+      unscoped reads), STEP_TYPE equals the identity's step type, STEP_TEXT normalizes to
+      identity.normalized_text; the touched set as before
     "save(step: CachedStep) -> stored: bool": |
       Store the step atomically, best-effort.
 
       `stored`: whether the step was stored — True — the atomic replace landed; False — the write was skipped (a read-only cache or a busy target; on_cache_skipped carries the reason).
 
       Algorithm:
-      1. Check writability: a read-only cache skips the write and reports on_cache_skipped with the reason read-only cache
-      2. Serialize the step into the module text: metadata fields — STEP_TEXT serialized from the addressing_text of `step` — then the sentinel line, then the code; the file name derives from the identity of `step` as before
-      3. Write a temporary file with a unique name in the target directory
-      4. Replace the target file atomically via os.replace
-      5. On Windows, when the target is busy: retry the replace shortly, then skip the write for this step and report on_cache_skipped — the run does not fail
-      6. Report on_cache_saved with the file name on success; a stored write records the file name in the touched set, a skipped or failed one records nothing
+      1. Ring 2 first: validate a non-empty scope of the identity of `step` through `validate_step_scope` —
+      before any path is composed; a violation raises the loud `PrettyplayError`
+      2. Check writability: a read-only cache skips the write and reports on_cache_skipped with the reason read-only cache
+      3. Serialize the step into the module text: metadata fields — STEP_TEXT serialized from the addressing_text of `step`, CACHE_KEY serialized from the address_key of the identity of `step` — then the sentinel line, then the code; the file name derives from the identity of `step` as before
+      4. Resolve the target directory: a scoped identity routes to root/<scope>/, the directory created when
+      missing; an unscoped identity keeps the effective root plus the store's subdirectory, as before
+      5. Write a temporary file with a unique name in the target directory
+      6. Replace the target file atomically via os.replace
+      7. On Windows, when the target is busy: retry the replace shortly, then skip the write for this step and report on_cache_skipped — the run does not fail
+      8. Report on_cache_saved with the file name on success; a stored write records the file name in the touched set, a skipped or failed one records nothing
 
       Requirements:
       - Concurrent writers on one step never corrupt the file: last writer wins
+      - Concurrent writers on one scoped step never corrupt the file: two tests missing the same scope both
+      generate on their own budgets, the atomic replace keeps the file valid for both — last writer wins, and
+      the reader's CACHE_KEY/STEP_TYPE/digest checks accept either writer's file (both wrote the same address)
+      - The metadata key of a scoped file is the scope itself — identical bytes whichever test wrote it
       - A partially written file never becomes visible: the replace is atomic
       - The cache is always read, in every environment
     "sweep_untouched(cache_key: str) -> removed: list[str]": |
@@ -155,6 +238,8 @@ Annotations: |
       - Never raises: the sweep is best-effort hygiene and must never fail the closing test
       - Idempotent: a repeated call deletes nothing new — the survivors are touched files, other keys' files and unreadable ones
       - Untouched legacy files of this key are swept by the first call after the upgrade
+      - Scoped files are immune: their metadata key is the scope, never the sweeping test's cache key — the key
+      filter skips them; the sweep concerns the test's unscoped steps only
       - The method knows nothing of the cleanup switch — the caller decides whether to sweep
 
       Constraints:
@@ -206,4 +291,4 @@ Annotations: |
 Author: Goga
 CreatedAt: 07/09/26
 Description: |
-  The step cache of prettyplay: one verbatim normalization of addressing texts (the rendered sentence; NFC + trim), deterministic addressing by the addressing text, atomic repository storage, the per-test working-set lifecycle — touched-address accumulation and the close-time sweep — and the per-test attempt budgets, the group recovery cycle accounting.
+  The step cache of prettyplay: one verbatim normalization of addressing texts (the rendered sentence; NFC + trim), deterministic addressing by the addressing text, the step scope (the shared cache namespace, the scoped routing, the two validation rings), atomic repository storage, the per-test working-set lifecycle — touched-address accumulation and the close-time sweep — and the per-test attempt budgets, the group recovery cycle accounting.

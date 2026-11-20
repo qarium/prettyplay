@@ -4,6 +4,7 @@ import logging
 import time
 from datetime import date
 from functools import partial
+from typing import NamedTuple
 
 from ..cache import CachedStep, RunBudgets, StepCache, StepIdentity
 from ..config import PrettyConfig
@@ -26,6 +27,7 @@ from .execution import run_step_code
 from .polling import SettleWindow, settle
 from .preflight import check_step_code
 from .renderer import PreparedStep, StepMemory, validate_step_result
+from .structure import capture_structure_registry
 from .text import format_step_error
 
 logger = logging.getLogger("prettyplay")
@@ -42,6 +44,9 @@ Input you receive:
 - RESULTS: the declared result names — present when the step declares captures; the code must return a dictionary of exactly these names to non-blank strings observed on the page
 - PREVIOUS STEPS: the sentences of the previous steps of the test, in order
 - PAGE SNAPSHOT: the accessibility snapshot of the current page
+- PAGE STRUCTURE: the structural element registry of the current page, when captured — one line per
+  interactive element with a runtime-verified unique selector; an element marked "text only" carries
+  none — text or role+name is the correct anchor for it
 - PAGE URL: the current URL of the page, when present
 - SCREENSHOT: an image of the page, when attached
 - SKILL: the Playwright skill — battle-tested idioms and failure-avoidance patterns; guidance, not an allowlist; everything standard stays allowed
@@ -71,6 +76,11 @@ Rules:
 - Popups and new tabs: capture with with page.expect_popup() as popup_info: — trigger the opening action inside the block, work through popup_info.value; page.bring_to_front() raises a page above the others
 - Content inside an iframe goes through page.frame_locator(selector) — locate elements within the returned scope; nested frames chain
 - Scrolling: locator.scroll_into_view_if_needed() and page.mouse.wheel(dx, dy) are the standard means
+- Locator priority: when PAGE STRUCTURE offers an element a verified selector, address the element through
+  that selector — page.locator("#login-submit") — and keep the text or role+name anchor only as the chained
+  fallback: page.locator("#login-submit").or_(page.get_by_role("button", name="Sign in")).first. An element
+  the registry marks "text only" locates by role+name or text. Never invent a structural selector the
+  registry does not offer
 - The page state may already include the effects of prior attempts or manual intervention — the HISTORY records and their URL before -> after lines show what already happened. Regeneration after failed attempts never rides the leftover state of those attempts: an action step repeats its action through the page even when the page looks done. A first attempt — no HISTORY — works on the page the previous steps produced: the PAGE URL line and the snapshot show where they landed
 - An action step performs its action and ends there — no trailing check that confirms the action's own completion; the following steps of the test carry their own expectations
 - An assertion step only observes the current page — never navigate, click, type or fill; passive observation such as scroll_into_view_if_needed() stays allowed
@@ -80,6 +90,18 @@ Rules:
 - Prefer-type instructions are conditional by their own wording: follow them when the page offers the option — best-effort with a graceful fallback is compliance
 - The step must complete exactly what STEP says — nothing more, nothing less: every name the code binds, the code uses
 - Output only the code block, no explanations"""
+
+
+class _RequestOutcome(NamedTuple):
+    """The product of one request: the candidate code and the registry the candidate was built against.
+
+    The structure rides the outcome so the compliance gate judges the candidate
+    against the very registry the model saw — the candidate may navigate before
+    the gate runs, a fresh capture would judge against a different page.
+    """
+
+    code: str
+    structure: str
 
 
 class StepGenerator:
@@ -329,7 +351,7 @@ class StepGenerator:
             attempt += 1
             self._emit_generation_started(prepared.addressing_text, attempt)
 
-            code = self._request(
+            outcome = self._request(
                 prepared,
                 step_type,
                 previous_steps,
@@ -338,6 +360,7 @@ class StepGenerator:
                 history,
                 recommendation=_standing_prohibition(standing),
             )
+            code = outcome.code
 
             violation = check_step_code(code)
 
@@ -399,7 +422,9 @@ class StepGenerator:
                     )
 
                 # the gate sits outside every exception-swallowing try: its hard failures propagate
-                findings = check_step_compliance(self._config, self._provider, prepared, step_type, code, history)
+                findings = check_step_compliance(
+                    self._config, self._provider, prepared, step_type, code, history, outcome.structure
+                )
                 high = _high_finding(findings)
                 if high is not None:  # the attempt failed on the violation — retry targeted at it
                     history.append(
@@ -482,7 +507,7 @@ class StepGenerator:
             attempt += 1
             self._emit_generation_started(prepared.addressing_text, attempt)
 
-            code = self._request(
+            outcome = self._request(
                 prepared,
                 step_type,
                 previous_steps,
@@ -491,6 +516,7 @@ class StepGenerator:
                 history,
                 recommendation=_composed_recommendation(recommendation, standing),
             )
+            code = outcome.code
 
             violation = check_step_code(code)
 
@@ -527,7 +553,9 @@ class StepGenerator:
                 continue
 
             # the gate sits outside every exception-swallowing try: its hard failures propagate
-            findings = check_step_compliance(self._config, self._provider, prepared, step_type, code, history)
+            findings = check_step_compliance(
+                self._config, self._provider, prepared, step_type, code, history, outcome.structure
+            )
             high = _high_finding(findings)
             if high is not None:  # the attempt failed on the violation — retry targeted at it
                 history.append(_record(code, _violation_text(high), OUTCOME_COMPLIANCE_BLOCKED, url_before, url_after))
@@ -814,7 +842,8 @@ class StepGenerator:
         self._emit_generation_started(prepared.addressing_text, attempt)
 
         # the funded path only runs for an ordinary step — the group branches raise before it
-        code = self._request(prepared, step_type, previous_steps, None, page, history, recommendation)
+        outcome = self._request(prepared, step_type, previous_steps, None, page, history, recommendation)
+        code = outcome.code
 
         violation = check_step_code(code)
 
@@ -843,7 +872,9 @@ class StepGenerator:
             return None, code, violation, True
 
         # the gate sits outside the settle try: its hard failures propagate
-        findings = check_step_compliance(self._config, self._provider, prepared, step_type, code, history)
+        findings = check_step_compliance(
+            self._config, self._provider, prepared, step_type, code, history, outcome.structure
+        )
         high = _high_finding(findings)
         if high is not None:  # a compliance block is a candidate failure, not a check
             history.append(_record(code, _violation_text(high), OUTCOME_COMPLIANCE_BLOCKED, url_before, url_after))
@@ -896,8 +927,11 @@ class StepGenerator:
             recommendation: the classification diagnosis of the request, if any.
 
         Returns:
-            The generated step code of the fixed form.
+            The request outcome — the generated step code of the fixed form
+            and the structural registry the request carried, the same registry
+            the compliance gate later judges the candidate against.
         """
+        structure = capture_structure_registry(page) if self._config.send_structure else ""
         snapshot = page.aria_snapshot()
         screenshot = page.screenshot() if self._config.send_screenshots else None
 
@@ -912,6 +946,7 @@ class StepGenerator:
             inputs=prepared.inputs,
             declarations=prepared.declarations,
             snapshot=snapshot,
+            structure=structure,
             page_url=_read_url(page),  # the guarded read — an empty string renders no PAGE URL line
             screenshot=screenshot,
             skill=load_skill("playwright"),
@@ -924,7 +959,7 @@ class StepGenerator:
             {"step_text": prepared.addressing_text, "request_ms": round((time.monotonic() - started) * 1000)},
         )
 
-        return code
+        return _RequestOutcome(code, structure)
 
     def _timed_settle(
         self, code: str, page: PageFacade, window: SettleWindow, prepared: PreparedStep, attempt: int

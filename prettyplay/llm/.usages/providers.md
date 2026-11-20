@@ -42,7 +42,9 @@ Step-type parity: every generation request and every compliance verdict request 
 
 Attempt-history parity: a generation request may carry the attempt history of the step — attempt_history, a list of complete multi-line records composed by the calling engine (the attempt outcome, the URL before -> after line, the complete candidate code, the complete error; the original cached code anchors the list as record 0 when it exists). Non-empty — rendered as the HISTORY block after the USER INSTRUCTIONS block, every record verbatim, never collapsed, never size-limited; the block replaces the former CODE/ERROR request pair and the former steering-only history. The request tail order is fixed: HISTORY, RECOMMENDATION (the classification diagnosis), USER GUIDANCE (the engineer message of the interactive steering). Both providers render every non-empty block identically at the same position. A parity requirement, not a capability difference.
 
-Page-URL parity: a generation request with a non-empty page URL renders it as its own PAGE URL line immediately after the PAGE SNAPSHOT block — identically in both providers. The URL reaches every generation and regeneration request of the engine and the guided requests of the steering. A parity requirement, not a capability difference.
+Structure parity: a generation request with a non-empty structural element registry — structure, the rendered records of the runtime collector — renders it as its own PAGE STRUCTURE block immediately after the PAGE SNAPSHOT block, and a compliance verdict request renders the carried registry immediately before the CODE section — identically in both providers. The registry reaches every generation and regeneration request of the engine and the guided requests of the steering whenever the send_structure setting captures it. A parity requirement, not a capability difference.
+
+Page-URL parity: a generation request with a non-empty page URL renders it as its own PAGE URL line immediately after the PAGE STRUCTURE block — after the PAGE SNAPSHOT block when no registry was captured — identically in both providers. The URL reaches every generation and regeneration request of the engine and the guided requests of the steering. A parity requirement, not a capability difference.
 
 Skill parity: every generation request renders the PLAYWRIGHT SKILL block after the scenario inputs and
 immediately before the USER INSTRUCTIONS block — the packaged Playwright skill supplied by the
@@ -52,9 +54,11 @@ Prepared-instruction parity: every generation request renders the prepared instr
 
 Input-bindings and result-declarations parity: a non-empty inputs mapping renders as the INPUTS block immediately after the STEP line (one name = value line per binding); a non-empty declarations list renders as the RESULTS block immediately after INPUTS stating the result contract — the code returns a dictionary of exactly the declared names to non-blank observed page strings; empty inputs — no INPUTS block, empty declarations — no RESULTS block and the success-without-result form. Both providers render the blocks identically at the same positions. A parity requirement, not a capability difference.
 
-Compliance parity: the gate request uses the same prepared instruction, INPUTS and RESULTS representation in both providers. The reviewer sees the exact result contract next to the STEP line before ATTEMPT HISTORY and CODE; it never sees the raw template sentence.
+Compliance parity: the gate request uses the same prepared instruction, INPUTS and RESULTS representation in both providers. The reviewer sees the exact result contract next to the STEP line before ATTEMPT HISTORY, the optional PAGE STRUCTURE block of the registry the generation request carried and CODE; it never sees the raw template sentence.
 
 Classification parity: ordinary classification renders its `step_text` input as the prepared instruction in the STEP block, identically in both providers. Group diagnosis renders prior scenario and group trace instruction fields, plus the prepared failed STEP. Raw template sentences stay local to cache addressing and re-rendering.
+
+The one transport-level asymmetry: the anthropic Messages API requires `max_tokens` on every request, so every anthropic request carries a completion cap — the `request_max_tokens` setting (default 16384, sized so a reasoning model never truncates: thinking blocks spend the same budget before the text block, and a cap-truncated response carries no text block at all — an empty completion); the openai side sends no cap and the model maximum applies. A transport requirement of the SDK, not a capability difference of the port.
 
 ## Transport retries
 

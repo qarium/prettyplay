@@ -122,6 +122,7 @@ class StepExecutor:
         tries: int | None = None,
         delay: float | None = None,
         vars: dict[str, str] | None = None,
+        scope: str | None = None,
     ) -> None:
         """Run one step through the full cycle.
 
@@ -147,6 +148,12 @@ class StepExecutor:
             vars: the validated call-local string inputs passed by the
                 facade/group methods; rendered into the step's
                 ``PreparedStep`` and never published to memory.
+            scope: the step scope of the call — ``None`` or the empty
+                string addresses unscoped; carried by the facade methods
+                (their ``_scope`` after ring-1 validation) or the group
+                (its block scope); addressing data only — it never enters
+                the rendered sentence or any request; the executor adds
+                no validation of its own — the rings own the rule.
 
         Raises:
             PrettyplayError: the template is an authoring error — malformed,
@@ -183,6 +190,7 @@ class StepExecutor:
                 cache_key=self.cache_key,
                 step_type=step_type,
                 normalized_text=normalize_step_text(prepared.addressing_text),
+                scope=scope or "",
             )
             window = SettleWindow(self._config.polling_timeout, self._config.polling_delay, tries)
             attempt_history: list[StepAttempt] = []  # the per-step history — created here, dies with the step

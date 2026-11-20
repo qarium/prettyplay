@@ -20,6 +20,7 @@ GENERATE_STEP_CODE_PARAMS = [
     "inputs",
     "declarations",
     "snapshot",
+    "structure",
     "page_url",
     "screenshot",
     "skill",
@@ -59,6 +60,7 @@ CHECK_INSTRUCTION_COMPLIANCE_PARAMS = [
     "declarations",
     "code",
     "attempt_history",
+    "structure",
 ]
 
 
@@ -226,6 +228,7 @@ class TestLLMProviderContract:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -268,6 +271,7 @@ class TestLLMProviderContract:
                 declarations=[],
                 code="c",
                 attempt_history=[],
+                structure="",
             )
 
 
@@ -433,6 +437,7 @@ class TestClassificationInstructionsPlacement:
                     inputs={},
                     declarations=[],
                     snapshot="snap",
+                    structure="",
                     page_url=None,
                     screenshot=None,
                     skill="expect(locator).to_be_visible()",
@@ -494,6 +499,7 @@ class TestNewInputsParity:
                     inputs={},
                     declarations=[],
                     snapshot="snap",
+                    structure="",
                     page_url=self.PAGE_URL,
                     screenshot=None,
                     skill="expect(locator).to_be_visible()",
@@ -516,6 +522,7 @@ class TestNewInputsParity:
                     declarations=[],
                     code="def step(page) -> None:\n    ...\n",
                     attempt_history=self.ATTEMPT_RECORDS,
+                    structure="",
                 )
 
             compliance_texts.append(gate_requests[0]["messages"][-1]["content"])
@@ -571,6 +578,7 @@ class TestPreparedInputsParity:
                     inputs={"expected": "Details"},
                     declarations=["name"],
                     snapshot="snap",
+                    structure="",
                     page_url="https://x",
                     screenshot=None,
                     skill="cs",

@@ -30,6 +30,7 @@ GENERATE_STEP_CODE_PARAMS = [
     "inputs",
     "declarations",
     "snapshot",
+    "structure",
     "page_url",
     "screenshot",
     "skill",
@@ -69,6 +70,7 @@ CHECK_INSTRUCTION_COMPLIANCE_PARAMS = [
     "declarations",
     "code",
     "attempt_history",
+    "structure",
 ]
 
 WORKING_CODE = "def step(page) -> None:\n    page.goto('https://example.com')\n"
@@ -171,6 +173,7 @@ class TestAnthropicProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -201,6 +204,7 @@ class TestAnthropicProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -236,6 +240,7 @@ class TestAnthropicProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -264,6 +269,7 @@ class TestAnthropicProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -351,6 +357,7 @@ class TestAnthropicProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -364,7 +371,7 @@ class TestAnthropicProviderLogic:
         request = requests[0]
         assert request["model"] == "claude-haiku-4-5"  # effective_generation_model
         assert request["system"] == "system prompt text"  # prompt verbatim
-        assert request["max_tokens"] == 4096
+        assert request["max_tokens"] == 16384
         user = request["messages"][0]
         assert user["role"] == "user"
         assert "открыть страницу" in user["content"]
@@ -372,6 +379,33 @@ class TestAnthropicProviderLogic:
         assert "expect(locator).to_be_visible()" in user["content"]
         assert "CODE" not in user["content"]  # no regeneration fields on the first attempt
         assert "PAGE URL" not in user["content"]  # no URL line when page_url is None
+
+    def test_generate_request_carries_the_configured_completion_cap(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+        client, requests = make_client_create(answer=WORKING_CODE)
+        provider = AnthropicProvider(PrettyConfig(model="claude-sonnet-4-5", request_max_tokens=32768))
+
+        with mock.patch.object(provider, "_get_client", return_value=client):
+            provider.generate_step_code(
+                prompt="p",
+                user_instructions="",
+                instruction="s",
+                step_type="action",
+                previous_steps=[],
+                group_prompt=None,
+                inputs={},
+                declarations=[],
+                snapshot="- snap",
+                structure="",
+                page_url=None,
+                screenshot=None,
+                skill="expect(locator).to_be_visible()",
+                attempt_history=[],
+                recommendation=None,
+                guidance=None,
+            )
+
+        assert requests[0]["max_tokens"] == 32768  # request_max_tokens rides the request
 
     def test_generate_request_carries_the_page_url_line_after_the_snapshot(
         self, monkeypatch: pytest.MonkeyPatch
@@ -391,6 +425,7 @@ class TestAnthropicProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url="https://shop.example.com/cart",
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -421,6 +456,7 @@ class TestAnthropicProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -455,6 +491,7 @@ class TestAnthropicProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -521,6 +558,7 @@ class TestAnthropicProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=b"png-bytes",
                 skill="expect(locator).to_be_visible()",
@@ -554,6 +592,7 @@ class TestAnthropicProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -582,6 +621,7 @@ class TestAnthropicProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -613,6 +653,7 @@ class TestAnthropicProviderLogic:
         assert classification.explanation == "кнопка переименована"
         assert classification.recommendation == "проверить шаг"
         assert requests[0]["model"] == "claude-haiku-4-5"  # effective_classification_model
+        assert requests[0]["max_tokens"] == 16384  # the SDK-forced cap rides the classification request too
 
     def test_classification_with_screenshot_uses_anthropic_image_block(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
@@ -672,6 +713,7 @@ class TestAnthropicProviderLogic:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -751,18 +793,19 @@ class TestAnthropicProviderLogic:
                 declarations=[],
                 code=WORKING_CODE,
                 attempt_history=[record],
+                structure="",
             )
 
         assert len(requests) == 1  # exactly one verdict request
         request = requests[0]
         assert request["model"] == "claude-x"  # effective classification model — never the generation model
         assert request["system"] == "gate prompt"
-        assert request["max_tokens"] == 4096  # the SDK-forced cap rides the verdict request too
+        assert request["max_tokens"] == 16384  # the SDK-forced cap rides the verdict request too
         user = request["messages"][0]
         assert user["role"] == "user"
         # parity: the shared builder — the user content equals the openai implementation's
         assert user["content"] == build_compliance_fields(
-            "Prefer id attributes", "нажать Войти", "action", {}, [], [record], WORKING_CODE
+            "Prefer id attributes", "нажать Войти", "action", {}, [], [record], "", WORKING_CODE
         )
 
         assert len(findings) == 1
@@ -789,6 +832,7 @@ class TestAnthropicProviderLogic:
                 declarations=[],
                 code="c",
                 attempt_history=[],
+                structure="",
             )
 
         assert str(excinfo.value) == "llm unavailable: anthropic request failed permanently: invalid_request"
@@ -842,7 +886,7 @@ class TestAnthropicGroupDiagnosis:
         request = requests[0]
         assert request["model"] == "claude-x"  # effective classification model — never the generation model
         assert request["system"] == "diagnosis prompt"  # prompt verbatim
-        assert request["max_tokens"] == 4096  # the SDK-forced cap rides the diagnosis request too
+        assert request["max_tokens"] == 16384  # the SDK-forced cap rides the diagnosis request too
         user = request["messages"][0]
         assert user["role"] == "user"
         assert (
@@ -974,6 +1018,7 @@ class TestAnthropicProviderTransportWiring:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
@@ -1013,6 +1058,7 @@ class TestAnthropicProviderTransportWiring:
                 declarations=[],
                 code="c",
                 attempt_history=[],
+                structure="",
             )
 
         assert [(label, operation) for label, operation, _attempts, _classify in calls] == [
@@ -1059,6 +1105,7 @@ class TestAnthropicProviderTransportWiring:
                 inputs={},
                 declarations=[],
                 snapshot="- snap",
+                structure="",
                 page_url=None,
                 screenshot=None,
                 skill="expect(locator).to_be_visible()",
